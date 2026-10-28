@@ -11,8 +11,7 @@ import { terminalProcessCount } from '../sidebar/sidebar-view';
 import { searchPullRequest } from '../sidebar/search-pull-request';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { projectIdentity } from '../client/presentation';
-import { searchSettings, searchContext, breadcrumbLabel, CORE_ROUTES, NATIVE_TARGETS } from '../settings/settings-search';
-import { keybindingDefaults } from '../settings/keybinding-settings';
+import { searchSettings, searchContext, breadcrumbLabel, searchTarget } from '../settings/settings-search';
 import { themeCards } from '../appearance/settings-appearance';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { chordWinners, type DispatchContext } from '../shell/keyboard-dispatch';
@@ -421,15 +420,11 @@ function appearanceItems(client: T3Client): Item[] {
     row: row({ key: `appearance:${value}`, op: 'device', arg: 'appearanceMode', arg2: value!, icon: icon!, title: label!, trailing: mode === value ? 'Current' : '' }) }));
 }
 /**
- * The element a Settings result opens its page at, by the Settings search's own rule (settings-search.ts
- * settingsNavigation): the element mapped for its id, else a core page's `setting-<targetId ?? id>`, else none, and the
- * page opens at its top. A keybinding command, which that rule gives none, takes upstream's (settingsSearch.ts
- * KEYBINDING_SEARCH_ITEMS): its row, or with no default key the Keybindings page.
+ * The element a Settings result opens its page at, by the Settings search's own rule (settings-search.ts searchTarget,
+ * upstream's `targetId ?? id`): a keybinding command's row, or with no default key the Keybindings page.
  */
-export function settingTarget(item: { id: string; route: string; target: string }): string {
-  const command = item.id.startsWith('keybinding-') ? item.id.slice('keybinding-'.length) : '';
-  if (command) return keybindingDefaults.some(binding => binding.command === command) ? item.id : 'keybindings';
-  return NATIVE_TARGETS[item.id] ?? (CORE_ROUTES.has(item.route) && !item.id.startsWith('storage-') ? `setting-${item.target}` : '');
+export function settingTarget(item: { target: string }): string {
+  return searchTarget(item);
 }
 /** The settings a query can find, ranked by the palette's own matcher. */
 export function settingsItems(client: T3Client, query: string): Item[] {

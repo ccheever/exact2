@@ -166,21 +166,20 @@ describe('follow-up dispatch', () => {
     expect(withDispatchMode({ deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } }, 'queue')).toEqual({ dispatchMode: { type: 'queue_after_active' } });
     expect(withDispatchMode({}, 'steer')).toEqual({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });
   });
-  test('a message sent during a run queues by default, steers with ⌘ or the Steer setting', async () => {
+  test('a message sent during a run steers by default, queues with ⌘ or the Queue setting', async () => {
     const { client, native, command } = await opened();
     running(client);
-    await command('send', '', 'Queued one');
+    await command('send', '', 'Steer one');
+    expect(native.committed.at(-1)).toMatchObject({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });
+    expect(snapshot(client).composer).toMatchObject({ sendRunning: true, sendLabel: 'Steer message', sendIcon: 'corner-up-right' });
+    // A ⌘-click: the press's own modifiers (app.contract `send`), not the module's recorded gesture.
+    await command('send', 'pointer:meta', 'Queued one');
     expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', dispatchMode: { type: 'queue_after_active' } });
     expect(native.committed.at(-1)!.deliveryIntent).toBeUndefined();
-    // A ⌘-click: the press's own modifiers (app.contract `send`), not the module's recorded gesture.
-    await command('send', 'pointer:meta', 'Steer one');
-    expect(native.committed.at(-1)).toMatchObject({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });
-    await command('device-setting', 'followUpBehavior', 'steer');
-    client.local.clientSettings.followUpBehavior = 'steer';
-    await command('send', '', 'Steer two');
-    expect(native.committed.at(-1)).toMatchObject({ deliveryIntent: 'steer' });
-    expect(snapshot(client).composer).toMatchObject({ sendRunning: true, sendLabel: 'Steer message', sendIcon: 'corner-up-right' });
+    await command('device-setting', 'followUpBehavior', 'queue');
     client.local.clientSettings.followUpBehavior = 'queue';
+    await command('send', '', 'Queued two');
+    expect(native.committed.at(-1)).toMatchObject({ dispatchMode: { type: 'queue_after_active' } });
     expect(snapshot(client).composer).toMatchObject({ sendLabel: 'Queue message', sendIcon: 'list-plus', sendTooltip: 'Click to queue, Ctrl/⌘-click or ⌘Enter to steer' });
     // ⌘ or Control held (the window's shortcutModifiers): the alternate's label and icon.
     expect(snapshot(client).composer).toMatchObject({ sendHeldLabel: 'Steer message', sendHeldIcon: 'corner-up-right' });

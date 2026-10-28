@@ -522,7 +522,7 @@ component T3Code
   state acpQuery = ""
   state providerNow = 0
   action providerTick
-    if settingsOpen and (settingsRoute == "providers" or (settingsRoute == "connections" and connectionsPage.network.ticking))
+    if settingsOpen and (settingsRoute == "providers" or ((settingsRoute == "connections" or settingsRoute == "access") and connectionsPage.network.ticking))
       providerNow = performanceNow()
     providerDialog = (providerDialog == "chatgpt" and providerWizard.chatgptConnected) or providerPage.environment == "-" ? "" : providerDialog // AddCodexAccountDialog closes once the plan is shared; the page's dialogs close when its environment drops (they unmount with EnvironmentProviderSettings, ProviderSettingsPanel.tsx:551-586, 1377-1385)
   task providerClock mount
@@ -531,7 +531,7 @@ component T3Code
   resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision, providerDialog, providerTarget, providerPage.environment) as shape ProviderWizard
   state connectionRemove = ""
   state connectionMenu = ""
-  resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow), transportFleetSeen) as shape ConnectionsPage
+  resource connectionsPage = connectionsPage(settingsOpen and (settingsRoute == "connections" or settingsRoute == "access"), data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow), transportFleetSeen) as shape ConnectionsPage
   state routeKeyboard = routeKeyboardIdle()
   derive routeKeyboardReady = settingsOpen and settingsRoute == "connections" and page.hasFocus and page.visibilityState == "visible" and not connecting and not projectsOpen and not paletteOpen and not welcome.show and providerDialog == "" and restEditor == "" and connectionRemove == ""
   derive routeKeyboardOwned = routeKeyboardReady and routeKeyboardLive(routeKeyboard, routeKeyboardSource(connectionsPage, routeKeyboard.environmentId, routeKeyboard.rowKey))

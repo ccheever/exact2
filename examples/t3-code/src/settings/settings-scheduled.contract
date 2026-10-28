@@ -1,4 +1,4 @@
-// Settings → Scheduled tasks (T3 Code 74541bab17 ScheduledTasksSettings.tsx): a plain
+// Settings → Scheduled tasks (T3 Code 7c3b3b3605ef ScheduledTasksSettings.tsx): a plain
 // section with "New task", one row per task (switch and Edit/Run now/Delete
 // menu), and the editor dialog with every field of ScheduledTaskEditorDialog.
 use SelectOption from "./settings-kit.contract"
@@ -6,11 +6,12 @@ use FieldPlaceholder from "../shared/field-placeholder.contract"
 use SettingsSwitch from "./settings-kit.contract"
 use SkPopup from "./settings-kit.contract"
 use SkMenuItem from "./settings-kit.contract"
-use SettingsPickerTrigger from "../composer/model-picker.contract"
+use SettingsModelTrigger from "./settings-picker.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use LucideLaptop from "./settings-icons.contract"
 use SettingsSelect from "./settings-kit.contract"
 use SettingsSrHeading from "./settings-kit.contract"
+use SettingsPageSwitch from "./settings-kit.contract"
 use LucidePlus from "./settings-icons.contract"
 use LucideEllipsis from "./settings-icons.contract"
 use LucidePencil from "./settings-icons.contract"
@@ -197,7 +198,7 @@ component ScheduledPanel
     column width="100%" gap="0.625rem" testId="scheduled-settings"
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between" gap="1rem" box-sizing="border-box"
         text "Scheduled tasks" font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
-        button press=open("task", "", "") disabled=(busy or not data.available or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(busy or not data.available or not data.writable ? 0.64 : 1) data-focus-stop=((busy or not data.available or not data.writable) ? "" : "enabled")
+        button press=open("task", "", "") disabled=(busy or not data.available or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(busy or not data.available or not data.writable ? 0.64 : 1) data-focus-stop=((busy or not data.available or not data.writable) ? "" : "enabled page")
           LucidePlus(size=12, color="light-dark(#71717b, #a1a1a1)")
           text "New task" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
       if error != ""
@@ -285,9 +286,9 @@ component TaskRow
           if item.runError != ""
             text item.runError font-size="0.75rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" testId=`task-run-error-${item.id}`
       row flex-shrink=0 align-items="center" gap="0.5rem"
-        SettingsSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&${target}&enabled=${item.enabled ? "false" : "true"}`))
+        SettingsPageSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&${target}&enabled=${item.enabled ? "false" : "true"}`))
         box position="relative" flex-shrink=0
-          button id=`task-actions-${item.environmentId}|${item.id}` popovertarget=`task-menu-${item.id}` key=triggerKey disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop=((busy or not data.writable) ? "" : "enabled")
+          button id=`task-actions-${item.environmentId}|${item.id}` popovertarget=`task-menu-${item.id}` key=triggerKey disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop=((busy or not data.writable) ? "" : "enabled page")
             LucideEllipsis(size=16, color="light-dark(#18181b, #f5f5f5)")
           SkPopup(menuId=`task-menu-${item.id}`, invoker=`task-actions-${item.environmentId}|${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28, items=menuItems, keyed=0)
             TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
@@ -527,7 +528,7 @@ component ScheduledEditor
         row padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" align-items="flex-start" gap="0.5rem" box-sizing="border-box" position="relative"
           column flex=1 min-width=0 gap="0.5rem"
             text (draft.id == "" ? "New task" : "Edit task") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
-            text "Run a prompt automatically — on an interval, at a fixed time, or when a webhook is called." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+            text "Run a prompt automatically on an interval, at a fixed time, or when a webhook is called." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
         scroll flex=1 min-height=0 width="100%" testId="scheduled-editor-scroll"
           column width="100%" gap="1.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box" testId="scheduled-editor"
             if draft.missing
@@ -551,7 +552,7 @@ component ScheduledEditor
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
                 box position="relative"
-                  button popovertarget="task-project-menu" id="task-project" testId="task-project" role="combobox" aria-label="Project" disabled=busy width="100%" height="2rem" class=TkOutline
+                  button popovertarget="task-project-menu" id="task-project" testId="task-project" role="combobox" aria-label="Project" disabled=busy width="100%" height="2rem" class=TkOutline data-focus-stop=(busy ? "" : "enabled")
                     text (chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)) font-size="0.875rem" line-clamp=1
                   SkPopup(menuId="task-project-menu", invoker="task-project", label="Project", width=257, list=true, endAlign=0, items=projectItems, keyed=0)
                     for option in data.projects key=option.value
@@ -562,7 +563,7 @@ component ScheduledEditor
             if workspaceMode == "worktree"
               column gap="0.375rem"
                 text "Base branch" class=TkLabel
-                button press=openRefs popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start" title=""
+                button press=openRefs popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start" title="" id="task-base-branch" data-focus-stop=(busy ? "" : "enabled")
                   LucideGitBranch(size=14, color="light-dark(#71717b, #a1a1a1)")
                   text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" testId="task-base-label"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #a1a1a1)")
@@ -573,7 +574,7 @@ component ScheduledEditor
                   column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%"
                     row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7, #ffffff14)"
                       LucideSearch(size=16, color="light-dark(#71717b8c, #a1a1a18c)")
-                      input value=refQuery input=setText("refs") placeholder="Search refs..." class=FieldPlaceholder aria-label="Search refs" testId="task-branch-search" flex=1 min-width=0 height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-task-branch-search" data-editable="yes"
+                      input value=refQuery input=setText("refs") placeholder="Search refs..." class=FieldPlaceholder aria-label="Search refs" testId="task-branch-search" flex=1 min-width=0 height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-task-branch-search" data-editable="yes" data-focus-stop="enabled"
                   // The server's answer for the search (filteredItems = items); a scroll toward the end loads the next
                   // page (ref-paging.contract RefPageScroll tells it, scheduled-view.ts loads it).
                   RefPageScroll(name="task-refs")
@@ -600,35 +601,35 @@ component ScheduledEditor
             if workspaceMode == "existing_worktree"
               column gap="0.375rem"
                 text "Checkout path" class=TkLabel
-                input value=path input=setText("path") placeholder="/path/to/checkout" aria-label="Checkout path" class=TkField disabled=busy testId="task-worktree-path" autocorrect="off" id="field-task-worktree-path" data-editable="yes"
+                input value=path input=setText("path") placeholder="/path/to/checkout" aria-label="Checkout path" class=TkField disabled=busy testId="task-worktree-path" autocorrect="off" id="field-task-worktree-path" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
             column gap="0.375rem"
               text "Prompt" class=TkLabel
-              textarea value=prompt input=setText("prompt") autocorrect="off" placeholder="What should the agent do each time this runs?" aria-label="Prompt" class=TkField height="4.5rem" padding-top="0.375rem" disabled=busy testId="task-prompt" id="field-task-prompt" data-editable="yes"
+              textarea value=prompt input=setText("prompt") autocorrect="off" placeholder="What should the agent do each time this runs?" aria-label="Prompt" class=TkField height="4.5rem" padding-top="0.375rem" disabled=busy testId="task-prompt" id="field-task-prompt" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
             column gap="0.375rem"
               text "Model" class=TkLabel
               row
-                SettingsPickerTrigger(rowId="task-model", label=modelName, name=modelName, driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=markField(data.marks, modelKey, "accent"), disabled=(busy or not data.available), press=pickModel("task-model", `${encodeURIComponent(draft.environmentId)}|${encodeURIComponent(modelKey)}`))
+                SettingsModelTrigger(stop="enabled", rowId="task-model", label=modelName, name=modelName, driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=markField(data.marks, modelKey, "accent"), disabled=(busy or not data.available), press=pickModel("task-model", `${encodeURIComponent(draft.environmentId)}|${encodeURIComponent(modelKey)}`))
             column gap="0.75rem"
               if draft.legacyInterval
                 text "This task uses a legacy interval below one minute. Saving updates it to at least one minute." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" role="status"
               row align-items="center" justify-content="space-between" gap="0.5rem"
                 text "Schedule" class=TkLabel
                 row role="group" aria-label="Schedule type" padding="0.125rem" gap="0.125rem" border-radius="0.5rem" background-color="light-dark(#d4d4d766, #ffffff08)"
-                  button press=choose("schedule", "fixed") aria-checked=(scheduleMode == "fixed") testId="task-schedule-fixed" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(scheduleMode == "fixed" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "fixed" ? "0 1px 2px #0000000d" : "none")
+                  button press=choose("schedule", "fixed") aria-checked=(scheduleMode == "fixed") testId="task-schedule-fixed" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(scheduleMode == "fixed" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "fixed" ? "0 1px 2px #0000000d" : "none") id="task-schedule-fixed" data-focus-stop="enabled"
                     text "At a time" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(scheduleMode == "fixed" ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
-                  button press=choose("schedule", "interval") aria-checked=(scheduleMode == "interval") testId="task-schedule-interval" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(scheduleMode == "interval" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "interval" ? "0 1px 2px #0000000d" : "none")
+                  button press=choose("schedule", "interval") aria-checked=(scheduleMode == "interval") testId="task-schedule-interval" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 background-color=(scheduleMode == "interval" ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(scheduleMode == "interval" ? "0 1px 2px #0000000d" : "none") id="task-schedule-interval" data-focus-stop="enabled"
                     text "Every interval" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(scheduleMode == "interval" ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
-                  button press=choose("schedule", "webhook") aria-checked=(scheduleMode == "webhook") testId="task-schedule-webhook" class=TkOutline
+                  button press=choose("schedule", "webhook") aria-checked=(scheduleMode == "webhook") testId="task-schedule-webhook" class=TkOutline id="task-schedule-webhook" data-focus-stop="enabled"
                     text "On webhook" font-size="0.875rem"
               if scheduleMode == "webhook"
                 column gap="0.75rem"
                   if draft.address != ""
-                    input value=draft.address readonly=true aria-label="Webhook URL" class=TkField testId="task-webhook-url" autocorrect="off" id="field-task-webhook-url" data-editable="yes"
+                    input value=draft.address readonly=true aria-label="Webhook URL" class=TkField testId="task-webhook-url" autocorrect="off" id="field-task-webhook-url" data-editable="yes" data-focus-stop="enabled"
                   if draft.address != ""
                     row gap="0.5rem"
-                      button press=rest("task", `action=copy-webhook&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}`) disabled=(busy or not draft.copyable) class=TkOutline testId="task-webhook-copy"
+                      button press=rest("task", `action=copy-webhook&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}`) disabled=(busy or not draft.copyable) class=TkOutline testId="task-webhook-copy" data-focus-stop=(busy or not draft.copyable ? "" : "enabled")
                         text "Copy"
-                      button id="task-webhook-rotate" press=askRotate(true) disabled=busy class=TkOutline testId="task-webhook-rotate"
+                      button id="task-webhook-rotate" press=askRotate(true) disabled=busy class=TkOutline testId="task-webhook-rotate" data-focus-stop=(busy ? "" : "enabled")
                         text "Rotate"
                   if confirmRotate
                     WebhookRotateDialog(busy=busy, cancel=askRotate(false), confirm=rotate)
@@ -636,35 +637,35 @@ component ScheduledEditor
                   text "Each request runs the prompt. Use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} or {{request}} in the prompt; only what it names reaches the agent." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                   column gap="0.375rem"
                     TaskFieldLabel(label="Skip requests older than", hint="minutes, optional")
-                    input value=maxDeliveryAgeMinutes input=setText("maxDeliveryAgeMinutes") placeholder="Run every request" aria-label="Skip requests older than, minutes" disabled=busy class=TkField testId="task-webhook-max-age" autocorrect="off" id="field-task-webhook-max-age" data-editable="yes"
+                    input value=maxDeliveryAgeMinutes input=setText("maxDeliveryAgeMinutes") placeholder="Run every request" aria-label="Skip requests older than, minutes" disabled=busy class=TkField testId="task-webhook-max-age" autocorrect="off" id="field-task-webhook-max-age" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
                   // WebhookFiltersField: always stacked, as the dialog stays narrow on wide windows.
                   column gap="0.5rem"
                     row align-items="center" justify-content="space-between" gap="0.5rem"
                       column flex=1 min-width=0 gap="0.25rem"
                         text "Filters" class=TkLabel
                         text "Run only when every filter matches. Other requests are logged as filtered. Separate “is one of” values with commas; a value can't contain a comma." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
-                      button press=addFilter disabled=(busy or filters.length >= 16) class=TkOutline opacity=(busy or filters.length >= 16 ? 0.64 : 1) testId="task-webhook-add-filter"
+                      button press=addFilter disabled=(busy or filters.length >= 16) class=TkOutline opacity=(busy or filters.length >= 16 ? 0.64 : 1) testId="task-webhook-add-filter" id="task-webhook-add-filter" data-focus-stop=(busy or filters.length >= 16 ? "" : "enabled")
                         LucidePlus(size=16, color="light-dark(#18181b, #f5f5f5)")
                         text "Add filter" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
                     for rule, index in filters key=rule.id
                       column gap="0.5rem" padding-top="0.25rem" testId=`task-webhook-filter-${index}`
                         row align-items="center" gap="0.5rem"
-                          input value=rule.path input=setFilter(rule.id, "path") placeholder="body.action" aria-label=`Filter ${index + 1} path` disabled=busy class=TkField flex=1 min-width=0 testId=`task-webhook-filter-path-${index}` autocorrect="off" id=`field-task-webhook-filter-path-${rule.id}` data-editable="yes"
-                          button press=removeFilter(rule.id) disabled=busy aria-label=`Remove filter ${index + 1}` title="" testId=`task-webhook-filter-remove-${index}` width="1.75rem" height="1.75rem" flex-shrink=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                          input value=rule.path input=setFilter(rule.id, "path") placeholder="body.action" aria-label=`Filter ${index + 1} path` disabled=busy class=TkField flex=1 min-width=0 testId=`task-webhook-filter-path-${index}` autocorrect="off" id=`field-task-webhook-filter-path-${rule.id}` data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
+                          button press=removeFilter(rule.id) disabled=busy aria-label=`Remove filter ${index + 1}` title="" testId=`task-webhook-filter-remove-${index}` width="1.75rem" height="1.75rem" flex-shrink=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" id=`task-webhook-filter-remove-${index}` data-focus-stop=(busy ? "" : "enabled")
                             LucideTrash2(size=16, color="light-dark(#18181b, #f5f5f5)")
                         row align-items="center" gap="0.5rem"
                           SettingsSelect(selectId=`task-webhook-filter-op-${rule.id}`, label=`Filter ${index + 1} test`, valueLabel=filterOpLabel(rule.op), empty=false, value=rule.op, width=176, disabled=busy, options=filterOps, choose=setFilter(rule.id, "op"))
                           if rule.op != "exists"
-                            input value=rule.value input=setFilter(rule.id, "value") placeholder=(rule.op == "in" ? "opened, reopened" : "opened") aria-label=`Filter ${index + 1} value` disabled=busy class=TkField flex=1 min-width=0 testId=`task-webhook-filter-value-${index}` autocorrect="off" id=`field-task-webhook-filter-value-${rule.id}` data-editable="yes"
+                            input value=rule.value input=setFilter(rule.id, "value") placeholder=(rule.op == "in" ? "opened, reopened" : "opened") aria-label=`Filter ${index + 1} value` disabled=busy class=TkField flex=1 min-width=0 testId=`task-webhook-filter-value-${index}` autocorrect="off" id=`field-task-webhook-filter-value-${rule.id}` data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
                   column gap="0.375rem"
                     TaskFieldLabel(label="Replay key", hint="template, optional")
-                    input value=replayKey input=setText("replayKey") placeholder="{{headers.delivery-id}}" aria-label="Replay key" disabled=busy class=TkField testId="task-webhook-replay-key" autocorrect="off" id="field-task-webhook-replay-key" data-editable="yes"
+                    input value=replayKey input=setText("replayKey") placeholder="{{headers.delivery-id}}" aria-label="Replay key" disabled=busy class=TkField testId="task-webhook-replay-key" autocorrect="off" id="field-task-webhook-replay-key" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
                   column gap="0.375rem"
                     TaskFieldLabel(label="Coalesce key", hint="template, optional")
-                    input value=coalesceKey input=setText("coalesceKey") placeholder="{{body.id}}" aria-label="Coalesce key" disabled=busy class=TkField testId="task-webhook-coalesce-key" autocorrect="off" id="field-task-webhook-coalesce-key" data-editable="yes"
+                    input value=coalesceKey input=setText("coalesceKey") placeholder="{{body.id}}" aria-label="Coalesce key" disabled=busy class=TkField testId="task-webhook-coalesce-key" autocorrect="off" id="field-task-webhook-coalesce-key" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
                   column gap="0.375rem"
                     TaskFieldLabel(label="Coalesce window", hint="seconds, 10–3600")
-                    input type="number" min=10 max=3600 step=1 inputmode="numeric" value=coalesceWindowSeconds input=setText("coalesceWindowSeconds") placeholder="120" aria-label="Coalesce window" disabled=busy class=TkField testId="task-webhook-coalesce-window" autocorrect="off" id="field-task-webhook-coalesce-window" data-editable="yes"
+                    input type="number" min=10 max=3600 step=1 inputmode="numeric" value=coalesceWindowSeconds input=setText("coalesceWindowSeconds") placeholder="120" aria-label="Coalesce window" disabled=busy class=TkField testId="task-webhook-coalesce-window" autocorrect="off" id="field-task-webhook-coalesce-window" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
                   text "Replay keys suppress repeat deliveries for 7 days. Coalescing runs the latest payload once when the window from the first delivery closes. Empty keys run normally." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                   row align-items="center" justify-content="space-between" gap="1rem"
                     column gap="0.25rem" flex=1
@@ -673,19 +674,19 @@ component ScheduledEditor
                     SettingsSwitch(checked=signatureEnabled, label="Require signature", disabled=busy, switchId="task-webhook-signature", toggle=toggle("signature"))
                   if signatureEnabled
                     column gap="0.5rem"
-                      input value=signatureHeader input=setText("signatureHeader") aria-label="Header" placeholder="Header" class=TkField disabled=busy testId="task-webhook-header" autocorrect="off" id="field-task-webhook-header" data-editable="yes"
-                      input value=signaturePrefix input=setText("signaturePrefix") aria-label="Prefix" placeholder="None" class=TkField disabled=busy testId="task-webhook-prefix" autocorrect="off" id="field-task-webhook-prefix" data-editable="yes"
+                      input value=signatureHeader input=setText("signatureHeader") aria-label="Header" placeholder="Header" class=TkField disabled=busy testId="task-webhook-header" autocorrect="off" id="field-task-webhook-header" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
+                      input value=signaturePrefix input=setText("signaturePrefix") aria-label="Prefix" placeholder="None" class=TkField disabled=busy testId="task-webhook-prefix" autocorrect="off" id="field-task-webhook-prefix" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
                       row gap="0.5rem"
                         button press=choose("encoding", "hex") aria-pressed=(signatureEncoding == "hex") class=TkOutline
                           text "hex"
                         button press=choose("encoding", "base64") aria-pressed=(signatureEncoding == "base64") class=TkOutline
                           text "base64"
-                      input type="password" value=signatureSecret input=setText("signatureSecret") aria-label="Secret" placeholder=(draft.hasSecret ? "Unchanged" : "Shared secret") class=TkField disabled=busy testId="task-webhook-secret" autocorrect="off" id="field-task-webhook-secret" data-editable="yes"
+                      input type="password" value=signatureSecret input=setText("signatureSecret") aria-label="Secret" placeholder=(draft.hasSecret ? "Unchanged" : "Shared secret") class=TkField disabled=busy testId="task-webhook-secret" autocorrect="off" id="field-task-webhook-secret" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
               if scheduleMode == "fixed"
                 row align-items="center" gap="0.75rem" flex-wrap="wrap"
                   row align-items="center" gap="0.5rem"
                     text "Run at" class=TkLabel
-                    input type="time" value=timeOfDay change=setText("time") aria-label="Run at" disabled=busy testId="task-time" box-sizing="border-box" width="8rem" height="2rem" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-task-time" data-editable="yes"
+                    input type="time" value=timeOfDay change=setText("time") aria-label="Run at" disabled=busy testId="task-time" box-sizing="border-box" width="8rem" height="2rem" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-task-time" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
                     text "on" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                   row role="group" aria-label="Days to run"
                     Weekday(label="Mon", short="Mo", on=monday, first=true, last=false, press=toggle("1"))
@@ -698,7 +699,7 @@ component ScheduledEditor
               if scheduleMode == "interval"
                 row align-items="center" gap="0.5rem"
                   text "Run every" class=TkLabel
-                  input value=intervalMinutes input=setText("interval") aria-label="Run every" class=TkField width="6rem" disabled=busy testId="task-minutes" autocorrect="off" id="field-task-minutes" data-editable="yes"
+                  input value=intervalMinutes input=setText("interval") aria-label="Run every" class=TkField width="6rem" disabled=busy testId="task-minutes" autocorrect="off" id="field-task-minutes" data-editable="yes" data-focus-stop=(busy ? "" : "enabled")
                   text "minutes" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
             row align-items="center" justify-content="space-between" gap="1rem"
               column min-width=0 gap="0.25rem"
@@ -706,7 +707,7 @@ component ScheduledEditor
                 text "Disabled tasks stay saved but do not run." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
               SettingsSwitch(checked=enabled, label="Enabled", disabled=busy, switchId="task-enabled", toggle=toggle("enabled"))
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-          button press=close disabled=busy testId="cancel-scheduled-task" class=TkOutline
+          button press=close disabled=busy testId="cancel-scheduled-task" class=TkOutline id="cancel-scheduled-task" data-focus-stop=(busy ? "" : "enabled")
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
           button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&signatureEnabled=${signatureEnabled}&signatureHeader=${encodeURIComponent(signatureHeader)}&signatureEncoding=${signatureEncoding}&signaturePrefix=${encodeURIComponent(signaturePrefix)}&signatureSecret=${encodeURIComponent(signatureSecret)}&maxDeliveryAgeMinutes=${encodeURIComponent(maxDeliveryAgeMinutes)}&replayKey=${encodeURIComponent(replayKey)}&coalesceKey=${encodeURIComponent(coalesceKey)}&coalesceWindowSeconds=${encodeURIComponent(coalesceWindowSeconds)}&filters=${encodeURIComponent(encodeFilters(filters))}&savedFilters=${encodeURIComponent(encodeFilters(savedFilters))}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(chosenProject)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1) data-focus-stop=((busy or draft.missing or not data.available) ? "" : "enabled")
             text (draft.id == "" ? "Create task" : "Save task") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
@@ -740,7 +741,7 @@ component Weekday
     last: bool
     press: action
   view
-    button press=press aria-label=label aria-checked=on testId=`task-day-${label}` height="1.75rem" min-width="1.75rem" padding-left="0.3125rem" padding-right="0.3125rem" box-sizing="border-box" border-style="solid" border-width=1 border-left-width=(first ? 1 : 0) border-color="light-dark(#d4d4d8, #ffffff1c)" border-top-left-radius=(first ? "0.625rem" : "0px") border-bottom-left-radius=(first ? "0.625rem" : "0px") border-top-right-radius=(last ? "0.625rem" : "0px") border-bottom-right-radius=(last ? "0.625rem" : "0px") background-color=(on ? "light-dark(#d5d5d8a3, #ffffff14)" : "light-dark(#fcfcfc, #ffffff09)")
+    button press=press aria-label=label aria-checked=on testId=`task-day-${label}` height="1.75rem" min-width="1.75rem" padding-left="0.3125rem" padding-right="0.3125rem" box-sizing="border-box" border-style="solid" border-width=1 border-left-width=(first ? 1 : 0) border-color="light-dark(#d4d4d8, #ffffff1c)" border-top-left-radius=(first ? "0.625rem" : "0px") border-bottom-left-radius=(first ? "0.625rem" : "0px") border-top-right-radius=(last ? "0.625rem" : "0px") border-bottom-right-radius=(last ? "0.625rem" : "0px") background-color=(on ? "light-dark(#d5d5d8a3, #ffffff14)" : "light-dark(#fcfcfc, #ffffff09)") id=`task-day-${label}` data-focus-stop="enabled"
       text short font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(on ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#18181b, #f5f5f5)")
 
 

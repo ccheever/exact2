@@ -5,7 +5,9 @@
 // `restlocal:browser-defaults` with `key=…&value=…`. "Open links in" is browser-links.ts's row, between these two groups.
 use SelectOption from "../settings/settings-kit.contract"
 use SettingsSelect from "../settings/settings-kit.contract"
+use SettingsPageSelect from "../settings/settings-kit.contract"
 use SettingsSwitch from "../settings/settings-kit.contract"
+use SettingsPageSwitch from "../settings/settings-kit.contract"
 use SkPopup from "../settings/settings-kit.contract"
 use SkField from "../settings/settings-kit.contract"
 use SkInk from "../settings/settings-kit.contract"
@@ -74,7 +76,7 @@ component BdRow
           text title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
           box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
             if reset
-              button press=resetPress aria-label=`Reset ${resetLabel} to default` testId=`reset-browser-default-${rowId}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              button id=`reset-browser-default-${rowId}` data-focus-stop="enabled page" press=resetPress aria-label=`Reset ${resetLabel} to default` testId=`reset-browser-default-${rowId}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 LucideUndo2(size=12, color="light-dark(#71717b, #a1a1a1)")
         text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" max-width="36rem"
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" flex-wrap="wrap"
@@ -127,7 +129,7 @@ component BdViewportSelect
           focus(target)
   view
     box position="relative" width=width
-      button popovertarget="browser-default-viewport-menu" key=triggerKey role="combobox" aria-label="Default browser viewport" id="browser-default-viewport" testId="browser-default-viewport" class=SkField display="flex" flex-direction="row" align-items="center" gap="0.375rem" width=width
+      button data-focus-stop="enabled page" popovertarget="browser-default-viewport-menu" key=triggerKey role="combobox" aria-label="Default browser viewport" id="browser-default-viewport" testId="browser-default-viewport" class=SkField display="flex" flex-direction="row" align-items="center" gap="0.375rem" width=width
         text label font-size="0.875rem" line-height="1.25rem" class=SkInk flex=1 min-width=0 line-clamp=1 text-align="left"
         LucideChevronDown(size=14, color="light-dark(#18181bb3, #f5f5f5b3)")
       SkPopup(menuId="browser-default-viewport-menu", invoker="browser-default-viewport", label="Default browser viewport", width=(278 * width / 176), list=true, endAlign=width, items=menuItems, keyed=0)
@@ -172,11 +174,11 @@ component BdViewportSize
     row align-items="center" gap="0.25rem" min-width=0
       // Keyed by the stored size, so a refused entry shows the stored value again.
       for size in [`${view.viewportWidth}x${view.viewportHeight}`] key=size
-        input value=`${view.viewportWidth}` change=width inputmode="numeric" aria-label="Default viewport width" spellcheck="false" testId="browser-default-viewport-width" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-browser-default-viewport-width" data-editable="yes"
+        input data-focus-stop="enabled page" value=`${view.viewportWidth}` change=width inputmode="numeric" aria-label="Default viewport width" spellcheck="false" testId="browser-default-viewport-width" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-browser-default-viewport-width" data-editable="yes"
         text "×" font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)"
-        input value=`${view.viewportHeight}` change=height inputmode="numeric" aria-label="Default viewport height" spellcheck="false" testId="browser-default-viewport-height" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-browser-default-viewport-height" data-editable="yes"
+        input data-focus-stop="enabled page" value=`${view.viewportHeight}` change=height inputmode="numeric" aria-label="Default viewport height" spellcheck="false" testId="browser-default-viewport-height" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-browser-default-viewport-height" data-editable="yes"
       box position="relative" flex-shrink=0 hover=hover
-        button press=pick("viewport-rotate", "") aria-label=view.rotateLabel testId="browser-default-viewport-rotate" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+        button id="browser-default-viewport-rotate" data-focus-stop="enabled page" press=pick("viewport-rotate", "") aria-label=view.rotateLabel testId="browser-default-viewport-rotate" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           LucideRotateCcw(size=16, color="light-dark(#71717b, #a1a1a1)")
         TipBubble(label="Rotate", side="top", align="center", offset=36, inset=0, shown=over)
 
@@ -187,7 +189,7 @@ component BrowserAutoShowRow
     local: action
   view
     BdRow(rowId="auto-show", title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", reset=view.autoShowReset, resetLabel="auto-show floating preview", resetPress=local("browser-defaults", "key=reset&value=auto-show"))
-      SettingsSwitch(checked=view.autoShow, label="Auto-show floating preview", disabled=false, switchId="browser-auto-show-floating-preview", toggle=local("browser-defaults", `key=auto-show&value=${view.autoShow ? "false" : "true"}`))
+      SettingsPageSwitch(checked=view.autoShow, label="Auto-show floating preview", disabled=false, switchId="browser-auto-show-floating-preview", toggle=local("browser-defaults", `key=auto-show&value=${view.autoShow ? "false" : "true"}`))
 
 // Search engine (BrowserSearchEngineSetting, after Auto-show; not desktop-only in the reference, as web clients search
 // from server-run tabs) and, while Custom is chosen, the custom search URL, committed on Enter or when the field is left.
@@ -204,7 +206,7 @@ component BrowserSearchEngineRow
   view
     column width="100%" testId="browser-search-engine-setting"
       BdRow(rowId="search-engine", title="Search engine", description="What the address bar searches when you type something that isn't a URL.", reset=view.searchEngineReset, resetLabel="search engine", resetPress=local("browser-defaults", "key=reset&value=search-engine"))
-        SettingsSelect(selectId="browser-search-engine", label="Search engine", valueLabel=view.searchEngineLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.searchEngineOptions, choose=pick)
+        SettingsPageSelect(selectId="browser-search-engine", label="Search engine", valueLabel=view.searchEngineLabel, empty=false, value="", width=(160 * rem / 16), disabled=false, options=view.searchEngineOptions, choose=pick)
       if view.searchEngineCustom
         row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId="browser-default-row-custom-search-url"
           column flex=1 min-width=0 gap="0.25rem"
@@ -216,7 +218,7 @@ component BrowserSearchEngineRow
           row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
             // Keyed by the stored text, so a commit the data module trimmed shows what it kept.
             for stored in [view.customSearchUrl] key=stored
-              input value=stored change=commit placeholder="https://example.com/search?q=%s" aria-label="Custom search URL" spellcheck="false" autocorrect="off" autocapitalize="none" maxlength=2048 testId="browser-custom-search-url" id="field-browser-custom-search-url" width="16rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" data-editable="yes"
+              input data-focus-stop="enabled page" value=stored change=commit placeholder="https://example.com/search?q=%s" aria-label="Custom search URL" spellcheck="false" autocorrect="off" autocapitalize="none" maxlength=2048 testId="browser-custom-search-url" id="field-browser-custom-search-url" width="16rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" data-editable="yes"
 
 // Open pull requests in T3 Code (PullRequestLinksOpenInAppSetting, after Search engine; not a preview default, so never disabled).
 component PullRequestLinksRow

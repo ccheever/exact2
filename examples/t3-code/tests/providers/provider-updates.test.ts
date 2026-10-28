@@ -1,18 +1,14 @@
-// Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// Ported from T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3):
 // apps/web/src/components/ProviderUpdateLaunchNotification.logic.test.ts — "provider update
 // launch notification logic" (every case but the sidebar pill's, which sidebar-provider-pill
-// covers), "multi-backend update outcomes", "isTerminalProviderUpdatePhase", the incompatible
-// latest-version case and "getProviderUpdateRunToastView", with their original names. The
-// WSL grouping describes are out of scope. AsyncResult.success/failure are `success`/`failure`;
-// Cause.interrupt() is a failure marked interrupted.
+// covers), the incompatible latest-version case and "getProviderUpdateRunToastView", with their
+// original names, and two earlier candidate cases. AsyncResult.success/failure are
+// `success`/`failure`; Cause.interrupt() is a failure marked interrupted.
 import { describe, expect, it } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
 import {
-  canOneClickUpdateProviderCandidate, collectProviderUpdateCandidates, collectProviderUpdateOutcomeSnapshots, collectUpdatedProviderSnapshots,
-  failure, firstFailedProviderUpdateMessage, firstRejectedProviderUpdateMessage, getProviderUpdateInitialToastView, getProviderUpdateProgressToastView,
-  getProviderUpdateRejectedToastView, getProviderUpdateRunToastView, hasOneClickUpdateProviderCandidate, isProviderSettingsUpdateCandidate,
-  isProviderUpdateCandidate, isTerminalProviderUpdatePhase, providerUpdateNotificationKey, shouldShowPrimaryProviderUpdateToast, success,
-  type LocalProviderUpdateOutcome, type SettledResult,
+  canOneClickUpdateProviderCandidate, collectProviderUpdateCandidates, failure, getProviderUpdateRunToastView, hasOneClickUpdateProviderCandidate,
+  isProviderSettingsUpdateCandidate, isProviderUpdateCandidate, success,
 } from '../../src/providers/provider-updates';
 
 const checkedAt = '2026-04-23T10:00:00.000Z';
@@ -65,137 +61,6 @@ describe('provider update launch notification logic', () => {
     const candidate = updateCandidate({ driver: 'codex', updateState: state('running', 'Updating provider.') });
     expect(hasOneClickUpdateProviderCandidate(candidate, [candidate])).toBe(true);
     expect(canOneClickUpdateProviderCandidate(candidate, [candidate])).toBe(false);
-  });
-
-  it('builds a notification key from provider latest versions', () => {
-    const codex = updateCandidate({ driver: 'codex', version: '1.0.0', latestVersion: '1.1.0' });
-    const cursor = updateCandidate({ driver: 'cursor', version: '0.2.0', latestVersion: '0.3.0' });
-    expect(providerUpdateNotificationKey([codex, cursor])).toBe('codex:1.1.0|cursor:0.3.0');
-    expect(providerUpdateNotificationKey([])).toBeNull();
-  });
-
-  it('keeps the same notification key while the published update version is unchanged', () => {
-    const first = updateCandidate({ driver: 'codex', version: '1.0.0', latestVersion: '1.2.0' });
-    const second = updateCandidate({ driver: 'codex', version: '1.1.0', latestVersion: '1.2.0' });
-    const nextPublishedVersion = updateCandidate({ driver: 'codex', version: '1.1.0', latestVersion: '1.3.0' });
-    expect(providerUpdateNotificationKey([first])).toBe(providerUpdateNotificationKey([second]));
-    expect(providerUpdateNotificationKey([nextPublishedVersion])).not.toBe(providerUpdateNotificationKey([first]));
-  });
-
-  it('tracks updated provider snapshots by instance instead of collapsing to a sibling driver', () => {
-    const updatedPersonal = provider({ driver: 'codex', instanceId: 'codex_personal', version: '1.1.0', latestVersion: '1.1.0', advisoryStatus: 'current', updateState: state('succeeded', 'Provider updated.') });
-    const currentDefaultSibling = provider({ driver: 'codex', instanceId: 'codex', version: '1.1.0', latestVersion: '1.1.0', advisoryStatus: 'current' });
-    expect(collectUpdatedProviderSnapshots({ results: [success({ providers: [updatedPersonal, currentDefaultSibling] })], providerInstanceIds: new Set(['codex_personal']) }))
-      .toEqual([updatedPersonal]);
-  });
-
-  it('describes a single one-click update', () => {
-    const view = getProviderUpdateInitialToastView({ updateProviders: [updateCandidate({ driver: 'codex', latestVersion: '1.1.0' })],
-      oneClickProviders: [updateCandidate({ driver: 'codex', latestVersion: '1.1.0' })] });
-    expect(view).toMatchObject({ phase: 'initial', type: 'warning', title: 'Update Available: Codex v1.1.0', description: 'Install the update now or review provider settings.' });
-  });
-
-  it('describes settings-only updates without one-click support', () => {
-    const view = getProviderUpdateInitialToastView({ updateProviders: [updateCandidate({ driver: 'codex' }), updateCandidate({ driver: 'cursor' })], oneClickProviders: [] });
-    expect(view.description).toBe('Codex and Cursor can be updated from provider settings.');
-  });
-
-  it('sends installs the server cannot update to the tool that installed them', () => {
-    const manual = { canUpdate: false, updateCommand: null };
-    const text = (updateProviders: Obj[], oneClickProviders: Obj[] = []) => getProviderUpdateInitialToastView({ updateProviders, oneClickProviders }).description;
-    expect(text([updateCandidate({ driver: 'codex', ...manual })])).toBe('Update Codex with the app or tool that installed it.');
-    expect(text([updateCandidate({ driver: 'codex', ...manual }), updateCandidate({ driver: 'cursor' })]))
-      .toBe('Cursor can be updated from provider settings. Update Codex with the app or tool that installed it.');
-    const oneClick = updateCandidate({ driver: 'claudeAgent' });
-    expect(text([oneClick, updateCandidate({ driver: 'codex', ...manual })], [oneClick]))
-      .toBe('Install the update now or review provider settings. Update Codex with the app or tool that installed it.');
-  });
-
-  it('uses server update state for running progress', () => {
-    const view = getProviderUpdateProgressToastView({ providers: [provider({ driver: 'codex', updateState: state('running', 'Updating provider.') })], providerCount: 1 });
-    expect(view).toMatchObject({ phase: 'running', type: 'loading', title: 'Updating provider' });
-    expect(shouldShowPrimaryProviderUpdateToast(view)).toBe(false);
-  });
-
-  it('keeps the initial prompt and terminal outcomes visible as toasts', () => {
-    expect(shouldShowPrimaryProviderUpdateToast(getProviderUpdateInitialToastView({ updateProviders: [updateCandidate({ driver: 'codex' })], oneClickProviders: [updateCandidate({ driver: 'codex' })] }))).toBe(true);
-    expect(shouldShowPrimaryProviderUpdateToast(getProviderUpdateRejectedToastView(1, 'boom'))).toBe(true);
-  });
-
-  it('uses server failure state for failed progress', () => {
-    const view = getProviderUpdateProgressToastView({ providers: [provider({ driver: 'codex', updateState: state('failed', 'command failed', { output: 'stderr' }) })], providerCount: 1 });
-    expect(view).toMatchObject({ phase: 'failed', type: 'error', title: 'Provider update failed', description: 'command failed' });
-  });
-
-  it('keeps unchanged providers actionable from settings', () => {
-    const view = getProviderUpdateProgressToastView({ providers: [provider({ driver: 'cursor', updateState: state('unchanged', 'still old') })], providerCount: 1 });
-    expect(view).toMatchObject({ phase: 'unchanged', type: 'warning', title: 'Provider still needs an update', description: 'Cursor still appears outdated. Check provider settings for details.' });
-  });
-
-  it('marks progress succeeded once every attempted provider is no longer outdated', () => {
-    const view = getProviderUpdateProgressToastView({ providers: [provider({ driver: 'codex', version: '1.1.0', latestVersion: '1.1.0', advisoryStatus: 'current', updateState: state('succeeded', 'Provider updated.') })], providerCount: 1 });
-    expect(view).toMatchObject({ phase: 'succeeded', type: 'success', title: 'Provider updated', description: 'New sessions will use the updated provider.', dismissAfterVisibleMs: 3_000 });
-  });
-
-  it('falls back to a rejected RPC message for transport-level failures', () => {
-    const results = [failure(new Error('WebSocket closed'))];
-    expect(firstFailedProviderUpdateMessage(results)).toBe('WebSocket closed');
-    expect(getProviderUpdateRejectedToastView(2, 'WebSocket closed')).toMatchObject({ phase: 'failed', title: 'Provider updates failed', description: 'WebSocket closed' });
-  });
-
-  it('collects only attempted provider snapshots from update responses', () => {
-    const codex = provider({ driver: 'codex' }), cursor = provider({ driver: 'cursor' });
-    expect(collectUpdatedProviderSnapshots({ results: [success({ providers: [codex, cursor] })], providerInstanceIds: new Set(['cursor']) })).toEqual([cursor]);
-  });
-
-  describe('multi-backend update outcomes', () => {
-    const fulfilledOutcome = (isPrimary: boolean, snapshot: Obj | null, environment = 'env'): SettledResult<LocalProviderUpdateOutcome> => ({
-      status: 'fulfilled', value: { environmentId: environment, isPrimary, driver: String(snapshot?.driver ?? 'codex'), instanceId: String(snapshot?.instanceId ?? 'codex'), provider: snapshot } });
-
-    it("surfaces a secondary backend's failed update over the primary's success", () => {
-      const snapshots = collectProviderUpdateOutcomeSnapshots([fulfilledOutcome(true, provider({ driver: 'codex', updateState: state('succeeded', 'Provider updated.') })),
-        fulfilledOutcome(false, provider({ driver: 'codex', updateState: state('failed', 'npm: NotFound') }))]);
-      expect(snapshots).toHaveLength(1);
-      expect((snapshots[0]?.updateState as Obj | undefined)?.status).toBe('failed');
-      expect(getProviderUpdateProgressToastView({ providers: snapshots, providerCount: 1 })).toMatchObject({ phase: 'failed' });
-    });
-
-    it("surfaces a secondary backend that stayed outdated over the primary's success", () => {
-      const snapshots = collectProviderUpdateOutcomeSnapshots([fulfilledOutcome(true, provider({ driver: 'codex', updateState: state('succeeded', 'Provider updated.') })),
-        fulfilledOutcome(false, provider({ driver: 'codex', updateState: state('unchanged', 'still outdated') }))]);
-      expect((snapshots[0]?.updateState as Obj | undefined)?.status).toBe('unchanged');
-      expect(getProviderUpdateProgressToastView({ providers: snapshots, providerCount: 1 })).toMatchObject({ phase: 'unchanged' });
-    });
-
-    it('reports success only when every backend succeeded', () => {
-      const snapshots = collectProviderUpdateOutcomeSnapshots([fulfilledOutcome(true, provider({ driver: 'codex', updateState: state('succeeded', 'Provider updated.') })),
-        fulfilledOutcome(false, provider({ driver: 'codex', updateState: state('succeeded', 'Provider updated.') }))]);
-      expect(getProviderUpdateProgressToastView({ providers: snapshots, providerCount: 1 })).toMatchObject({ phase: 'succeeded' });
-    });
-
-    it('ignores backends that did not return the targeted instance', () => {
-      const primary = provider({ driver: 'codex', updateState: state('succeeded', 'Provider updated.') });
-      expect(collectProviderUpdateOutcomeSnapshots([fulfilledOutcome(true, primary), fulfilledOutcome(false, null)])).toEqual([primary]);
-    });
-
-    it('treats a rejected dispatch as not contributing a snapshot', () => {
-      const primary = provider({ driver: 'codex', updateState: state('succeeded', 'Provider updated.') });
-      const results: SettledResult<LocalProviderUpdateOutcome>[] = [fulfilledOutcome(true, primary), { status: 'rejected', reason: new Error('WebSocket closed') }];
-      expect(collectProviderUpdateOutcomeSnapshots(results)).toEqual([primary]);
-      expect(firstRejectedProviderUpdateMessage(results)).toBe('WebSocket closed');
-    });
-  });
-
-  describe('isTerminalProviderUpdatePhase', () => {
-    it('treats succeeded/failed/unchanged as terminal', () => {
-      expect(isTerminalProviderUpdatePhase('succeeded')).toBe(true);
-      expect(isTerminalProviderUpdatePhase('failed')).toBe(true);
-      expect(isTerminalProviderUpdatePhase('unchanged')).toBe(true);
-    });
-    it('treats running/initial as non-terminal so they are not persisted', () => {
-      expect(isTerminalProviderUpdatePhase('running')).toBe(false);
-      expect(isTerminalProviderUpdatePhase('initial')).toBe(false);
-    });
   });
 });
 

@@ -16,7 +16,7 @@ component ProjectIconMark
     size: number
   view
     if kind == "lucide"
-      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=ink fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true testId="project-icon-preview"
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=ink fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true testId="project-icon-preview"
         path d=d
     else
       if kind == "emoji"

@@ -69,7 +69,7 @@ component EasGhostButton
     press: action
     buttonId: string
   view
-    button press=press disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled")
+    button id=buttonId press=press disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled page")
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(destructive ? "light-dark(#dc2626, #f87171)" : "light-dark(#18181b, #f5f5f5)") white-space="nowrap"
 
 // SettingsRow "EAS Simulator" over `easDeviceHosts` (serverScoped; its inheritance button is the slot), with the host list as its children.
@@ -89,7 +89,7 @@ component EasDeviceHostsRow
             box width="1.25rem" height="1.25rem"
           text "Run iOS Simulators in Expo's cloud from this environment. Sessions bill the Expo account until they stop, so each host limits how many run and for how long. Editing or removing a host stops its running sessions." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" max-width="36rem"
         row flex-shrink=0 min-width="10rem" justify-content="flex-end"
-          HostButton(label="Add EAS host", disabled=(busy or view.disabled or view.editing), press=rest("eas-open", ""), buttonId="eas-hosts-add", plus=true)
+          HostButton(label="Add EAS host", disabled=(busy or view.disabled or view.editing), press=rest("eas-open", ""), buttonId="eas-hosts-add", plus=true, stop="enabled page")
       column width="100%" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box"
         if view.hosts.length == 0
           text "No EAS hosts." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="eas-hosts-empty"

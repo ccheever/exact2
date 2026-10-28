@@ -57,7 +57,7 @@ component FontFamilyPicker
     cursor = over ? id : (highlight == id ? "-" : highlight)
   view
     box position="relative" flex-shrink=0
-      button press=open popovertarget=`font-picker-${rowId}` role="combobox" aria-label=label id=`setting-${rowId}-family` testId=`setting-${rowId}-family` border-width=0 padding=0 background-color="#00000000"
+      button data-focus-stop="enabled page" press=open popovertarget=`font-picker-${rowId}` role="combobox" aria-label=label id=`setting-${rowId}-family` testId=`setting-${rowId}-family` border-width=0 padding=0 background-color="#00000000"
         row justify-content="space-between" align-items="center" gap="0.5rem" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.3125rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" box-sizing="border-box" id=`paint-FontFamilyPicker-1-${rowId}` data-paint="input canvas" data-pick="canvas"
           text value font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 white-space="nowrap" flex-shrink=1 min-width=0 id=`paint-FontFamilyPicker-2-${rowId}` data-paint="text" data-pick="text"
           box opacity=0.7 flex-shrink=0

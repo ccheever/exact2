@@ -43,7 +43,7 @@ component SettingsCoreBody
           text core.message role="status" font-size="0.875rem" line-height="1.25rem" color=core.palette.muted testId="settings-unavailable" id="settings-unavailable" data-paint="mutedForeground" data-pick="mutedForeground"
           // ProjectsSettings: Button variant="outline" size="xs" with LayersIcon.
           if core.showAllEnvironments
-            button press=noticeChoose(core.allEnvironmentsProject, "", core.allEnvironmentsMember) testId="settings-show-all-environments" display="flex" flex-direction="row" align-items="center" gap="0.125rem" box-sizing="border-box" height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d"
+            button press=noticeChoose(core.allEnvironmentsProject, "", core.allEnvironmentsMember) testId="settings-show-all-environments" display="flex" flex-direction="row" align-items="center" gap="0.125rem" box-sizing="border-box" height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" id="settings-show-all-environments" data-focus-stop="enabled page"
               LucideLayers(size=14, color="light-dark(#71717b, #a1a1a1)")
               text "Show all environments" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
       if settingsCoreRoute(route) and core.message == "" and core.notice == ""

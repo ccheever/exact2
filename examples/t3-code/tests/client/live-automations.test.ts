@@ -95,6 +95,53 @@ describe('Settings › Scheduled tasks', () => {
     expect(page.editors.map(editor => [editor.id, editor.environmentId, editor.missing])).toEqual([['task-1', 'env', false]]);
     expect(calls.some(call => call.method === 'scheduledTasks.list')).toBe(false);
   });
+  // ScheduledTasksSettings.browser.test.tsx: the editor a link opened owns its session until it closes.
+  test('a linked task\'s editor keeps its dialog through a disconnect and a reconnect that reloads the list', async () => {
+    const { client, calls } = fakeClient();
+    const editors = async (subject = 'link|env|task-1') => (await scheduledPage(client, native, 'env', '', 'task', subject, true, NOW)).editors
+      .map(editor => [editor.key, editor.id, editor.title, editor.missing]);
+    expect(await editors()).toEqual([]); // the link waits for its task
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionOf(calls, 'scheduledTasks.subscribe'), value: { tasks: [task()] } });
+    const opened = [['env:task-1', 'task-1', 'Nightly triage', false]];
+    expect(await editors()).toEqual(opened);
+    client.ready = false;
+    expect(await editors()).toEqual(opened);
+    // Reconnected: a new connection's list starts empty; the dialog, keyed as before, keeps the task it opened with.
+    client.ready = true;
+    client.generation = 4;
+    expect(await editors()).toEqual(opened);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionOf(calls, 'scheduledTasks.subscribe'), value: { tasks: [task({ title: 'Renamed elsewhere' })] } });
+    expect(await editors()).toEqual([['env:task-1', 'task-1', 'Renamed elsewhere', false]]);
+    // Deleted while open: the dialog stays an Edit task one, marked missing (editingTaskMissing).
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionOf(calls, 'scheduledTasks.subscribe'), value: { tasks: [] } });
+    expect(await editors()).toEqual([['env:task-1', 'task-1', 'Renamed elsewhere', true]]);
+    // A row's Edit holds its task the same way.
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionOf(calls, 'scheduledTasks.subscribe'), value: { tasks: [task()] } });
+    expect(await editors('env|task-1')).toEqual(opened);
+    client.generation = 5;
+    expect(await editors('env|task-1')).toEqual(opened);
+  });
+  test('an editor the user opened keeps the slot when the linked task loads later; closing drops the link', async () => {
+    const { client, calls } = fakeClient();
+    let page = await scheduledPage(client, native, 'env', '', 'task', 'link|env|task-1', true, NOW);
+    expect(page.editors).toEqual([]);
+    // New task (restOpen("task", "")) replaces the waiting link.
+    page = await scheduledPage(client, native, 'env', '', 'task', '', true, NOW);
+    expect(page.editors.map(editor => [editor.key, editor.id])).toEqual([['new', '']]);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionOf(calls, 'scheduledTasks.subscribe'), value: { tasks: [task()] } });
+    page = await scheduledPage(client, native, 'env', '', 'task', '', true, NOW);
+    expect(page.editors.map(editor => [editor.key, editor.id])).toEqual([['new', '']]);
+    expect(page.sections[0]!.linkMissing).toBe(false);
+    // The link's own editor, then closed (restClose: no editor; the subject is left behind).
+    page = await scheduledPage(client, native, 'env', '', 'task', 'link|env|task-1', true, NOW);
+    expect(page.editors.map(editor => editor.key)).toEqual(['env:task-1']);
+    page = await scheduledPage(client, native, 'env', '', '', 'link|env|task-1', true, NOW);
+    expect([page.editors, page.sections[0]!.linkMissing]).toEqual([[], false]);
+    // The closed editor's task is let go: a link asked again waits for its task like a first one.
+    client.generation = 4;
+    page = await scheduledPage(client, native, 'env', '', 'task', 'link|env|task-1', true, NOW);
+    expect(page.editors).toEqual([]);
+  });
   test('scope: an unavailable machine is an error; the project filter applies', async () => {
     const { client, calls } = fakeClient();
     await watchLive(client, native);

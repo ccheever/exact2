@@ -33,6 +33,13 @@ describe('composer send shortcuts', () => {
     const rows = buildRows([binding('composer.sendBackground', 'mod+enter')], '');
     expect(rows.map(row => [row.label, row.source])).toEqual([['Composer: Start in Background', 'Default']]);
   });
+  test("each command's first listed row is its search result's target (keybindingAnchorIds)", () => {
+    const bindings = [binding('sidebar.toggle', 'mod+b'), binding('sidebar.toggle', 'mod+alt+b'), binding('composer.sendBackground', 'mod+enter')];
+    const anchors = (query: string) => buildRows(bindings, query).filter(row => row.anchor !== '').map(row => [row.anchor, row.key]);
+    expect(anchors('').sort()).toEqual([['keybinding-composer.sendBackground', 'mod+enter'], ['keybinding-sidebar.toggle', 'mod+alt+b']]);
+    // A filter that hides a command's first row anchors the next one listed.
+    expect(anchors('mod+b')).toEqual([['keybinding-sidebar.toggle', 'mod+b']]);
+  });
 });
 
 // The keybinding recorder is a Contract focus target (key-recorder.contract), not the
@@ -118,9 +125,9 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
   test('both recorders mount it in their modal row; the action editor\'s Escape and blur keep the old binding', async () => {
     const source = (file: string) => Bun.file(appPath(file)).text();
     const settings = await source('settings-keybindings.contract'), actions = await source('settings-b-actions.contract');
-    expect(settings).toContain('KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))');
-    expect(settings).toContain('KeyRecorder(prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)');
-    expect(actions).toContain('KeyRecorder(prompt="Press shortcut", value="", recording=true, autofocus=true, label="Keybinding", layout=false, testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))');
+    expect(settings).toContain('KeyRecorder(stop="enabled page", prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))');
+    expect(settings).toContain('KeyRecorder(stop="enabled page", prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)');
+    expect(actions).toContain('KeyRecorder(stop="enabled", prompt="Press shortcut", value="", recording=true, autofocus=true, label="Keybinding", layout=false, testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))');
     expect(actions).toContain('row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"');
     const view = await source('key-recorder.contract');
     // The reference's Input: a text field named for its command, the prompt its placeholder (VoiceOver reads both).
