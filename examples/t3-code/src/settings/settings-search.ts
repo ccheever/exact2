@@ -26,7 +26,7 @@ const BREADCRUMB: Record<string, string> = { ...Object.fromEntries(SECTION_LABEL
 export const breadcrumbLabel = (route: string) => BREADCRUMB[route] ?? 'Settings';
 const CATEGORY_SCOPE: Record<string, string> = { diagnostics: 'environment', projects: 'project', 'source-control': 'environment-defaults', worktrees: 'project-defaults', connections: 'connections', archived: 'project-defaults' };
 // Rows in other lanes' routes that a result can focus; everything else lands on its route.
-const NATIVE_TARGETS: Record<string, string> = {
+export const NATIVE_TARGETS: Record<string, string> = {
   archive: 'refresh-archive', 'storage-worktrees': 'storage-toggle-worktreeOnDelete', 'storage-artifacts': 'storage-toggle-browserArtifactsAfterDays',
   'remote-environments': 'manage-connection', 'connections-environment': 'manage-connection', keybindings: 'keybindings-filter',
 };
