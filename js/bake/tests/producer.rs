@@ -1296,13 +1296,13 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
         .unwrap()
         .contains("logic.ts:2:28: Date.now()"));
     // Through a global object, past `!`, after a CR line break.
-    f.write("logic.ts", "export const prefix = 'old: ';\rexport const a = () => globalThis.Date.now();\nexport const b = () => Date.now!();\nexport const c = () => window.setTimeout(() => {}, 1);\n");
+    f.write("logic.ts", "export const prefix = 'old: ';\rexport const a = () => globalThis.Date.now();\nexport const b = () => Date.now!();\nexport const c = () => window.setInterval(() => {}, 1);\n");
     let error = producer.bake(&f.0, None).err().unwrap();
     assert!(error.contains("logic.ts:2:24: Date.now()"), "{error}");
     assert!(error.contains("logic.ts:3:24: Date.now()"), "{error}");
     assert!(
         error.contains(
-            "logic.ts:4:24: setTimeout() is unavailable in data sources: there are no timers"
+            "logic.ts:4:24: setInterval() is unavailable in data sources: an answer waits with setTimeout"
         ),
         "{error}"
     );
@@ -1346,7 +1346,7 @@ fn literal_members_keep_ambient_diagnostics_in_both_producers() {
         "logic.ts",
         r#"export const prefix = 'old: ';
 export const a = () => Date['now']();
-export const b = () => globalThis['setTimeout'](() => {}, 1);
+export const b = () => globalThis['setInterval'](() => {}, 1);
 export const c = () => Math[`random`]();
 export const d = () => globalThis['performance'][`now`]();
 export const e = () => new globalThis['Date']();
@@ -1363,7 +1363,7 @@ export const i = () => Date['n\u006fw']();
             .expect("literal ambient calls refused at build");
         for (line, api) in [
             (2, "Date.now()"),
-            (3, "setTimeout()"),
+            (3, "setInterval()"),
             (4, "Math.random()"),
             (5, "performance.now()"),
             (6, "new Date()"),

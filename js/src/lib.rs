@@ -41,7 +41,10 @@
 //! 1027.000): ambient Date/Math.random reads and Intl.DateTimeFormat
 //! formatting without an explicit timestamp refuse, including at module
 //! initialization and after await. Explicit-value Date construction and UTC
-//! arithmetic remain available. There are no timers. `scheduler.yield()`
+//! arithmetic remain available. An answer's own `setTimeout` (and
+//! `AbortSignal.timeout`) is due on the runner's clock: the runner keeps the
+//! answer's continuation back until then, and the timer runs in that turn;
+//! the other timers refuse (LLP 1027.000 D1). `scheduler.yield()`
 //! ends an answer's turn: the host asks it again at once, and it goes on in
 //! a new turn with a budget of its own (LLP 1141.001 D10).
 //!
@@ -179,8 +182,24 @@ const WAITING: u64 = u64::MAX - 1;
 /// resolve in that new turn, which has a budget of its own.
 const YIELDED: u64 = u64::MAX - 2;
 
+/// The ticket of an answer that awaits only its own timers (`setTimeout`,
+/// LLP 1027.000 D1): the runner keeps its continuation back until the
+/// earliest is due (`Request::due_ms`), and the timer runs in that turn.
+const TIMER: u64 = u64::MAX - 3;
+
 /// The prefix of a handler's name as the runner asks for it (LLP 1133.016 D9).
 const TOOL: &str = "tool:";
+
+/// The continuation of a wait on `ticket`: one for the answer's own timer is
+/// kept back until the runner's clock reaches `due`; one for other answers'
+/// work and a timer is released then, if nothing came first.
+fn timer_due(request: Request, ticket: u64, due: Option<u64>) -> Request {
+    match due {
+        Some(ms) if ticket == TIMER => request.due(ms),
+        Some(ms) => request.wake(ms),
+        None => request,
+    }
+}
 
 /// A turn of an answer over its budget: the message names the repair.
 fn over_budget(source: &str, why: &str) -> DataError {
@@ -322,7 +341,12 @@ impl std::fmt::Debug for Module {
 /// One step of a call as the prelude reports it.
 enum Step {
     Done(Result<Value, DataError>),
-    Pending { call: u64, ticket: u64 },
+    /// `due`: when the timer a [`TIMER`] or [`WAITING`] wait is for is due, ms.
+    Pending {
+        call: u64,
+        ticket: u64,
+        due: Option<u64>,
+    },
 }
 
 impl Module {
@@ -807,15 +831,26 @@ impl Module {
                     Step::Pending {
                         call,
                         ticket: YIELDED,
+                        due: None,
                     }
                 }
                 (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
                     Step::Pending {
                         call,
                         ticket: WAITING,
+                        due: num("timer"),
                     }
                 }
-                (Some(call), Some(ticket)) => Step::Pending { call, ticket },
+                (Some(call), Some(0)) if num("timer").is_some() => Step::Pending {
+                    call,
+                    ticket: TIMER,
+                    due: num("timer"),
+                },
+                (Some(call), Some(ticket)) => Step::Pending {
+                    call,
+                    ticket,
+                    due: None,
+                },
                 _ => Step::Done(Err(DataError::Unavailable(format!(
                     "`{source}` is pending on no ticket"
                 )))),
@@ -1002,9 +1037,9 @@ impl Module {
                 DataError::Failed(_, m, _) if refuses => DataError::Unavailable(m),
                 e => e,
             }),
-            Ok(Step::Pending { call, ticket }) => {
-                let request = if matches!(ticket, 0 | WAITING | YIELDED) {
-                    Request::continuation(call)
+            Ok(Step::Pending { call, ticket, due }) => {
+                let request = if matches!(ticket, 0 | WAITING | YIELDED | TIMER) {
+                    timer_due(Request::continuation(call), ticket, due)
                 } else {
                     let Some(request) = self.take_request(ticket) else {
                         self.finish_let_go();
@@ -1152,10 +1187,11 @@ impl Module {
         }
     }
 
-    /// Continue an answer: fulfil its fetch, drain, settle.
+    /// Continue an answer: fulfil its fetch, drain, settle. No store at
+    /// bake, where only a timer continues one (`source.rs`, `query`).
     fn resume(
         &mut self,
-        store: &mut Store,
+        mut store: Option<&mut Store>,
         target: Option<Target>,
         source: &str,
         args: &[Value],
@@ -1167,7 +1203,7 @@ impl Module {
             ));
         }
         let key = Module::key(target, source, args);
-        if self.streams.iter().any(|(k, _)| *k == key) {
+        if let (true, Some(store)) = (self.streams.iter().any(|(k, _)| *k == key), &mut store) {
             return self.message(store, source, key, outcome);
         }
         let Some(pos) = self.parked.iter().position(|(k, _)| *k == key) else {
@@ -1179,7 +1215,7 @@ impl Module {
             call, ticket, last, ..
         } = self.parked.remove(pos).1;
         self.retired.remove(&call);
-        if ticket == WAITING || ticket == YIELDED {
+        if matches!(ticket, WAITING | YIELDED | TIMER) {
             if let Outcome::Failed { message, .. } = &outcome {
                 // The answer ends here: its call is unlinked from the
                 // prelude's bookkeeping, so its pending fetches are dropped
@@ -1194,9 +1230,14 @@ impl Module {
             self.progress += 1; // a delivery: what a waiting answer waits for
         }
         let outcome_text = outcome_to_json(&outcome).to_string();
-        self.host.store = Some(store as *mut Store);
+        let now = store
+            .as_deref()
+            .map_or(String::new(), |s| s.clock_ms().to_string());
+        self.host.store = store.as_mut().map(|s| &mut **s as *mut Store);
         self.host.answer_ops.clear();
-        self.host.socket_buffered = socket::snapshot(&self.streams, store);
+        if let Some(store) = store.as_deref() {
+            self.host.socket_buffered = socket::snapshot(&self.streams, store);
+        }
         let started = Instant::now();
         let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
             deadline.saturating_duration_since(started).as_secs_f64() * 1e3
@@ -1205,8 +1246,13 @@ impl Module {
         let clock = TurnClock::start();
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
-            if ticket == WAITING {
-                // Nothing to deliver: the work it waits on was another's.
+            if ticket == WAITING || ticket == TIMER {
+                // A timer of its own due by now runs: for a wait on others'
+                // work, any; for one on a timer, the one it waited for.
+                let due = if ticket == TIMER { "due" } else { "" };
+                engine
+                    .call("__exact_timer", [&call.to_string(), &now, due])
+                    .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
             } else if ticket == YIELDED {
                 engine
                     .call("__exact_yielded", [&call.to_string(), "", ""])
@@ -1246,7 +1292,7 @@ impl Module {
         self.host.store = None;
         // What this turn of an answer sent (D7, the amendment of 2026-10-18).
         let answer_ops = std::mem::take(&mut self.host.answer_ops);
-        if !answer_ops.is_empty() {
+        if let (Some(store), false) = (store, answer_ops.is_empty()) {
             self.stage_answer(store, source, answer_ops);
         }
         let deadline = self.snapshot_deadline.is_some();
@@ -1274,9 +1320,9 @@ impl Module {
         let answer = match result {
             Err(e) => Err(e),
             Ok(Step::Done(r)) => r.map(Answer::Now),
-            Ok(Step::Pending { call, ticket }) => {
-                let request = if matches!(ticket, 0 | WAITING | YIELDED) {
-                    Request::continuation(call)
+            Ok(Step::Pending { call, ticket, due }) => {
+                let request = if matches!(ticket, 0 | WAITING | YIELDED | TIMER) {
+                    timer_due(Request::continuation(call), ticket, due)
                 } else {
                     let Some(request) = self.take_request(ticket) else {
                         self.finish_let_go();
@@ -1413,73 +1459,4 @@ impl Drop for Module {
 }
 
 #[cfg(all(test, exact_js_engine))]
-mod bootstrap_tests {
-    use super::Module;
-
-    #[test]
-    fn hardening_refuses_a_reachable_abort_hook_handoff() {
-        let mut module = Module::new(
-            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
-            "test.pure",
-            "",
-        );
-        let error = match module.load_engine_with_prelude(include_bytes!(concat!(
-            env!("OUT_DIR"),
-            "/prelude-with-abort-hook.hbc"
-        ))) {
-            Ok(_) => panic!("a reachable abort hook handoff must refuse hardening"),
-            Err(error) => error,
-        };
-        assert!(error.contains("refusing to harden"), "{error}");
-        assert!(error.contains("abort hooks global"), "{error}");
-        assert!(error.contains("__exact_ibex2_abort_hooks"), "{error}");
-    }
-
-    #[test]
-    fn hardening_refuses_abort_hooks_a_proxy_get_trap_hides() {
-        let mut module = Module::new(
-            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
-            "test.pure",
-            "",
-        );
-        let error = match module.load_engine_with_prelude(include_bytes!(concat!(
-            env!("OUT_DIR"),
-            "/prelude-with-hidden-abort-hook.hbc"
-        ))) {
-            Ok(_) => panic!("abort hooks behind a Proxy must refuse hardening"),
-            Err(error) => error,
-        };
-        assert!(error.contains("refusing to harden"), "{error}");
-        assert!(error.contains("still reachable"), "{error}");
-    }
-
-    // What the freeze leaves open after a bootstrap that hides a payload
-    // behind a Proxy's `get` trap, another behind a symbol it makes
-    // Reflect.ownKeys skip, and plants a property on Object.prototype
-    // (js/tests/fixtures/harden-probe.js).
-    #[test]
-    fn hardening_freezes_what_descriptors_reach() {
-        let mut module = Module::new(
-            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
-            "test.pure",
-            "",
-        );
-        let mut engine = module
-            .load_engine_with_prelude(include_bytes!(concat!(
-                env!("OUT_DIR"),
-                "/prelude-with-harden-probe.hbc"
-            )))
-            .expect("the probe prelude hardens");
-        let report: serde_json::Value =
-            serde_json::from_str(&engine.call("__exact_probe", ["", "", ""]).unwrap()).unwrap();
-        assert_eq!(report["open"], 0, "{report}");
-        assert!(report["objects"].as_u64().unwrap() > 800, "{report}");
-        assert_eq!(report["payload"], true, "{report}");
-        // Published under a symbol after bootstrap made Reflect.ownKeys list
-        // only names.
-        assert_eq!(report["symbolic"], true, "{report}");
-        // The week tables, built after hardening, take a name planted on the
-        // frozen Object.prototype.
-        assert_eq!(report["firstDay"], 7, "{report}");
-    }
-}
+mod bootstrap_tests;

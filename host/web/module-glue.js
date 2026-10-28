@@ -127,6 +127,8 @@ export async function prepare(payload, admitted, id = nextId++) {
   }
   win.__exact_host = (op, name, value) => {
     if (op === 13) { journal.push(String(name)); return '1'; }
+    // The runner's clock as the turn was dispatched: when a timer armed now is due; none outside a turn.
+    if (op === 21) return context?.clock === undefined ? undefined : String(context.clock);
     if (!context) throw new Error('host call outside an answer');
     if (op === 6) {
     // A page module answers `native.later` on the page; nothing here can answer at once.
@@ -219,7 +221,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
       for (const drop of context.early.values()) if (drop !== reported) drop();
       if (reported) setTimeout(reported, 0);
-      if (answer.tag === 1) {
+      if (answer.tag === 1 && answer.timer !== undefined) pending.set(key(request), {call:answer.call,ticket:0,timer:true,requests:context.requests,owner:context.owner});
+      else if (answer.tag === 1) {
         result.request = context.requests.get(answer.ticket);
         if (!result.request) throw new Error('module awaits a fetch it never made');
         context.requests.delete(answer.ticket);
@@ -247,7 +250,7 @@ export async function prepare(payload, admitted, id = nextId++) {
           answer = JSON.parse(win.__exact_settle(String(answer.call)));
           continue;
         }
-        if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
+        if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting && answer.timer === undefined) {
           await storage.deliver(context.owner);
           deliveries++;
           await checkpoint();
@@ -312,14 +315,16 @@ export async function prepare(payload, admitted, id = nextId++) {
     };
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
-      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,entropy:false,topics:[],requests:new Map(),early:new Map()};
+      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,entropy:false,topics:[],requests:new Map(),early:new Map(),clock:request.clock};
       if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
       const parked = pending.get(key(request));
       if (!parked) throw new Error('reply for an answer not in flight');
       pending.delete(key(request));
       context.owner = parked.owner;
       context.requests = parked.requests;
-      win.__exact_fulfill(String(parked.ticket),JSON.stringify(request.outcome));
+      // A wait for its own timer: the runner's clock reached it (prelude.js `__exact_timer`).
+      if (parked.timer) win.__exact_timer(String(parked.call), String(context.clock ?? ''), 'due');
+      else win.__exact_fulfill(String(parked.ticket),JSON.stringify(request.outcome));
       return {tag:3,call:parked.call};
     };
     const defer = request => {
@@ -482,7 +487,7 @@ export function call(request) {
   if (request.op === 'dispatch') {
     const turn = turns.get(request.token);
     if (!turn || turn.id !== request.id) return { error: 'browser continuation is no longer live' };
-    turn.request.store = request.store; turn.request.grants = request.grants;
+    turn.request.store = request.store; turn.request.grants = request.grants; turn.request.clock = request.clock;
     return { ok: true };
   }
   if (request.op === 'discard') {

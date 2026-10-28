@@ -388,6 +388,7 @@ impl<D: DataSource> Runner<D> {
         let ty = self.plan.mutations[m].ty;
         let name = |plan: &Plan| plan.str(plan.mutations[m].name).to_string();
         self.snapshot_sockets();
+        self.store.set_clock_ms(self.now_ms);
         self.mutation_requests += 1;
         let answer = if Self::activity_send(source) {
             self.activity_request(source, args)

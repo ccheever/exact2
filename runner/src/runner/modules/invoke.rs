@@ -253,6 +253,7 @@ impl<D: DataSource> Runner<D> {
             final_of,
         };
         let answer = self.as_origin(origin, |r| {
+            r.store.set_clock_ms(r.now_ms);
             (r.data).answer(&mut r.store, &run.source, std::slice::from_ref(&run.args))
         });
         self.tool_step(run, answer);
@@ -410,6 +411,7 @@ impl<D: DataSource> Runner<D> {
         };
         let answer = self.as_invocation(run.origin, 0, |r| {
             let args = std::slice::from_ref(&run.args);
+            r.store.set_clock_ms(r.now_ms);
             (r.data).parse(&mut r.store, &run.source, args, outcome)
         });
         self.tool_step(run, answer);

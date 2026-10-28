@@ -660,6 +660,8 @@ impl<D: DataSource> Host<D> {
             return match (self.springs.settle_time().map(|t| t * 1000.0))
                 .into_iter()
                 .chain(self.runner.reask_due_ms())
+                // An answer waiting on its own timer (`data_timers.rs`): the clock goes to it too.
+                .chain(self.runner.data_timer_due_ms())
                 .reduce(f64::max)
             {
                 Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
@@ -1058,6 +1060,7 @@ impl<D: DataSource> Host<D> {
         let due = self.runner.timer_due_ms();
         let batch = batch.seq(self.runner.seq_range());
         let batch = batch.alerts(self.runner.take_alerts());
+        let batch = batch.landing(self.runner.data_timer_landing());
         batch.finish(due, self.runner.wants_frames(), self.runner.now_ms(), error)
     }
 

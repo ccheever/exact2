@@ -73,7 +73,8 @@ separate lane that runs concurrently; slice 1's driver moves to
   nothing records upload facts, so an offline write naming the photo never
   predicts. No farm build asked for one-view photos or video. Slice 1 is
   therefore what the farm asked for.
-- **No timers in a data module** (LLP 1027.000). r2's D4.3 had the driver
+- **No timers in a data module** (LLP 1027.000; since 2026-10-28 an answer
+  may wait on its own timer, D1, and this choice stands on its own). r2's D4.3 had the driver
   wait out `E_RATE_LIMIT` "up to 10 s in all", as Snapback's client does with
   `setTimeout`. A data module cannot wait. r3 returns the refusal with its
   `retryAfter`, and the app asks again from Contract (D4).

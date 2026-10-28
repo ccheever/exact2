@@ -728,14 +728,13 @@ export function packageRefusals(code, label, parse) {
   return found;
 }
 
-// Time and seeds are source arguments (LLP 1027.000): every executor refuses
-// the clock, randomness and timers when they are used, with these words
-// (js/src/prelude.js, host/web-js/ts-fetch.js). A direct use in the app's own
-// code is refused here too, at build, by file and line, so a test that runs
-// the module under Bun, which has no such guard, cannot hide it.
+// Time and seeds are source arguments (LLP 1027.000): every executor refuses the clock, randomness and every
+// timer but an answer's own `setTimeout` (D1) when they are used, with these words (js/src/prelude.js,
+// js/src/binary.js, host/web-js/ts-fetch.js). A direct use in the app's own code is refused here too, at
+// build, by file and line, so a test that runs the module under Bun, which has no such guard, cannot hide it.
 const ambient=(api)=>api+' is unavailable in data sources; pass time or a random seed as an argument';
-const timers=(api)=>api+' is unavailable in data sources: there are no timers; pass time as an argument';
-const TIMERS=['setTimeout','setInterval','requestAnimationFrame','requestIdleCallback'];
+const timers=(api)=>api+' is unavailable in data sources: an answer waits with setTimeout; pass time as an argument';
+const TIMERS=['setInterval','requestAnimationFrame','requestIdleCallback'];
 const GLOBALS=['globalThis','self','window','global'];
 // `x!`, `(x)` and `x?.y` as written, down to the expression they wrap.
 const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression','TSTypeAssertion'].includes(node.type)) node=node.expression; return node; };
@@ -868,7 +867,7 @@ export const compilerOptions = {
   allowJs: true,
   lib: ['ES2023', 'ES2024.Object', 'ES2024.Collection', 'ES2024.Promise', 'ES2024.String', 'WebWorker'],
   // No package's types are global unless a file names it: an installed
-  // `@types/node` or `@types/bun` would declare timers and `process`, which
+  // `@types/node` or `@types/bun` would declare Node's timers and `process`, which
   // no executor has.
   types: [],
 };

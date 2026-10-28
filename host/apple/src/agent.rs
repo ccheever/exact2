@@ -30,6 +30,8 @@ impl<D: DataSource> Host<D> {
                 // A re-ask after a turn over its budget: no I/O to wait on, so
                 // the clock goes to it (exact-runner's `overrun.rs`).
                 .chain(self.runner.reask_due_ms())
+                // An answer waiting on its own timer (`data_timers.rs`): the clock goes to it too.
+                .chain(self.runner.data_timer_due_ms())
                 .reduce(f64::max)
             {
                 Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),

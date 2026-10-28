@@ -484,7 +484,8 @@ export function install(exact) {
             // after each commit that sends and waits for its reply, within this
             // round, so a run of sends never spends the rounds. Past the deadline,
             // or 4096 stops, the rest is one advance.
-            const at = exact.clock.now, epoch = exact.clock.epoch, to = anim.settle();
+            // An answer's own timer (ts-fetch.js) is due as a task is: the settle goes to it, while its answer is live.
+            const at = exact.clock.now, epoch = exact.clock.epoch, to = Math.max(anim.settle(), ...exact.clock.timers.filter(t => t.data && t.live()).map(t => t.due));
             for (let stops = 0; ; stops++) {
               const before = exact.inflight.n, held = stops < 4096 && performance.now() < end;
               const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
@@ -585,8 +586,11 @@ export function install(exact) {
         const held = new Set((exact.heldAsks?.() ?? []).map(h => h.ticket));
         // A resource whose region ended (`gone`) has let its request go, as the runner's forget path does.
         // (a long poll past its first event is held still, LLP 1016.000 D8, and named)
-        const pending = [...exact.resources.filter(r => r.ticket && (!r.ticket.messages || held.has(r.ticket.id)) && !r.gone).map(r => ({ name: r.name, ticket: r.ticket.id, ...(held.has(r.ticket.id) ? { held: true } : {}) })),
-          ...(exact.mutations ?? []).filter(m => held.has(m.ticket?.id)).map(m => ({ name: m.name, ticket: m.ticket.id, held: true })), ...holds()];
+        // One whose answer has only its own timers out (ts-fetch.js) is marked `timer`, with when the earliest is due.
+        const timerOf = t => { const c = t?.call; if (!(c?.timers > 0) || c.plain) return undefined; const due = Math.min(...exact.clock.timers.filter(e => e.data && e.call === c).map(e => e.due)); return Number.isFinite(due) ? due : undefined; };
+        const marked = t => held.has(t.id) ? { held: true } : timerOf(t) !== undefined ? { timer: timerOf(t) } : {};
+        const pending = [...exact.resources.filter(r => r.ticket && (!r.ticket.messages || held.has(r.ticket.id)) && !r.gone).map(r => ({ name: r.name, ticket: r.ticket.id, ...marked(r.ticket) })),
+          ...(exact.mutations ?? []).filter(m => m.ticket && (held.has(m.ticket.id) || timerOf(m.ticket) !== undefined)).map(m => ({ name: m.name, ticket: m.ticket.id, ...marked(m.ticket) })), ...holds()];
         const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced, ...(r.ticket.ctl.grant ? { grant: r.ticket.ctl.grant } : {}), ...(r.ticket.ctl.socket ? { readyState: r.ticket.ctl.socket.readyState, bufferedAmount: r.ticket.ctl.socket.bufferedAmount, sent: r.ticket.ctl.socket.sent } : {}), ...(r.ticket.ctl.retrying ? { retrying: { attempt: r.ticket.ctl.retrying.attempt, inMs: Math.max(0, Math.round(r.ticket.ctl.retrying.at - performance.now())), error: r.ticket.ctl.retrying.error } } : {}) }));
         // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
         // Focus, the keyboard's overlap and the document's language, as glue.js's `state` adds them.

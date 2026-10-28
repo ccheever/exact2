@@ -25,6 +25,8 @@ public struct Batch {
     public var held = false
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
+    /// A data module's timer continuation an advance released is still out: the agent's jump waits for it.
+    public var landing = false
     /// Store refresh acknowledged no runner commit; keep the current timers.
     public var unchanged = false
     public var storeReadPending = false

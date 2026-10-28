@@ -13,6 +13,9 @@ pub struct Batch {
     collection_accepted: bool,
     seq: Option<(u64, u64)>,
     alerts: Vec<String>,
+    /// A data module's timer continuation an advance released is still out
+    /// (`Runner::data_timer_landing`): the agent's jump waits for its reply.
+    landing: bool,
 }
 
 /// Validate before token translation or storage/continuation serialization.
@@ -922,6 +925,12 @@ impl Batch {
         self
     }
 
+    /// With `"landing":true` while a released timer's continuation is out.
+    pub fn landing(mut self, landing: bool) -> Batch {
+        self.landing = landing;
+        self
+    }
+
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
@@ -962,6 +971,9 @@ impl Batch {
         }
         if self.collection_accepted {
             s.push_str(",\"accepted\":true");
+        }
+        if self.landing {
+            s.push_str(",\"landing\":true");
         }
         if let Some((first, last)) = self.seq {
             push_text!(&mut s, ",\"seq\":[{},{}]", first, last);

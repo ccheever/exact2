@@ -496,6 +496,8 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
         held: false,
         reach: Default::default(),
         listen: None,
+        due_ms: None,
+        wake_ms: None,
         http: if tag != 1 {
             let limit = r.u32().map_err(error)?;
             if limit == 0 || limit > 64 << 20 {

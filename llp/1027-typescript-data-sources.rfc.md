@@ -52,7 +52,8 @@ may have both (D8).
 **The seam in TypeScript** is four exports — `appId`, `grants`,
 `answer(source, args, store)`, `parse(source, args, outcome, store)` —
 with values as JSON and the plan's own shapes directing the conversion
-both ways (D1, D2). No `fetch`, no timers, no filesystem: the module
+both ways (D1, D2). No `fetch` (D1a later gave it one), no timers (LLP
+1027.000 D1 later gave an answer its own), no filesystem: the module
 has no globals that reach outside the process, so a request is a value
 the host runs under the grants, exactly as in Rust (LLP 1016 D1). That
 is not discipline; it is the absence of a binding.

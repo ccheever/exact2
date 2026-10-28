@@ -225,6 +225,9 @@ pub(crate) unsafe extern "C" fn host_door(
             };
             if yes { "1" } else { "0" }.to_string()
         })),
+        // The runner's clock as this call began, ms: when a timer the answer
+        // arms is due (binary.js `timers`). None at bake.
+        21 => Ok(state.store.map(|s| (*s).clock_ms().to_string())),
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();

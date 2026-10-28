@@ -2,8 +2,8 @@
 // prelude.js: base64 for what crosses the seam
 // as JSON, a string's UTF-8 length, a stream message's data, a long
 // poll's terms as the seam carries them (LLP 1016.000 D8), a fetch's file
-// options, and an image call's options (here, beside the prelude, under its
-// line cap). Natively a
+// options, an image call's options and an answer's timers (here, beside the
+// prelude, under its line cap). Natively a
 // binary message (a byte stream's bytes, a socket's frame; LLP 1016.000)
 // names only its size, and the host fills an ArrayBuffer of it through the
 // bytes door (op 9, js/src/crypto.rs): base64 decoded byte by byte in the
@@ -316,7 +316,88 @@
     }
     return { socketOwner: socketOwner, listenOwner: listenOwner, listenEvent: listenEvent, hand: hand };
   }
+  // An answer's own timers (LLP 1027.000 D1 as amended 2026-10-28), for
+  // prelude.js, here under its line cap. `setTimeout` arms one due on the
+  // runner's clock as the call began (`clock`, host door op 21), owned by the
+  // answer running (`owner`, which refuses one outside an answer). An answer
+  // that awaits only its timers parks on the earliest (`wait`), and the
+  // runner asks it again once its clock is there (`fire`): one callback a
+  // turn, so the microtasks each queues run before the next, as a browser
+  // runs them between tasks. An answer that gives its value or is let go
+  // clears the rest (`drop`): their callbacks never run. `setInterval`, the
+  // frame callbacks and the clock reads stay refused. Hermes's rejection
+  // tracker schedules its report with `setTimeout` too: that one runs alone,
+  // at the prelude's next `checkpoint`, which is when a browser fires
+  // `unhandledrejection`.
+  function timers(owner, clock, journal, report) {
+    var armed = new Map(), reports = [], signals = new WeakMap(), next = 1, now = 0;
+    function fixed(name, value) { Object.defineProperty(global, name, { value: value, writable: false, configurable: false }); }
+    // The runner's clock as the call began; where none is (at bake), the last time a timer ran at. Not kept
+    // monotonic: a runner that restarts at zero beside this realm (a dev reload) is the clock from then on.
+    function time() { var c = clock(), t = Number(c); if (c !== undefined && c !== "" && t === t) now = t; return now; }
+    function arm(api, run, ms, args) {
+      var call = owner(api), id = next++;
+      armed.set(id, { call: call, due: Math.ceil(time() + ms), run: run, args: args });
+      return id;
+    }
+    fixed("setTimeout", function setTimeout(callback, delay) {
+      if (typeof callback === "function" && report(callback)) { reports.push({ id: next, run: callback }); return next++; }
+      if (typeof callback !== "function") throw new TypeError("setTimeout(): the callback must be a function; a string of code is never run");
+      return arm("setTimeout()", callback, Math.max(Number(delay) | 0, 0), Array.prototype.slice.call(arguments, 2)); // `long`, as WebIDL converts it
+    });
+    fixed("clearTimeout", function clearTimeout(id) {
+      armed.delete(id);
+      reports = reports.filter(function (r) { return r.id !== id; });
+    });
+    ["setInterval", "requestAnimationFrame", "requestIdleCallback"].forEach(function (name) {
+      fixed(name, function () { throw new Error(name + "() is unavailable in data sources: an answer waits with setTimeout; pass time as an argument"); });
+    });
+    ["clearInterval", "cancelAnimationFrame", "cancelIdleCallback"].forEach(function (name) { fixed(name, function () {}); });
+    if (global.AbortSignal) global.AbortSignal.timeout = function timeout(ms) {
+      var n = Number(ms);
+      if (!(n >= 0 && n <= 9007199254740991)) throw new TypeError("AbortSignal.timeout(): the delay is a number of milliseconds from 0");
+      var controller = new global.AbortController();
+      signals.set(controller.signal, arm("AbortSignal.timeout()", function () { controller.abort(new global.DOMException("signal timed out", "TimeoutError")); }, Math.floor(n), []));
+      return controller.signal;
+    };
+    function first(call, by) {
+      var found;
+      armed.forEach(function (t, id) { if (t.call === call && t.due <= by && (!found || t.due < found[1].due)) found = [id, t]; });
+      return found;
+    }
+    return {
+      // The earliest of `call`'s timers: when it is due, or undefined.
+      wait: function (call) { var t = first(call, Infinity); return t ? (call.timerDue = t[1].due) : undefined; },
+      armed: function (call) { return first(call, Infinity) !== undefined; },
+      now: time,
+      // `call`'s earliest timer due by the clock `at` runs: the runner's, or,
+      // where none is (at bake), the last time a timer ran at. `due`: the
+      // runner says the timer it waited for is due, so that one runs.
+      fire: function (call, at, due) {
+        var t = Number(at);
+        if (at !== "" && t === t) now = t;
+        if (due) now = Math.max(now, call.timerDue || 0);
+        t = first(call, now);
+        if (!t) return;
+        armed.delete(t[0]);
+        try { t[1].run.apply(undefined, t[1].args); }
+        catch (e) { journal("data: a timer's callback threw: " + (e && e.message !== undefined ? e.message : String(e))); }
+      },
+      drop: function (call) { armed.forEach(function (t, id) { if (t.call === call) armed.delete(id); }); },
+      // An `AbortSignal.timeout` still to fire: the ms left, the deadline a
+      // fetch carrying it gives the host; `expire` aborts it when that passes.
+      left: function (signal) { var t = signal && armed.get(signals.get(signal)); return t ? Math.max(1, t.due - time()) : undefined; },
+      expire: function (signal) { var id = signal && signals.get(signal), t = armed.get(id); if (t) { armed.delete(id); t.run(); } },
+      checkpoint: function () {
+        while (reports.length) {
+          var report = reports.shift();
+          try { report.run(); } catch (e) { /* the tracker's own; nothing to tell */ }
+        }
+      },
+    };
+  }
   global.__exact_binary = Object.freeze({
+    timers: timers,
     fileRefusal: fileRefusal,
     bodyWritten: bodyWritten,
     imageOptions: imageOptions,

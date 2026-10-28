@@ -886,12 +886,15 @@ call outside them fails. The capabilities are:
 
 **What catches people.**
 
-- *A source cannot read the clock, start a timer or call `Math.random()`.*
-  `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
+- *A source cannot read the clock, repeat a timer or call `Math.random()`.*
+  `Date.now()`, `new Date()` without a value, `setInterval`,
   `performance.now()` and `Math.random()` are refused when first used, on every
   executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
   and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
+  An answer may wait with `setTimeout` or `AbortSignal.timeout`: the timer is
+  due on the app's clock, the agent's `clock +N` fires it, and it is cleared
+  when its answer gives its value.
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage or `native.call` then is refused
   with `code: 'bake'`. An uncaught refusal leaves the resource unbaked;

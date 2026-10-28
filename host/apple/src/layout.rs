@@ -26,6 +26,7 @@ impl<D: DataSource> Host<D> {
             batch.withhold(!batch.layout_provisional);
         }
         batch.facts = self.facts_moved();
+        batch.landing = self.runner.data_timer_landing();
         batch.wakelock = self.wakelock_moved();
         batch.orientationlock = self.orientation_moved();
         // A package view's displayed state, by the same rule, now the

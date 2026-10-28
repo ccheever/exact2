@@ -68,6 +68,10 @@ pub struct Store {
     /// Each open socket's buffered bytes at the start of the turn, by its
     /// resource's index: what its handle's `bufferedAmount` starts from.
     socket_buffered: Vec<(usize, u64)>,
+    /// The runner's clock as the call being made started, ms: when a timer
+    /// a TypeScript answer arms now is due (LLP 1027.000 D1). The runner
+    /// sets it before each call into its data source.
+    clock_ms: f64,
     /// Each entry's value before its first write since the open checkpoint:
     /// what a refused transaction puts back. A checkpoint costs what the
     /// transaction writes, not the store's size. Checkpoints do not nest.
@@ -290,6 +294,7 @@ impl Store {
             sockets: Vec::new(),
             answer_sockets: Vec::new(),
             socket_buffered: Vec::new(),
+            clock_ms: 0.0,
             undo: Vec::new(),
             copied: 0,
         }
@@ -660,6 +665,17 @@ impl Store {
     /// index of the resource that owns it.
     pub fn socket_buffered(&self) -> &[(usize, u64)] {
         &self.socket_buffered
+    }
+
+    /// Set the runner's clock for the call about to be made ([`Store::clock_ms`]).
+    pub fn set_clock_ms(&mut self, ms: f64) {
+        self.clock_ms = ms;
+    }
+
+    /// The runner's clock as the call being made started, ms; zero where no
+    /// runner set it (a bake's store).
+    pub fn clock_ms(&self) -> f64 {
+        self.clock_ms
     }
 
     /// The socket operations staged since the last take, left staged.

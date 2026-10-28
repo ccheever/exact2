@@ -1295,7 +1295,7 @@ fn clock_stepped<D: DataSource>(
     deadline: std::time::Instant,
 ) -> (f64, Option<String>) {
     for _ in 0..4096 {
-        if !p.host().timer_due_ms().is_some_and(|d| d <= to) || !wait_for_replies(p, deadline) {
+        if !p.host().timer_due_by(to) || !wait_for_replies(p, deadline) {
             break;
         }
         let (landed, e) = p.clock_until_request(to);
@@ -1305,7 +1305,7 @@ fn clock_stepped<D: DataSource>(
     }
     // After 4096 stops, what is in flight still lands first. A stop at `to`
     // may leave a timer due there: only a plain advance ends.
-    if p.host().timer_due_ms().is_some_and(|d| d <= to) {
+    if p.host().timer_due_by(to) {
         wait_for_replies(p, deadline);
     }
     p.clock(to)
