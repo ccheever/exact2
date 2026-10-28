@@ -213,6 +213,18 @@ describe('media views', () => {
     const fresh = fakeClient(() => ({}));
     expect((await filesMediaView(fresh.client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', '', 1000)).revision).toBe('');
   });
+  // MediaVideoPlayer at 7c3b3b3605ef: its `failed` reads the source it plays, so a re-signing that fails while a video
+  // plays leaves it playing; the failure slot shows once playback pauses.
+  test('Files: a failed re-sign leaves a playing video playing until it pauses', () => {
+    const video = contractComponent('media-actions.contract', 'FilesVideo'), state = video.state();
+    let media = { url: 'u1', revision: 'r1', name: 'clip.mp4', state: 'ready' };
+    const scope = () => ({ media, local: () => undefined });
+    video.call('started', state, scope(), []);
+    media = { ...media, url: '', revision: 'w2', state: 'failed' };
+    expect([video.drawn('video src', state, scope()), video.drawn('MediaVideoFailure(', state, scope()), video.derives(state, scope()).src]).toEqual([true, false, 'u1']);
+    video.call('stopped', state, scope(), []);
+    expect([video.drawn('video src', state, scope()), video.drawn('MediaVideoFailure(', state, scope())]).toEqual([false, true]);
+  });
   // MediaVideoPlayer at 7c3b3b3605ef: playbackSource held while the revision holds, a new revision taken once paused or
   // ended, an error on a kept source falling back to the newest URL.
   test('Files: the video player holds the source it loaded while its revision holds, and takes a new one once playback stops', () => {
