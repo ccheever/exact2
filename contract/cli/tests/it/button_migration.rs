@@ -11,6 +11,10 @@ fn sources(path: &Path, out: &mut Vec<PathBuf>) {
         .collect();
     entries.sort();
     for path in entries {
+        // An installed package's copy is the package's, not the app's source.
+        if path.is_dir() && path.file_name().is_some_and(|n| n == "node_modules") {
+            continue;
+        }
         if path.is_dir() {
             sources(&path, out);
         } else if path.extension().is_some_and(|e| e == "contract")
