@@ -33,10 +33,12 @@ column navigationKey="inbox" position="absolute" inset=0 display="flex" flex-dir
 - **Continue artwork under a sidebar or a bar**: `-exact-safe-area="extend"` on the image.
   iOS mirrors its edges there; the image keeps its size.
 - **A floating button** (`position="absolute" bottom=16 right=16`) sits 16 from the safe
-  edges over the list, and follows the keyboard and a minimizing bar. The list does not
-  clear it: add its height to the list's `padding-bottom`.
+  edges over the list and follows the keyboard. The list does not clear it: add its height
+  and its 16 to the list's `padding-bottom`, or put the button in a row after the list (a bar).
+- **Two panes side by side**: pad the left one's left and the right one's right by the
+  values; the space between them is your `gap`.
 - **The scroll indicator** is UIKit's: it follows the safe area and the bars.
 - `start` and `end` are the leading and trailing sides; right to left mirrors them. The
   values name physical sides: `-left` goes with `padding-left`.
-- `env(safe-area-inset-*)` inside a route clears the safe area a second time and stops the
-  list reaching (warning `lower-env-in-owner`).
+- Padding by `env(safe-area-inset-*)` inside a route clears the safe area a second time
+  (warning `lower-env-in-owner`); on the route's root it also keeps the list off the edges.

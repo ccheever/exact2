@@ -112,9 +112,9 @@ extension NavigationHost {
                 var safe = c.view.safeAreaInsets
                 // PROTO (safe-area design r6 §2.4): the content root is laid out against the resting safe area: its top
                 // is the bar's at full height, a large title expanded and the bar unminimized, as UIKit sizes it
-                // (`sizeThatFits`, measured equal to both while collapsed or minimized), whatever the bar shows now.
+                // (`sizeThatFits`, measured equal to both while collapsed or minimized) and the route's own additional inset, whatever the bar shows now.
                 if let bar = barNav.map({ $0.navigationBar }), !(barNav?.isNavigationBarHidden ?? true), bar.window != nil {
-                    let full = c.view.convert(bar.bounds, from: bar).minY + bar.sizeThatFits(CGSize(width: bar.bounds.width, height: .greatestFiniteMagnitude)).height
+                    let full = c.view.convert(bar.bounds, from: bar).minY + bar.sizeThatFits(CGSize(width: bar.bounds.width, height: .greatestFiniteMagnitude)).height + c.additionalSafeAreaInsets.top
                     if full > safe.top { safe.top = full }
                 }
                 // PROTO (r2 §2.1): the bottom clearance is the part of the inset the block still overlaps (a block the
