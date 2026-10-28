@@ -77,25 +77,31 @@ enum RasterRetry {
     /// in `url(…)` or backticks) ends it. A CDN's links carry signatures
     /// (Discord's `ex`, `is`, `hm`), and an image's `error` quotes only the host
     /// and path (the Linux host's `remote::without_queries`).
-    /// `text` about source `source` with no link's query: the source quoted
-    /// whole (a space in it too) cut at its query, then `withoutQueries`.
-    static func redacted(_ text: String, source: String) -> String {
-        let bare = source.firstIndex(where: { $0 == "?" || $0 == "#" }).map { String(source[..<$0]) } ?? source
-        return withoutQueries(source.isEmpty ? text : text.replacingOccurrences(of: source, with: bare))
-    }
+    /// `text` about source `source` with no link's query (`withoutQueries`:
+    /// the source, however it is quoted, is one of them).
+    static func redacted(_ text: String, source: String) -> String { withoutQueries(text) }
+    /// `text` with no query or fragment of any link in it: a CDN's links carry
+    /// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` quotes
+    /// only the host and path. A `?` with a character after it that is not a
+    /// space or a closing mark starts a query wherever the link sits, dropped
+    /// to the next space or closing mark; a `#` does the same in a word with a
+    /// `/`, a `:` or a `url(`. A question (`why?`) is left be (the Linux
+    /// host's `remote::without_queries`).
     static func withoutQueries(_ text: String) -> String {
+        let closing: (Character) -> Bool = { $0.isWhitespace || ")\"'`>]".contains($0) }
         var out = "", word = ""
-        func flush() {
-            let wrapped = word.range(of: "url(")?.lowerBound
-            let marker = [word.firstIndex(where: { $0 == "/" || $0 == ":" }), wrapped].compactMap { $0 }.min()
-            if let marker,
-               let cut = word[marker...].firstIndex(where: { $0 == "?" || $0 == "#" }) { word = String(word[..<cut]) }
-            out += word; word = ""
+        var characters = Array(text)[...]
+        while let c = characters.popFirst() {
+            let linked = word.contains("/") || word.contains(":") || word.contains("url(")
+            let next = characters.first
+            let starts = (c == "?" || (c == "#" && linked)) && next.map { !closing($0) } == true
+            if starts {
+                while let n = characters.first, !closing(n) { characters.removeFirst() }
+                continue
+            }
+            if c.isWhitespace { word = "" } else { word.append(c) }
+            out.append(c)
         }
-        for character in text {
-            if character.isWhitespace { flush(); out.append(character) } else { word.append(character) }
-        }
-        flush()
         return out
     }
 

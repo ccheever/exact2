@@ -23,36 +23,46 @@ pub(crate) fn without_query(link: &str) -> &str {
     &link[..link.find(['?', '#']).unwrap_or(link.len())]
 }
 
-/// `text` about source `source` with no link's query: the source itself, quoted
-/// whole (a space in it too), cut at its query, then [`without_queries`].
-pub(crate) fn redacted(text: &str, source: &str) -> String {
-    let text = if source.is_empty() {
-        text.into()
-    } else {
-        text.replace(source, without_query(source))
-    };
-    without_queries(&text)
+/// `text` about source `source` with no link's query ([`without_queries`]:
+/// the source, however it is quoted, is one of them).
+pub(crate) fn redacted(text: &str, _source: &str) -> String {
+    without_queries(text)
 }
 
-/// `text` with every link in it cut at its query or fragment: in each word,
-/// the first `?` or `#` after a `/`, a `:` or a `url(` (a scheme, a path, a
-/// link wrapped in `url(…)` or backticks, a relative `url(a.css?…)`) ends it. A CDN's links carry signatures (Discord's
-/// `ex`, `is`, `hm`), and an image's `error` and the log quote only the host
-/// and path. A question (`why?`) has neither, and is left be.
+/// `text` with no query or fragment of any link in it: a CDN's links carry
+/// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` and the log
+/// quote only the host and path. A `?` with a character after it that is not a
+/// space or a closing mark starts a query, wherever the link sits (in
+/// backticks, `url( … )`, a source with a space in it): it is dropped to the
+/// next space or closing mark (`)`, `"`, `'`, `` ` ``, `>`, `]`). A `#` does
+/// the same in a word with a `/`, a `:` or a `url(` (a colour, `#fff`, stays).
+/// A question (`why?`) is left be.
 pub(crate) fn without_queries(text: &str) -> String {
-    text.split_inclusive(char::is_whitespace)
-        .map(|word| {
-            let marker = [word.find(['/', ':']), word.find("url(")]
-                .into_iter()
-                .flatten()
-                .min();
-            let cut = marker.and_then(|at| word[at..].find(['?', '#']).map(|q| at + q));
-            match cut {
-                Some(cut) => format!("{}{}", &word[..cut], &word[word.trim_end().len()..]),
-                None => word.to_owned(),
+    let closing = |c: char| c.is_whitespace() || ")\"'`>]".contains(c);
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut word = String::new();
+    while let Some(c) = chars.next() {
+        let linked = word.contains(['/', ':']) || word.contains("url(");
+        let starts = match c {
+            '?' => chars.peek().is_some_and(|&next| !closing(next)),
+            '#' => linked && chars.peek().is_some_and(|&next| !closing(next)),
+            _ => false,
+        };
+        if starts {
+            while chars.peek().is_some_and(|&next| !closing(next)) {
+                chars.next();
             }
-        })
-        .collect()
+            continue;
+        }
+        if c.is_whitespace() {
+            word.clear();
+        } else {
+            word.push(c);
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Whether `name` is fetched rather than read: an `http:` or `https:` URL.

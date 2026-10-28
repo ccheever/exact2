@@ -954,35 +954,50 @@ fn an_errors_links_lose_their_queries() {
     assert_eq!(without_queries("HTTP 404"), "HTTP 404");
     assert_eq!(without_queries("why? because"), "why? because");
     assert_eq!(
+        without_queries("@import url( a.css?hm=secret);"),
+        "@import url( a.css);"
+    );
+    assert_eq!(
+        super::redacted("url(https://h/a.svg?x=1&hm=secret)", "https://h/a.svg?x=1"),
+        "url(https://h/a.svg)"
+    );
+    assert_eq!(
+        without_queries("fill=#fff stroke=#000"),
+        "fill=#fff stroke=#000"
+    );
+    assert_eq!(
         without_queries("@import url(a.css?hm=secret);"),
-        "@import url(a.css"
+        "@import url(a.css);"
     );
     let spaced = "https://h/a b.png?hm=secret";
     assert_eq!(
         super::redacted(&format!("image {spaced}: gone"), spaced),
-        "image https://h/a b.png: gone"
+        "image https://h/a b.png gone"
     );
-    assert_eq!(without_queries("image `/a.svg?hm=1`: x"), "image `/a.svg x");
+    assert_eq!(
+        without_queries("image `/a.svg?hm=1`: x"),
+        "image `/a.svg`: x"
+    );
     assert_eq!(
         without_queries("image `//cdn.example/a.svg?hm=1`: x"),
-        "image `//cdn.example/a.svg x"
+        "image `//cdn.example/a.svg`: x"
     );
     assert_eq!(
         without_queries("fill=\"url(https:h/x?hm=s)\""),
-        "fill=\"url(https:h/x"
+        "fill=\"url(https:h/x)\""
     );
     assert_eq!(
         without_queries("fill=\"url(//h/x?hm=s)\""),
-        "fill=\"url(//h/x"
+        "fill=\"url(//h/x)\""
     );
     assert_eq!(without_queries("HTTP 503: why?"), "HTTP 503: why?");
     assert_eq!(
         without_queries("image `https:cdn.example/a.png?hm=1`: x"),
-        "image `https:cdn.example/a.png x"
+        "image `https:cdn.example/a.png`: x"
     );
     assert_eq!(
         without_queries("fill=\"url(https://h/x?hm=s)\""),
-        "fill=\"url(https://h/x"
+        "fill=\"url(https://h/x)\""
     );
     assert_eq!(
         without_queries("a redirect to //bad:port/a.png?hm=1#f"),
