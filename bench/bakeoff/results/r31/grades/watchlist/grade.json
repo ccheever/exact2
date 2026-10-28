@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers with symbol, name, price and a % change pill (arrow + tinted green/red background); also a small per-row sparkline and a Market Pulse advancing/declining card."},
+      {"n": 2, "status": "pass", "note": "Prices tick about once a second in place, sparklines and pulse counts update; scrolling keeps working while values change. With Change sort the rows re-order live, so a row can move out from under the finger (a tap landed on a different ticker than the one aimed at)."},
+      {"n": 3, "status": "pass", "note": "Native pull-down menu with six options (symbol/price/change, both directions) and a checkmark on the current one; search matches symbol and company name and has a proper 'No matching stocks' empty state."},
+      {"n": 4, "status": "pass", "note": "Star toggles fill state and adds to My List; All/My List segmented control filters correctly; detail screen has a star too."},
+      {"n": 5, "status": "pass", "note": "Detail shows big price, change pill, $ change, open, volume and an area line chart with L/H labels and 'x of 60 samples', updating live; history is kept from app start."},
+      {"n": 6, "status": "pass", "note": "Starred tickers and the Change sort survived relaunch (the All/My List scope resets to All, which the spec allows)."}
+    ],
+    "bugs": [
+      "A horizontal drag across a row (as if to swipe a row action) opened that ticker's detail screen instead of doing nothing.",
+      "With Change sort, rows re-order every second while you look at them, so tapping often opens a neighbouring ticker (B does the same)."
+    ],
+    "tells": [
+      "The large title, search field, segmented control and the area above the list are pinned. The large title never collapses on scroll and only about 4.5 rows show at a time; the list area ends above the home indicator, leaving a dead band.",
+      "Custom design throughout: warm off-white background, custom green, pill-shaped change badges, a hand-styled search capsule. It reads as a branded or web-designed app rather than stock iOS.",
+      "Very tall 92 pt rows with a lot of empty space, and the row separators are drawn inset from the star column.",
+      "No swipe actions on rows; no disclosure chevrons.",
+      "At the largest text size the 'Watchlist' large title and the star icon don't grow, and the fixed header takes up so much room that only about one row fits on screen.",
+      "Sparklines show as hard step shapes rather than smooth lines.",
+      "Fling travel feels short: several flings were needed to cover a distance that B covers in one or two."
+    ],
+    "scroll": "Smooth with no blank rows or pop-in, and the position is kept after returning from a detail screen. But the scrolling area is a small window under a pinned header, the rows are very tall, and flings feel short.",
+    "scores": {"features": 9, "platform": 5, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers in a standard inset list: star, symbol, name, price, and a green/red % change, with disclosure chevrons."},
+      {"n": 2, "status": "pass", "note": "About 20 tickers a second change in place, including while scrolling. With Change sort the list re-orders live, as in A."},
+      {"n": 3, "status": "pass", "note": "Native toolbar menu with Symbol A–Z / Price high–low / Change high–low (one direction each) and a checkmark on the current one; the bottom search field matches symbol and name, with an empty state and a Clear Search button."},
+      {"n": 4, "status": "pass", "note": "Star toggles (blue fill), My List filters correctly, and the detail screen has a star button."},
+      {"n": 5, "status": "pass", "note": "Detail in grouped cards: price, change since open, a live 'Last 60 Prices' line chart with low/high and sample count, plus open and volume. History only starts when the detail screen opens, so the chart is flat at first."},
+      {"n": 6, "status": "pass", "note": "My List, the sort, and even the All/My List scope survived relaunch."}
+    ],
+    "bugs": [
+      "With Change sort, rows re-order every second under the finger, so a tap can open a neighbouring ticker (A does the same).",
+      "The detail chart starts empty every time it opens instead of showing the ticker's recent prices, so 'last 60 prices' needs a minute on the screen before it fills."
+    ],
+    "tells": [
+      "Inline nav title instead of a large title on the root list.",
+      "The count/sort caption is a big grey header that pins under the nav bar.",
+      "No swipe actions on rows.",
+      "Default tint blue stars; a fairly plain look.",
+      "At the largest text size the row stays horizontal, so the company name gets squeezed into a narrow column and hyphenates across four lines (excused, but cramped)."
+    ],
+    "scroll": "Feels like a stock iOS list: fast fling with proper deceleration and bounce, content blurs under the iOS 26-style bars, no blank rows or pop-in, and the position is kept after returning from a detail screen.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement and share the live re-sort-under-finger problem. B looks and scrolls like a standard iOS 26 list (bottom search bar, native menus, grouped detail cards, full-height list). A is more ambitious and pretty, with sparklines, a market pulse card and a richer sort menu, but its pinned custom header leaves a small scrolling window, its rows are oversized, its large title never collapses, and a horizontal swipe on a row opens the detail screen."
+}

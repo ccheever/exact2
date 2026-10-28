@@ -1,0 +1,42 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All seven sections are present. Account has a profile header with initials avatar, editable Name/Email fields (Return moves to Email, keyboard has a Done bar), and Sign Out with a system confirmation popover that flips to a Not Signed In / Sign In state. Reading, Appearance (Aa swatches), Library and Notifications are all there; turning Notifications on reveals Daily Reminder plus New Releases, Reading Goals and Recommendations. Storage shows used space with a Books/Cache bar and Clear Cache with a confirmation that names the size, then the button disables. About has Version, pushed Privacy and Terms screens, and Rate Paperback."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push a checkmark list and pop back on selection. Reminder time is a compact DatePicker opening the wheel popover. Line spacing is a segmented control."},
+      {"n": 3, "status": "pass", "note": "Preview updates live with the slider (18→29 pt), font (Avenir Next) and spacing (Relaxed)."},
+      {"n": 4, "status": "pass", "note": "Name, size, font, spacing, theme (Dark), sort (Author), both library toggles, notifications on, the reminder time (9:30 PM) and the sub-toggles all survived a relaunch."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings asks for confirmation in a popover, then restores reading, theme, library and notification defaults (checked after a relaunch). The account and the cleared cache are kept."}
+    ],
+    "bugs": [
+      "Choosing a theme (Sepia or Dark) throws the list back to the top, so you lose your place in the Appearance section. The large title also stays collapsed into the inline bar even though the list is at the top."
+    ],
+    "tells": [
+      "Rate Paperback opens a hand-built half sheet with five stars and a Submit button instead of the system review prompt. In dark mode its disabled Submit is a black pill on a dark sheet.",
+      "The Aa theme swatches stay the same size at the largest text size while the labels around them grow.",
+      "At the largest text size the Email text field truncates to 'alex.morgan…', indented oddly under its label, and the email in the profile header breaks mid-word ('alex.morgan@e / xample.com')."
+    ],
+    "scroll": "Native inset-grouped list. Slow drags, flings, flinging back and pulling past the top all behave like iOS, with no blank or popping rows, and the scroll position is kept after returning from pushed screens. The exception is a theme change, which jumps the list to the top.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All seven sections are present with explanatory footers. Name and Email are shown read-only. Sign Out uses an alert and swaps the section to Not signed in / Sign In. Theme is a checkmark list. Turning Notifications on reveals Daily Reminder plus Reading Goal Progress, New Releases and Deals and Offers. Storage shows Downloaded, Cache and Total, and Clear Cache confirms with the size, then disables. About has Version, pushed Privacy and Terms screens, and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push checkmark lists; font names are shown in their own typefaces and each list has a footer. The pick shows in place and the Back button returns to Settings. Reminder time is a compact DatePicker with the wheel popover. Line spacing is a segmented control."},
+      {"n": 3, "status": "pass", "note": "The preview card updates live for size (28 pt), font (Avenir Next), spacing (Relaxed) and also theme (sepia paper)."},
+      {"n": 4, "status": "pass", "note": "Size, font, spacing, theme, sort, both library toggles, notifications on, the reminder time (9:00 PM) and all three sub-toggles survived a relaunch."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings asks for confirmation in an alert and restores the defaults (checked after a relaunch). The account and downloads are kept, as its footer says."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Rate the App shows a custom 'Enjoying Paperback?' alert with Rate Paperback / Not Now instead of the system review prompt.",
+      "At the largest text size the Notifications footer is cut off with an ellipsis ('reminder and u…') instead of wrapping fully.",
+      "At the largest text size the email address breaks mid-word ('jordan.lee@ex / ample.com').",
+      "Sepia only tints the preview card, not the screen (Dark does recolour the whole app). This is reasonable for a reader but a bit less complete.",
+      "On the Privacy and Terms screens the title in the bar is repeated as a heading in the body, and the inline title sits off-centre next to the wide 'Settings' back pill."
+    ],
+    "scroll": "Native inset-grouped list. Slow drags, flings, flinging back and overscroll at the top feel like iOS, with no blank rows or pop-in. The scroll position is kept after returning from pushed screens and after changing the theme.",
+    "scores": {"features": 8, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both are close, native-feeling settings screens that meet every requirement. A has more features: editable name and email, an app-wide sepia theme and a storage bar. But every theme change in A throws the list back to the top and leaves the large title collapsed, and its rating sheet is hand-built. B has no functional bugs, keeps its place, and its only rough edges are a truncated footer at the largest text size and a custom rating alert, so it is the one I would ship."
+}
