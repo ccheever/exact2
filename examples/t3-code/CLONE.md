@@ -1,8 +1,8 @@
 # T3 Code clone handoff
 
-Updated October 28, 2026, Toronto time. Nate is rethinking the plan for finishing
-the one-to-one clone. Automatic coordination is disabled. Use this note when
-choosing the next approach.
+Updated October 28, 2026, Toronto time. Finish the one-to-one clone with pstack
+handling routine execution and review. The legacy scheduled coordinator stays
+disabled. Use this handoff when taking over the work.
 
 ## Current state
 
@@ -18,7 +18,8 @@ These implementation checkpoints are pushed to GitHub:
 | Mobile implementation and release work | `250d863` | [Mobile checkpoint](https://github.com/ccheever/exact2/tree/t3/clone-draft-apfs-r1-20261024) |
 
 [PR216](https://github.com/ccheever/exact2/pull/216) remains a draft on a divergent
-branch. The three checkpoints still need a deliberate integration plan.
+branch. Integrate the checkpoints into the working branch as concrete dependencies
+require them.
 
 - The desktop app extraction is unfinished. The complete proposed Root is
   2,059 lines against the repository's 1,500-line rule. Current Contract keeps
@@ -34,7 +35,7 @@ branch. The three checkpoints still need a deliberate integration plan.
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
 
-## Proposed execution plan
+## Execution milestones
 
 Nate chose iPhone first, then iPad. Desktop remains in the overall plan.
 Keep the complete one-to-one goal across these milestones.
@@ -64,11 +65,26 @@ Mobile selects its own Contract entry. The unfinished desktop Root extraction
 does not inherently block the first mobile build. Bring other checkpoint changes
 into the working branch when a concrete build or behavior dependency needs them.
 
-## Keep coordination small
+## Execute with pstack
 
-- Start with one implementation owner for the build and app wiring.
-- Use one independent verifier at working milestones. Add a second implementer
-  only for disjoint files after the baseline runs.
-- Keep one owner for shared entry points, build output and each simulator.
-- Report the flow that works, the remaining mismatch, and the pushed commit.
-- Keep automatic coordination off. Start implementation on Nate's explicit go.
+Use `pstack:poteto-mode` to select the applicable playbook and handle implementation,
+debugging, and review. Follow Nate's configured pstack model roles. Choose the
+smallest working change that advances the next app flow.
+
+- Routine source edits, dependency installation, builds, tests, simulator use,
+  local commits, and normal pushes to PR216 are authorized. Make reversible
+  implementation decisions without asking Nate to manage the work.
+- Start with one implementation owner. Delegate bounded work on disjoint files
+  after the iPhone baseline runs. Give shared entry points, build output, and
+  each simulator one owner. Review independently at working milestones.
+- Build, drive the changed flow, fix observed differences, then commit and push.
+  Use focused checks during development and run the required integrated checks
+  before delivery. A passing build alone does not establish parity.
+- After three failed fixes for one target, stop that approach and report the
+  blocker briefly. Continue independent flows within the existing scope.
+  Collect decisions only Nate can make into one handoff after independent work.
+- Keep progress in this file and the PR. Report the working flow, remaining
+  mismatch, and pushed commit. Keep useful logs and screenshots with the work.
+- Finish when the reference flows, visual behavior, persistence, accessibility,
+  and performance are verified on iPhone, iPad, and desktop. Record incomplete
+  acceptance explicitly. Apple account work remains deferred.
