@@ -454,8 +454,15 @@ fn font_smoothing_is_inherited_and_refuses_what_no_host_draws() {
         );
     }
     for value in ["none", "subpixel-antialiased"] {
-        let source = format!("component App\n  view\n    text \"Hello\" -webkit-font-smoothing=\"{value}\"\n");
+        let source = format!(
+            "component App\n  view\n    text \"Hello\" -webkit-font-smoothing=\"{value}\"\n"
+        );
         let error = contract::compile(&source).unwrap_err();
-        assert!(error.message.contains("implements `auto` and `antialiased`"), "{error}");
+        assert!(
+            error
+                .message
+                .contains("implements `auto` and `antialiased`"),
+            "{error}"
+        );
     }
 }

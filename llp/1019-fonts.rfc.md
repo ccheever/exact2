@@ -982,3 +982,42 @@ The named instances' `wght`, the same on iOS 27 and macOS 27:
   font back through San Francisco's table, so UIKit's semibold reports 600.
 - **A declared face keeps the number**: its `wght` is the CSS weight, as the
   browser draws an `@font-face` range (D2).
+
+### D12 — `-webkit-font-smoothing` (2026-10-28)
+
+A web app that sets `-webkit-font-smoothing: antialiased` on its root (T3 Code
+does, under its Font smoothing setting) draws lighter text in Chrome and
+Safari on the Mac than AppKit's default: the browser draws the glyphs with
+Core Graphics font smoothing off, which leaves grayscale coverage without the
+stem darkening smoothing adds. Matched by weight instead, a label drawn at 500
+reads a step heavier than the oracle's, and one drawn at 400 is the wrong
+weight. So the property is a row (`font_smoothing`, bit 222), with WebKit's
+name: no CSS specification defines it (CSS Fonts 4 dropped `font-smooth`).
+
+- **Values.** `auto`, the initial value, and `antialiased`. `none` (aliased
+  glyphs) and `subpixel-antialiased` are refused by name: macOS has drawn no
+  subpixel text since 10.14, and no host draws aliased text.
+- **Inherited, paint only.** A change neither measures nor lays out: smoothing
+  moves no glyph.
+- **AppKit and UIKit** call `CGContext.setShouldSmoothFonts(false)` for an
+  `antialiased` paragraph in each place they draw one: the paragraph raster,
+  both its paths (`TextRasterJob`), the direct draw (`TextEngine.draw`) and
+  the Mac's selection overlay. `Spec.antialiased` carries it, so the raster's
+  key (`TextRasterKey`, over the spec) tells the two apart and a change
+  redraws.
+- **Measured** (`scripts/fixtures/font-smoothing.contract`, black San
+  Francisco labels on white at 13 to 16 px, 400 to 600, the Mac at 2×
+  against Chrome at 2× on macOS 27). Each label's ink, the sum of its
+  darkness: `antialiased` takes 10 to 15% off on both, and leaves AppKit's
+  within 1.6% of Chrome's, where AppKit's `auto` was 11 to 18% heavier than
+  Chrome's `antialiased`. A 500 label drawn `antialiased` is as heavy as
+  Chrome's 500, and a 400 one 16% lighter, so the weight need not stand in.
+- **The web** writes `-webkit-font-smoothing`, bound values too; Chrome and
+  Safari draw it on the Mac and ignore it elsewhere, Firefox ignores it.
+- **Linux, Windows and a terminal** ignore it: their rasterizers have no
+  smoothing to turn off.
+- **Declared.** Apple reads the row once per paragraph, so an inline run's own
+  value gives way to its paragraph's. Text a platform view draws (a text
+  field's, a native control's title) keeps the platform's smoothing, and so
+  does a paragraph the content-region reader holds (LLP 1072 §8.1, over 64 KB
+  of text).
