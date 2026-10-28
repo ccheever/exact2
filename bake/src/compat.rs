@@ -75,6 +75,8 @@ pub struct Compat {
     /// What the app can reach and each host's spelling of it (LLP 1069.008
     /// D7): beside the id, not in it; `null` when the grants are unknown.
     pub reach: serde_json::Value,
+    /// The binary's painter choice, outside the compatibility hash (LLP 1030 D3a).
+    pub painter: Option<&'static str>,
 }
 
 impl Compat {
@@ -103,6 +105,10 @@ impl Compat {
         canonical(&self.embedded, &mut s);
         s.push_str(",\"reach\":");
         canonical(&self.reach, &mut s);
+        if let Some(painter) = self.painter {
+            s.push_str(",\"painter\":");
+            canonical(&serde_json::json!(painter), &mut s);
+        }
         s.push_str("}\n");
         s
     }
@@ -530,6 +536,12 @@ fn compatibility_with_trust(
         target: target.into(),
         embedded: json!({ "trust": trust }),
         reach: serde_json::Value::Null,
+        // Android shells also use the Linux bake; the target names the host.
+        painter: manifest.painter(if target.contains("android") {
+            "android"
+        } else {
+            platform
+        })?,
     })
 }
 

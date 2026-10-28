@@ -766,6 +766,7 @@ mod tests {
             target: "t".into(),
             embedded: Value::Null,
             reach: Value::Null,
+            painter: None,
         }
     }
 

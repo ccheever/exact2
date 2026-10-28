@@ -5,6 +5,27 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
+test('each painted host admits ink, carries it in native metadata and refuses gpu', async () => {
+  const { readManifest, nativeManifestMetadata } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-painter-'));
+  const base = { name: 'Painter', app: { id: 'dev.exact.painter', name: 'Painter' } };
+  const read = host => {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...base, host }));
+    return readManifest(dir, 'painter');
+  };
+  try {
+    for (const platform of ['windows', 'linux', 'android']) {
+      const manifest = read({ [platform]: { painter: 'ink' } });
+      assert.equal(nativeManifestMetadata(manifest, platform).host.painter, 'ink');
+      for (const other of ['windows', 'linux', 'android'].filter(p => p !== platform)) {
+        assert.equal(nativeManifestMetadata(manifest, other).host.painter, undefined);
+      }
+      assert.equal(nativeManifestMetadata(read({ [platform]: {} }), platform).host.painter, undefined);
+      assert.throws(() => read({ [platform]: { painter: 'gpu' } }), /painter/);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('readManifest takes the web manifest\'s description', async () => {
   const { readManifest } = await import('./app.mjs');
   const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');

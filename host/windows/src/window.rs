@@ -141,9 +141,6 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             }
         }
     }
-    if std::env::var_os("EXACT_PAINTER").is_none() {
-        std::env::set_var("EXACT_PAINTER", "cpu");
-    }
     if std::env::var_os("EXACT_GPU_RENDER").is_none() {
         std::env::set_var("EXACT_GPU_RENDER", "1");
     }
@@ -685,7 +682,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         let window = match events.create_window(
             Window::default_attributes()
                 .with_no_redirection_bitmap(
-                    std::env::var("EXACT_PAINTER").as_deref() == Ok("ink")
+                    self.config.painter() == exact_linux::presenter::PainterChoice::Ink
                         && std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("wgpu"),
                 )
                 .with_visible(false)
