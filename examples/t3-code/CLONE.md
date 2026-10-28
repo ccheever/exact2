@@ -51,8 +51,11 @@ not recurred in this drive. Text observations now commit independently of the
 bounded command queue; lifecycle, submit and command outcomes remain ordered.
 The normal integrated PR build saves all 124 characters of a rapid edit exactly
 and restores that complete draft, saved environment and conversation after relaunch.
-The restored draft reaches the server intact. Its saved project directory became
-unavailable, so final provider acceptance uses another existing live checkout.
+The restored draft reaches the server intact. Final acceptance on an available
+existing checkout creates a new thread, receives a real reply, sends a follow-up,
+and stops its provider run. After relaunch, the environment, reply and interrupted
+conversation remain available. The functional iPhone POC is verified; its signed
+production build, TestFlight processing and tester availability remain pending.
 The first Home fix is pushed in PR216 at `122646f95` and independently reviewed.
 
 All six root repository checks pass at the mobile checkpoint. On the integrated
