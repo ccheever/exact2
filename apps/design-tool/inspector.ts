@@ -41,6 +41,21 @@ const lowered = (r: any) => !r.editable?.rung && UNPLACED.test(String(r.editable
  * longhand puts the side first (`border-top-left-radius`). */
 export const rowName = (name: string) => CSS[name] ?? name.replace(/^border_(width|style|color|radius)_(.+)$/, 'border_$2_$1').replace(/_/g, '-');
 
+// Rows whose number is no length, so it keeps the decimals it needs (`opacity` 0.333 is not 0.333 px).
+const UNITLESS = new Set(['opacity', 'flex-grow', 'flex-shrink', 'z-index', 'order', 'line-height', 'aspect-ratio', 'font-weight', '-exact-press-scale']);
+/** A row's number as the panel shows it: the shortest decimal that is still the 32-bit float the plan carries
+ * (19.700000762939453 is 19.7), and a length at most 3 decimals (16.006250381469727 is 16.006). Only the shown
+ * text: an edit sends the row's own source text, never this. */
+export const shownNumber = (n: number, length = true) => {
+  if (!Number.isFinite(n) || Number.isInteger(n)) return n;
+  let shortest = n;
+  for (let d = 1; d <= 9; d++) { const t = Number(n.toFixed(d)); if (Math.fround(t) === Math.fround(n)) { shortest = t; break; } }
+  return length ? Number(shortest.toFixed(3)) : shortest;
+};
+/** A row's value as text, its numbers shown by `shownNumber`. */
+export const shownValue = (name: string, value: unknown) => typeof value === 'string' ? value
+  : JSON.stringify(value, (_k, v) => typeof v === 'number' ? shownNumber(v, !UNITLESS.has(name)) : v);
+
 /** The build's facts a selection was made under: a reload (its status
  * gone, then told again), a pin, a mode or scheme, a new plan or design
  * moves them. */
@@ -112,7 +127,7 @@ export function selectionView(s: Selected | null, stale: string, read: Axis[] | 
   const row = (r: any) => ({
     // Nothing sets it (its initial value): the Inspector folds it behind a count, unless it is the row being edited.
     initial: r.source === 'initial' || lowered(r),
-    name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
+    name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: shownValue(ACTIVE[String(r.name)] ?? rowName(String(r.name)), r.value),
     source: r.source && typeof r.source === 'object' ? `${r.state ? `:${r.state} part at ` : ''}${partAt(r.source)}` : `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.fromAt?.line != null ? ` from ${r.fromAt.component ?? 'a node'} (${String(r.fromAt.file).split('/').pop()}:${r.fromAt.line})` : r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
     rung: usable ? String(r.editable?.rung ?? '') : '', token: usable ? String(r.editable?.token ?? r.editable?.link ?? '') : '',
     param: usable ? String(r.editable?.param ?? '') : '', short: usable ? String(r.editable?.short ?? r.editable?.param ?? '') : '',
