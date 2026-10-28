@@ -262,7 +262,11 @@ impl Shelf {
         let mut stable = 0;
         until("desktop animation settles", || {
             let next = self.capture_pixels();
-            let score = band(&previous, &next);
+            let score = if (previous.width(), previous.height()) == (next.width(), next.height()) {
+                band(&previous, &next)
+            } else {
+                (f64::INFINITY, 1.)
+            };
             stable = if score.0 < 0.02 && score.1 < 0.0001 {
                 stable + 1
             } else {
@@ -284,14 +288,17 @@ impl Shelf {
 
     fn capture_pixels(&mut self) -> tiny_skia::Pixmap {
         self.alive();
-        assert_eq!(
-            unsafe { GetForegroundWindow() },
-            self.hwnd,
-            "Shelf must be unobscured"
-        );
-        unsafe {
-            DwmFlush().unwrap();
-        }
+        until("Shelf is unobscured", || {
+            self.alive();
+            unsafe {
+                let _ = SetForegroundWindow(self.hwnd);
+                GetForegroundWindow() == self.hwnd
+            }
+        });
+        until("desktop compositor is available", || {
+            self.alive();
+            unsafe { DwmFlush().is_ok() }
+        });
         let rect = self.client();
         let (w, h) = (rect.right, rect.bottom);
         assert!(w > 0 && h > 0);
@@ -564,7 +571,7 @@ fn shelf_dpi_roundtrip() {
     fs::write(out().join("dpi-waiting"), app.child.id().to_string()).unwrap();
     until("Settings display scaling 150%", || {
         app.alive();
-        unsafe { GetDpiForWindow(app.hwnd) == 144 }
+        (unsafe { GetDpiForWindow(app.hwnd) == 144 }) && app.text().contains("scale 1.5,")
     });
     unsafe {
         let _ = SetForegroundWindow(app.hwnd);
@@ -575,6 +582,7 @@ fn shelf_dpi_roundtrip() {
         app.alive();
         unsafe { GetDpiForWindow(app.hwnd) == 96 }
     });
+    println!("S2_DPI 96 -> 144 -> 96");
     fresh_comparison("dpi", app);
 }
 
@@ -593,7 +601,8 @@ fn shelf_device_loss() {
     app.place(1025, 720);
     until("CPU fallback presented through composition", || {
         app.alive();
-        app.text().contains("painter cpu")
+        app.text()
+            .contains("CPU recovery frame presented through composition")
     });
     app.capture("device-loss-cpu");
     until("hardware recovered after backoff", || {
@@ -604,7 +613,10 @@ fn shelf_device_loss() {
     });
     let recovered = app.text();
     assert!(recovered.contains("WARP composition"));
-    let mut frames = recovered
+    let presented = recovered
+        .find("CPU recovery frame presented through composition")
+        .unwrap();
+    let mut frames = recovered[presented..]
         .lines()
         .filter(|s| s.starts_with("exact-windows: frame "));
     let cpu = frames.find(|s| s.contains("painter cpu")).unwrap();

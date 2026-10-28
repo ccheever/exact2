@@ -213,7 +213,9 @@ impl DirectWindow {
         let size =
             [p.viewport().0, p.viewport().1].map(|v| (v * p.brush.scale).round().max(1.) as u32);
         let retry_due = self.retry.ready(now);
-        if self.recovering && retry_due {
+        // Re-establish composition with a CPU frame before retrying hardware;
+        // a real TDR can take DWM down along with the rendering device.
+        if self.recovering && retry_due && self.fallback.is_some() {
             let opened = crate::ink::Ink::new().and_then(|mut ink| {
                 self.fallback = None;
                 if !ink.attach_window(self.window.clone(), size)? {
@@ -270,6 +272,7 @@ impl DirectWindow {
                 Err(e) => eprintln!("exact-ink: recovery: {e}"),
             }
         }
+        p.last_frame_succeeded = false;
         if let Some((device, target)) = &mut self.fallback {
             let presented = (|| {
                 *target = device.resize_target(*target, pixels.width(), pixels.height())?;
@@ -284,6 +287,11 @@ impl DirectWindow {
             if let Err(e) = presented {
                 eprintln!("exact-ink: recovery present: {e}");
                 self.fallback = None;
+            } else {
+                p.last_frame_succeeded = true;
+                if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+                    eprintln!("exact-ink: CPU recovery frame presented through composition");
+                }
             }
         }
         if retry_due {
