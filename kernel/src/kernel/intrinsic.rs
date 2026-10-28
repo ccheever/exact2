@@ -54,6 +54,9 @@ impl Kernel {
             self.arena.set_intrinsic(slot, size);
             return Ok(());
         }
+        if size.is_none() {
+            self.mark_withdrawn(slot);
+        }
         self.arena.set_intrinsic(slot, size);
         self.intrinsic_changed(slot);
         Ok(())
@@ -87,6 +90,32 @@ impl Kernel {
             self.intrinsic_changed(s);
         }
         false
+    }
+
+    /// A host withdrew `slot`'s report. When that report is the size its kind's
+    /// marks share, the host sizes them no more (Linux's Material and neutral
+    /// looks leave a checkbox to the kernel, after a report it took back):
+    /// the shared size goes with it, and the marks still reading it are laid
+    /// out again at the kind's own.
+    fn mark_withdrawn(&mut self, slot: u32) {
+        let Some(key) = crate::control::mark_key(&self.arena, slot) else {
+            return;
+        };
+        let own = self.arena.intrinsic(slot);
+        if own.is_none() || crate::control::shared_size(&self.arena, slot) != own {
+            return;
+        }
+        self.arena.mark_sizes.retain(|(k, _)| *k != key);
+        let reading: Vec<u32> = (self.arena.iter_live())
+            .filter(|&s| {
+                s != slot
+                    && self.arena.intrinsic(s).is_none()
+                    && crate::control::mark_key(&self.arena, s) == Some(key)
+            })
+            .collect();
+        for s in reading {
+            self.intrinsic_changed(s);
+        }
     }
 
     /// `slot`'s natural size changed: lay it out again.
