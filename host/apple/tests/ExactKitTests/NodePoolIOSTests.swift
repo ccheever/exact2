@@ -453,16 +453,18 @@ final class NodePoolIOSTests: XCTestCase {
         }
     }
 
-    /// LLP 1069.011.000 D8: a row holding controls — a native button and a
-    /// switch — pools around them; each is a new node with a new `UIControl`
-    /// under the next row's id, pressing that id.
-    func testARowPoolsAroundItsControlsWhichAreBuiltFresh() throws {
-        func row(_ base: Int, y: Double) -> [[String: Any]] {
+    /// LLP 1069.011.000 D8: a row holding controls pools around a switch,
+    /// a new node with a new `UIControl` under the next row's id; its native
+    /// button, which holds no value, parks with its `UIButton`, and the
+    /// next row's press reaches the next row's id.
+    func testARowPoolsAroundItsSwitchAndKeepsItsNativeButton() throws {
+        func row(_ base: Int, y: Double, label: String) -> [[String: Any]] {
             [
                 ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
                 ["op": "create", "id": base + 1, "kind": "text", "props": ["text": "Row \(base)"], "style": ["font_size": 17.0]],
                 ["op": "create", "id": base + 2, "kind": "control", "handlers": ["press"],
-                 "props": ["type": "button", "accessibilityRole": "button"], "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                 "props": ["type": "button", "accessibilityRole": "button", "accessibilityLabel": label, "testId": "go-\(base)"],
+                 "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
                 ["op": "create", "id": base + 3, "kind": "control", "handlers": ["change"],
                  "props": ["type": "checkbox", "accessibilityRole": "switch", "checked": "true"], "style": ["text_color": [0, 0, 0, 255]]],
                 ["op": "children", "id": base, "ids": [base + 1, base + 2, base + 3]],
@@ -472,28 +474,26 @@ final class NodePoolIOSTests: XCTestCase {
                 ["op": "frame", "id": base + 3, "x": 230.0, "y": 10.0, "w": 51.0, "h": 31.0],
             ]
         }
-        let p = listFixture(row(10, y: 0), root: 10)
+        let p = listFixture(row(10, y: 0, label: "Go to 10"), root: 10)
         p.buttonFace = { _ in var f = ButtonFace(); f.title = "Go"; return f }
         p.apply(wireBatch([]))
-        let rowView = try XCTUnwrap(p.views[10]), label = try XCTUnwrap(p.views[11])
+        let rowView = try XCTUnwrap(p.views[10]), label = try XCTUnwrap(p.views[11]), node = try XCTUnwrap(p.views[12])
         let button = try XCTUnwrap(p.controls.controls[12] as? NativeButtonIOS)
         let toggle = try XCTUnwrap(p.controls.controls[13])
-        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + row(20, y: 0)
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + row(20, y: 0, label: "Go to 20")
             + [["op": "children", "id": 1, "ids": [20]]]))
-        XCTAssertTrue(p.views[20] === rowView && p.views[21] === label, "the plain views, by position")
-        let freshButton = try XCTUnwrap(p.controls.controls[22] as? NativeButtonIOS)
+        XCTAssertTrue(p.views[20] === rowView && p.views[21] === label && p.views[22] === node, "the views, by position")
+        XCTAssertTrue(p.controls.controls[22] === button, "the same UIButton, in its node")
+        XCTAssertTrue(button.superview === node && button.owner === node)
+        XCTAssertEqual(button.accessibilityLabel, "Go to 20"); XCTAssertEqual(button.accessibilityIdentifier, "go-20")
         let freshToggle = try XCTUnwrap(p.controls.controls[23])
-        XCTAssertFalse(freshButton === button, "a new UIButton")
         XCTAssertFalse(freshToggle === toggle, "a new switch")
         XCTAssertNil(p.controls.controls[12]); XCTAssertNil(p.controls.controls[13])
-        XCTAssertNil(button.superview, "the old control left with its node")
-        XCTAssertEqual(p.pool.leavesDropped["control"], 2); XCTAssertEqual(p.pool.leavesBuilt["control"], 2)
+        XCTAssertEqual(p.pool.leavesDropped["control"], 1); XCTAssertEqual(p.pool.leavesBuilt["control"], 1)
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
-        freshButton.sendActions(for: .primaryActionTriggered)
-        XCTAssertEqual(pressed, [22], "the new row's id")
         button.sendActions(for: .primaryActionTriggered)
-        XCTAssertEqual(pressed, [22], "the old control reaches nothing")
+        XCTAssertEqual(pressed, [22], "the new row's id")
     }
 
     /// A 2D canvas row (LLP 1056 D10, LLP 1068 §4.0): the canvas is a new

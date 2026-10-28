@@ -41,6 +41,15 @@ final class NativeButtonIOS: UIButton {
         var interactive: Bool
         /// The applied padding (`NodeView.kernelPadding`, shared, not copied)
         var padding: [CGFloat?]
+        /// Whether `other` draws the same: it differs at most in what only
+        /// accessibility reads (the face's label among them). A list's next
+        /// row of the same face sets no configuration on the button it reuses.
+        func draws(as other: Written) -> Bool {
+            var face = face, theirs = other.face
+            face.label = nil; theirs.label = nil
+            return face == theirs && raster == other.raster && accent == other.accent && destructive == other.destructive
+                && enabled == other.enabled && traits == other.traits && interactive == other.interactive && padding == other.padding
+        }
     }
     /// A native button sent no padding: every side UIKit's
     static let unsaid: [CGFloat?] = [nil, nil, nil, nil]
@@ -269,23 +278,26 @@ extension ControlHost {
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style ?? "")` is not a button style; drawing bordered")
         }
+        let redraw = button.written.map { !$0.draws(as: written) } ?? true
         button.written = written
-        let (_, drawn, glass) = Self.configuration(face)
-        button.isEnabled = written.enabled
-        button.isUserInteractionEnabled = written.interactive
-        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive,
-                                     padding: written.padding, raster: ButtonRasterIOS.image(face, lease: owner.raster))
+        if redraw {
+            let (_, drawn, glass) = Self.configuration(face)
+            button.isEnabled = written.enabled
+            button.isUserInteractionEnabled = written.interactive
+            ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive,
+                                         padding: written.padding, raster: ButtonRasterIOS.image(face, lease: owner.raster))
+            button.drawn = drawn
+            if button.isGlass != glass {
+                button.isGlass = glass
+                owner.syncGlassSlot()
+            }
+        }
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
         button.setAccessibilityToggle(written.pressed)
         if #available(iOS 18, tvOS 18, *) {
             button.accessibilityExpandedStatus = written.expanded.map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
-        }
-        button.drawn = drawn
-        if button.isGlass != glass {
-            button.isGlass = glass
-            owner.syncGlassSlot()
         }
     }
 
