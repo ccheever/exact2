@@ -97,9 +97,14 @@ the sent attachment opens from the saved conversation. Inline file-chip taps now
 open that same draft preview and Back retains the attachment. Opening first saves
 observed text, then rechecks the editor and file; a blocked-save regression covers
 rapid typing and route/file changes before navigation. Stale mounts, token ranges,
-draft text and removed files cannot open it. Other rich context actions
-and photo-library import remain incomplete; attachment Markdown still uses the
-older prose renderer. These later changes are outside the POC TestFlight build.
+draft text and removed files cannot open it. Other rich context actions and
+photo-library import remain incomplete. Sent Markdown attachments now use the
+workspace file code cards: Preview/Source round trips, horizontal code scrolling,
+and the exact 344-character code-body copy pass on iPhone. Preview parsing accepts
+CRLF/CR while Source retains original newlines. Generic Markdown prose,
+tables and images still differ from the reference. These later changes are
+outside the POC TestFlight build.
+
 The ordinary thread also imports a 567,032-byte PNG through Files. Its restored
 draft opens in Quick Look; sending receives `IMAGE_ATTACHMENT_OK`, and the sent
 image opens after restart. Preview resolution now follows image context to its
@@ -153,7 +158,7 @@ The inspector-supported Files/chat branch retains its existing search input.
 Source rows carry only source fields and reuse their
 highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
-Read failures show an error and Try again instead of an empty body. All 3,712
+Read failures show an error and Try again instead of an empty body. All 3,713
 mobile tests and strict app TypeScript pass. These phone fixes are not in the POC build.
 The Apple host preserves pull-to-refresh for a short file that also scrolls
 horizontally. Its new regression assertions pass, and the native short-file drive
@@ -173,7 +178,7 @@ one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
 unchanged from the original PR head. A bounded extraction attempt made no changes;
 the desktop checkpoint needs broader integration. Keep the failure visible.
 
-The full mobile suite passes 3,712 tests, strict app TypeScript passes, and the
+The full mobile suite passes 3,713 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
 with `QueueFull` on the former eager-send action and passes with coalesced text.
 

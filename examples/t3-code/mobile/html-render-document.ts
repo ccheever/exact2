@@ -25,7 +25,7 @@ export async function mobileHtmlRenderDocument(client: T3Client, context: string
   const uri = str(obj(JSON.parse(source.sourceJSON)).url);
   if (!entry) {
     entry = { name: source.name, kind: 'html', mimeType: 'text/html', sizeBytes: 0, content: null, contentError: '',
-      sourceJSON: source.sourceJSON, uri, authorizedAt: now, dark: null, rows: [] };
+      sourceJSON: source.sourceJSON, uri, authorizedAt: now, dark: null, rows: [], previewBlocks: [] };
     cache.set(source.identifier, entry);
     if (cache.size > 4) cache.delete(cache.keys().next().value!);
   } else if (entry.uri !== uri) {

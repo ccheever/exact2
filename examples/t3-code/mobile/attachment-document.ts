@@ -1,4 +1,5 @@
 import { mobileComposerTarget } from './composer-target';
+import { mobileMarkdownBlocks, type MarkdownBlock } from './markdown-blocks';
 // AttachmentFileScreen/useAttachmentDocument at365aa87982, over the existing media owner.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 import { mobileClient, mobileNative } from './client';
@@ -14,16 +15,16 @@ import { reviewRow, reviewLineTokens, type ReviewRow } from './review-model';
 
 export interface AttachmentDocumentSnapshot {
   identifier: string; name: string; subtitle: string; kind: string; ready: boolean; error: string;
-  text: string; hasContent: boolean; truncated: boolean; tableTruncated: boolean;
+  text: string; previewBlocks: MarkdownBlock[]; hasContent: boolean; truncated: boolean; tableTruncated: boolean;
   renderedMode: string; activeMode: string; sourceJSON: string; uri: string; draft: boolean;
   htmlRenderSource: string; rows: ReviewRow[]; table: { id: string; header: boolean; cells: { id: string; text: string }[] }[];
 }
 export type AttachmentDocumentCache = { name: string; kind: ReturnType<typeof filePreviewKind>; mimeType: string; sizeBytes: number;
   content: ReturnType<typeof decodeFilePreviewText> | null; contentError: string; sourceJSON: string;
-  uri: string; authorizedAt: number; dark: boolean | null; rows: ReviewRow[] };
+  uri: string; authorizedAt: number; dark: boolean | null; rows: ReviewRow[]; previewBlocks: MarkdownBlock[] };
 const caches = new WeakMap<T3Client, Map<string, AttachmentDocumentCache>>();
 export const EMPTY_ATTACHMENT_DOCUMENT: AttachmentDocumentSnapshot = { identifier: '', name: '', subtitle: '', kind: '',
-  ready: false, error: '', text: '', hasContent: false, truncated: false, tableTruncated: false, renderedMode: '',
+  ready: false, error: '', text: '', previewBlocks: [], hasContent: false, truncated: false, tableTruncated: false, renderedMode: '',
   activeMode: 'source', sourceJSON: '', uri: '', draft: false, htmlRenderSource: '', rows: [], table: [] };
 const owner = (client: T3Client) => JSON.stringify([client.generation, client.environmentId, client.projectId, client.threadId, mobileComposerTarget(client).owner]);
 
@@ -49,13 +50,14 @@ export function attachmentDocumentProjection(identifier: string, entry: Attachme
     const tokens = reviewLineTokens(lines.map((content, index) => ({ content, change: 'context', oldLineNumber: null, newLineNumber: index + 1 })), entry.name, dark);
     entry.rows = lines.map((text, index) => ({ ...reviewRow(`attachment-line:${index}`, 'line'), text: text.replace(/\t/g, '    '),
       newNumber: String(index + 1), tokens: tokens[index] ?? [] }));
+    entry.previewBlocks = entry.kind === 'markdown' ? mobileMarkdownBlocks(entry.content.text, dark) : [];
     entry.dark = dark;
   }
   return { identifier, name: entry.name, subtitle: `${scope === 'composer' ? 'Draft attachment' : 'Attachment'}${entry.sizeBytes > 0 ? ` · ${formattedSize(entry.sizeBytes)}` : ''}`,
     kind: entry.kind, ready: true, error: needsText ? entry.contentError : '', text: entry.content?.text ?? '', hasContent: entry.content !== null,
     truncated: entry.content?.truncated ?? false, tableTruncated: table?.truncated ?? false,
     renderedMode: presentation.renderedMode ?? '', activeMode: presentation.activeMode, sourceJSON: entry.sourceJSON,
-    uri: entry.uri, draft: scope === 'composer', htmlRenderSource: '', rows: entry.rows,
+    uri: entry.uri, draft: scope === 'composer', htmlRenderSource: '', rows: entry.rows, previewBlocks: entry.previewBlocks,
     table: table?.rows.map((row, index) => ({ id: String(index), header: index === 0,
       cells: row.map((text, column) => ({ id: String(column), text })) })) ?? [] };
 }
@@ -74,7 +76,7 @@ export async function mobileAttachmentDocument(scope: string, id: string, routeK
     const metadata = obj(JSON.parse(source.sourceJSON));
     entry = { name: source.name, kind: filePreviewKind({ name: source.name, mimeType: str(metadata.mimeType) }),
       mimeType: str(metadata.mimeType), sizeBytes: Number(metadata.sizeBytes) || 0, content: null, contentError: '',
-      sourceJSON: source.sourceJSON, uri: str(metadata.url), authorizedAt: now, dark: null, rows: [] };
+      sourceJSON: source.sourceJSON, uri: str(metadata.url), authorizedAt: now, dark: null, rows: [], previewBlocks: [] };
     cache.set(source.identifier, entry);
     if (cache.size > 4) cache.delete(cache.keys().next().value!);
   }

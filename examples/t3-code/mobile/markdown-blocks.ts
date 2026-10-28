@@ -3,6 +3,7 @@ import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
 export interface MarkdownBlock { id: string; kind: 'markdown' | 'code'; text: string; language: string; tokens: ThreadCodeToken[] }
 
 export function mobileMarkdownBlocks(body: string, dark: boolean): MarkdownBlock[] {
+  body = body.replace(/\r\n?/g, '\n');
   const blocks: MarkdownBlock[] = [];
   const fence = /^( {0,3})(`{3,}|~{3,})([^\n]*)\n/gm;
   let position = 0;

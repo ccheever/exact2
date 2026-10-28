@@ -447,6 +447,8 @@ describe('mobile V2 transcript presentation', () => {
       ['```text\n```~\nlast\n```', '```~\nlast'],
       ['  ~~~text\n  first\n second\n  ~~~~', 'first\nsecond'],
       ['```\n```', ''],
+      ['```text\r\nfirst\r\nsecond\r\n```', 'first\nsecond'],
+      ['```text\rfirst\rsecond\r```', 'first\nsecond'],
     ]) {
       const code = mobileMarkdownBlocks(body!, false);
       expect(code).toHaveLength(1); expect(code[0]?.kind).toBe('code'); expect(code[0]?.text).toBe(expected);

@@ -450,7 +450,7 @@ component MobileRouteContent
           if focused
             if mediaData.ready
               if mediaData.kind == "file" and (documentData.error != "" or documentData.kind == "text" or documentData.kind == "markdown" or documentData.kind == "html")
-                MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, retry=retryDocument, nativeEvent=documentNativeEvent, htmlEvent=threadAction("html-render", htmlRenderContext.key), htmlKey=htmlRenderContext.key, nativeError=mediaNativeError)
+                MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, routeId=routeId, active=focused, bodySize=settingsAppearance.baseFontSize, bodyLine=settingsAppearance.bodyLine, retry=retryDocument, nativeEvent=documentNativeEvent, htmlEvent=threadAction("html-render", htmlRenderContext.key), htmlKey=htmlRenderContext.key, nativeError=mediaNativeError)
                 if mediaNativeOpen
                   MediaPreview(data=mediaViewerData, completed=mediaComplete)
               else if documentData.kind == "audio"

@@ -1,6 +1,8 @@
 // AttachmentFileScreen365aa87982. Native HTML; bounded text/table over Contract.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
 use ReviewColors, ReviewRow from "./review-shapes.contract"
+use ThreadBlock from "./thread-shapes.contract"
+use MobileFileMarkdown from "./file-view.contract"
 shape AttachmentCell
   id: string
   text: string
@@ -16,6 +18,7 @@ shape AttachmentDocumentSnapshot
   ready: bool
   error: string
   text: string
+  previewBlocks: ThreadBlock[]
   hasContent: bool
   truncated: bool
   tableTruncated: bool
@@ -40,6 +43,10 @@ component MobileAttachmentDocument
     data: AttachmentDocumentSnapshot
     colors: ReviewColors
     wrap: bool
+    routeId: string
+    active: bool
+    bodySize: number
+    bodyLine: number
     retry: action
     nativeEvent: action
     htmlEvent: action
@@ -81,7 +88,7 @@ component MobileAttachmentDocument
                       text cell.text user-select="text" width=168 box-sizing="border-box" padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 border-right-width=1 border-bottom-width=1 border-style="solid" border-color=colors.border font-size=12.25 font-weight=(item.header ? 600 : 400) color=colors.foreground
         else if data.activeMode == "markdown"
           scroll id="attachment-document" flex=1 min-height=0
-            text data.text markup="markdown" padding=14 font-size=16 line-height="23px" color=colors.foreground
+            MobileFileMarkdown(blocks=data.previewBlocks, colors=colors, owner=data.identifier, path=data.name, routeId=routeId, active=active, bodySize=bodySize, bodyLine=bodyLine)
         else
           list id="attachment-document" flex=1 min-height=0 virtualized=true estimated-item-height=22
             for row in data.rows key=row.id

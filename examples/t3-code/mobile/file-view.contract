@@ -123,20 +123,7 @@ component MobileFileView
           else
             if preview and data.markdown
               scroll flex=1 min-height=0 refresh=refresh
-                column padding=18 align-items="center"
-                  column width="100%" max-width=760 gap=14
-                    for block in data.previewBlocks key=block.id
-                      if block.kind == "code"
-                        column min-width=0 overflow="hidden" border-radius=10 border-width=1 border-style="solid" border-color=colors.markdownBorder background-color=colors.codeBackground
-                          row min-height=42 align-items="center" justify-content="space-between" padding-left=14 padding-right=6 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.markdownBorder
-                            text (block.language == "" ? "CODE" : block.language) flex=1 min-width=0 font-family="monospace" font-size=max(10, round(bodySize * 0.8)) text-transform="uppercase" color=colors.markdownBody user-select="text"
-                            t3-file-code-copy route-key=routeId copy-owner=data.owner copy-path=data.path copy-block=block.id copy-text=block.text copy-language=block.language copy-active=active copy-tint=colors.markdownBody copy-success-tint=colors.markdownLink copy-background=colors.codeBackground copy-border=colors.markdownBorder width=34 height=34
-                          view overflow-x="auto" overflow-y="hidden" scrollbar-width="none" max-width="100%" padding-left=14 padding-right=14 padding-top=12 padding-bottom=12
-                            text font-family="monospace" font-size=max(10, round(bodySize * 0.8)) line-height=`${max(10, round(bodySize * 0.8)) + 6}px` white-space="pre" user-select="text" color=colors.codeForeground
-                              for token in block.tokens key=token.id
-                                text token.text color=token.color font-weight=token.weight font-style=token.slant
-                      else
-                        text block.text markup="markdown" font-size=bodySize line-height=`${bodyLine}px` color=colors.markdownBody user-select="text"
+                MobileFileMarkdown(blocks=data.previewBlocks, colors=colors, owner=data.owner, path=data.path, routeId=routeId, active=active, bodySize=bodySize, bodyLine=bodyLine)
             else
               // The reference remounts its source renderer when wrapping changes.
               if wrap
@@ -174,3 +161,30 @@ component MobileFileSource
                 else
                   for token in row.tokens key=token.id
                     text token.text color=token.color font-weight=(wrap ? token.weight : 400) font-style=(wrap ? token.slant : "normal")
+
+
+component MobileFileMarkdown
+  props
+    blocks: ThreadBlock[]
+    colors: ReviewColors
+    owner: string
+    path: string
+    routeId: string
+    active: bool
+    bodySize: number
+    bodyLine: number
+  view
+    column padding=18 align-items="center"
+      column width="100%" max-width=760 gap=14
+        for block in blocks key=block.id
+          if block.kind == "code"
+            column min-width=0 overflow="hidden" border-radius=10 border-width=1 border-style="solid" border-color=colors.markdownBorder background-color=colors.codeBackground
+              row min-height=42 align-items="center" justify-content="space-between" padding-left=14 padding-right=6 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.markdownBorder
+                text (block.language == "" ? "CODE" : block.language) flex=1 min-width=0 font-family="monospace" font-size=max(10, round(bodySize * 0.8)) text-transform="uppercase" color=colors.markdownBody user-select="text"
+                t3-file-code-copy route-key=routeId copy-owner=owner copy-path=path copy-block=block.id copy-text=block.text copy-language=block.language copy-active=active copy-tint=colors.markdownBody copy-success-tint=colors.markdownLink copy-background=colors.codeBackground copy-border=colors.markdownBorder width=34 height=34
+              view overflow-x="auto" overflow-y="hidden" scrollbar-width="none" max-width="100%" padding-left=14 padding-right=14 padding-top=12 padding-bottom=12
+                text font-family="monospace" font-size=max(10, round(bodySize * 0.8)) line-height=`${max(10, round(bodySize * 0.8)) + 6}px` white-space="pre" user-select="text" color=colors.codeForeground
+                  for token in block.tokens key=token.id
+                    text token.text color=token.color font-weight=token.weight font-style=token.slant
+          else
+            text block.text markup="markdown" font-size=bodySize line-height=`${bodyLine}px` color=colors.markdownBody user-select="text"
