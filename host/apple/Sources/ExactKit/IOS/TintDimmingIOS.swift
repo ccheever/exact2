@@ -142,15 +142,32 @@ extension NodeView {
 
     /// The paragraph's runs as it paints them now: every run greyed while it dims its paint, and
     /// outside a control a link's where the paragraph names the tint (`tinted`), as UIKit greys a
-    /// link in the tint. A run keeps no record of where its colour came from, so a link in a fixed
-    /// colour greys too when another run in its paragraph names the tint.
+    /// link in the tint. A link is a run with an `href`, or in a paragraph of inline runs one at or
+    /// beneath a run with an `href` or a press (`activates`). A run keeps no record of where its
+    /// colour came from, so a link in a fixed colour greys too when another run in its paragraph
+    /// names the tint.
     func dimmedRuns(_ runs: inout [Run], strut: inout Run, tinted: Bool) {
         guard tintAdjustmentMode == .dimmed else { return }
         let all = dimsItsPaint
+        // The inline runs `paragraphSpec` made `runs` from, one each
+        let painted = props["text"] == nil ? inlineText.filter(\.paints) : []
         for i in runs.indices {
-            if all { runs[i].greyColors() } else if tinted, !runs[i].href.isEmpty { runs[i].greyColors(uikitAlpha: true) }
+            if all { runs[i].greyColors() } else if tinted, !runs[i].href.isEmpty || (i < painted.count && activates(painted[i])) {
+                runs[i].greyColors(uikitAlpha: true)
+            }
         }
         if all { strut.greyColors() }
+    }
+
+    /// Whether a press on inline run `leaf` does something: it or a run it stands in has an `href`
+    /// or a press, as `inlineActivationTarget` finds them
+    private func activates(_ leaf: InlineText) -> Bool {
+        var run: InlineText? = leaf
+        while let current = run {
+            if current.handlers.contains("press") || !(current.props["href"] ?? "").isEmpty { return true }
+            run = presenter?.inlineText(current.parent)
+        }
+        return false
     }
 }
 

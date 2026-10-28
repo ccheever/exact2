@@ -325,6 +325,50 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try runChannels(paragraph), grey, "the link once the dimming ends")
     }
 
+    /// A run in the tint beneath a link it stands in, and one a press acts on, grey as links do,
+    /// while the paragraph's plain text keeps its colour
+    func testANestedLinkAndAPressedRunDimAsLinks() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "text"],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        var tinted = InlineStyle(), plain = InlineStyle()
+        tinted.colorRef = .object(["sys": .string("@tint"), "c": [0, 122, 255, 255]])
+        plain.run.color = red.map(Double.init)
+        p.applyParagraph(1, [
+            InlineText(id: 2, parent: 1, props: ["href": "https://example.com/terms"], style: InlineStyle(), handlers: [], paints: false),
+            InlineText(id: 3, parent: 2, props: ["text": "terms"], style: tinted, handlers: [], paints: true),
+            InlineText(id: 4, parent: 1, props: ["text": " and "], style: plain, handlers: [], paints: true),
+            InlineText(id: 5, parent: 1, props: ["text": "more"], style: tinted, handlers: ["press"], paints: true),
+        ])
+        let paragraph = try XCTUnwrap(p.views[1])
+        p.viewport.tintColor = color(blue)
+        dim(p, true)
+        assertChannels(try runChannels(paragraph, 0), uikitGrey(blue, uikitAlpha: true), "the run beneath a link")
+        assertChannels(try runChannels(paragraph, 1), red, "the plain text")
+        assertChannels(try runChannels(paragraph, 2), uikitGrey(blue, uikitAlpha: true), "the run a press acts on")
+        dim(p, false)
+        assertChannels(try runChannels(paragraph, 0), blue, "the run beneath a link once the dimming ends")
+    }
+
+    /// The page's canvas, which the viewport keeps, takes a pressable root's fill as written: a
+    /// batch while dimmed leaves it coloured
+    func testThePageCanvasKeepsAPressableRootsFillWhileDimmed() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": blue, "written": ["background_color"]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let canvas = { try self.components(XCTUnwrap(p.viewport.backgroundColor).resolvedColor(with: p.viewport.traitCollection).cgColor) }
+        assertChannels(try canvas(), blue, "the canvas before the dimming")
+        dim(p, true)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityLabel": "Page"]]]))
+        assertChannels(try canvas(), blue, "the canvas after a batch while dimmed")
+        dim(p, false)
+        assertChannels(try canvas(), blue, "the canvas once the dimming ends")
+    }
+
     /// A native field in a pressable row is UIKit's to dim: its written text colour stays while the
     /// row's own fill greys
     func testANativeFieldInAControlKeepsItsTextColour() throws {

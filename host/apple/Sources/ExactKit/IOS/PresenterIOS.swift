@@ -1389,11 +1389,12 @@ package final class Presenter {
         // The root's colour, resolved and compared only when what it is made
         // of changes: every batch asked UIKit for a colour it then compared.
         let first = root.subviews.first as? NodeView
-        let key = CanvasKey(root: first.map(ObjectIdentifier.init), channels: first?.channels("background_color"))
+        // As written, never greyed: the viewport keeps it once the dimming ends (TintDimmingIOS.swift)
+        let key = CanvasKey(root: first.map(ObjectIdentifier.init), channels: first.flatMap { $0.undimmedChannels("background_color", dark: $0.drawsDark) })
         guard key != canvasKey else { return }
         canvasKey = key
         // A root without a background shows the platform's (LLP 1115 D2).
-        let color = first?.color("background_color", .platformBackground(in: root)) ?? .platformBackground(in: root)
+        let color = first?.undimmedCGColor("background_color").map { UIColor(cgColor: $0) } ?? .platformBackground(in: root)
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
