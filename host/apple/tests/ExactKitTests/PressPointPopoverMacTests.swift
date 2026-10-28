@@ -19,14 +19,24 @@ final class PressPointPopoverMacTests: XCTestCase {
         x = e.clientX
         y = e.clientY
         showPopover("pop", source="open")
+      action far(e: MouseEvent)
+        pointed = true
+        x = e.clientX
+        y = e.clientY
+        showPopover("pop", source="native")
+      action nudge
+        x = x + 50
+        y = y + 22
       view
         column width="100%" height="100%" position="relative"
           button id="open" testId="open" press=open appearance="none" position="absolute" left=40 top=30 width=300 height=360 padding=0
           text `${x},${y} ${pointed}` testId="status"
           column id="pop" testId="pop" popover="auto" margin=0 padding=0 border-width=0 width=120 height=80 left=(pointed ? `${x}px` : "auto") top=(pointed ? `${y}px` : "auto")
             box height=80
-          button testId="native" press=open position="absolute" left=40 top=395
+          button id="native" testId="native" press=open position="absolute" left=40 top=395
             text "Native"
+          button testId="far" press=far appearance="none" position="absolute" left=200 top=395 width=150 height=20 padding=0
+          button testId="nudge" press=nudge appearance="none" position="absolute" left=360 top=395 width=20 height=20 padding=0
           column id="menu" testId="menu" popover="auto" role="menu" margin=0 left=30 top=8
             button testId="row"
               text "Row"
@@ -80,8 +90,9 @@ final class PressPointPopoverMacTests: XCTestCase {
     }
 
     /// AppKit's popover, as a hand-built app shows one at a click: pointed at
-    /// a 1×1 rectangle at the press, and pointed again where the insets move
-    /// while it shows; from a key, at its invoker, the same popover.
+    /// a 1×1 rectangle at the press, in the window's content view, and
+    /// pointed again where its author moves the insets while it shows
+    /// (`sync`, `repoint`); from a key, at its invoker, the same popover.
     func testAppKitsPopoverPointsAtThePress() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent's chrome keeps it painted")
         let f = try make(painted: false)
@@ -91,6 +102,7 @@ final class PressPointPopoverMacTests: XCTestCase {
             while !f.presenter.menus.isOpen(pop), Date() < end { f.settle() }
             let entry = try XCTUnwrap(f.presenter.menus.entries.first { $0.popover === pop })
             let native = try XCTUnwrap(entry.native, "AppKit's popover shows it")
+            XCTAssertTrue(native.popover.isShown)
             let view = try XCTUnwrap(native.positioning?.view)
             return f.presenter.client(view.convert(native.popover.positioningRect.origin, to: nil))
         }
@@ -98,9 +110,18 @@ final class PressPointPopoverMacTests: XCTestCase {
         var at = try pointed()
         XCTAssertEqual(at.x, 70, accuracy: 0.5); XCTAssertEqual(at.y, 38, accuracy: 0.5)
         XCTAssertEqual(try XCTUnwrap(f.presenter.menus.entries.first { $0.popover === pop }?.native).popover.positioningRect.size, CGSize(width: 1, height: 1))
-        try click(f, open, at: CGPoint(x: 120, y: 60)) // open already: only the insets move
+        XCTAssertTrue(f.presenter.menus.entries.first { $0.popover === pop }?.native?.positioning?.view === f.window.contentView)
+        // Its author moves the insets while it shows (no click: AppKit's
+        // transient popover closes on one).
+        f.session.apply(f.session.runtime.press(try f.node("nudge").id, now: f.session.now())); f.settle()
         at = try pointed()
         XCTAssertEqual(at.x, 120, accuracy: 0.5); XCTAssertEqual(at.y, 60, accuracy: 0.5)
+        f.presenter.menus.close(pop); f.settle()
+        // A press on one node opening the popover with another as its source:
+        // the point lies outside that source, and AppKit still shows it there.
+        try click(f, try f.node("far"), at: CGPoint(x: 205, y: 400))
+        at = try pointed()
+        XCTAssertEqual(at.x, 205, accuracy: 0.5); XCTAssertEqual(at.y, 400, accuracy: 0.5)
         f.presenter.menus.close(pop); f.settle()
         f.presenter.press(open.id); f.settle()
         at = try pointed()

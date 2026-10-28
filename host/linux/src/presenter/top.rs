@@ -582,10 +582,14 @@ impl<D: DataSource> Presenter<D> {
     /// where it opens one, takes the first one's place.
     /// A point of the open surface's own space in the page's, where its
     /// row's `MouseEvent` has `clientX`/`clientY` (LLP 1021 D2).
+    /// Its frame is in the window's pixels, the rest in points.
     fn surface_client(&self, (x, y): (f32, f32)) -> Option<(f32, f32)> {
-        let frame = self.top.open.as_ref()?.frame;
+        let open = self.top.open.as_ref()?;
         let [px, py, ..] = self.chrome().frame;
-        Some((frame[0] as f32 + x - px, frame[1] as f32 + y - py))
+        Some((
+            open.frame[0] as f32 / open.scale + x - px,
+            open.frame[1] as f32 / open.scale + y - py,
+        ))
     }
 
     /// Row `index` chosen; `point`, where a pointer chose it, in the page.

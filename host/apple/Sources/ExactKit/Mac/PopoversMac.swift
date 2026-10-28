@@ -185,22 +185,33 @@ extension MenuHost {
     func present(_ entry: Entry, from source: NodeView, in window: NSWindow) -> Bool {
         guard let presenter else { return false }
         let pop = entry.popover
+        // At its authored `left`/`top` (LLP 1021 D2): a 1×1 rectangle at that
+        // point of the viewport, as a hand-built app points a popover at a
+        // click, read again as the insets change while it shows (`repoint`).
+        // It is the window's, as the CSS box is the viewport's: not the
+        // invoker's, which the point may lie outside of or scroll away from.
+        let windowContent = window.contentView
+        let pressed = { [weak presenter, weak pop, weak windowContent] () -> NSRect? in
+            guard let presenter, let pop, let windowContent, let at = PositionArea.inset(of: pop, viewport: presenter.clientSize) else { return nil }
+            return NSRect(origin: presenter.point(fromClient: at, in: windowContent), size: CGSize(width: 1, height: 1))
+        }
         // A button in the window's bar has no box in the page: its item's.
         // AppKit shows no popover against an anchor it cannot see (measured:
         // a window not on screen, a hidden view, one scrolled out of sight).
         let view: NSView, invoker: NSRect
-        if let content = window.contentView, let bar = presenter.toolbar.anchor(of: source, in: content) { (view, invoker) = (content, bar) }
+        if let windowContent, pressed() != nil, source.window != nil {
+            (view, invoker) = (windowContent, windowContent.convert(self.anchor(source, in: source, run: entry.run), from: source))
+        } else if let content = windowContent, let bar = presenter.toolbar.anchor(of: source, in: content) { (view, invoker) = (content, bar) }
         else if source.window != nil { (view, invoker) = (source, self.anchor(source, in: source, run: entry.run)) }
         else { return false }
         guard view.window?.isVisible == true else { return false }
-        // At its authored `left`/`top` (LLP 1021 D2): a 1×1 rectangle at that
-        // point of the viewport, as a hand-built app points a popover at a
-        // click, read again as the insets change while it shows (`repoint`).
-        let pressed = { [weak presenter, weak pop, weak view] () -> NSRect? in
-            guard let presenter, let pop, let view, let at = PositionArea.inset(of: pop, viewport: presenter.clientSize) else { return nil }
-            return NSRect(origin: presenter.point(fromClient: at, in: view), size: CGSize(width: 1, height: 1))
+        // Pointed at in `view`: one opened at its invoker and given insets
+        // later points at them from the invoker's coordinates.
+        let pointed = { [weak view, weak windowContent] () -> NSRect? in
+            guard let view, let rect = pressed() else { return nil }
+            return view === windowContent ? rect : view.convert(rect, from: windowContent)
         }
-        let anchor = pressed() ?? invoker
+        let anchor = pointed() ?? invoker
         let native = NativePopover(host: self, node: pop, home: entry.frame)
         entry.native = native
         // AppKit's popover gives its own block and takes it back on its
@@ -234,7 +245,7 @@ extension MenuHost {
         let pointing = { [weak view, weak at] (margins: PositionArea.Margins) -> NSRect in
             guard let view, let at else { return anchor }
             let gap = view.isFlipped ? margins.gap(edge) : 0
-            var rect = pressed() ?? invoker
+            var rect = pointed() ?? invoker
             switch edge {
             case .minY: rect.origin.y -= gap; rect.size.height += gap
             case .maxY: rect.size.height += gap
@@ -246,7 +257,7 @@ extension MenuHost {
         let rect = pointing(margins)
         native.positioning = (at, pointing)
         native.margins = margins
-        if Self.usesToolbarAnchor(pop), pressed() == nil, let item = presenter.toolbar.items[source.id], window.toolbar?.items.contains(where: { $0 === item }) == true {
+        if Self.usesToolbarAnchor(pop), pointed() == nil, let item = presenter.toolbar.items[source.id], window.toolbar?.items.contains(where: { $0 === item }) == true {
             native.positioning = nil // a toolbar item's popover points at the item
             native.popover.show(relativeTo: item)
         } else {

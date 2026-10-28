@@ -62,6 +62,21 @@ test('chromium: a popover whose author wrote left and top opens at that point, a
     await tab.waitForFunction(() => document.getElementById('menu').style.getPropertyValue('--exact-inset-x') === '590px');
     const [, , movedRight, movedBottom] = await box();
     expect([movedRight, movedBottom]).toEqual([590, 395]);
+    // Insets written away while it is open: the point goes, and its invoker places it again (the sheet's area).
+    const opened = async () => { await tab.mouse.click(560, 375); await tab.waitForFunction(() => document.getElementById('menu').style.getPropertyValue('--exact-inset-x') === '560px'); };
+    const area = () => tab.evaluate(() => getComputedStyle(document.getElementById('menu')).positionArea);
+    await opened();
+    await tab.evaluate(() => { const m = document.getElementById('menu'); m.style.left = m.style.top = ''; });
+    await tab.waitForFunction(() => document.getElementById('menu').style.getPropertyValue('--exact-inset-x') === '');
+    expect(await area()).not.toBe('none');
+    await box();
+    // An area its author adds while it is open overrules the point too.
+    await opened();
+    await tab.evaluate(() => document.getElementById('menu').style.setProperty('position-area', 'top'));
+    await tab.waitForFunction(() => document.getElementById('menu').style.getPropertyValue('--exact-inset-x') === '');
+    expect(await area()).not.toBe('none'); // the area, or the flip of it the browser chose
+    await box();
+    await tab.evaluate(() => document.getElementById('menu').style.removeProperty('position-area'));
     // With an authored position-area, CSS's: the area places it, and no point is left to flip from.
     await tab.evaluate(() => { const m = document.getElementById('menu'); m.style.setProperty('position-area', 'top'); });
     await tab.mouse.click(560, 375);

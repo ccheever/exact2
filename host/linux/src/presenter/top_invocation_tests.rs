@@ -765,3 +765,56 @@ fn a_shell_dismissal_fires_cancel_but_cannot_keep_the_window_open() {
     p.surface_event(serial, top::event::DISMISSED, 0., 0., 0.);
     assert_eq!(p.surface().unwrap().serial, reopened);
 }
+
+/// LLP 1021 D2: a row of the shell's menu chosen by a touch hears where the
+/// touch was, in the page's points, the menu's frame being in the window's
+/// pixels: at 2.75 a row of a menu at (100, 200) is near (110, 212), not
+/// its pixels.
+#[test]
+fn a_menu_rows_press_point_is_in_points_at_any_scale() {
+    let source = r#"component App
+  state at = ""
+  action pick(e: MouseEvent)
+    at = `${e.clientX},${e.clientY}`
+  view
+    column width="100%" height="100%"
+      button popovertarget="m" testId="more" margin-left=100 margin-top=180 width=40 height=20
+        text "More"
+      column id="m" popover="auto" role="menu"
+        button press=pick popovertarget="m" popovertargetaction="hide" testId="row"
+          text "Row"
+      text at testId="at"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 800.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.serve_requests();
+    p.serve_windows(Box::new(Nothing));
+    assert_eq!(p.resize_scaled(400., 800., 2.75), None);
+    let more = id(&p, "more");
+    p.tap(more).unwrap();
+    p.run_commands(|| ());
+    let open = p.top.open.as_ref().expect("the menu is open");
+    let (x, y, w, h) = open.layout.targets[0].rect;
+    let [px, py, ..] = p.chrome().frame;
+    let want = (
+        open.frame[0] as f32 / open.scale + x + w / 2. - px,
+        open.frame[1] as f32 / open.scale + y + h / 2. - py,
+    );
+    assert!(want.0 < 400. && want.1 < 800., "{want:?} is in the page");
+    choose(&mut p, "row");
+    let node = p.host().kernel().node(id(&p, "at")).unwrap();
+    let said: String = node.text_runs().iter().map(|r| &*r.text).collect();
+    let got: Vec<f32> = said.split(',').map(|n| n.parse().unwrap()).collect();
+    assert!(
+        (got[0] - want.0).abs() < 0.01 && (got[1] - want.1).abs() < 0.01,
+        "{said} want {want:?}"
+    );
+}
