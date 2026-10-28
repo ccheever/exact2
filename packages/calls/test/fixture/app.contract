@@ -1,0 +1,50 @@
+// The fixture (LLP 1133.033 §9.2, §12 stage 4): @exact/calls's names sent and
+// read as an app would, each call listed by testId. It is Android's acceptance
+// app, since Harmony has no Android build: Make a Test Call places and connects
+// a call, Ring me reports an incoming one, Ring me in 10 s the same after ten
+// seconds (lock the phone meanwhile), and End ends the newest call.
+use startCall, reportIncomingCall, reportCallState, endCall, calls, callsStatus, callanswer, callhangup, callhold, Call, CallEvent, CallsStatus from "@exact/calls"
+
+component Fixture
+  state seq = 0
+  state heard = ""
+  state later = false
+  resource list = calls() as shape Call[]
+  resource status = callsStatus() as shape CallsStatus
+  derive newest = `fixture-${seq}`
+  task ringLater when later key=seq
+    after(10000, ringNow)
+  action place
+    let next = seq + 1
+    seq = next
+    startCall(id=`fixture-${next}`, handle="fixture", displayName="Fixture Call")
+    reportCallState(id=`fixture-${next}`, state="connected")
+  action ringNow
+    later = false
+    let next = seq + 1
+    seq = next
+    reportIncomingCall(id=`fixture-${next}`, handle="+15555550100", handleType="phoneNumber", displayName="Fixture Caller")
+  action ringLater10
+    later = true
+  action finish
+    endCall(id=newest, reason="local")
+  action answered(call: Call)
+    heard = "answer " + call.id
+  action hungUp(call: Call)
+    heard = "hangup " + call.id
+  action held(call: Call, e: CallEvent)
+    heard = "hold " + call.id + " " + call.state
+  view
+    column gap=8 padding=16 callanswer=answered callhangup=hungUp callhold=held
+      text testId="status" (status.systemUI ? "System call screen" : "No system call screen")
+      button press=place testId="test-call"
+        text "Make a Test Call"
+      button press=ringNow testId="ring-me"
+        text "Ring Me"
+      button press=ringLater10 testId="ring-me-later"
+        text "Ring Me in 10 s"
+      button press=finish testId="end"
+        text "End"
+      text testId="heard" heard
+      for c in list key=c.id
+        text testId=`call-${c.id}` `${c.id} ${c.direction} ${c.state}`

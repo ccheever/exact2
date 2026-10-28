@@ -10,9 +10,8 @@ run it. Use a test phone, never a personal one.
 line on iOS (§12 stages 0 and 3), so the recorder's steps run now. The
 runner keeps the call list on every target. On iOS CallKit shows it
 (stage 2, steps 1 to 3); on the web Media Session's call actions are its
-controls (stage 1, step 5); a Mac has no system call screen. On Android
-Core-Telecom (stage 4, step 4) is written but not yet built, so step 4
-waits for it.
+controls (stage 1, step 5); on Android Core-Telecom and a `CallStyle`
+notification (stage 4, step 4); a Mac has no system call screen.
 
 ## The recorder
 
@@ -22,7 +21,7 @@ minutes, the Android notification, `dumpsys`, and the same without the
 line) and 10 (a take the Task Manager stopped, recovered at the next
 launch).
 
-## Calls (step 4 waits for stage 4)
+## Calls
 
 Harmony's **Make a Test Call**, under You, on an iPhone and a Mac; the
 package's fixture (`packages/calls/test/fixture`) on an Android phone.
