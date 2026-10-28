@@ -1,0 +1,54 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first; avatar, sender, subject, two-line preview capped with ellipsis even at largest text, time or date (Oct 24 / 1:47 PM), small green dot marks unread."},
+      {"n": 2, "status": "pass", "note": "Leading swipe shows Read/Unread, trailing swipe shows Flag + Archive, full swipe archives. Archive tab lists archived mail and offers a swipe to move it back to Inbox."},
+      {"n": 3, "status": "pass", "note": "Flag via swipe or detail toolbar; flag glyph shown in row. All / Unread / Flagged chips with counts filter correctly; unflagging in the Flagged filter removes the row."},
+      {"n": 4, "status": "pass", "note": "Push to a detail view with subject, sender, full date and body; opening marks the message read (count drops). Detail has flag, archive and mark-unread buttons. Scroll position is kept on return."},
+      {"n": 5, "status": "pass", "note": "Native refresh spinner; each pull adds exactly two invented unread messages at the top. The two new rows share a timestamp and come in id order (older id first)."},
+      {"n": 6, "status": "pass", "note": "'N unread · M messages' under the title, counts on the filter chips, and a red badge on the Inbox tab."},
+      {"n": 7, "status": "pass", "note": "Archived, read/unread, unflag and refreshed messages all survived a relaunch."}
+    ],
+    "bugs": [
+      "The accessibility tree exposes about 300 hidden text elements stacked at one point under the nav bar (labels from off-screen rows), so VoiceOver would wander through invisible text.",
+      "The filter chip buttons are exposed twice (duplicate 'filter-0' elements), which is also an accessibility glitch."
+    ],
+    "tells": [
+      "Heavily themed, web-like look: cream background, green accent, a letter-spaced 'A MOMENT FOR YOUR MAIL' kicker, a custom oversized capsule search field (59pt tall) and hand-made filter chips instead of a system menu or segmented control.",
+      "The nav bar title stays 'Personal' and never collapses into an 'Inbox' inline title; the big 'Inbox' heading is just list content that scrolls under the bar.",
+      "Initials avatars in rounded squares, and they do not scale with Dynamic Type.",
+      "At the largest text size the filter chips run off the right edge and the search field swells into a huge pill.",
+      "On the plus side, the swipe actions, refresh control, floating tab bar with badge, back button and toolbar buttons all look like real iOS 26 system components."
+    ],
+    "scroll": "Smooth like a native table on slow drags and flings: no blank rows, no rows popping in, rubber-band and refresh at the top behave natively. The sticky filter-chip header pins under the nav bar.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Newest first; sender, subject, preview and Mail-style time/weekday/short date, blue unread dot. But the preview is not capped at two lines at large text sizes: at the largest size it runs to 7+ lines."},
+      {"n": 2, "status": "pass", "note": "Leading swipe shows Mark Read/Unread, trailing swipe shows Flag + Archive, full swipe archives. The Archive screen (pushed from a nav-bar button) lists archived mail, but it has no swipe to move mail back to the Inbox (only Flag)."},
+      {"n": 3, "status": "pass", "note": "Flag via swipe or detail button; an orange flag sits in the row's leading column. A system pull-down menu offers All / Unread Only / Flagged Only, and the subtitle shows the active filter."},
+      {"n": 4, "status": "pass", "note": "Push to a detail view with subject, sender, date and body; opening marks it read. Detail has mark-unread, flag and archive buttons. Scroll position is kept on return."},
+      {"n": 5, "status": "pass", "note": "A pull (or the refresh button) adds two invented unread messages at the top; the invented messages repeat across pulls."},
+      {"n": 6, "status": "pass", "note": "'N unread' subtitle under the large title, which also carries into the collapsed inline title."},
+      {"n": 7, "status": "pass", "note": "Archived, read/unread, unflag and refreshed messages all survived a relaunch."}
+    ],
+    "bugs": [
+      "The two-line preview limit is not enforced at large Dynamic Type sizes; the preview grows without bound.",
+      "Archived messages cannot be moved back to the Inbox from the Archive screen.",
+      "The Archive screen shows a 'Refresh inbox' button and a filter menu that make little sense there, and its footer row ('1 message') duplicates the subtitle."
+    ],
+    "tells": [
+      "The swipe actions look hand-rolled: short pill buttons with captions sit at the top of the row instead of filling its height, and the swiped row turns into a grey rounded card.",
+      "The filter menu shows no checkmark on the current choice.",
+      "The detail view's inline title 'Message' is left-aligned next to the back button rather than centred.",
+      "The row accessibility labels leave out unread and flagged state.",
+      "At the largest text size the unread dot stays tiny and sits above the sender line, and the inline nav title does not scale.",
+      "Otherwise very stock: white background, system large title that collapses into an inline title with subtitle, Liquid Glass toolbar group, bottom search field, Mail-like date formats."
+    ],
+    "scroll": "Smooth and native-feeling on drags and flings, with a soft scroll-edge effect under the bar. No blank or popping rows, and the large title collapses properly. Rubber-banding at the top is normal.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet every requirement and persist state, but A is more complete: an unarchive action, filter chips with live counts, a tab badge, and previews held to two lines at every text size. B looks more like stock iOS, yet its hand-rolled swipe pills, missing unarchive and unbounded previews at large text weigh against it. A's heavy custom theme and leaked accessibility elements cost it on platform fidelity, but not enough to flip the result."
+}

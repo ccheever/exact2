@@ -1143,7 +1143,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         if path != nil, c.imageProperties.tintColor == nil, !followsAccent {
             c.imageProperties.tintColor = ThemeRoles.color("label", in: host.presenter.root, or: .label)
         }
-        cell.contentConfiguration = c
+        cell.show(c)
         cell.marginsIgnoreSafeArea()
         cell.accessories = accessories(row, cell: cell)
         accessibility(cell, id, row)

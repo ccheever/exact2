@@ -19,7 +19,7 @@
 //! - `EXACT_SCALE=n` — device pixels per point (1 otherwise): what the frame is
 //!   drawn at and what the kernel is told the display's scale is, so a
 //!   hairline is one of those pixels (LLP 1115.000 D10.3).
-//! - `EXACT_PAINTER=gpu|cpu` — the painter (the GPU when there is one otherwise).
+//! - `EXACT_PAINTER=auto|gpu|ink|cpu` — overrides the app's baked painter choice.
 //! - `EXACT_CACHE=<dir>` — where the GPU's pipeline cache lives (`~/.cache/exact`).
 //! - `EXACT_DRM=<card>` — the KMS device (`/dev/dri/card0` otherwise).
 //! - `EXACT_VNC=1|<addr:port>` — serve the screen over VNC, the client's
@@ -145,6 +145,12 @@ pub struct Config {
 }
 
 impl Config {
+    /// The manifest's painter with `EXACT_PAINTER` applied, also used to open the window.
+    pub fn painter(&self) -> crate::presenter::PainterChoice {
+        use crate::presenter::PainterChoice;
+        PainterChoice::from_env(PainterChoice::from_baked(&self.compat))
+    }
+
     /// Read the environment; `baked` is the plan compiled into the binary
     /// and `compat` its `compat.json` (LLP 1030 D3a).
     pub fn from_env(baked: &[u8], compat: &str) -> Config {
@@ -313,7 +319,9 @@ pub fn boot_presenter<D: DataSource + Default>(
     config: &mut Config,
     viewport: (f32, f32),
 ) -> Result<(Presenter<D>, Option<String>), String> {
-    boot_presenter_with_painter(config, viewport, PainterBoot::from_env())
+    let painter =
+        PainterBoot::from_env(crate::presenter::PainterChoice::from_baked(&config.compat));
+    boot_presenter_with_painter(config, viewport, painter)
 }
 
 /// Keep the carrier's constructor through selected-plan refusal and baked fallback.

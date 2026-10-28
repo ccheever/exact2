@@ -872,7 +872,22 @@ extension NavigationHost {
         // route is, a sheet's too (a Settings sheet's); a heading of another
         // level or none is inline, as a sheet's title is unless its author
         // says otherwise (LLP 1116.020 D2).
-        item.largeTitleDisplayMode = shape?.level == 1 ? .always : .never
+        let large: UINavigationItem.LargeTitleDisplayMode = shape?.level == 1 ? .always : .never
+        let opens = item.largeTitleDisplayMode == .never && large == .always
+        item.largeTitleDisplayMode = large
+        // A title that turns large again in place (a selection's count back
+        // to its heading) opens over a scroller at its start, as UIKit's
+        // opens over a table at its top; one scrolled into its content stays
+        // collapsed. Left to UIKit, the scroller kept the inline bar's
+        // offset, which the bar reads as scrolled, and the title stayed shut.
+        // On the next turn: before UIKit lays the bar out for the new mode,
+        // pulling the scroller opens nothing.
+        if opens, let sv = contentScrollView(of: c), sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top {
+            DispatchQueue.main.async { [weak self, weak c, weak sv] in
+                guard let self, let c, let sv, sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top else { return }
+                self.restAtTop(sv, in: c)
+            }
+        }
         item.hidesBackButton = !canGoBack
         item.leftItemsSupplementBackButton = true
         #endif

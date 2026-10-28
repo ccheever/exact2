@@ -1547,6 +1547,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-ink"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "libc",
+ "naga 30.0.1",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+ "objc2-metal 0.3.2",
+ "raw-window-handle",
+ "swash",
+ "tiny-skia",
+ "wasm-bindgen-futures",
+ "web-time",
+ "wgpu 30.0.1",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "exact-js"
 version = "0.1.0"
 dependencies = [
@@ -1643,6 +1663,8 @@ dependencies = [
  "exact-color",
  "exact-data",
  "exact-grants",
+ "exact-ink",
+ "exact-js",
  "exact-kernel",
  "exact-linux",
  "exact-listen",
@@ -1665,6 +1687,7 @@ dependencies = [
  "libc",
  "libloading",
  "memmap2",
+ "messages-stress-data",
  "mimalloc",
  "parley",
  "png",
@@ -2062,6 +2085,8 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",
+ "contract",
+ "exact-ink",
  "exact-kernel",
  "exact-linux",
  "exact-runner",

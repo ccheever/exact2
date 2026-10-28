@@ -7,6 +7,8 @@
 // person with, are exported too (LLP 1121 stage 15 B): an app passes their
 // size, and VerifiedBadge's ink and mark, as token or role names
 // ("cards.badge", "cards.badge-mark", or its own), no literal colours.
+// EmptyState, what a list shows with nothing in it, too (stage 15 B batch
+// 2): every text the app's.
 // The shell takes plain props and one slot: the app keeps its data, its
 // moderation and embeds, and places its own content (and its action row)
 // in the slot (theme2's 06:46 ruling).
@@ -16,3 +18,4 @@ use AtCard from "./at-card.contract"
 use ProfileHeader, ProfileAlert from "./profile-header.contract"
 use Avatar, VerifiedBadge from "./common.contract"
 use PersonRow from "./person-row.contract"
+use EmptyState from "./empty-state.contract"

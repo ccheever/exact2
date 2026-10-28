@@ -4101,6 +4101,16 @@ action. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
 `ink` and `mark`, have no defaults: pass token or role names
 (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or
 your own), not literal colours, so setting those tokens restyles them.
+`@exact/cards` also exports EmptyState `(id, icon, title, message, button,
+buttonLabel, buttonIcon, press)`, what a list shows with nothing in it: every
+text is yours, and an empty `icon`, `title` or `button` leaves that piece out
+(`icon` and `buttonIcon` are image sources, a `symbol:` name or an icon
+token). `@exact/lists` exports MenuItem `(id, label, icon, destructive,
+first, pick)` and MenuGroup (a slot of items): a menu's drawn items in a
+sheet, as Bluesky's menu is, not the platform's list cells; the sheet holding
+the groups is yours and carries `role="menu"` (the items are `menuitem`s, the
+group adds no role). Pass `first=true` on a group's first item, which has no
+hairline above it.
 The in-repo packages' icons are icon tokens, which an app overrides by full
 name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
 (PostCard's context and reply lines), `cards.ban`, `cards.eye-slash`,

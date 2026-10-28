@@ -2,6 +2,53 @@ use super::{compatibility_with_trust, Manifest};
 use std::path::{Path, PathBuf};
 
 #[test]
+fn the_baked_painter_round_trips_per_host_without_changing_bundle_compatibility() {
+    let dir = app("painter-config");
+    let manifest = Manifest::read(&dir).unwrap();
+    for (platform, target, host) in [
+        ("windows", "x86_64-pc-windows-msvc", "windows"),
+        ("linux", "x86_64-unknown-linux-gnu", "linux"),
+        ("linux", "aarch64-apple-darwin", "linux"),
+        ("android", "aarch64-linux-android", "android"),
+        ("linux", "aarch64-linux-android", "android"),
+    ] {
+        let build = |m: &Manifest| {
+            compatibility_with_trust(&dir, platform, target, m, Some(""), "development").unwrap()
+        };
+        let default = build(&manifest);
+        let mut selected = manifest.clone();
+        selected.json["host"] = serde_json::json!({ host: {"painter": "ink"} });
+        let selected = build(&selected);
+        let json: serde_json::Value = serde_json::from_str(&selected.to_json()).unwrap();
+        assert_eq!(json["painter"], "ink", "{platform} on {target}");
+        assert_eq!(
+            selected.id, default.id,
+            "a painter change preserves the cohort"
+        );
+        let mut unchanged = json;
+        unchanged.as_object_mut().unwrap().remove("painter");
+        assert_eq!(
+            unchanged,
+            serde_json::from_str::<serde_json::Value>(&default.to_json()).unwrap()
+        );
+
+        let mut other = manifest.clone();
+        let other_host = if host == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
+        other.json["host"] = serde_json::json!({other_host: {"painter": "ink"}});
+        assert_eq!(
+            build(&other).to_json(),
+            default.to_json(),
+            "another platform is unchanged"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn resolved_manifest_is_the_only_reader_dialect() {
     let dir = app("resolved-only");
     for game in [

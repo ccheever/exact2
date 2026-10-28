@@ -62,6 +62,12 @@ export const COMPONENTS = {
   FollowButton: { source: '@exact/actions/follow-button.contract', root: id => id, ids: [...FB.pill, ...FB.bare, ...FB.tiny, ...FB.round, ...FB.roundTiny] },
   // Stage 15 B batch 2 (2b): its row is its testId.
   PersonRow: { source: '@exact/cards/person-row.contract', root: id => id, ids: ['pr-base', 'pr-top', 'pr-none', 'pr-disabled', 'sample-pr-avatar', 'sample-pr-verified', 'sample-pr-verifier', 'sample-pr-pill', 'sample-pr-description', 'sample-pr-description-one', 'sample-pr-all'] },
+  // Stage 15 B batch 2's: EmptyState; MenuItem from its `<id>-item`
+  // column (the hairline, then its button); MenuGroup, with no id prop,
+  // from the box library-gate holds it in.
+  EmptyState: { source: '@exact/cards/empty-state.contract', root: id => id, ids: ['es-base', 'sample-es-message', 'sample-es-button'] },
+  MenuItem: { source: '@exact/lists/menu.contract', root: id => `${id}-item`, ids: ['sample-mi-first', 'mi-base', 'mi-destructive'] },
+  MenuGroup: { source: '@exact/lists/menu.contract', root: id => id, ids: ['mg-base'] },
 };
 
 /** library-gate's instances that draw nothing: VerifiedBadge's "none" (no
@@ -75,8 +81,8 @@ export const EXPORTED_TOKENS = ['cards.avatar', 'cards.avatar-corner', 'cards.ha
 /** The cases' batches (theme2 10:28): each component's tokens by prefix,
  * and the components its params come from. */
 export const BATCHES = [
-  { name: 'lists', prefix: /^lists\./, components: ['ListRow', 'SwitchRow'] },
-  { name: 'ProfileHeader', prefix: /^cards\.(?!person-)/, components: ['ProfileHeader'] },
+  { name: 'lists', prefix: /^lists\.(?!menu-)/, components: ['ListRow', 'SwitchRow'] },
+  { name: 'ProfileHeader', prefix: /^cards\.(?!person-|empty-)/, components: ['ProfileHeader'] },
   { name: 'ComposeFrame', prefix: /^actions\.compose-/, components: ['ComposeFrame'] },
   { name: 'BarItem', prefix: /^actions\.bar-/, components: ['BarItem'] },
   { name: 'HeaderButton', prefix: /^actions\.header-/, components: ['HeaderButton'] },
@@ -89,6 +95,9 @@ export const BATCHES = [
   { name: 'FollowButton', prefix: /^actions\.follow-/, components: ['FollowButton'] },
   // Stage 15 B batch 2 (2b): PersonRow's own tokens, new, and its params.
   { name: 'PersonRow', prefix: /^cards\.person-/, components: ['PersonRow'] },
+  // Stage 15 B batch 2's (LLP 1121): EmptyState's tokens and the menu's.
+  { name: 'EmptyState', prefix: /^cards\.empty-/, components: ['EmptyState'] },
+  { name: 'Menu', prefix: /^lists\.menu-/, components: ['MenuItem', 'MenuGroup'] },
 ];
 
 /** A token whose value is an expression of others: read, never set; its
@@ -200,6 +209,51 @@ export const READS = {
   'cards.badge-mark': ['0/0/1 fill av-base', '0/0/2 fill av-base', '0/1 text_color vb-base,sample-vb-verifier'],
   'cards.badge-size': ['0 height,width vb-base,sample-vb-verifier', '0/0 height,width vb-base,sample-vb-verifier', '0/1 height,width vb-base,sample-vb-verifier'],
   'cards.hairline': ['0/1 border_width_bottom,border_width_left,border_width_right,border_width_top av-base,sample-av-src'],
+  // Stage 15 B batch 2's. EmptyState from its column: the icon (0), title
+  // (1), message (2) and button (3; its icon's box 3/0 holding the icon
+  // 3/0/0, and its text 3/1) on es-base;
+  // the message alone (0) on sample-es-message; the message (0) and a
+  // button with no icon (1, its text 1/0) on sample-es-button.
+  'EmptyState.iconInk': ['0 text_color es-base'],
+  'EmptyState.titleInk': ['1 text_color es-base'],
+  'EmptyState.messageInk': ['2 text_color es-base', '0 text_color sample-es-message,sample-es-button'],
+  'EmptyState.buttonFill': ['3 background_color es-base', '1 background_color sample-es-button'],
+  'EmptyState.buttonInk': ['3/0/0 text_color es-base', '3/1 text_color es-base', '1/0 text_color sample-es-button'],
+  'cards.empty-top': ['. padding_bottom,padding_top *'],
+  'cards.empty-pad': ['. padding_left,padding_right *'],
+  'cards.empty-gap': ['1 padding_top es-base', '2 padding_top es-base', '0 padding_top sample-es-message,sample-es-button'],
+  'cards.empty-icon-size': ['0 height,width es-base'],
+  'cards.empty-title-size': ['1 font_size es-base'],
+  'cards.empty-message-size': ['2 font_size es-base', '0 font_size sample-es-message,sample-es-button'],
+  'cards.empty-message-line': ['2 line_height es-base', '0 line_height sample-es-message,sample-es-button'],
+  'cards.empty-button-top': ['3 margin_top es-base', '1 margin_top sample-es-button'],
+  'cards.empty-button-gap': ['3 column_gap,row_gap es-base', '1 column_gap,row_gap sample-es-button'],
+  'cards.empty-button-pad': ['3 padding_left,padding_right es-base', '1 padding_left,padding_right sample-es-button'],
+  'cards.empty-button-pad-block': ['3 padding_bottom,padding_top es-base', '1 padding_bottom,padding_top sample-es-button'],
+  'cards.empty-button-line': ['3/1 line_height es-base', '1/0 line_height sample-es-button'],
+  'cards.empty-button-icon-pull': ['3/0 margin_left,margin_right es-base'],
+  'cards.empty-button-corner': ['3 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right es-base', '1 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right sample-es-button'],
+  'cards.empty-button-icon': ['3/0/0 height,width es-base'],
+  'cards.empty-button-icon-box': ['3/0 height,width es-base'],
+  'cards.empty-button-size': ['3/1 font_size es-base', '1/0 font_size sample-es-button'],
+  'cards.empty-button-press': ['3 press_scale es-base', '1 press_scale sample-es-button'],
+  // MenuItem from its `<id>-item` column: the hairline (0) and the button
+  // (1; its label 1/0 and icon 1/1), a group's first item the button (0)
+  // alone; MenuGroup's column (0) in its box.
+  'MenuItem.surface': ['1 background_color mi-base,mi-destructive', '0 background_color sample-mi-first'],
+  'MenuItem.ink': ['1/0 text_color mi-base', '0/0 text_color sample-mi-first'],
+  'MenuItem.iconInk': ['1/1 text_color mi-base', '0/1 text_color sample-mi-first'],
+  'MenuItem.destructiveInk': ['1/0 text_color mi-destructive', '1/1 text_color mi-destructive'],
+  'MenuItem.divider': ['0 background_color mi-base,mi-destructive'],
+  'MenuGroup.frame': ['0 border_color_bottom,border_color_left,border_color_right,border_color_top mg-base'],
+  'lists.menu-hairline': ['0 height mi-base,mi-destructive', '0 border_width_bottom,border_width_left,border_width_right,border_width_top mg-base'],
+  'lists.menu-corner': ['0 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right mg-base'],
+  'lists.menu-gap': ['1 column_gap,row_gap mi-base,mi-destructive', '0 column_gap,row_gap sample-mi-first'],
+  'lists.menu-pad-inline': ['1 padding_left,padding_right mi-base,mi-destructive', '0 padding_left,padding_right sample-mi-first'],
+  'lists.menu-pad-block': ['1 padding_bottom,padding_top mi-base,mi-destructive', '0 padding_bottom,padding_top sample-mi-first'],
+  'lists.menu-height': ['1 min_height mi-base,mi-destructive', '0 min_height sample-mi-first'],
+  'lists.menu-label-size': ['1/0 font_size mi-base,mi-destructive', '0/0 font_size sample-mi-first'],
+  'lists.menu-icon-size': ['1/1 height,width mi-base,mi-destructive', '0/1 height,width sample-mi-first'],
   'BarItem.badgeFill': ['2 background_color sample-bi-badge,sample-bi-dot'],
   'BarItem.badgeInk': ['2 text_color sample-bi-badge'],
   'BarItem.tint': ['0/0/0 fill bi-base,sample-bi-selected,sample-bi-badge,sample-bi-dot'],
@@ -331,6 +385,10 @@ export const PARAM_TOKENS = {
   'FollowButton.overlayFollowingFill': 'actions.follow-overlay-fill', 'FollowButton.overlayFollowingInk': 'actions.follow-overlay-ink',
   'PersonRow.divider': 'cards.divider', 'PersonRow.meta': 'cards.meta', 'PersonRow.pill': 'cards.pill', 'PersonRow.badge': 'cards.badge', 'PersonRow.badgeMark': 'cards.badge-mark',
   'FollowButton.pressScale': 'actions.follow-press', 'FollowButton.pressScaleTiny': 'actions.follow-press-tiny', 'FollowButton.pressScaleRound': 'actions.follow-press-round',
+  'EmptyState.iconInk': 'cards.empty-icon', 'EmptyState.titleInk': 'cards.empty-title', 'EmptyState.messageInk': 'cards.empty-message',
+  'EmptyState.buttonFill': 'cards.empty-button', 'EmptyState.buttonInk': 'cards.empty-button-ink',
+  'MenuItem.surface': 'lists.menu-surface', 'MenuItem.ink': 'lists.menu-label', 'MenuItem.iconInk': 'lists.menu-icon',
+  'MenuItem.destructiveInk': 'lists.menu-destructive', 'MenuItem.divider': 'lists.menu-divider', 'MenuGroup.frame': 'lists.menu-frame',
 };
 
 /** A read's entries, parsed: [{ component, path, rows, ids }]. */
@@ -350,7 +408,9 @@ const componentOfPath = token => {
   if (!batch) throw new Error(`${token}: in no batch`);
   if (batch.components.length === 1) return batch.components[0];
   if (batch.name === 'lists') return token === 'lists.switch-on' ? 'SwitchRow' : 'ListRow';
-  // The exports' batch draws with one token in two components: a read names its instances.
+  if (batch.name === 'Menu' && token !== 'lists.menu-hairline') return token === 'lists.menu-corner' || token === 'lists.menu-frame' ? 'MenuGroup' : 'MenuItem';
+  // The exports' batch draws with one token in two components (the menu's
+  // hairline too): a read names its instances.
   throw new Error(`${token}: a read in the ${batch.name} batch names no instance of one component (not *)`);
 };
 
@@ -392,7 +452,7 @@ export function valueFor(kind, k) {
   return `#${ch(40, 32)}${ch(72, 40)}${ch(104, 48)}`;
 }
 
-/** The fifteen cases (stage 13 C's ten, stage 15 B's exports' one, FollowButton's two and PersonRow's two): each batch's tokens (the derived ones read, not set) and
+/** The nineteen cases (stage 13 C's ten, stage 15 B's exports' one, and batch 2's FollowButton, PersonRow, EmptyState and menu two each): each batch's tokens (the derived ones read, not set) and
  * its components' params, each name its own value. */
 export function cases(root = ROOT) {
   const tokens = newTokens(root), params = packageParams(root);

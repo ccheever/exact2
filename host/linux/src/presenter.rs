@@ -337,7 +337,7 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scale,
             assets,
-            PainterChoice::from_env(),
+            PainterChoice::from_env(PainterChoice::Auto),
         )
     }
 
