@@ -990,7 +990,7 @@ test('the web build retains every ambient diagnostic with its source location', 
       writeFileSync(resolve(dir, file), [
         "export const prefix = 'hello';",
         'export const a = () => Date.now();',
-        'export const b = () => globalThis.setTimeout(() => {}, 1);',
+        'export const b = () => globalThis.setInterval(() => {}, 1);',
         "export const c = () => Date['now']();",
         'export const d = () => Math[`random`]();',
         '',
@@ -999,7 +999,7 @@ test('the web build retains every ambient diagnostic with its source location', 
         cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: resolve(dir, 'dist') },
       });
       expect(built.status, built.stderr).toBe(1);
-      for (const [line, api] of [[2, 'Date.now()'], [3, 'setTimeout()'], [4, 'Date.now()'], [5, 'Math.random()']]) {
+      for (const [line, api] of [[2, 'Date.now()'], [3, 'setInterval()'], [4, 'Date.now()'], [5, 'Math.random()']]) {
         expect(built.stderr, built.stderr).toContain(`${file}:${line}:24: ${api} is unavailable in data sources`);
       }
       expect(built.stderr).toContain('the web build (the JS target) failed');
@@ -1036,8 +1036,8 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
       'intl-format-alias': 'Intl.DateTimeFormat.format()', 'intl-format-alias-undefined': 'Intl.DateTimeFormat.format()',
       'intl-parts-alias': 'Intl.DateTimeFormat.formatToParts()', 'intl-parts-alias-undefined': 'Intl.DateTimeFormat.formatToParts()',
       'intl-format-getter': 'Intl.DateTimeFormat.format()', 'intl-format-computed': 'Intl.DateTimeFormat.format()',
-      'intl-parts-prototype': 'Intl.DateTimeFormat.formatToParts()', timeout: 'setTimeout()', interval: 'setInterval()',
-      'computed-timeout': 'setTimeout()', frame: 'requestAnimationFrame()', performance: 'performance.now()' };
+      'intl-parts-prototype': 'Intl.DateTimeFormat.formatToParts()', interval: 'setInterval()',
+      'computed-interval': 'setInterval()', frame: 'requestAnimationFrame()', performance: 'performance.now()' };
     for (const [form, api] of Object.entries(forms)) {
       const atInit = answer('atInit', [form]);
       expect(atInit.startsWith(api) && atInit.includes('as an argument'), `${form} at initialization: ${atInit}`).toBe(true);

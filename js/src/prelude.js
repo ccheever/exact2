@@ -11,7 +11,8 @@
 (function (global) {
   "use strict";
   // (op, a, b) -> string | undefined, js/src/door.rs's ops: 1 a request, 2-4 and 18-20 the store, 5 storage,
-  // 6 native, 7 pure, 8 secure randomness drawn, 9/10 canvas, 11 the agent's random bytes, 12 auth, 13 a journal line.
+  // 6 native, 7 pure, 8 secure randomness drawn, 9/10 canvas, 11 the agent's random bytes, 12 auth, 13 a journal line,
+  // 21 the runner's clock as the call began.
   var host = global.__exact_host;
   delete global.__exact_host;
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
@@ -47,12 +48,6 @@
   fixed(global.Math, "random", function () {
     throw new Error("Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument; a roll in the view needs no source (docs/recipes/random-rolls.md)");
   });
-  // No timers and no clock to read (LLP 1027.000): refused by name, as the
-  // web's module bindings refuse them (host/web-js/ts-fetch.js), rather than
-  // a bare "doesn't exist". Clearing what was never set is harmless.
-  function noTimers(api) {
-    return function () { throw new Error(api + " is unavailable in data sources: there are no timers; pass time as an argument"); };
-  }
   // The runtime's own journal line (LLP 1097 D8): a failed storage
   // operation, an unhandled rejection. Natively it is the runner's journal
   // (`logs`) as it is; a realm without that door writes it to its console.
@@ -65,13 +60,16 @@
     try { return e && typeof e === "object" && e.message !== undefined ? String(e.message) : String(e); }
     catch (_) { return "(an error that cannot be read)"; }
   }
-  // Every unhandled rejection in the module reaches the journal, as a
-  // page's `unhandledrejection` reaches its console (LLP 1097 D8). Hermes's
-  // tracker schedules its report with the global `setTimeout`, which a data
-  // source has none of: the prelude's runs the tracker's own callback alone,
-  // at the next checkpoint (`checkpoint` below), which is when a browser
-  // fires the event, and refuses every other.
-  var reports = [], nextReport = 1;
+  // An answer's own timers, on the runner's clock (op 21), and the timer
+  // Hermes's rejection tracker asks for (binary.js `timers`). Every
+  // unhandled rejection in the module reaches the journal, as a page's
+  // `unhandledrejection` reaches its console (LLP 1097 D8).
+  // The tracker's report is the timer it arms from inside its rejection
+  // hook (Hermes's `Promise._C`), told by that place, not by its name alone.
+  var reporting = 0, hooked = false;
+  var timers = binary.timers(timerOwner, function () { return host(21, "", ""); }, journal, function (callback) {
+    return (reporting > 0 || !hooked) && callback.name === "bound onUnhandled";
+  });
   var tracker = global.HermesInternal;
   if (tracker && typeof tracker.enablePromiseRejectionTracker === "function") {
     tracker.enablePromiseRejectionTracker({
@@ -79,32 +77,14 @@
       onUnhandled: function (id, error) { journal("data: unhandled rejection: " + errorText(error)); leftOpen(); },
       onHandled: function () {},
     });
-  }
-  function checkpoint() {
-    while (reports.length) {
-      var report = reports.shift();
-      try { report.run(); } catch (e) { /* the tracker's own; nothing to tell */ }
+    var reject = global.Promise._C;
+    if (typeof reject === "function") {
+      hooked = true;
+      global.Promise._C = function (promise, error) { reporting++; try { return reject.call(this, promise, error); } finally { reporting--; } };
     }
   }
   // A browser realm (the wasm host's module realm) reports its own rejections (module-glue.js).
   if (!tracker && typeof global.addEventListener === "function") global.addEventListener("unhandledrejection", function () { leftOpen(); });
-  var refuseTimeout = noTimers("setTimeout()");
-  fixed(global, "setTimeout", function setTimeout(callback, delay) {
-    if (typeof callback === "function" && callback.name === "bound onUnhandled") {
-      reports.push({ id: nextReport, run: callback });
-      return nextReport++;
-    }
-    return refuseTimeout();
-  });
-  fixed(global, "clearTimeout", function clearTimeout(id) {
-    reports = reports.filter(function (r) { return r.id !== id; });
-  });
-  ["setInterval", "requestAnimationFrame", "requestIdleCallback"].forEach(function (name) {
-    fixed(global, name, noTimers(name + "()"));
-  });
-  ["clearInterval", "cancelAnimationFrame", "cancelIdleCallback"].forEach(function (name) {
-    fixed(global, name, function () {});
-  });
   fixed(global, "performance", Object.freeze({ now: function () { return refuseAmbient("performance.now()"); } }));
   // Intl's formatting methods also default an omitted/undefined date to
   // machine time. Guard the prototype before an app can capture its bound
@@ -543,7 +523,7 @@
     var ys = call.yields || []; call.yields = []; yielded -= ys.length;
     ys.forEach(function (y) { if (error) y[1](error); else y[0](); }); return ys.length;
   }
-  fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources: there are no timers; split long work with await scheduler.yield()"); } }));
+  fixed(global, "scheduler", Object.freeze({ yield: yieldTurn, postTask: function () { throw new Error("scheduler.postTask() is unavailable in data sources; split long work with await scheduler.yield()"); } }));
   // `to`: the fetch's `exactBodyTo`; `exactBodyTo` is `{path, bytes}` once the host wrote the body there.
   function Response(r, to) {
     var written = to === undefined ? undefined : bodyWritten(r);
@@ -676,6 +656,8 @@
       catch (e) { return Promise.reject(new TypeError("fetch: init.signal is not an AbortSignal")); }
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
+    var left = stream ? undefined : timers.left(signal), timed = left !== undefined && !(timeout <= left); // an `AbortSignal.timeout`'s time left: the host's deadline
+    if (timed) timeout = Math.min(left, 3600000);
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
     var socket = stream && (!!listen || /^wss?:/i.test(String(url)));
@@ -687,7 +669,7 @@
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
-      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {}, early: call.status === "pending", bodyTo: bodyTo };
+      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, timed: timed, release: function () {}, early: call.status === "pending", bodyTo: bodyTo };
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
@@ -1060,6 +1042,8 @@
     var p = pending.get(ticket);
     p.claimed = true;
     if (p.call !== call) { p.call = call; call.tickets.push(ticket); }
+    // An answer waits on one thing at a time here: its timer runs after the fetch lands (the web races them).
+    if (!p.timed && !call.toldRace && timers.armed(call)) { call.toldRace = true; journal("data: an answer awaits a fetch while a timer of its own is armed: the timer runs only after the fetch lands, so it cannot cut the fetch short as it can on the web; give the fetch AbortSignal.timeout or exactTimeout"); }
     return JSON.stringify({ tag: 1, call: call.id, ticket: ticket });
   }
   // An answer is given when its value is ready, as in a browser (LLP 1097
@@ -1068,6 +1052,7 @@
   // worker placement, which runs one turn to its end, it still waits.
   function reply(call, text) {
     endYields(call); // a branch its value did not wait for goes on, as a browser's does
+    timers.drop(call); // its timers are its own (binary.js `timers`)
     call.replied = true;
     calls.delete(call.id); cleanUp();
     return text;
@@ -1119,6 +1104,8 @@
       if (call.status === "done") handSocketOps(call);
       return reply(call, call.status === "done" ? ok(call.value, call.epoch !== gcEpoch()) : fail(call.error));
     }
+    // Its own timers (binary.js `timers`): the earliest is due on the runner's clock.
+    var due = timers.wait(call), later = due === undefined || due > timers.now();
     if (moduleWide) {
       var unclaimed;
       pending.forEach(function (p, ticket) { if (unclaimed === undefined && !p.claimed && !p.stream) unclaimed = ticket; });
@@ -1128,13 +1115,16 @@
       // ticket (D2); an answer awaiting it waits with the module below.
       storing.forEach(function (c) { if (c !== background && !calls.has(c.id)) left = true; });
       if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
-      if (!final && (pending.size || storing.size || yielded)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
-    } else if (moving && !final && background.storage > 0) {
+      // Another answer's work may settle it before its timer: whichever comes first asks it again (not on a
+      // worker, which runs one turn to its end and so cannot wait on another's).
+      if (!final && (due === undefined || moving && later) && (pending.size || storing.size || yielded)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true, timer: due });
+    } else if (due === undefined && moving && !final && background.storage > 0) {
       // The page's realm runs one answer at a time, but background work
       // goes on beside it: an answer awaiting it parks and is asked again
       // after a background delivery (LLP 1097 D7).
       return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     }
+    if (due !== undefined) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, timer: due });
     call.replied = true;
     calls.delete(call.id); cleanUp();
     if (moduleWide) return fail(new Error("the answer is pending on nothing: it awaits a promise that no fetch or storage step " +
@@ -1262,7 +1252,7 @@
   // Calls still tracked: a diagnostic for tests (LLP 1041 §8.4 Q5).
   global.__exact_calls_open = function () { return String(calls.size); };
   global.__exact_settle = function (id, final) {
-    checkpoint();
+    timers.checkpoint();
     currentCall = null;
     var call = calls.get(Number(id));
     return call ? settle(call, final === "final") : fail(new Error("no such call"));
@@ -1293,6 +1283,7 @@
       p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
     });
     var rejected = dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) ? " rejected" : "";
+    timers.drop(call);
     if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage" + rejected; }
     call.replied = true;
     calls.delete(call.id); cleanUp();
@@ -1352,7 +1343,7 @@
   // operations queued behind it and in flight, an answer's or the
   // background's, and what landed and failed.
   global.__exact_background = function () {
-    checkpoint();
+    timers.checkpoint();
     currentCall = null;
     return JSON.stringify({ head: headOwner() === background, queued: queue.length, inFlight: head ? 1 : 0,
       writes: storageCounts.writes, done: storageCounts.done, failed: storageCounts.failed, last: storageCounts.last });
@@ -1422,6 +1413,16 @@
     storing.delete(call);
     call.error = storageError(message);
   };
+  // The answer a timer belongs to (binary.js `timers`), or the refusal.
+  function timerOwner(api) {
+    if (overlaying) throw inOverlay(api);
+    if (inMapper || !currentCall || currentCall === background || currentCall.replied)
+      throw new Error(api + " is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value)");
+    return currentCall;
+  }
+  // A timer's turn: the answer's earliest callback due by the runner's clock `at` runs in the drain that follows;
+  // `due`: the runner says the timer it waits for is due (where it has no clock, at bake, the time it waited for).
+  global.__exact_timer = function (id, at, due) { var call = calls.get(Number(id)); if (call) { currentCall = call; timers.fire(call, at, due === "due"); } };
   // A yielded answer's new turn: its yields resolve in the drain that follows.
   global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
   global.__exact_fulfill = function (ticket, outcomeJson) {
@@ -1431,6 +1432,8 @@
     // The continuation runs in the drain that follows, and a fetch it
     // makes belongs to this call.
     currentCall = p.call;
+    // Its `AbortSignal.timeout`'s deadline passed on the host: the signal aborts.
+    if (o.failed && o.failed.kind === "Timeout" && p.timed) timers.expire(p.signal);
     // A browser realm's abort listener can be stopped by an earlier one;
     // the signal itself still says so.
     if (p.signal && p.signal.aborted) p.reject(p.signal.reason);

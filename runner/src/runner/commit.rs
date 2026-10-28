@@ -936,7 +936,8 @@ impl<D: DataSource> Runner<D> {
     pub fn take_requests(&mut self) -> Vec<RequestOut> {
         self.take_data_logs();
         self.arm_background();
-        std::mem::take(&mut self.requests)
+        let requests = std::mem::take(&mut self.requests);
+        self.hold_data_timers(requests)
     }
 
     /// The work behind continuation `token` (LLP 1027.002 D3): a host asks
@@ -947,6 +948,7 @@ impl<D: DataSource> Runner<D> {
         if let Some(dispatch) = self.module_dispatch(token) {
             return dispatch;
         }
+        self.store.set_clock_ms(self.now_ms);
         self.data.dispatch(token, &self.store)
     }
 
@@ -988,10 +990,13 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Work the source held at dispatch and the last commit releases, in
-    /// order; a host asks after every commit.
+    /// order, then the waits an answer's timer released (`data_timers.rs`);
+    /// a host asks after every commit and advance.
     pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {
         let mut out = self.data.release(&self.store);
         out.extend(self.module_release());
+        // A wait whose answer's timer came due (`data_timers.rs`).
+        out.extend(self.take_woken());
         out
     }
 
@@ -1031,15 +1036,15 @@ impl<D: DataSource> Runner<D> {
     /// D5): after that it is open, not in flight, or `settle` never ends.
     /// A request held for the agent (LLP 1069.007 D3) is not I/O either: no
     /// clock waits on it, nor on one the server holds (LLP 1016.000 D9,
-    /// [`Runner::held_requests`]). The module's background round is (LLP
-    /// 1097 D9).
+    /// [`Runner::held_requests`]), nor an answer's wait for its own timer
+    /// (`data_timers.rs`). The module's background round is (LLP 1097 D9).
     pub fn has_pending(&self) -> bool {
         self.background_ticket().is_some()
-            || !self.tool_tickets().is_empty()
+            || (self.tool_tickets().iter()).any(|(_, t)| !self.data_timer_held(*t))
             || self
                 .pending
                 .iter()
-                .any(|p| p.waited() && !self.held_for_agent(p))
+                .any(|p| p.waited() && !self.held_for_agent(p) && !self.data_timer_held(p.ticket))
     }
 
     /// Replies landed for held requests, by target, whatever they said (LLP
@@ -1092,14 +1097,14 @@ impl<D: DataSource> Runner<D> {
         let mut out: Vec<(String, u64)> = self
             .pending
             .iter()
-            .filter(|p| p.waited() && !self.held_for_agent(p))
+            .filter(|p| p.waited() && !self.held_for_agent(p) && !self.data_timer_held(p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
         out.extend(
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),
         );
-        out.extend(self.tool_tickets());
+        out.extend((self.tool_tickets().into_iter()).filter(|(_, t)| !self.data_timer_held(*t)));
         out
     }
 
@@ -1335,6 +1340,7 @@ impl<D: DataSource> Runner<D> {
             }
             (_, outcome) => outcome,
         };
+        self.store.set_clock_ms(self.now_ms);
         let parsed = if Self::activity_send(&p.source) {
             Self::activity_reply(&self.plan, ty, outcome)
         } else if self.plan.module_named(&p.source).is_some() {

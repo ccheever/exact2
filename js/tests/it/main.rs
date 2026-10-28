@@ -27,6 +27,7 @@ mod snapshot;
 mod socket;
 mod storage;
 mod superseded;
+mod timers;
 mod turn_budget;
 mod walk;
 mod watch;

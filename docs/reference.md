@@ -914,9 +914,10 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `TextEncoder`, `TextDecoder` | `TextEncoder` emits UTF-8. Hermes 0.4's built-in WHATWG decoder keeps the browser-style encoding labels, including UTF-8 and UTF-16LE/BE, plus `fatal`, streaming and `ignoreBOM` behavior |
 | `URL`, `URLSearchParams`, `atob`, `btoa` | |
 | `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
-| `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
+| `AbortController`, `AbortSignal` | `AbortSignal.timeout(ms)` is an answer's timer (below) |
+| `setTimeout`, `clearTimeout` | Inside an answer, on the app's clock (below) |
 | `queueMicrotask`, `Promise` | |
-| `scheduler.yield()` | Ends the answer's turn; it goes on in a new one with a budget of its own (below). Outside an answer's turn it resolves at once; for an answer let go it rejects with an `AbortError`. `scheduler.postTask` refuses: no timers |
+| `scheduler.yield()` | Ends the answer's turn; it goes on in a new one with a budget of its own (below). Outside an answer's turn it resolves at once; for an answer let go it rejects with an `AbortError`. `scheduler.postTask` refuses |
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. Apple's engine rounds a tie to even and ignores `roundingMode` (`$0.82` for 0.825 dollars, Chrome `$0.83`); the prelude rounds the number first, as Chrome does: from its shortest digits, by the formatter's `roundingMode` (half away from zero unless it names another), which `resolvedOptions()` then reports; a compact it prints in full rounds so too, to its style's digits (`$0.83` for a compact 0.825 dollars). A `unit` keeps the engine's rounding, since that engine converts it to the locale's unit (`0.622mi` for 1 kilometer). Apple's engine has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
@@ -996,18 +997,50 @@ yields to its own `scheduler.yield` where it has one (Chrome does), else to
 a task posted on a `MessageChannel`. Bun has no `scheduler`: a Bun test of a
 module that yields defines one (`globalThis.scheduler ??= { yield: async () => {} }`).
 
-Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
-`setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
-and `Math.random()`: time and seeds are source arguments. Every executor
-refuses them by name, with the same message, on first use: Hermes, the web's
-module realm, and the web build, whose bundler gives the app's own modules
-guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
-page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
-as it would on a device. The type check cannot see the difference, but every
+An answer may wait on a timer of its own (LLP 1027.000 D1, amended
+2026-10-28): `await new Promise(r => setTimeout(r, 180))`, a retry's back-off,
+`fetch(url, {signal: AbortSignal.timeout(5000)})`. A timer is due on the
+app's clock, the agent's under the driver: `clock +180` or `clock settle`
+fires it, and a jump lands each timer's turn before it goes on, so three
+chained sleeps of 100, 200 and 400 ms all run within `clock +700`. It belongs
+to the answer that armed it: arming one outside an answer (module
+initialization, a stream's mapper, an overlay, background work, or after the
+answer has given its value) throws, and an answer that gives its value, fails
+or is let go clears the rest, whose callbacks never run. At build each timer
+fires at once, so a source that waits still bakes.
+
+Natively, and in the web's wasm target, an answer waits on one thing at a
+time, and a fetch it awaits goes first: a timer raced against that fetch
+(`Promise.race`, or a `setTimeout` that calls `abort()`) runs only after the
+fetch lands, so it cannot cut the fetch short, and the journal says so once
+per answer. On the web JS target, whose answers run in the page, both work.
+For a deadline on every host, give the fetch `exactTimeout`: the host keeps
+it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too,
+on a different clock by host: natively and in the wasm target the fetch
+carries its time left as the host's real-time deadline; on the web JS target
+it is a timer on the page's clock, so under the agent `clock +N` fires it.
+Either way the signal aborts with `TimeoutError`. An answer waiting both for
+another answer's work (a shared fetch) and for a timer of its own is woken by
+whichever comes first on native hosts, for a source on the main thread, and on
+the web JS target; in the wasm target and in a worker-placed source it wakes
+only when its timer is due.
+
+A poll loop (`for (;;) { await sleep(5000); … }`) belongs in a Contract
+`task`, not in an answer: an answer that always has a timer armed never
+settles, so every `clock settle` stops at its bound and says `settled: false`.
+
+Not in a data module, by design (LLP 1027.000): `setInterval`,
+`requestAnimationFrame`, `performance.now()`, `Date.now()`, `new Date()`
+without a value and `Math.random()`: time and seeds are source arguments.
+Every executor refuses them by name, with the same message, on first use:
+Hermes, the web's module realm, and the web build, whose bundler gives the
+app's own modules guarded `Date`, `Math`, `Intl`, timers and `performance` in
+place of the page's (LLP 1027.000 D3), so an app that reads the clock fails in
+the web loop as it would on a device. The type check cannot see the difference, but every
 build refuses a direct use in a module `app.ts` reaches, by file and line
 (`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
 runs the module under Bun, which has no such guard, cannot hide it.
-Literal bracket access such as `Date['now']()` and `globalThis['setTimeout']()`
+Literal bracket access such as `Date['now']()` and `globalThis['setInterval']()`
 gets the same diagnostic as dot access, including in the web build's summary.
 Aliases and dynamic property keys still reach the runtime guard. In a running
 session, a refused TypeScript answer fails its resource and keeps its last value

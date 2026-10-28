@@ -394,6 +394,8 @@ public final class ExactSession {
     }
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?
+    /// A data module's timer continuation an advance released is still out (the batch's `landing`).
+    var timerLanding = false
     /// The view presenting this session, while one is mounted (D1).
     weak package var view: ExactView? { didSet { if view !== oldValue { natives.sessionViewChanged() } } }
     #if os(iOS) || os(tvOS)
@@ -1027,7 +1029,7 @@ public final class ExactSession {
         sampler?.batch(batch.seq, ms: 0); logAlerts(batch.alerts); logJournal(batch.journal)
         if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
         if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
-        timerDue = batch.timerDueMs
+        timerDue = batch.timerDueMs; timerLanding = batch.landing
         scheduleClock(due: batch.timerDueMs)
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
         if scrolled { presenter.scrolledWithoutPass() }
@@ -1118,7 +1120,7 @@ public final class ExactSession {
         frames.tasks = batch.frames
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
-        timerDue = batch.timerDueMs
+        timerDue = batch.timerDueMs; timerLanding = batch.landing
         scheduleClock(due: batch.timerDueMs)
         if outermost {
             while !pendingSurfaceRecords.isEmpty {

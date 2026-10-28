@@ -182,6 +182,8 @@ fn request_json(request: &Request) -> Json {
         "body_to": request.body_to,
         "redirect": (request.redirect != Redirect::Follow).then(|| request.redirect.name()),
         "held": request.held.then_some(true),
+        "due_ms": request.due_ms,
+        "wake_ms": request.wake_ms,
     })
 }
 
@@ -284,6 +286,8 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         redirect: Redirect::parse(json["redirect"].as_str())
             .map_err(|_| unavailable("turn reply: an invalid redirect mode"))?,
         held: json["held"].as_bool().unwrap_or(false),
+        due_ms: json["due_ms"].as_u64(),
+        wake_ms: json["wake_ms"].as_u64(),
     };
     // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
     match request.long_poll_refusal() {

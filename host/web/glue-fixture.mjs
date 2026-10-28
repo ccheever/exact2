@@ -29,7 +29,7 @@ export function fixture(agentMode = true) {
   const root = { dataset: {}, replaceChildren() { events.push('replace'); } };
   // glue.js: `agentKeepsStore = !agentMode || ?storage`; the fixture's drive names no store.
   const context = vm.createContext({ events, agentMode, agentKeepsStore: !agentMode, root, views: new Map([[1, el]]),
-    state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowFrames: false, present() {}, lists: new Map(),
+    state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowLanding: false, flowFrames: false, present() {}, lists: new Map(),
     Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
     foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
@@ -111,5 +111,5 @@ export function timedRequests(f, { stuck = false, parked = false } = {}) {
     f.events.push(`advance ${to}${untilRequest ? ' until a request' : ''} → ${clock}`);
     return JSON.stringify({ ops: [], clock, timers: true, timer_due_ms: due });
   };
-  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; return { timers: true, batch }; };
+  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; f.flowLanding = !!batch.landing; return { timers: true, batch }; };
 }

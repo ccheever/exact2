@@ -854,7 +854,8 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 - **`Date.now()` in a data module passes its Bun tests and fails on the
   device.** Since 2026-10-05 the build refuses a direct use by file and line
-  (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
+  (`Date.now()`, `new Date()`, `Math.random()`, `setInterval` and the frame
+  timers; an answer's own `setTimeout` is allowed since 2026-10-28), including literal
   bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
   from the call's arguments (the Contract's `wallTime.epochAtZero + performanceNow()`), as

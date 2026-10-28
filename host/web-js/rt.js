@@ -316,8 +316,8 @@ export function advance(to, wall, stop, timers = true) {
   let fired = 0, stopped = false;
   for (;;) {
     let next = null, then = null, head = null;
-    // A hatch's instant (hatches.js, LLP 1075.003.000.001 §2.4) comes after the timers and frame tasks due at the same time.
-    if (timers && !clock.stopped) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && next.hatch && !t.hatch)) next = t;
+    // A hatch's instant (hatches.js, LLP 1075.003.000.001 §2.4) and an answer's timer (ts-fetch.js) come after the timers and frame tasks due at the same time.
+    if (timers && !clock.stopped) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due || t.due === next.due && (next.hatch || next.data) && !t.hatch && !t.data)) next = t;
     // An answer's `then` goes before a timer due at the same time: the answer landed first; a queue's `next` between them (LLP 1092 D3).
     for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
     for (const m of Mutations) if (m.next <= to && (!head || m.next < head.next) && (!next || m.next <= next.due) && (!then || m.next < then.due)) head = m;
@@ -331,7 +331,7 @@ export function advance(to, wall, stop, timers = true) {
     else { clock.now = wall ? Math.max(clock.now, next.due) : next.due; if (next.once) clock.timers.splice(clock.timers.indexOf(next), 1); else if (!next.hatch) next.due = next.frame ? vf(next.base, ++next.k) : repeat ? beatAfter(at, next.ms, Math.max(clock.now, to)) : next.due + next.ms; }
     const due = next?.due, sample = () => { if (wall) clock.now = Math.max(clock.now, performance.now() - start); }; sample(); Instant = wall ? at : null; const ok = fire(head ? () => Sched.next(head) : then ? () => commit(then.then, `${then.name} then`) : next.action); Instant = null; sample();
     if (repeat && clock.timers.includes(next)) next.due = next.gen === gen && next.due === due ? beatAfter(at, next.ms, Math.max(clock.now, to)) : clock.now + next.ms; if (ok !== true) return journal.at(-1);
-    if (head || then || !next.hatch) fired++; // a hatch's instant is no commit: it has its own caps
+    if (head || then || !next.hatch && !next.data) fired++; // a hatch's instant is no commit: it has its own caps; nor is an answer's timer (ts-fetch.js)
     if (stop?.()) { stopped = true; break; }
   }
   if (!stopped) clock.now = Math.max(clock.now, to);

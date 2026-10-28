@@ -196,6 +196,17 @@ pub struct Request {
     /// A local listener's options (LLP 1133.005 D1): the URL is its
     /// address, and the stream its events. Set by [`Request::listen`].
     pub listen: Option<Box<crate::listen::Listen>>,
+    /// A continuation that waits for an answer's own timer (`setTimeout`,
+    /// LLP 1027.000 D1): the runner's clock time, in ms, before which the
+    /// runner keeps it back. It is no I/O, so no clock waits on it, and an
+    /// advance that reaches it hands it to the host. Set by [`Request::due`].
+    pub due_ms: Option<u64>,
+    /// A continuation that waits for other answers' work and for an
+    /// answer's own timer, whichever comes first: the host has it at once,
+    /// as any held continuation, and the runner releases it
+    /// ([`super::Runner::release_work`]) when its clock reaches this time, in
+    /// ms. Set by [`Request::wake`].
+    pub wake_ms: Option<u64>,
 }
 
 /// The event of a long poll's message that is a reply but no event (LLP
@@ -307,6 +318,8 @@ impl Request {
             held: false,
             reach: Default::default(),
             listen: None,
+            due_ms: None,
+            wake_ms: None,
         }
     }
 
@@ -369,6 +382,8 @@ impl Request {
             held: false,
             reach: Default::default(),
             listen: None,
+            due_ms: None,
+            wake_ms: None,
         }
     }
 
@@ -395,6 +410,8 @@ impl Request {
             held: false,
             reach: Default::default(),
             listen: None,
+            due_ms: None,
+            wake_ms: None,
         }
     }
 
@@ -529,6 +546,20 @@ impl Request {
             from: from.into(),
             same_cursor_event: false,
         }));
+        self
+    }
+
+    /// Kept back by the runner until its clock reaches `ms` (see
+    /// [`Request::due_ms`]).
+    pub fn due(mut self, ms: u64) -> Self {
+        self.due_ms = Some(ms);
+        self
+    }
+
+    /// Released by the runner when its clock reaches `ms`, if still held
+    /// (see [`Request::wake_ms`]).
+    pub fn wake(mut self, ms: u64) -> Self {
+        self.wake_ms = Some(ms);
         self
     }
 

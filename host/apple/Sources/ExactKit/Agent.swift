@@ -1036,7 +1036,8 @@ public final class Agent {
         // The agent's clock is a seek: frame tasks fire virtual frames (LLP 1073 D3).
         session.runtime.presentFrames(false)
         while true {
-            let waited = session.timerDue.map { $0 <= to } == true && waitForReplies(until: deadline)
+            // A data module's timer the last step released lands first too (exact-runner's `data_timers.rs`).
+            let waited = (session.timerDue.map { $0 <= to } == true || session.timerLanding) && waitForReplies(until: deadline)
             let held = waited && steps < 4096
             let batch = session.runtime.advance(now: to, untilRequest: held)
             session.apply(batch)
@@ -1135,8 +1136,8 @@ public final class Agent {
         #else
         let pictures = 0
         #endif
-        // A reply the server holds is no I/O a clock waits on (LLP 1016.000 D9).
-        return pendingRequests().filter { $0["held"] == nil }.count + session.presenter.canvas2d.loadingCount + pictures
+        // A reply the server holds is no I/O a clock waits on (LLP 1016.000 D9), nor is an answer's own timer (LLP 1027.000 D1).
+        return pendingRequests().filter { $0["held"] == nil && $0["timer"] == nil }.count + session.presenter.canvas2d.loadingCount + pictures
     }
 
     /// `clock settle`'s bound on requests in flight: a network's worth.

@@ -5,6 +5,8 @@
 
 use super::*;
 
+mod data_timers;
+
 /// How the runner's clock moves: whether the host presents frames, and the
 /// host's live clock when one owns it (D1; none is a seek clock).
 #[derive(Default)]
@@ -20,6 +22,8 @@ pub(super) struct Clock {
     started: f64,
     /// An input or reply is running: its commits keep its arrival
     arrived: bool,
+    /// Answers waiting on their own timers (`data_timers.rs`)
+    data: data_timers::DataTimers,
 }
 
 impl<D: DataSource> Runner<D> {
@@ -330,8 +334,15 @@ impl<D: DataSource> Runner<D> {
             // comes after everything due at the same time (D3).
             let wake = Some(self.transport.wake_due()).filter(|at| timers && *at <= now_ms);
             let before_wake = |at: f64| wake.is_none_or(|w| at <= w);
+            // An answer's own timer (`data_timers.rs`): what is due before it
+            // goes first, and so does what is due with it; nothing later does,
+            // so the clock never goes back to it.
+            let data_at = self
+                .data_timer_due_ms()
+                .filter(|at| timers && *at <= now_ms);
+            let before_data = |at: f64| data_at.is_none_or(|data| at <= data);
             let ended = Some(self.transport.ended_due())
-                .filter(|at| timers && *at <= now_ms && before_wake(*at))
+                .filter(|at| timers && *at <= now_ms && before_wake(*at) && before_data(*at))
                 .filter(|at| due.is_none_or(|(_, timer)| *at < timer));
             let due = due.filter(|(_, at)| ended.is_none() && before_wake(*at));
             let timer_at = due.map(|(_, at)| at).or(ended);
@@ -345,15 +356,16 @@ impl<D: DataSource> Runner<D> {
             // nothing else waits on it: an unseen wake's `then` would keep
             // the timers held until its expiry.
             let hold = self.reorder_deadline().filter(|at| *at <= now_ms);
-            let earliest = self
-                .reask_due(now_ms)
-                .filter(|(_, at)| timer_at.is_none_or(|timer| *at <= timer) && before_wake(*at));
+            let earliest = self.reask_due(now_ms).filter(|(_, at)| {
+                timer_at.is_none_or(|timer| *at <= timer) && before_wake(*at) && before_data(*at)
+            });
             let reask = earliest.filter(|(_, at)| hold.is_none_or(|hold| *at < hold));
             let order = if timers { earliest } else { reask };
             let ready = |at: f64| {
                 timer_at.is_none_or(|timer| at <= timer)
                     && before_wake(at)
                     && order.is_none_or(|(_, reask)| at <= reask)
+                    && before_data(at)
             };
             // An answer's `then` goes before a timer due at the same time: the
             // answer landed first. A queue's `next` goes after the `then`s and
@@ -607,6 +619,18 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
                 if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    stopped_on_request = true;
+                    break;
+                }
+                continue;
+            }
+            if let Some(at) =
+                data_at.filter(|at| before_wake(*at) && due.is_none_or(|(_, timer)| *at < timer))
+            {
+                // No commit: the host settles the continuation it hands out.
+                self.now_ms = if live { self.now_ms.max(at) } else { at };
+                if self.release_data_timers(at) && until_request {
                     landed = self.now_ms;
                     stopped_on_request = true;
                     break;

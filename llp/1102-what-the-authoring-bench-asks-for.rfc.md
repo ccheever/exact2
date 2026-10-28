@@ -212,6 +212,8 @@ Comparing two ISO strings already works (1088 D1).
 
 **What builders hit.** A server that hangs shows "Loading…" forever. A data source has no timers, so there is no `setTimeout` and no `AbortSignal.timeout`.
 
+> **2026-10-28:** an answer now has both (LLP 1027.000 D1, amended), and a fetch's `AbortSignal.timeout` is its deadline on the host, so a fetch timeout no longer needs the Contract form below.
+
 **How often.** 32 of 69 t3 trials (46%). Median 3 minutes. Most builders noted it and moved on.
 
 **r1's recipe was incomplete.** A gated task (`task waiter when pending(recipes)` with `after(10000, giveUp)`) is a loading deadline, not a fetch timeout:

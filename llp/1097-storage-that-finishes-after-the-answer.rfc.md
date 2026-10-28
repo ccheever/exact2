@@ -852,9 +852,10 @@ lifecycle and docs. Where the build differs from the text above, it says so.
   answer, fulfil, release and commit; the module's journal lines are taken
   there too, and after each round.
 - **The rejection tracker.** Hermes's tracker schedules its report with the
-  global `setTimeout`, which the prelude refuses; the prelude's `setTimeout`
-  runs the tracker's own callback (`bound onUnhandled`) at the next
-  checkpoint and refuses every other. The test proves it in the lean VM.
+  global `setTimeout`; the prelude's `setTimeout` runs the tracker's own
+  callback (`bound onUnhandled`, armed from inside the tracker's rejection
+  hook) at the next checkpoint. Every other was refused; since 2026-10-28 it
+  is an answer's own timer (LLP 1027.000 D1). The test proves it in the lean VM.
 - **Journal lines** go through a host op (13) natively and in the wasm
   realm; `console` lines are `console: …`. Every failed storage operation is
   journaled, so an app's expected first-launch `ENOENT` is a line too.

@@ -724,6 +724,7 @@ impl<D: DataSource> Runner<D> {
             let answer = if Self::activity_send(&source) {
                 self.activity_request(&source, &args)
             } else {
+                self.store.set_clock_ms(self.now_ms);
                 let answer = self
                     .data
                     .answer_for(target, &mut self.store, &source, &args);
