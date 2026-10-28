@@ -92,8 +92,7 @@ describe('routes (driver.ts connectOverRoutes, supervisor.ts checkBetterRoutes)'
     // The learned route asks for the descriptor with no credential first, then borrows the paired route's token, and owns none.
     const lanRequests = lan.requests.map(request => `${request.path} ${request.headers.Authorization ?? '-'}`);
     expect(lanRequests[0]).toBe('/.well-known/t3/environment -');
-    expect(lanRequests).toContain('/api/auth/session Bearer token-1');
-    expect(lanRequests).toContain('/api/auth/websocket-ticket Bearer token-1');
+    expect(lanRequests).toContain('/api/auth/websocket-ticket/rpc Bearer token-1');
     expect(Object.keys(JSON.parse(drive.store.get('t3-catalog')!).tokens)).toEqual([`${A}\nenv-1`]);
   });
 
@@ -139,6 +138,31 @@ describe('routes (driver.ts connectOverRoutes, supervisor.ts checkBetterRoutes)'
     await drive.advance(61_000, 1_000);
     const status = value(await drive.op({ op: 'status' }));
     expect([status.state, status.origin, status.activeRouteId]).toEqual(['connected', A, A]);
+  });
+
+  // A session read asked for during the 60 s check moves `check`, which lets the answer running the check go.
+  test('a route check let go by a session read runs in the answer that replaces it, started before or after the rejection', async () => {
+    const letGo = Object.assign(new Error('the answer was let go before this reply; the request may already have been sent'), { name: 'FetchError', kind: 'Aborted' });
+    for (const order of ['rejection first', 'new answer first'] as const) {
+      const { drive, home } = await twoRoutes();
+      await drive.op({ op: 'disconnect', forget: false });
+      home.up = false;
+      await drive.op({ op: 'connect', origin: A, credential: '' });
+      home.up = true;
+      let refuse: (error: unknown) => void = () => {};
+      drive.holds['/.well-known/t3/environment'] = new Promise<void>((_resolve, reject) => { refuse = reject; });
+      await drive.advance(61_000, 1_000);
+      expect(value(await drive.op({ op: 'status' })).activeRouteId).toBe(B);
+      await drive.op({ op: 'readSession' });
+      const session = drive.transport.focused;
+      const replace = () => drive.transport.connect(0, 'focused', session.attempt, session.check, drive.module);
+      delete drive.holds['/.well-known/t3/environment'];
+      if (order === 'rejection first') { refuse(letGo); await drive.settle(); await replace(); }
+      else { const replaced = replace(); refuse(letGo); await replaced; }
+      await drive.advance(3_000, 250);
+      const status = value(await drive.op({ op: 'status' }));
+      expect([order, status.state, status.activeRouteId]).toEqual([order, 'connected', A]);
+    }
   });
 
   test('removing the route in use reconnects; a removed paired route takes its token with it', async () => {
@@ -203,6 +227,25 @@ describe('outdated hosts (outdatedHostUpdate.ts)', () => {
     await drive.advance(2_000);
     expect(value(await drive.op({ op: 'status', fleet: key })).state).toBe('connected');
     expect(old.sockets.length).toBe(sockets + 1); // the session's own socket, not an update socket
+  });
+
+  // transport-outdated.ts: the job's socket ticket is an RPC one (remote.ts issueWebSocketTicketWithFallback).
+  test("the update job's ticket mints at /rpc, and at the bare path after a 404 from a server that predates ticket routes", async () => {
+    for (const ticketRoutes of [true, false]) {
+      const old = new FakeServer(A, 'env-old', { orchestrationProtocolVersion: 1, serverVersion: '0.0.40', capabilities: { serverSelfUpdate: 'respawn' } });
+      old.ticketRoutes = ticketRoutes;
+      const drive = new Drive(old);
+      await drive.op({ op: 'fleetOutdatedPair', fleet: `${A}\n`, credential: 'code-1' });
+      old.methods['server.updateServer'] = () => ({ targetVersion: '0.0.46', method: 'respawn' });
+      const before = old.requests.length, sockets = old.sockets.length;
+      await drive.op({ op: 'fleetOutdatedUpdate', fleet: `${A}\nenv-old`, targetVersion: '0.0.46' });
+      await drive.settle();
+      expect(old.requests.slice(before).filter(request => request.path.startsWith('/api/auth/websocket-ticket')).map(request => request.path))
+        .toEqual(ticketRoutes ? ['/api/auth/websocket-ticket/rpc'] : ['/api/auth/websocket-ticket/rpc', '/api/auth/websocket-ticket']);
+      // The server accepts a socket only on a ticket it minted; this one carried the update.
+      expect(old.sockets.length).toBe(sockets + 1);
+      expect(old.rpcs.map(rpc => rpc.method)).toContain('server.updateServer');
+    }
   });
 
   test('a host that does not come back in time fails the job', async () => {
