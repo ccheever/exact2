@@ -310,6 +310,35 @@ final class TintDimmingIOSTests: XCTestCase {
         dim(p, false)
     }
 
+    /// Text in the tint outside a control keeps its embedder's tint while dimmed when native
+    /// navigation holds the document fixed in its `DocumentMount`, beside the viewport, as
+    /// `ExactView` mounts them
+    func testAStatusInAFixedDocumentKeepsItsEmbeddersTint() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.overrideUserInterfaceStyle = .light
+        let embedder = UIView(frame: window.bounds)
+        embedder.tintColor = color(red)
+        window.addSubview(embedder)
+        p.viewport.frame = embedder.bounds
+        embedder.addSubview(p.viewport)
+        embedder.addSubview(p.documentMount)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ]))
+        p.hostDocument(fixed: true)
+        XCTAssertTrue(p.documentFixed, "the document is in its mount")
+        let status = try XCTUnwrap(p.views[1])
+        assertChannels(try runChannels(status), red, "the embedder's tint before the dimming")
+        embedder.tintAdjustmentMode = .dimmed
+        window.layoutIfNeeded()
+        assertChannels(try runChannels(status), red, "the embedder's tint while dimmed")
+        embedder.tintAdjustmentMode = .automatic
+    }
+
     /// A symbol in a custom control greys with it, and its colour comes back
     func testASymbolInAControlGreysWithIt() throws {
         let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]]

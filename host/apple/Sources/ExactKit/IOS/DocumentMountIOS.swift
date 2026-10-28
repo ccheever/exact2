@@ -15,7 +15,18 @@ import UIKit
 /// UIKit's focus search as the viewport does. The container takes the whole
 /// view, so the page has no bands past its area (`Presenter.pageMargins`)
 /// while it is here.
-package final class DocumentMount: UIView {
+package final class DocumentMount: UIView, RestsTint {
+    /// Its tint undimmed, for a document mounted here, as the viewport keeps its own (`RestsTint`)
+    var restingTint: UIColor? { tintAdjustmentMode == .dimmed ? undimmedTint : tintColor }
+    private var undimmedTint: UIColor?
+    package override func tintColorDidChange() {
+        super.tintColorDidChange()
+        if tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
+    }
+    package override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil, tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
+    }
     package override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
         return hit === self ? nil : hit

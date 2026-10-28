@@ -58,11 +58,7 @@ final class Viewport: ScrollView {
     var pageMargins = UIEdgeInsets.zero
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
-    /// Its tint undimmed (its embedder's or its window's), which a status outside a control keeps
-    /// while UIKit dims tints (`NodeView.restingTint`): the one it last had, while it is dimmed. It
-    /// takes one as it joins a window and whenever its tint changes undimmed. An embedder's tint
-    /// changed while the viewport is dimmed shows once the dimming ends, and a viewport first
-    /// attached under an already dimmed embedder has none and takes the window's.
+    /// Its tint undimmed, for a document mounted here (`RestsTint`)
     var restingTint: UIColor? { tintAdjustmentMode == .dimmed ? undimmedTint : tintColor }
     private var undimmedTint: UIColor?
     override func tintColorDidChange() {

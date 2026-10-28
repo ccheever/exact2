@@ -39,6 +39,18 @@ enum TintDimming {
     }
 }
 
+/// A view a session's document is mounted in: the viewport, or the `DocumentMount` native
+/// navigation holds it fixed in. It keeps its tint undimmed, its embedder's or its window's, which a
+/// status outside a control keeps while UIKit dims tints (`NodeView.restingTint`): the one it last
+/// had, while it is dimmed. It takes one as it joins a window and whenever its tint changes undimmed.
+/// An embedder's tint changed while the session is dimmed shows once the dimming ends, and a session
+/// first attached under an already dimmed embedder has none and takes the window's.
+protocol RestsTint: UIView {
+    var restingTint: UIColor? { get }
+}
+
+extension Viewport: RestsTint {}
+
 extension NodeView {
     /// This node or one above it is a control
     var insideControl: Bool {
@@ -68,9 +80,9 @@ extension NodeView {
 
     /// The tint as it rests, since UIKit's `tintColor` is dimmed here, from the sources it comes
     /// from: the nearest authored `accent-color` (`applyAccentTint`), else the theme's `AccentColor`
-    /// (`applyThemeTint`), else what the viewport last had undimmed (its embedder's or window's)
+    /// (`applyThemeTint`), else what the view the document is mounted in last had undimmed (`RestsTint`)
     var restingTint: UIColor {
-        var current: UIView? = self, port: Viewport?
+        var current: UIView? = self, port: (any RestsTint)?
         while let view = current {
             // Resolve an ancestor's accent in each appearance, as its dynamic tint does (`applyAccentTint`)
             if let node = view as? NodeView, node.style["accent_color"]?.namesTint != true, node.channels("accent_color", dark: false) != nil {
@@ -78,7 +90,7 @@ extension NodeView {
                     node?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
                 }
             }
-            if port == nil { port = view as? Viewport }
+            if port == nil { port = view as? RestsTint }
             current = view.superview
         }
         return ThemeRoles.color("AccentColor", in: self) ?? port?.restingTint ?? window?.tintColor ?? tintColor
