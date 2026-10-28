@@ -1560,6 +1560,7 @@ dependencies = [
  "web-time",
  "wgpu 30.0.1",
  "windows",
+ "windows-core",
 ]
 
 [[package]]

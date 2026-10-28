@@ -70,6 +70,11 @@ pub trait Backend {
     ) -> Result<bool, String> {
         Ok(false)
     }
+    /// Character input for a carrier's windowless editor, when it owns focus.
+    #[cfg(windows)]
+    fn platform_text(&mut self, _text: &str) -> Result<bool, String> {
+        Ok(false)
+    }
     /// The selected backend's name.
     fn name(&self) -> &'static str;
     /// Whether geometry queries must draw through this backend to keep its
@@ -300,6 +305,11 @@ pub trait Backend {
 }
 
 impl super::Painter {
+    #[cfg(windows)]
+    pub(crate) fn platform_text(&mut self, text: &str) -> Result<bool, String> {
+        self.backend.platform_text(text)
+    }
+
     #[cfg(windows)]
     pub(crate) fn attach_window(
         &mut self,
