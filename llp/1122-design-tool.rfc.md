@@ -1629,3 +1629,12 @@ request in flight, the latest value next, 60 Hz gestures. It changed `contrast_0
 **Findings on the way, now fixed:** six copies of one origin starved their own reports (F1), and the clone's own
 `setMode` beat the Black copy's pin (F2). Headless Chrome on this Mac composites six large frames at about 15 fps
 idle, so the gate runs headed.
+
+## 11. Open items
+
+- **The part a node sits in** (stage 15 D4 batch 2 #3; theme2's ruling, 2026-10-28). The Inspector says "Not one
+  of its parts." for any node of a library component's view that isn't itself a part, including one inside a
+  part (a round FollowButton's icon image, inside its `icon` part). Naming the enclosing part ("in its icon
+  part") needs the selection's `library` to carry it, as `library.within`, joined from the map's ancestors: a
+  1.18 wire field. Deferred: a wording gain this small isn't worth a wire field and three rounds by itself.
+  Take it up if a later change to the selection's `library` touches the wire anyway.
