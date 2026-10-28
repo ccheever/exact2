@@ -298,12 +298,10 @@ export function markdownMedia(alt: string, src: string, href: string, root: stri
   const classified = classifyMarkdownImageSource(normalizeMarkdownLinkDestination(src), root || undefined);
   const mediaKind = mediaKindFromPath(src), cwd = scope.cwd ?? root;
   // T3 Code 7c3b3b3605ef (#21363): a sound plays in its audio chip, and a host file of no media kind is its file chip.
-  if (mediaKind === 'audio') return markdownAudio(alt, src, href, classified, scope);
+  if (mediaKind === 'audio') return markdownAudio(alt, src, href, classified, root, scope);
   if (mediaKind === null && classified._tag === 'WorkspaceFile' && chatFileLink(src)) {
-    const { hash } = splitMarkdownLinkSearchAndHash(normalizeMarkdownLinkDestination(src)), { path, line, column } = splitFilePathPosition(classified.path, hash);
-    const label = [fileBasename(path), line ? `L${line}${column ? `:C${column}` : ''}` : ''].filter(Boolean).join(' · ');
-    return { href, kind: 'file', alt, access: 'environment', key: path, fragment: '', originalUrl: '', source: null,
-      file: { label, tip: line ? `${path}:${line}${column ? `:${column}` : ''}` : path, icon: fileIconToken(path), target: workspaceLookupPath(src, root, cwd) } };
+    const file = markdownFileChip(src, classified.path, root, cwd);
+    return { href, kind: 'file', alt, access: 'environment', key: file.tip, fragment: '', originalUrl: '', source: null, file };
   }
   const kind = mediaKind ?? 'image', name = alt || kind;
   if (classified._tag === 'Direct') {
@@ -322,15 +320,25 @@ export function markdownMedia(alt: string, src: string, href: string, root: stri
 }
 /**
  * ChatMarkdown's audio: named by its file (else its alt, else "Audio"); a host file plays from its signed `media-file`
- * and opens beside the thread, a web URL plays as written, and anything else is "Audio unavailable · <alt>".
+ * and opens beside the thread, a web URL plays as written, and anything else is "Audio unavailable · <alt>". A host
+ * file's chip is kept (`file`) for a sound inside a line of text, which markdownMediaChips draws as its file chip.
  */
-function markdownAudio(alt: string, src: string, href: string, classified: ReturnType<typeof classifyMarkdownImageSource>, scope: MediaScope): MarkdownMedia {
+function markdownAudio(alt: string, src: string, href: string, classified: ReturnType<typeof classifyMarkdownImageSource>, root: string, scope: MediaScope): MarkdownMedia {
   const filePath = classified._tag === 'WorkspaceFile' ? classified.path : null;
   const name = fileBasename(filePath ?? src.split(/[?#]/, 1)[0] ?? '') || alt || 'Audio';
   const common = { href, kind: 'audio', alt, fragment: '', source: null, originalUrl: '', name } as const;
-  if (filePath !== null && scope.thread !== false) return { ...common, access: 'environment', key: `media:${filePath}`, resource: { _tag: 'media-file', path: filePath }, openPath: filePath };
+  if (filePath !== null && scope.thread !== false) {
+    return { ...common, access: 'environment', key: `media:${filePath}`, resource: { _tag: 'media-file', path: filePath }, openPath: filePath,
+      file: markdownFileChip(src, filePath, root, scope.cwd ?? root) };
+  }
   if (classified._tag === 'Direct') return { ...common, access: 'direct', key: resolveProtocolRelativeMediaUrl(classified.uri) };
   return { ...common, access: 'blocked', key: '' };
+}
+/** fileLinkChip's face for an image source: fileLinkLabel (the name, then its line), the full path, its icon and lookup path. */
+function markdownFileChip(src: string, resolved: string, root: string, cwd: string): MarkdownFileChip {
+  const { hash } = splitMarkdownLinkSearchAndHash(normalizeMarkdownLinkDestination(src)), { path, line, column } = splitFilePathPosition(resolved, hash);
+  const label = [fileBasename(path), line ? `L${line}${column ? `:C${column}` : ''}` : ''].filter(Boolean).join(' · ');
+  return { label, tip: line ? `${path}:${line}${column ? `:${column}` : ''}` : path, icon: fileIconToken(path), target: workspaceLookupPath(src, root, cwd) };
 }
 
 /** The Markdown documents on screen whose images open the expanded preview, by the owner
@@ -361,8 +369,13 @@ export function markdownMediaChips(text: string, root: string, scope: MediaScope
     if (seen.has(image.href)) return [];
     seen.add(image.href);
     const media = markdownMedia(image.alt, image.src, image.href, root, scope);
+    // A sound plays in its audio chip on an image line only (media-markdown.contract MarkdownMediaLine): the chip's code is
+    // too large for every run of text the plan draws. Inside a line of text a host file's sound is its file chip, and a
+    // web URL's has no chip, so the run reads as its alt text.
+    const inline = image.href.startsWith(INLINE_IMAGE), file = media.kind === 'audio' && !inline ? undefined : media.file;
+    if (inline && media.kind === 'audio' && media.access === 'direct') return [];
     // A file chip carries its label, full path, Pierre icon and lookup path as a link chip does; a sound its name and the file it opens.
-    if (media.file) return [{ href: image.href, kind: 'media', label: media.file.label, size: 'file', tip: media.file.tip, detail: '', icon: media.file.icon, target: media.file.target }];
+    if (file) return [{ href: image.href, kind: 'media', label: file.label, size: 'file', tip: file.tip, detail: '', icon: file.icon, target: file.target }];
     if (media.kind === 'audio') return [{ href: image.href, kind: 'media', label: image.alt, size: 'audio', tip: media.name ?? '', detail: media.openPath ?? '', icon: media.access, target: media.key }];
     return [{ href: image.href, kind: 'media', label: image.alt, size: media.kind, tip: media.source ? mediaTooltip(media.source) : '', detail: media.source ? encodeMediaSource(media.source) : '',
       icon: media.access, target: media.key }];

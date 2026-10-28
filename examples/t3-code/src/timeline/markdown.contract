@@ -8,7 +8,7 @@ use CodeTip from "./code-tips.contract"
 use Icon from "../shared/icons.contract"
 use MorphMaximize, MorphCopyCheck from "../shell/shell-morph.contract"
 use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor, citeNear from "./diff-cite.contract"
-use MarkdownMedia from "../media/media-markdown.contract"
+use MarkdownMedia, MarkdownMediaLine from "../media/media-markdown.contract"
 use MathBlock from "./markdown-math.contract"
 use MermaidDiagram, MermaidFrameView from "./mermaid-frame.contract"
 use ProjectGlyph from "../sidebar/sidebar-shapes.contract"
@@ -489,7 +489,7 @@ component BlockBody
       // An image line draws through its media chip (media-views.ts markdownMediaChips).
       if chips.filter((c) => c.kind == "media" and c.href == block.href).length > 0
         for chip in chips.filter((c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`, label=chip.label, menu=chip.menu)
+          MarkdownMediaLine(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`, label=chip.label, menu=chip.menu)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     // A quote reads in the prose's own ink beside a 2px bar of it at 35% (border-inline-start), on its start side.

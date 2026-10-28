@@ -262,6 +262,9 @@ describe('media views', () => {
     expect(markdownMedia('', 'take.m4a', '', '/repo', { thread: false })).toMatchObject({ kind: 'audio', access: 'blocked', name: 'take.m4a' });
     expect(markdownMediaChips('![Take](clips/take.mp3)', '/repo').filter(chip => !chip.href.startsWith('t3-image:'))).toEqual([
       { href: 't3-file:clips/take.mp3', kind: 'media', label: 'Take', size: 'audio', tip: 'take.mp3', detail: '/repo/clips/take.mp3', icon: 'environment', target: 'media:/repo/clips/take.mp3' }]);
+    // Inside a line of text the host file's sound is its file chip, and a web URL's has none (the run reads as its alt).
+    expect(markdownMediaChips('Hear ![Take](clips/take.mp3) and ![Web](https://cdn.example/a.ogg).', '/repo').filter(chip => chip.href.startsWith('t3-image:'))).toEqual([
+      { href: 't3-image:t3-file:clips/take.mp3', kind: 'media', label: 'take.mp3', size: 'file', tip: '/repo/clips/take.mp3', detail: '', icon: expect.any(String), target: 'clips/take.mp3' }]);
   });
   test('Markdown: a file of no media kind written as an image is its file chip', () => {
     const [chip] = markdownMediaChips('![report](docs/report.pdf)', '/repo', { cwd: '/repo' }).filter(entry => !entry.href.startsWith('t3-image:'));
@@ -281,15 +284,20 @@ describe('media views', () => {
     await markdownMediaUrls(client, native, '/repo', 5);
     expect(rpcs.map(rpc => rpc.resource)).toEqual([{ _tag: 'media-file', path: '/repo/own.png', threadId: 't1' }]);
   });
-  test('Markdown: MarkdownMedia draws a file chip, an audio chip or its unavailable label by the chip\'s kind', () => {
+  test('Markdown: an image line plays a sound in its audio chip; MarkdownMedia draws a file chip or the unavailable label', () => {
+    const line = contractComponent('src/media/media-markdown.contract', 'MarkdownMediaLine');
     const media = contractComponent('src/media/media-markdown.contract', 'MarkdownMedia');
     const scope = (kind: string, access: string) => ({ kind, access, target: 'media:/repo/a', urls: [], alt: '' });
+    expect([line.drawn('AudioChip(', {}, scope('audio', 'environment')), line.drawn('MarkdownMedia(alt=alt', {}, scope('audio', 'environment'))]).toEqual([true, false]);
+    expect([line.drawn('AudioChip(', {}, scope('audio', 'blocked')), line.drawn('MarkdownMedia(alt=alt', {}, scope('image', 'direct'))]).toEqual([false, true]);
     const drawn = (marker: string, kind: string, access: string) => media.drawn(marker, {}, scope(kind, access));
-    expect([drawn('MarkdownFileChip(', 'file', 'pdf'), drawn('AudioChip(', 'file', 'pdf'), drawn('MarkdownMediaBody(', 'file', 'pdf')]).toEqual([true, false, false]);
     const label = 'MediaUnavailableLabel(alt=alt, kind=kind';
-    expect([drawn('AudioChip(', 'audio', 'environment'), drawn(label, 'audio', 'environment'), drawn('MarkdownMediaBody(', 'audio', 'direct')]).toEqual([true, false, false]);
-    expect([drawn(label, 'audio', 'blocked'), drawn('AudioChip(', 'audio', 'blocked'), drawn(label, 'file', 'blocked')]).toEqual([true, false, false]);
+    expect([drawn('MarkdownFileChip(', 'file', 'pdf'), drawn(label, 'file', 'blocked'), drawn('MarkdownMediaBody(', 'file', 'pdf')]).toEqual([true, false, false]);
+    expect([drawn(label, 'audio', 'blocked'), drawn('MarkdownMediaBody(', 'audio', 'direct')]).toEqual([true, false]);
     expect([drawn('MarkdownFileChip(', 'image', 'blocked'), drawn(label, 'image', 'blocked')]).toEqual([false, true]);
+    // Only image lines (BlockBody) draw MarkdownMediaLine; runs of text draw MarkdownMedia.
+    const markdown = appText('src/timeline/markdown.contract');
+    expect([markdown.split('MarkdownMediaLine(alt=').length - 1, markdown.split('MarkdownMedia(alt=').length - 1]).toEqual([1, 2]);
   });
   test('Markdown: a sound is signed as a media file, a file chip is not', async () => {
     const items = [{ item: { text: '![t](/tmp/take.mp3)\n![r](/tmp/report.pdf)' } }];
