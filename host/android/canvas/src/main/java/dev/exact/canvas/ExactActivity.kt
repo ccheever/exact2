@@ -470,6 +470,9 @@ open class ExactActivity : Activity() {
         Exact.hidden(true)
         if (reads()) pads.background()
         view.running(false, reads())
+        // Behind the hide, the pads' release and the stop of the turns (none queued after it), what they and anything
+        // since the pause committed is on disk before Android may kill it.
+        if (!Exact.drainStore()) android.util.Log.w("exact", "the store's writes did not finish before the stop")
         contentResolver.unregisterContentObserver(settings)
         super.onStop()
     }
@@ -483,6 +486,8 @@ open class ExactActivity : Activity() {
     }
 
     override fun onPause() {
+        // Everything committed before the pause is on disk (exact2 writes the store on a thread of its own).
+        if (!Exact.drainStore()) android.util.Log.w("exact", "the store's writes did not finish before the pause")
         Extensions.paused()
         super.onPause()
     }

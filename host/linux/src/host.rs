@@ -51,6 +51,8 @@ mod presence;
 pub(crate) mod press;
 #[path = "scale.rs"]
 mod scale;
+#[path = "store_writer.rs"]
+mod store_writer;
 #[path = "system_support.rs"]
 mod system;
 #[path = "transform_binding.rs"]
@@ -59,7 +61,11 @@ mod transform_binding;
 mod value_watch;
 pub use error::{HostError, LET_GO_AFTER};
 
-use system::{physical_memory, store_snapshot, StoreWrites};
+pub use store_writer::drain as drain_store_writes;
+pub use store_writer::take_warnings as take_store_warnings;
+#[cfg(test)]
+use system::StoreWrites;
+use system::{physical_memory, store_snapshot};
 
 /// Caller-owned plan bytes, or linked bytes whose data pool stays in place.
 #[derive(Clone, Copy)]
@@ -80,7 +86,6 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
-    store_writes: StoreWrites,
     doc_watch: Option<crate::doc_watch::DocWatch>,
     font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
@@ -273,7 +278,6 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
-            store_writes: StoreWrites::default(),
             doc_watch: None,
             font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
@@ -1276,9 +1280,10 @@ impl<D: DataSource> Host<D> {
         // A nameless drive keeps secrets in the runner only (LLP 1018). A
         // named `--storage` drive writes them into that scratch tree, so a
         // reload reads them back (platformer R10). The log is taken either way.
+        // Written by the store's own thread (`store_writer.rs`), so no frame waits on a file's sync.
         let writes = self.runner.take_store_writes();
         let app_id = self.runner.data().app_id().to_string();
-        for line in self.store_writes.flush(&app_id, &writes) {
+        for line in store_writer::submit(&app_id, writes) {
             self.runner.log(line);
         }
         paint |= self.project_navigation();

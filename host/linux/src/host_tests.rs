@@ -99,6 +99,15 @@ fn failed_store_writes_retry_on_commits_without_writes() {
         let id = host.kernel().node_by_key(key).unwrap().id;
         assert!(host.dispatch_at(id, Event::Press, 0.).is_none());
     };
+    // A commit hands its writes to the store's thread (`store_writer.rs`): each step waits for them to be
+    // written, and a commit after it logs what failed.
+    let step = |host: &mut Host<Data>, at: f64| {
+        host.advance(at);
+        assert!(drain_store_writes(std::time::Duration::from_secs(10)));
+        host.advance(at + 0.25);
+        // (That commit's own retry written too, before the test moves the files or the environment.)
+        assert!(drain_store_writes(std::time::Duration::from_secs(10)));
+    };
     let warnings = |host: &Host<Data>| {
         exact_runner::agent::logs(host.runner(), 0)
             .to_string()
@@ -106,45 +115,45 @@ fn failed_store_writes_retry_on_commits_without_writes() {
             .count()
     };
     press(&mut host, "first");
-    host.advance(1.);
-    host.advance(2.);
+    step(&mut host, 1.);
+    step(&mut host, 2.);
     assert_eq!(warnings(&host), 1);
     std::fs::remove_dir(&file).unwrap();
-    host.advance(3.);
+    step(&mut host, 3.);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "first");
     std::fs::remove_file(&file).unwrap();
     std::fs::create_dir(&file).unwrap();
     press(&mut host, "second");
-    host.advance(4.);
+    step(&mut host, 4.);
     assert_eq!(warnings(&host), 2);
     press(&mut host, "third");
-    host.advance(5.);
+    step(&mut host, 5.);
     assert_eq!(warnings(&host), 3);
     std::fs::remove_dir(&file).unwrap();
-    host.advance(6.);
+    step(&mut host, 6.);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "third");
     std::fs::remove_file(&file).unwrap();
     std::fs::create_dir(&file).unwrap();
     press(&mut host, "first");
     press(&mut host, "forget");
-    host.advance(7.);
+    step(&mut host, 7.);
     assert_eq!(warnings(&host), 5);
     std::fs::remove_dir(&file).unwrap();
     std::fs::write(&file, "old").unwrap();
-    host.advance(8.);
+    step(&mut host, 8.);
     assert!(!file.exists());
     let home = std::env::var_os("HOME").unwrap();
     std::env::remove_var("HOME");
     press(&mut host, "second");
-    host.advance(9.);
+    step(&mut host, 9.);
     assert_eq!(warnings(&host), 6);
     std::env::set_var("HOME", home);
-    host.advance(10.);
+    step(&mut host, 10.);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "second");
     std::env::set_var("EXACT_AGENT", "1");
     std::env::remove_var("EXACT_AGENT_STORAGE");
     press(&mut host, "third");
-    host.advance(11.);
+    step(&mut host, 11.);
     assert_eq!(warnings(&host), 6);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "second");
 }

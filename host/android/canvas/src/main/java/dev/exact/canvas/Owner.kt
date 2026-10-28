@@ -348,6 +348,15 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         handler.post { f(); produce() }
     }
 
+    /** The store's writes on disk ([Native.storeDrain]), behind what was sent to the exact thread before it: at most
+     * [ms] in all, the main thread waiting (the activity going to the background). Whether they were. */
+    fun drainStore(ms: Long): Boolean {
+        val until = System.nanoTime() + ms * 1_000_000
+        val task = FutureTask { Native.storeDrain(((until - System.nanoTime()) / 1_000_000).coerceAtLeast(0).toInt()) }
+        handler.post(task)
+        return try { task.get(ms, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (e: java.util.concurrent.TimeoutException) { false }
+    }
+
     /** Run [f] on the exact thread and wait for it (Back, a surface's window): rare, and the answer is needed now. */
     fun <T> sync(publish: Boolean = true, f: () -> T): T {
         if (Looper.myLooper() == thread.looper) return f()
@@ -586,6 +595,13 @@ internal object Exact {
     fun wake() { owner?.call {} }
     fun presence(answer: String) { val o = owner; if (o != null) o.call { Native.presence(answer) } else Native.presence(answer) }
     fun hidden(hidden: Boolean) { val o = owner; if (o != null) o.call { Native.hidden(hidden) } else Native.hidden(hidden) }
+    /** The store's writes on disk before the activity goes to the background, so a kill after its stop loses none
+     * committed before (exact2 writes them on a thread of its own): at most [ms]. Whether every commit was written
+     * ([Native.storeDrain]). */
+    fun drainStore(ms: Long = 2000): Boolean = try {
+        val o = owner
+        if (o != null) o.drainStore(ms) else Native.storeDrain(ms.toInt())
+    } catch (e: UnsatisfiedLinkError) { true }
     fun orientationApplied(applied: String, conflict: Boolean, line: String?) {
         val o = owner
         if (o != null) o.call { Native.orientationApplied(applied, conflict, line) } else Native.orientationApplied(applied, conflict, line)

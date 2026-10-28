@@ -197,6 +197,9 @@ object Native {
     @JvmStatic external fun pictureChanged(source: String, revoked: Boolean)
     /** The activity stopped (true) or started (false): the page's `visibilityState`. On the host's thread. */
     @JvmStatic external fun hidden(hidden: Boolean)
+    /** Waits up to [ms] for the store's writes, which exact2 makes on a thread of its own: whether every commit handed
+     * over was written (a write that failed is tried once more; failing again, it stays pending). Any thread. */
+    @JvmStatic external fun storeDrain(ms: Int): Boolean
     /** What [Orientation] asked of the activity for the session's orientation lock (LLP 1133.029 §8), JSON, whether
      * its resolution found a conflict, and a line for the journal or null. On the host's thread. */
     @JvmStatic external fun orientationApplied(applied: String, conflict: Boolean, line: String?)

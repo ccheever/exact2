@@ -159,6 +159,20 @@ macro_rules! canvas_jni_extensions {
             with(|h| h.page_hidden(hidden == JNI_TRUE));
         }
 
+        /// Waits up to `ms` for the store's writes, which the store's own
+        /// thread makes (`host/store_writer.rs`): whether every commit handed
+        /// over was written. The activity going to the background. Any thread.
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_storeDrain(
+            _env: *mut JNIEnv,
+            _class: jclass,
+            ms: jint,
+        ) -> jboolean {
+            flag($crate::host::drain_store_writes(
+                std::time::Duration::from_millis(ms.max(0) as u64),
+            ))
+        }
+
         /// Whether the page places a canvas of surface `name`. Any thread.
         #[no_mangle]
         pub unsafe extern "system" fn Java_dev_exact_canvas_Native_surfaceHas(

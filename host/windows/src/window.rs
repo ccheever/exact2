@@ -251,6 +251,16 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         state.failed = true;
     }
     exact_linux::set_event_waker(None);
+    // However the loop ended (the window closed, a bounded run, a failure): the store's writes, made on a thread of
+    // their own, are on disk before the process ends, and what failed is said.
+    if !exact_linux::host::drain_store_writes(std::time::Duration::from_secs(5)) {
+        eprintln!("exact: the store's writes were not all on disk at exit");
+    }
+    if let Some(p) = &state.presenter {
+        for line in exact_linux::host::take_store_warnings(p.host().runner().data_ref().app_id()) {
+            eprintln!("exact: {line}");
+        }
+    }
     if state.frames > 0 {
         eprintln!(
             "exact-windows: {} frames; mean render/present {:.2} ms; mean CPU upload {:.2} ms",
