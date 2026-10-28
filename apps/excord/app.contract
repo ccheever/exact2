@@ -1,12 +1,10 @@
 // Excord: a Discord client (apps/excord/llp/0001).
-// The data seam is §4.2's: `gatewayState` is the gateway's stream and its small
-// snapshot (a version for the lists and one per channel); each list is a
-// resource taking its version, and the transcript is one resource, `loadWindow`,
-// answering one contiguous run of at most 200 messages around `anchor` ("" is
-// the live tail).
-// Paging moves the anchor a page ahead of the reader (`scrolled`, with
-// `reachstart` and `reachend` behind it); a jump replaces the window and places
-// its target with `scrollIntoView`.
+// The data seam is §4.2's: `gatewayState` is the gateway's stream and its small snapshot (a version
+// for the lists and one per channel); each list is a resource taking its version, and the transcript
+// is one resource, `loadWindow`, answering one contiguous run of at most 200 messages around `anchor`
+// ("" is the live tail).
+// Paging moves the anchor a page ahead of the reader (`scrolled`, with `reachstart` and `reachend`
+// behind it); a jump replaces the window and places its target with `scrollIntoView`.
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, MediaPreferences, Place, Viewport, Page, noAnswers, channelOf, connected, draftOf, withDraft, placeOf, piece, keyOf, Time, typingDot from "./shapes.contract"
 use MessageLanguage, Translated, withTranslated, pendingLineOf from "./translate.contract"
 use translatorAvailability, createTranslator, translate, createLanguageDetector, TranslatorAvailability, TranslatorInfo, TranslatorResult, LanguageDetectorInfo from "@exact/translation"
@@ -23,6 +21,7 @@ use requestAgeRange, AgeRange from "@exact/age-range"
 use loginItemStatus, registerLoginItem, unregisterLoginItem, openLoginItemSettings, LoginItemStatus from "@exact/login-item"
 use requestAttention from "@exact/dock"
 use MentionLightItems from "./light.contract"
+
 // A picture's route is the list's child, not its channel's: a reload at its address opens over the
 // list alone, so `strayViewer` can give that one history entry the channel's address.
 routes nav
@@ -338,6 +337,7 @@ component Excord
   members "./viewer.contract"
   members "./light.contract"
   members "./typing.contract"
+  members "./browse.contract"
   task digest when gw.queued > 0 and not pending(digested) key=gw.seq
     after(1, digestNow)
   task traffic when live and open != ""
@@ -1351,7 +1351,7 @@ component Excord
                       reachstart=older reachend=newer scroll=scrolled scrollend=scrollEnded
                       flex=1 min-height=0 padding-top=8 padding-bottom=22
                       for m in rows key=m.key
-                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" and m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" and dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, poll=pollAct, translations=translations, original=showOriginal)
+                        MessageRow(m=m, contrast=(mediaPreferences.prefersContrast == "custom"), touch=(viewport.pointer == "coarse"), clock=clock, offset=time.utcOffset, isNew=m.isNew, lit=(m.id == highlight), revealed=revealed, picks=pollPicks, swipeX=(viewport.pointer == "coarse" and m.key == swipeKey ? swipeX : 0), dragging=(viewport.pointer == "coarse" and dragging and m.key == swipeKey), reveal=reveal, jump=jumpTo, aim=aim, react=toggleReaction, retry=retry, discard=discard, swipe=swipe, swipeEnd=swipeEnd, show=show, hovered=(m.key == hoverKey), hover=hoverRow, reply=startReply, profile=showProfile, follow=follow, browse=openLink, poll=pollAct, translations=translations, original=showOriginal)
                   if rows.length == 0
                     column position="absolute" inset=0 align-items="center" justify-content="center" gap=12 padding=24
                       if historyFailed

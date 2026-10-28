@@ -226,6 +226,19 @@ public final class ExactPackageContext {
     public func log(_ line: String) { logFn(line) }
     /// The session's clock, ms: the agent's under the agent.
     public func now() -> Double { nowFn() }
+
+    /// Whether the embedder lets the app leave for `url` (LLP 1133.024 D22
+    /// item 7), `how` one of `browser` (a page shown over the app) and
+    /// `external` (another app): asked before a page or a hand-off by URL
+    /// opens, as `ExactSession.follow` hands a link to the delegate. The
+    /// session's delegate decides (`ExactLeaveDelegate`); one that does not
+    /// say lets it go. Main thread.
+    public func leave(_ url: String, how: String) -> Bool {
+        let ask = NSMutableDictionary(dictionary: ["url": url, "how": how])
+        if let view = viewFn() { ask["view"] = view }
+        NotificationCenter.default.post(name: Notification.Name("exact.leave"), object: ask)
+        return ask["allow"] as? Bool ?? true
+    }
 }
 
 /// The session's window (`ExactPackageContext.presentation`).

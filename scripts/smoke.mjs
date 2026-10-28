@@ -475,6 +475,7 @@ component App
     hcheck(byTestId(await s.tree(), 'station-search') != null, 'b kept its state after a refused candidate');
     const logs = await s.logs();
     hcheck(logs.host.some((l) => /apply .*refused/.test(l)), `the host reported the refusal: ${logs.host.filter((l) => /apply/.test(l)).join(' | ')}`);
+    if (host === 'host') await (await import('./smoke-leave.mjs')).leaveChecks({ s, say, settle: settleHost, check: hcheck }); // 4a
     // 5. Destroy a under b: a's handle is refused by name; b still answers.
     say('destroy a');
     await settleHost(500);

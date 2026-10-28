@@ -272,6 +272,18 @@ class ExtensionContext internal constructor(val application: Context, private va
      */
     fun startActivityForResult(intent: android.content.Intent, done: (Int, android.content.Intent?) -> Unit) = Extensions.start(intent, done)
 
+    /**
+     * Whether the embedder lets the app leave for [url] (LLP 1133.024 D22 item 7), [how] `browser` (a page over the
+     * app) or `external` (another app): asked before a page or a hand-off by URL opens. The stock activity lets every
+     * one go; an embedding app sets [ExtensionContext.leaving] to decide. Main thread.
+     */
+    fun leave(url: String, how: String): Boolean = leaving?.invoke(url, how) ?: true
+
+    companion object {
+        /** The embedder's decision on leaving the app ([leave]); null lets every URL go. */
+        @JvmStatic var leaving: ((String, String) -> Boolean)? = null
+    }
+
     /** [requestPermissions] for [name], keeping the history [permission] reads. */
     fun askPermission(name: String, done: () -> Unit) = requestPermissions(arrayOf(name)) {
         val a = activity

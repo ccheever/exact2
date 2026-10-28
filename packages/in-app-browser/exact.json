@@ -1,0 +1,75 @@
+{
+  "kind": "interface",
+  "name": "@exact/in-app-browser",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "InAppBrowserStatus": {
+      "available": "bool",
+      "overApp": "bool"
+    },
+    "BrowserResult": {
+      "action": "enum<dismissed|opened>"
+    }
+  },
+  "names": [
+    {
+      "source": "inAppBrowserStatus",
+      "live": true,
+      "overlays": "implementation",
+      "answers": "InAppBrowserStatus",
+      "sync": {
+        "name": "inAppBrowserStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "overApp": false
+        },
+        "targets": {
+          "ios": {
+            "available": true,
+            "overApp": true
+          },
+          "android": {
+            "available": true,
+            "overApp": true
+          },
+          "linux": {
+            "available": false,
+            "overApp": false
+          },
+          "tvos": {
+            "available": false,
+            "overApp": false
+          }
+        }
+      }
+    },
+    {
+      "send": "openBrowser",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "url": "string"
+      },
+      "answers": "BrowserResult",
+      "substitute": {
+        "choose": {
+          "ticket": "browser",
+          "choices": [
+            "dismissed",
+            "opened"
+          ],
+          "typed": false
+        },
+        "unsupported": [
+          "linux",
+          "tvos"
+        ]
+      }
+    }
+  ]
+}
