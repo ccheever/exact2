@@ -21,7 +21,7 @@ import { obj, str, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
 import { appFiles } from '../media/save-file';
 import { automationCalls } from './browser-automation-run';
-import { ANNOTATE_OVERLAY } from './page-scripts';
+import { ANNOTATE_OVERLAY, ANNOTATE_STYLES } from './page-scripts';
 import { frameEntry } from './browser-frames';
 import { queueSlotWork } from './browser-automation-recording';
 
@@ -72,7 +72,7 @@ export async function startAnnotate(client: T3Client, runtimeId: string, theme: 
   try {
     // The overlay installs itself once per document (it keeps `globalThis.__t3codeAnnotate`), then starts.
     const started = await automationCalls().callFunction({ id: frame, sandbox: SANDBOX, arguments: [theme],
-      functionDeclaration: `function (theme) {\nif (!globalThis.__t3codeAnnotate) {\n${ANNOTATE_OVERLAY}\n}\nreturn globalThis.__t3codeAnnotate.start(theme) === true;\n}` });
+      functionDeclaration: `function (theme) {\nif (!globalThis.__t3codeAnnotate) {\nconst STYLES = ${JSON.stringify(ANNOTATE_STYLES)};\n${ANNOTATE_OVERLAY}\n}\nreturn globalThis.__t3codeAnnotate.start(theme) === true;\n}` });
     if (obj(started).result !== true) { settle(pick, id); return; }
   } catch (error) { if (letGo(error)) throw error; settle(pick, id); return; }
   queueSlotWork(client, `annotate:${frame}:${id}`, native => awaitPick(frame, pick, id, prepare, native));

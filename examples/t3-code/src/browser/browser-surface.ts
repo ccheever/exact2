@@ -34,8 +34,8 @@ import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, tabProfile, type Bro
 import { addressBarSearchTemplate, resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
 import { browserKey, focusUrlTaken, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
-import { browserHistory } from './browser-history';
-import { environmentHostname, preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
+import { recordVisit } from './browser-history-record';
+import { preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
 import { fleet } from '../connections/settings-b-fleet';
 import { pushToast } from '../shell/toast';
 import { miniStoreOf, deviceThreadId } from '../device/device-session';
@@ -515,7 +515,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
     if (op === 'navigate' || op === 'open-url') {
       let url: string; try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
       if (sendServerCommand(client, runtimeId, { type: 'navigate', url })) {
-        host.store.rememberUrl(ref, url); browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));
+        host.store.rememberUrl(ref, url); recordVisit(client, ref, url, navigationNow(client));
       }
       return '';
     }
@@ -534,7 +534,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
       frameOp(client); navigateFrame(client, runtimeId, url);
       host.store.rememberUrl(ref, url);
-      browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));
+      recordVisit(client, ref, url, navigationNow(client));
       return '';
     }
     case 'toggle-mute': { // the tab menu's Mute / Unmute and the tab's audio button (previewBridge.setAudioMuted)

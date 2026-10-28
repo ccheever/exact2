@@ -1,28 +1,43 @@
-// Thread and provider notifications (MIT reference: components/
-// ThreadNotificationCoordinator.tsx at 74541bab17, threadNotifications.ts,
-// ProviderUpdatePrimaryNotification.tsx, ProviderUpdateLaunchNotification
-// .logic.ts, providerUpdateDismissal.ts). The window's focus is the page's
+// Thread notifications (MIT reference: components/
+// ThreadNotificationCoordinator.tsx and ThreadNotificationCoordinator.logic.ts at 7c3b3b3605ef, threadNotifications.ts).
+// Provider updates raise no toast at launch: the sidebar's pill and Settings ›
+// Providers offer them. The window's focus is the page's
 // (`exactPage().hasFocus`, document.hasFocus(): exact2 #219); the macOS side
 // (notification center, sound, Dock badge, a click that opens the thread) is
 // modules/apple/T3Notifications.swift, which says why it is not `showNotification`.
 import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import type { T3Client } from '../client/client';
 import { pushToast } from './toast';
-import { arr, obj, str, type Shell } from '../client/domain';
-import { bridgeReply, type Files, type Native } from '../client/protocol';
+import { obj, str, type Shell } from '../client/domain';
+import { bridgeReply, type Native } from '../client/protocol';
 import { sidebarStatus, latestRun } from '../sidebar/sidebar-model';
-import { providerUpdates as notifyProviderUpdates, primaryTarget } from '../providers/provider-update-notify';
 import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
 export type NotifyStatus = { active: boolean; authorization: string; agent: boolean; opened: string; openedThread: string };
-type Memory = { attention: string | null; completion: number | null };
-/** Each environment's EnvironmentNotifications memory, by environment id. */
-type NotifyState = { previous: Map<string, Map<string, Memory>>; mode: string };
+/** ThreadNotificationObservation: the attention key, and whether the thread is idle with its latest run completed (when). */
+type Memory = { attention: string | null; settled: boolean; completedAt: number | null };
+/**
+ * thread-inbox.ts WORKING_EXIT_GRACE_MS: the Working shelf keeps a thread that stopped working for 2 s, as an
+ * orchestrator run can end moments before its continuation starts; "Thread completed" waits as long.
+ */
+export const WORKING_EXIT_GRACE_MS = 2_000;
+/**
+ * createThreadNotificationGate on the shell's clock: a completion waits WORKING_EXIT_GRACE_MS from the first tick after
+ * it was seen (`seen` is that answer's reading, `due` 0 until the tick; the clock reads the time only when it ticks).
+ */
+export type NotifyGate = { pending: Map<string, { at: number; seen: number; due: number }>; handled: Map<string, number>; lastSettled: Map<string, number> };
+export const notifyGate = (): NotifyGate => ({ pending: new Map(), handled: new Map(), lastSettled: new Map() });
+/** Each environment's EnvironmentNotifications memory and gate, by environment id. */
+type NotifyState = { previous: Map<string, Map<string, Memory>>; gates: Map<string, NotifyGate>; mode: string };
 const states = new WeakMap<T3Client, NotifyState>();
 function notifyState(client: T3Client): NotifyState {
   let state = states.get(client);
-  if (!state) { state = { previous: new Map(), mode: '' }; states.set(client, state); }
+  if (!state) { state = { previous: new Map(), gates: new Map(), mode: '' }; states.set(client, state); }
   return state;
+}
+/** A completion waits out its grace: the shell's clock must keep ticking until it notifies or is cancelled. */
+export function notificationsWaiting(client: T3Client): boolean {
+  return [...notifyState(client).gates.values()].some(gate => gate.pending.size > 0);
 }
 
 export const hasNotificationSound = (mode: string) => mode === 'sound' || mode === 'notifications-and-sound';
@@ -59,13 +74,19 @@ export async function reportWindowFacts(owner: object, native: Native, visible: 
 type Transition = { threadId: string; kind: 'completion' | 'input'; status: string; title: string };
 
 /**
- * EnvironmentNotifications: diff each root thread's attention key and latest
- * completion against the previous shell of the same environment (the focused
- * client's or a background one's). The first live shell only records.
+ * EnvironmentNotifications: each root thread's observation against the previous shell of the same environment (the
+ * focused client's or a background one's). The first live shell only records. Attention notifies at once and replaces
+ * the completion before it; a completion waits out the grace in `gate` and notifies once, and an observation that is
+ * not settled meanwhile cancels it. Archived threads and stopped runs (latestRunStopRequested) notify no completion.
+ * `now` is the shell's clock; a caller without one gets completions at once.
  */
-export function threadTransitions(environment: { shell: Shell }, previous: Map<string, Memory> | null): { next: Map<string, Memory>; transitions: Transition[] } {
-  const next = new Map<string, Memory>(), transitions: Transition[] = [];
+export function threadTransitions(environment: { shell: Shell }, previous: Map<string, Memory> | null, gate: NotifyGate = notifyGate(), now = 0): { next: Map<string, Memory>; transitions: Transition[] } {
+  const next = new Map<string, Memory>(), transitions: Transition[] = [], statuses = new Map<string, string>();
   noteSubagentRequests(environment.shell.threads); // subagents are skipped below, so their requests notify through the thread above them
+  const cancel = (key: string) => { gate.pending.delete(key); };
+  const skip = (key: string, at: number | null) => { if (at !== null && at > (gate.handled.get(key) ?? -Infinity)) gate.handled.set(key, at); };
+  const transition = (id: string, kind: Transition['kind'], status: string) => transitions.push({ threadId: id, kind, status,
+    title: kind === 'completion' ? 'Thread completed' : status === 'approval' ? 'Approval needed' : status === 'limited' ? 'Usage limit reached' : status === 'failed' ? 'Thread failed' : 'Input needed' });
   for (const thread of environment.shell.threads) {
     if (obj(thread.lineage).relationshipToParent === 'subagent') continue;
     const id = str(thread.id);
@@ -75,18 +96,35 @@ export function threadTransitions(environment: { shell: Shell }, previous: Map<s
     const prior = previous?.get(id);
     const attention = ['input', 'approval', 'failed', 'limited'].includes(status) ? `${str(thread.latestRunId)}:${status}` : null;
     const completedAt = Date.parse(run?.completedAt ?? '');
-    // Waiting only on commands (a dev server) is done; subagents and monitors wake the agent.
-    const settled = status === 'ready' || (status === 'waiting' && !arr(thread.pendingBackgroundTasks).some(task => str(task.kind) !== 'command'));
-    const completion = settled && run?.status === 'completed' && Number.isFinite(completedAt) ? completedAt : prior?.completion ?? null;
-    next.set(id, { attention, completion });
-    if (!prior || thread.archivedAt != null) continue;
-    // A run asked to stop (latestRunStopRequested: an interrupt request on it) ends without a completion notification.
-    const kind = attention && attention !== prior.attention ? 'input'
-      : thread.latestRunStopRequested !== true && completion !== null && (prior.completion === null || completion > prior.completion) ? 'completion' : null;
-    if (!kind) continue;
-    const title = kind === 'completion' ? 'Thread completed' : status === 'approval' ? 'Approval needed'
-      : status === 'limited' ? 'Usage limit reached' : status === 'failed' ? 'Thread failed' : 'Input needed';
-    transitions.push({ threadId: id, kind, status, title });
+    const settled = status === 'ready' && run?.status === 'completed';
+    const observed: Memory = { attention, settled, completedAt: settled && Number.isFinite(completedAt) ? completedAt : null };
+    next.set(id, observed); statuses.set(id, status);
+    const archived = thread.archivedAt != null, quiet = thread.latestRunStopRequested === true;
+    if (observed.settled && observed.completedAt !== null) gate.lastSettled.set(id, observed.completedAt);
+    if (!observed.settled || archived || quiet) cancel(id);
+    if (!prior || archived || quiet) skip(id, observed.completedAt);
+    if (!prior || archived) continue;
+    if (attention && attention !== prior.attention) {
+      skip(id, gate.lastSettled.get(id) ?? null);
+      cancel(id);
+      transition(id, 'input', status);
+      continue;
+    }
+    const at = observed.completedAt;
+    // A completion the previous shell already showed settled was taken then (scheduled, notified or skipped).
+    if (!observed.settled || at === null || at <= (gate.handled.get(id) ?? -Infinity) || gate.pending.get(id)?.at === at || (prior.settled && prior.completedAt === at)) continue;
+    // A caller without a clock (now 0) has no grace to wait out.
+    if (!(now > 0)) { gate.handled.set(id, at); transition(id, 'completion', status); continue; }
+    gate.pending.set(id, { at, seen: now, due: 0 });
+  }
+  // retain: threads that left the snapshot are forgotten.
+  for (const map of [gate.pending, gate.handled, gate.lastSettled]) for (const key of [...map.keys()]) if (!next.has(key)) map.delete(key);
+  for (const [id, wait] of [...gate.pending]) {
+    if (!wait.due && now > wait.seen) wait.due = now + WORKING_EXIT_GRACE_MS;
+    if (!wait.due || now < wait.due) continue;
+    gate.pending.delete(id);
+    gate.handled.set(id, wait.at);
+    transition(id, 'completion', statuses.get(id) ?? 'ready');
   }
   return { next, transitions };
 }
@@ -129,21 +167,23 @@ export function notifyEnvironments(client: T3Client, source: EnvironmentFleet = 
  * later call that runs during those awaits diffs a newer shell against memory no older than the
  * shells this call read, and this call never writes an older shell's memory over a newer one.
  */
-export async function threadNotifications(client: T3Client, native: Native, status: NotifyStatus, source: EnvironmentFleet = fleet): Promise<void> {
+export async function threadNotifications(client: T3Client, native: Native, status: NotifyStatus, source: EnvironmentFleet = fleet, now = 0): Promise<void> {
   const state = notifyState(client);
   const prefs = client.local.clientSettings;
   const mode = str(prefs.notificationMode, 'off'), inApp = prefs.inAppNotificationsEnabled === true;
   const modeChanged = state.mode !== mode;
   state.mode = mode;
   if (modeChanged) await bridgeReply(native, { op: 'notifyClear' }).catch(() => undefined);
-  if (mode === 'off' && !inApp) { state.previous.clear(); return; }
+  if (mode === 'off' && !inApp) { state.previous.clear(); state.gates.clear(); return; }
   const environments = notifyEnvironments(client, source);
   const listed = new Set(environments.map(environment => environment.environmentId));
-  for (const environmentId of [...state.previous.keys()]) if (!listed.has(environmentId)) state.previous.delete(environmentId);
+  for (const environmentId of [...state.previous.keys()]) if (!listed.has(environmentId)) { state.previous.delete(environmentId); state.gates.delete(environmentId); }
   const pending: { environment: WatchedEnvironment; transition: Transition }[] = [];
   for (const environment of environments) {
-    if (!environment.live) { state.previous.delete(environment.environmentId); continue; }
-    const { next, transitions } = threadTransitions(environment, state.previous.get(environment.environmentId) ?? null);
+    if (!environment.live) { state.previous.delete(environment.environmentId); state.gates.delete(environment.environmentId); continue; }
+    let gate = state.gates.get(environment.environmentId);
+    if (!gate) state.gates.set(environment.environmentId, gate = notifyGate());
+    const { next, transitions } = threadTransitions(environment, state.previous.get(environment.environmentId) ?? null, gate, now);
     state.previous.set(environment.environmentId, next);
     for (const transition of transitions) pending.push({ environment, transition });
   }
@@ -187,14 +227,4 @@ export async function notificationPermission(client: T3Client, native: Native, m
   } catch { /* unavailable: the message below says what to do */ }
   permissionMessages.set(client, PERMISSION_DENIED);
   return false;
-}
-
-// --- Provider update launch notification ---------------------------------
-// ProviderUpdatePrimaryNotification is provider-update-notify.ts; the
-// dismissed update sets live in the client's one preference file (shell-prefs.ts), which
-// shellView saves after a dismissal.
-
-/** One shell answer's turn of the launch notification: the prompt, and a running update's outcome. */
-export async function providerUpdates(client: T3Client, _storage?: Files): Promise<void> {
-  notifyProviderUpdates(client, primaryTarget(client, null));
 }

@@ -74,7 +74,7 @@ reuses the cache in `.runtime-cache/`). The bundle carries that folder as
 unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
 desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in
 `<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. Closing the window
-(⌘W, File › Close Window, the red button) does not quit: `app.json` sets
+(File › Close Window, the red button) does not quit: `app.json` sets
 `host.macos.window.keepRunning`, so the window hides and the app, its session and the server keep
 running, as the reference's (`DesktopLifecycle.ts`: `window-all-closed` quits only off macOS). The
 reopen event (a Dock click, `open -a`) and a `t3 app` request show the window again; with it
@@ -347,9 +347,10 @@ item (`-exact-menu="none"`) but one that stands in for a host item (⌘Z, ⌘,),
 per chord (⌘N and ⇧⌘O both start a thread with no text field focused). While the sidebar's undo
 notice claims ⌘Z, thread.undo stands in for Edit › Undo. ⌘W closes the active right-panel surface
 tab (its neighbour becomes active; the last tab closes the panel; on the Pull Requests page the open
-pull request) before it closes the window: the window root's capture handler hears it ahead of the
-menu (`app-window.contract` `modifierDown`), so File › Close Window keeps ⌘W; a held ⌘W's repeats
-are dropped.
+pull request) or the focused terminal, and never the window: the window root's capture handler hears
+it ahead of the menu (`app-window.contract` `modifierDown`) and holds a ⌘W that closes nothing, as the
+reference's File › Close Window has no key equivalent (the host's menu still shows ⌘W there); a held
+⌘W's repeats are dropped.
 The Quit shortcut setting's hold (Hold ⌘Q or press twice) is the window root's `key` handler, ahead
 of the menu's Quit (`quit-hold.contract`). Edit's Paste as Text (⇧⌘V) stays the module's
 (`T3Menus.swift`): it is the responder chain's `pasteAsPlainText:`, which a button's press is not. The surface launcher takes the focus when it mounts (`autofocus`), and
