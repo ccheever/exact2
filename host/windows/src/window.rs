@@ -753,18 +753,13 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         let deferred = composition && std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("warp");
         let warp = if deferred {
             let wake = self.proxy.clone();
-            if std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("warp") {
-                match exact_ink::device::d3d11::Preparing::with_wake(false, move || {
-                    let _ = wake.send_event(crate::accessibility::Event::Wake);
-                }) {
-                    Ok(worker) => self.preparing = Some(worker),
-                    Err(error) => {
-                        eprintln!("exact-windows: device preparation: {error}; keeping WARP")
-                    }
+            match exact_ink::device::d3d11::Preparing::composition_startup(move || {
+                let _ = wake.send_event(crate::accessibility::Event::Wake);
+            }) {
+                Ok((warp, hardware)) => {
+                    self.preparing = Some(hardware);
+                    Some(warp)
                 }
-            }
-            match exact_ink::device::d3d11::Preparing::start(true) {
-                Ok(worker) => Some(worker),
                 Err(error) => {
                     self.fail(events, error.to_string());
                     return;
