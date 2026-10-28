@@ -14,7 +14,7 @@
 import type { T3Client } from '../client/client';
 import { arr, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
-import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { fleet, fleetDeviceStates, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { browserAutoShowFloatingPreview } from '../browser/browser-capture';
 import { surfaceStore } from '../panel/panel-surfaces';
 import { deviceSurfaceId, openDeviceSurface } from '../panel/right-panel-tabs';
@@ -103,12 +103,20 @@ export async function watchThreadDevices(client: T3Client, native: Native | null
   await watchDevice(client, native);
 }
 
-/** The focused environment's device state, followed on each answer of the shell once its first snapshot arrived. */
-export async function threadDevices(client: T3Client, native: Native | null | undefined, sheet: boolean): Promise<void> {
+/**
+ * The focused environment's device state, followed on each answer of the shell once its first snapshot arrived, and
+ * every connected background environment's (startAgentOpenedPreviews' watchEnvironmentDevices): a device an agent opens
+ * in one of their threads floats too. The fleet subscribes each one's device hub (settings-b-fleet.ts).
+ */
+export async function threadDevices(client: T3Client, native: Native | null | undefined, sheet: boolean, source: EnvironmentFleet = fleet): Promise<void> {
   await watchThreadDevices(client, native);
   noteDismissedDevices(client);
+  const options = { sheet, autoShowFloatingPreview: browserAutoShowFloatingPreview(client) };
   const state = deviceStateOf(client);
-  if (state && client.environmentId) applyDeviceSnapshot(client, client.environmentId, state, { sheet, autoShowFloatingPreview: browserAutoShowFloatingPreview(client) });
+  if (state && client.environmentId) applyDeviceSnapshot(client, client.environmentId, state, options, source);
+  for (const background of fleetDeviceStates(source)) {
+    if (background.environmentId !== client.environmentId) applyDeviceSnapshot(client, background.environmentId, background.state, options, source);
+  }
 }
 
 /** shouldRenderPreviewMiniPlayer: the player hides while the rendered panel surface is the same device. Its frame

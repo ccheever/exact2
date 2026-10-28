@@ -435,7 +435,8 @@ describe('fleet hub sources', () => {
       const ok = (value: unknown) => ({ ok: true, generation: 7, value });
       if (request.op === 'environments') return ok({ saved: [{ origin: 'http://10.0.0.2:3773', environmentId: 'env-b', enabled: true }] });
       if (request.op === 'status') return ok({ state: 'connected' });
-      if (request.op === 'http') return ok(request.path === '/api/auth/session' ? { authenticated: true, scopes: [] } : { snapshotSequence: 1, projects: [], threads: [] });
+      if (request.op === 'readSession') return ok({ id: 'session-1' }); // the grants land in the inbox later
+      if (request.op === 'http') return ok({ snapshotSequence: 1, projects: [], threads: [] });
       if (request.op === 'request') return ok(desktop());
       if (request.op === 'subscribe') return ok({ id: `sub-${calls.length}` });
       if (request.op === 'events') return ok({ events: [], latest: 0 });
