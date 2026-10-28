@@ -553,7 +553,7 @@ export function propertyHolds(line, state, previous) {
 }
 
 async function propertyFailure(p, line, state, previous, s, file, test, step, index, host) {
-  const label = step.op === 'clock' ? `clock ${step.arg}` : `${step.op} ${JSON.stringify(step.target)}${step.op === 'type' ? ` ${JSON.stringify(step.text)}` : ''}`;
+  const label = ['boot', 'reload'].includes(step.op) ? step.op : step.op === 'clock' ? `clock ${step.arg}` : `${step.op} ${JSON.stringify(step.target)}${step.op === 'type' ? ` ${JSON.stringify(step.text)}` : ''}`;
   const location = at => `${at.file}:${at.line}:${at.col}`;
   const out = [`PROPERTY ${JSON.stringify(p.name)} is false on ${host}`,
     `  property line: ${file}:${line.line}`,
@@ -768,12 +768,24 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const pending = (state.pending ?? []).filter((p) => !p.device && !p.held).map((p) => p.name);
       failures.push(`${message}${failed}${pending.length ? ` (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : ''}${held}`);
     };
+    let previous;
+    const checkProperties = async (state, step, index) => {
+      for (const p of properties) for (const line of p.lines) {
+        propertyChecks++;
+        if (!propertyHolds(line, state, previous)) {
+          propertyFalse++;
+          failures.push(await propertyFailure(p, line, state, previous, s, file, t.name, step, index, host));
+        }
+      }
+      previous = state;
+    };
     try {
+      if (properties.length) await checkProperties(await s.state(), { op: 'boot', line: t.line }, -1);
       for (const st of preferences) {
         try { await prefer(st); } catch (e) { failures.push(`${t.name}: line ${st.line}: ${e.message}`); break; }
       }
       try { if (!failures.length) await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
-      let previous = properties.some(p => p.lines.some(l => l.test === 'stays')) && !failures.length ? await s.state() : undefined;
+      if (properties.length && !beforeData && !failures.length) await checkProperties(await s.state(), { op: 'clock', arg: 'data', line: t.line }, -1);
       // A counted fault that matched no fetch fails the test at the line that armed it (LLP 1103 D3).
       // A table the host never made (no fetch consulted it) matched nothing either; an unreadable state is said so.
       const unfired = async (prefix) => {
@@ -993,7 +1005,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           }
           default: failures.push(`${at}: unknown step ${st.op}`);
         }
-        if (closedAt == null) await mutationClock.advance(s);
+        if (closedAt == null) await mutationClock.advance(s, properties.length ? async (state, delta) => {
+          if (delta || ['tap', 'type', 'clock', 'key', 'reload'].includes(st.op)) {
+            await checkProperties(state, delta ? { ...st, op: 'clock', arg: '+' + delta } : st, n);
+          } else previous = state;
+        } : undefined);
       };
       for (const [n, st] of (failures.length ? [] : t.steps).entries()) {
         const at = `${t.name}: line ${st.line}`;
@@ -1001,17 +1017,6 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         current = st.line;
         try {
           await runStep(st, n, at);
-          if (closedAt == null && properties.length) {
-            const state = mutationClock.state;
-            if (['tap', 'type', 'clock', 'key'].includes(st.op)) for (const p of properties) for (const line of p.lines) {
-              propertyChecks++;
-              if (!propertyHolds(line, state, previous)) {
-                propertyFalse++;
-                failures.push(await propertyFailure(p, line, state, previous, s, file, t.name, st, n, host));
-              }
-            }
-            previous = state;
-          }
           if (atStep && closedAt == null && (INPUTS.has(st.op) || st.op === 'reload')) {
             const next = await atStep(s, { name: t.name, line: st.line, op: st.op });
             if (next === 'done') done = true;
@@ -1052,7 +1057,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
   const failed = results.filter((r) => r.failures.length).length, skipped = results.filter((r) => r.skipped).length;
-  if (properties.length) console.error(`properties on ${host}: ${propertyChecks} always line checks after authored inputs and clocks; ${propertyFalse} false${propertyChecks ? '' : '; not exercised'}`);
+  if (properties.length) console.error(`properties on ${host}: ${propertyChecks} always line checks at boot, after authored inputs, reloads and clocks; ${propertyFalse} false${propertyChecks ? '' : '; not exercised'}`);
   return { passed: results.length - failed - skipped, failed, skipped, results };
 }
 
@@ -1100,19 +1105,21 @@ export function testMutationClock() {
   return {
     get state() { return state; },
     reset() { cursor=0; state=undefined; },
-    async advance(s) {
-      let total=0;
-      for(let round=0;round<16;round++) {
+    async advance(s, observe) {
+      let total=0, delta=0;
+      for(let round=0;round<=16;round++) {
         state=await s.state();
+        if (observe) await observe(state, delta);
         const requests=state.mutationRequests;
         if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
         const mutations=requests-cursor;
         cursor=requests;
         if (!mutations) return total;
+        if (round === 16) throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
         total+=mutations;
+        delta=mutations;
         await s.clock('+'+mutations);
       }
-      throw new Error('test clock: mutations kept issuing requests across 16 automatic clock steps');
     },
   };
 }

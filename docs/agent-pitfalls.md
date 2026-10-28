@@ -1139,6 +1139,18 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
+- **A temporary import fixture says a sibling `use` leaves the app directory.**
+  Canonicalize its directory before passing the entry path to the compiler. On
+  macOS, `/var` aliases `/private/var`; mixing those paths makes the containment
+  check reject the sibling. (`contract-property-cone`, 2026-10-28.)
+
+- **A timer has fired before the next assertion although the test has no clock line.**
+  The test driver advances one millisecond per mutation request after each step,
+  including requests answered synchronously and those issued by an automatic advance.
+  Read the expansion's `.events` file from `contract verify` when checking a timer's
+  exact deadline. An input and its continuations land before those advances.
+  (LLP 1151 delivery; `mutations/then` and `queue-then`, 2026-10-28.)
+
 - **An HDR gradient samples as 1, or a visible box shadow samples as black.**
   Apple's agent samples through `CALayer.render(in:)`, which does not reproduce
   every compositor effect. On iOS 27, a native `CAGradientLayer` from 1× to 4×

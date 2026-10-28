@@ -450,8 +450,9 @@ pub fn expectations_on(s: &Scripted, rust: &[String]) -> Result<(), String> {
     for item in &s.items {
         match item {
             Item::Event(_) => k += 1,
+            Item::Observe(_) => {}
             Item::Settle { .. } => return Err("settle was not expanded".into()),
-            Item::Expect(e) => {
+            Item::Expect(e, _) => {
                 let step = steps.get(k).copied().unwrap_or(&[]);
                 let ok = match e {
                     Expect::State(name, v) => ["slot", "derive", "resource"]
@@ -610,7 +611,7 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
         for _ in 0..2 {
             events.extend(
                 ids.iter()
-                    .flat_map(|id| [script::Event::Tap(id.clone()), script::Event::Land]),
+                    .flat_map(|id| [script::Event::Tap(id.clone()), script::Event::InputLand]),
             );
         }
         events.push(script::Event::Clock(1000.0));
@@ -621,11 +622,15 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
         events: events.clone(),
         ..probe
     };
-    Scripted {
+    let mut script = Scripted {
         case,
         items: events.into_iter().map(Item::Event).collect(),
         delivery: Default::default(),
+    };
+    if let Err(error) = crate::settle::expand(&mut script, None) {
+        eprintln!("explore delivery: {error}");
     }
+    script
 }
 
 /// Every `.contract` file at `path` (a file, or a directory searched
@@ -647,7 +652,7 @@ pub fn collect(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-/// Drop event chunks, then single events, while both engines still diverge.
+/// Drop chunks of delivery groups, then individual groups, while both engines still diverge.
 pub fn shrink(case: &Case, tag: &str) -> Result<Case, String> {
     crate::shrink::divergence(case, tag, |_| {}).map(|(case, _)| case)
 }
@@ -717,5 +722,16 @@ mod tests {
         assert!(!omitted_at(&omitted, 1));
         let lean = lines(&["== boot", "outcome ok", "== land", "outcome ok"]);
         assert!(matches!(compare(omitted, lean), Verdict::Diverge { .. }));
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== land",
+            "outcome ok",
+            "slot n true",
+        ]);
+        let mut rust = lean.clone();
+        rust.push(observe::OMITTED_COMMIT.into());
+        rust.push("untraced configuration moved".into());
+        assert!(matches!(compare(rust, lean), Verdict::Diverge { .. }));
     }
 }

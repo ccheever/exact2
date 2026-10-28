@@ -1,7 +1,7 @@
 use crate::{compile, observe, oracle::Oracle, script};
 
 #[test]
-fn trace_names_due_work_and_only_handlers_that_reached_the_action() {
+fn trace_names_due_work_and_handlers_whose_arguments_refused() {
     let scripts = script::scripted(
         "trace",
         include_str!("../../corpus/trace/tasks.contract"),
@@ -26,6 +26,7 @@ fn trace_names_due_work_and_only_handlers_that_reached_the_action() {
             "outcome ok",
             "outcome refused",
             "ran task refuse refused",
+            "outcome ok",
             "outcome refused",
             "ran task refuse refused",
             "ran handler add ok",
@@ -50,8 +51,8 @@ fn trace_names_due_work_and_only_handlers_that_reached_the_action() {
         [
             "outcome ok",
             "outcome refused",
-            "outcome ok",
             "outcome refused",
+            "ran handler take refused",
             "outcome ok"
         ]
     );
@@ -88,8 +89,14 @@ fn queued_commits_name_the_mutation_and_then_names_the_action() {
 #[test]
 fn land_has_no_timer_commit_and_an_unmodeled_receipt_is_marked() {
     let source = include_str!("../../corpus/properties/land.contract");
-    let s = script::scripted("land", source, None).unwrap().remove(0);
-    crate::expectations(&s).unwrap();
+    let mut s = script::scripted("land", source, None).unwrap().remove(0);
+    s.case.events = vec![
+        script::Event::Clock(1.0),
+        script::Event::Land,
+        script::Event::Land,
+        script::Event::Tap("one".into()),
+        script::Event::InputLand,
+    ];
     let plan = compile(&s.case).unwrap();
     let (lines, _) = observe::run(
         plan.clone(),
@@ -101,6 +108,10 @@ fn land_has_no_timer_commit_and_an_unmodeled_receipt_is_marked() {
     assert!(!steps[2].iter().any(|l| l.starts_with("ran task")));
     assert!(!steps[3].iter().any(|l| l.starts_with("ran ")));
     assert!(steps[4].contains(&"ran task tick ok".into()));
+    let properties = contract::properties("after \"one\" \"isolated\"\n  writes none\n").unwrap();
+    let report = crate::property::evaluate(&properties, &lines);
+    assert_eq!(report.counts[0][0].counted, 1);
+    assert_eq!(report.counts[0][0].checked, 0);
 
     let source = "component App\n  view\n    time datetime=0 format=\"timer\" testId=\"time\"\n\ntest \"tick\"\n  clock +1000\n";
     let s = script::scripted("time", source, None).unwrap().remove(0);
@@ -115,7 +126,7 @@ fn land_has_no_timer_commit_and_an_unmodeled_receipt_is_marked() {
 }
 
 #[test]
-fn curried_refusal_names_the_action_without_claiming_it_ran() {
+fn curried_refusal_traces_the_action_and_names_its_arguments() {
     let s = script::scripted(
         "trace",
         include_str!("../../corpus/trace/tasks.contract"),
@@ -132,7 +143,8 @@ fn curried_refusal_names_the_action_without_claiming_it_ran() {
     assert!(lines
         .iter()
         .any(|l| l.contains("HandlerArguments { action: \"take\"")));
-    assert!(!lines.iter().any(|l| l.starts_with("ran handler take")));
+    assert!(lines.iter().any(|l| l == "ran handler take refused"));
+    assert!(lines.iter().any(|l| l.contains("arguments refused")));
 }
 
 #[test]

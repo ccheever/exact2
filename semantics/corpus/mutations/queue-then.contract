@@ -33,4 +33,4 @@ test "one then a reply, before the timer"
   expect state order == "aaaat"
   tap "twice"
   clock +3
-  expect state order == "aaaataa"
+  expect state order == "aaaataat"

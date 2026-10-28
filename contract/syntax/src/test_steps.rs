@@ -15,6 +15,22 @@ pub struct TestDecl {
     /// Where.
     pub span: Span,
 }
+// Keep the census's vocabulary tied to the parser's exhaustive step enum.
+macro_rules! steps {
+    ($(#[$meta:meta])* pub enum Step { $($(#[$variant_meta:meta])* $kind:ident { $($fields:tt)* }),* $(,)? }) => {
+        $(#[$meta])* pub enum Step { $($(#[$variant_meta])* $kind { $($fields)* }),* }
+        impl Step {
+            /// Every step kind the parser can produce.
+            pub const KINDS: &[&str] = &[$(stringify!($kind)),*];
+            /// This step's kind, from the parser's enum.
+            pub fn kind(&self) -> &'static str {
+                match self { $(Self::$kind { .. } => stringify!($kind)),* }
+            }
+        }
+    };
+}
+
+steps! {
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
@@ -394,4 +410,6 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+}
+
 }
