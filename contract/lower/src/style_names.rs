@@ -127,6 +127,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("-webkit-text-stroke", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::TextStrokeWidth, StyleId::TextStrokeColor])),
     ("-webkit-text-stroke-width", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::TextStrokeWidth])),
     ("-webkit-text-stroke-color", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::TextStrokeColor])),
+    // @ref LLP 1019 D12
+    ("-webkit-font-smoothing", "browser webkit bb06bdc9", AttrTarget::Styles(&[StyleId::FontSmoothing])),
     ("caret-color", "css CSS UI 4", AttrTarget::Styles(&[StyleId::CaretColor])),
     // @ref LLP 1069.001 D6 — a form control's tint and whether the
     // platform draws it.

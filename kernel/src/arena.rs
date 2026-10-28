@@ -1373,6 +1373,7 @@ mod tests {
             (StyleId::ColorInterpolationFilters, text("sRGB")),
             (StyleId::TextBoxEdge, text("cap-alphabetic")),
             (StyleId::TextWrapStyle, text("balance")),
+            (StyleId::FontSmoothing, text("antialiased")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

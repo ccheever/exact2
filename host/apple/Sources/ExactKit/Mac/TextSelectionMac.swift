@@ -961,6 +961,7 @@ package final class TextSelection {
             }
         }
         ctx.saveGState()
+        if spec.antialiased { ctx.setShouldSmoothFonts(false) }
         ctx.clip(to: lines.map(\.rect))
         ctx.setFillColor(Self.fill(focused: focused).cgColor)
         ctx.fill(lines.map(\.rect))
