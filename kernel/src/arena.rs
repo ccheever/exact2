@@ -78,8 +78,7 @@ pub struct NodeArena {
     /// What a host last reported for a mark it sizes alike for every node
     /// (`control::shared_size`), by kind and font size bits.
     pub(crate) mark_sizes: Vec<((crate::ControlKind, u32), (f32, f32))>,
-    /// The kind and font size each mark's own report was made under, while it
-    /// stands (a withdrawal is judged by it, not by what the node is now).
+    /// The kind and font size each standing mark report was made under (`Kernel::mark_withdrawn`).
     pub(crate) mark_reports: IdMap<u32, (crate::ControlKind, u32)>,
     /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
