@@ -41,15 +41,15 @@ export function carriedChoice(fresh: string, tokens: number, offers: { items?: n
 // base be (its flips already say so). Another client's choice since replaces the base, and the page's flips on that
 // card become obsolete at once: never sent, never accepted, then dropped from `picked` (the last to choose wins, as on
 // the server). A newer record that comes while the page's own `choose` is on its way is kept, and settled when it lands.
-// A record of one of the page's own `choose`s not yet answered (its client, items it asked since the last answer and
-// the base), whose answer may have been lost, is the page's own: client names are shared by a person's tabs, so the
-// items tell it apart, and the same items from another tab under the name would be the same base. A rebase or an
-// answer ends them: after it, any other record is another client's. Only the flips `picked` held when a rebase was taken are obsolete: one
+// A record of the page's own last `choose` not yet answered (its client, the items it asked last), whose answer may
+// have been lost, is the page's own: client names are shared by a person's tabs, so the items tell it apart, and the
+// same items from another tab under the name would be the same base. Only the last: an earlier ask's items, chosen
+// again by another tab after the page moved on, are another client's choice. A rebase or an answer ends it. Only the flips `picked` held when a rebase was taken are obsolete: one
 // made after it counts.
 type Base = { at: number; choice: number[] | null };
 type Record = { proposal: unknown; choice?: number[]; choiceBy?: string | null; choiceAt?: number };
 const bases = new Map<string, Base>(), latest = new Map<string, Base>(), mine = new Map<string, number>(), sent = new Map<string, string>();
-const pending = new Map<string, Promise<boolean>>(), touched = new Set<string>(), gens = new Map<string, number>(), asked = new Map<string, Set<string>>();
+const pending = new Map<string, Promise<boolean>>(), touched = new Set<string>(), gens = new Map<string, number>(), asked = new Map<string, string>();
 // (`rebased`: a card whose flips are not yet taken, all of them obsolete until the page's next answer takes them; `stale`, those taken)
 const rebased = new Set<string>(), stale = new Map<string, Set<string>>();
 let answers = 0, epoch = '', run = 0, dirty = false;
@@ -68,12 +68,12 @@ export const heldChoice = {
   /** The held list as read on server run `on`: each proposal's base taken at first sight, or again when another client
    * chose since (kept, while the page's own `choose` of it is on its way, until that lands). A proposal missing from a
    * list (out being accepted, and back if that fails) keeps its base. A new run knows nothing. `client`: this page's,
-   * whose record of items it asked and has had no answer for is its own (its `choiceAt` taken as the page's, its answer lost or not). */
+   * whose record of the items it last asked, with no answer yet, is its own (its `choiceAt` taken as the page's, its answer lost or not). */
   saw(records: Record[], on: string, client = '') {
     if (on !== epoch) { this.forget(); epoch = on; }
     for (const p of records) {
       const id = String(p.proposal), seen = { at: p.choiceAt ?? 0, choice: p.choice ?? null };
-      if (client && p.choiceBy === client && seen.choice && asked.get(id)?.has(JSON.stringify(seen.choice))) mine.set(id, Math.max(mine.get(id) ?? 0, seen.at));
+      if (client && p.choiceBy === client && seen.choice && asked.get(id) === JSON.stringify(seen.choice)) mine.set(id, Math.max(mine.get(id) ?? 0, seen.at));
       latest.set(id, seen);
       if (!bases.has(id)) bases.set(id, seen);
       else if (!pending.has(id)) settle(id);
@@ -119,7 +119,7 @@ export const heldChoice = {
       if (foreign(id)) return false;
       if (sent.get(id) === key) return true;
       sent.delete(id); // (an answer that never comes leaves the server's choice unknown: the next ask sends again)
-      asked.set(id, (asked.get(id) ?? new Set()).add(key));
+      asked.set(id, key);
       const ok = await ask(items);
       if (at !== run || ok?.choiceAt === undefined) return false;
       asked.delete(id); // (answered: every ask before it was taken first, one at a time a proposal)

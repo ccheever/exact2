@@ -163,11 +163,34 @@ test('H2, round 1 (Astra): a rebase ends the page\'s unanswered asks, so a same-
   heldChoice.saw([{ proposal: 'm', choice: [0, 1], choiceBy: 'design-tool:Ada', choiceAt: 3 }], 'e9', 'design-tool:Ada');
   expect(heldChoice.gen('m')).toBe(2);
   expect(heldChoice.base('m')).toEqual([0, 1]);
+  // Two lost answers, and the poll shows the newest: the page's own.
   heldChoice.saw([{ proposal: 'n', choiceAt: 0 }], 'e9', 'design-tool:Ada');
   await heldChoice.send('n', [0], () => Promise.resolve(null));
   await heldChoice.send('n', [1], () => Promise.resolve(null));
-  heldChoice.saw([{ proposal: 'n', choice: [0], choiceBy: 'design-tool:Ada', choiceAt: 1 }], 'e9', 'design-tool:Ada');
   heldChoice.saw([{ proposal: 'n', choice: [1], choiceBy: 'design-tool:Ada', choiceAt: 2 }], 'e9', 'design-tool:Ada');
   expect(heldChoice.gen('n')).toBe(0);
   expect(heldChoice.at('n')).toBe(2);
+});
+
+test('H2, round 2 (Astra, Grok): an earlier lost ask\'s items chosen again by a same-name tab after the page moved on rebase, kept while the page\'s newer choose is on its way', async () => {
+  // [0,1] lost, then [1] lost: a same-name tab's [0,1] (at 3) is another client's.
+  heldChoice.saw([{ proposal: 'v', choiceAt: 0 }], 'e10', 'design-tool:Ada');
+  await heldChoice.send('v', [0, 1], () => Promise.resolve(null));
+  await heldChoice.send('v', [1], () => Promise.resolve(null));
+  heldChoice.saw([{ proposal: 'v', choice: [0, 1], choiceBy: 'design-tool:Ada', choiceAt: 3 }], 'e10', 'design-tool:Ada');
+  expect(heldChoice.gen('v')).toBe(1);
+  expect(heldChoice.base('v')).toEqual([0, 1]);
+  // [0] lost, [0,1] on its way (at 2): a same-name tab's [0] at 3 rebases once the page's own lands.
+  heldChoice.saw([{ proposal: 'w', choiceAt: 0 }], 'e10', 'design-tool:Ada');
+  await heldChoice.send('w', [0], () => Promise.resolve(null));
+  const slow = later();
+  const sent = heldChoice.send('w', [0, 1], () => slow.p);
+  await Promise.resolve(); await Promise.resolve();
+  heldChoice.saw([{ proposal: 'w', choice: [0], choiceBy: 'design-tool:Ada', choiceAt: 3 }], 'e10', 'design-tool:Ada');
+  slow.done({ choiceAt: 2 });
+  expect(await sent).toBe(false);
+  await Promise.resolve();
+  expect(heldChoice.gen('w')).toBe(1);
+  expect(heldChoice.base('w')).toEqual([0]);
+  expect(heldChoice.at('w')).toBe(3);
 });
