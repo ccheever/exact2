@@ -1,0 +1,175 @@
+// What the thread is doing now and the turns queued behind it, as rows at the end of the timeline,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef: chat/ThreadNow.tsx,
+// chat/ThreadActivityBanners.tsx (childInputNowItem, backgroundWorkNowItem, goalNowItem),
+// chat/QueuedRunsControl.tsx, threadSync.ts and ChatView.tsx (timelineFooter, scrollToEndSummary).
+// threadEndRows is the timeline's footer and thread-end.contract draws its rows; the rows are
+// `Message`s, so each field below names its role.
+import { arr, obj, str, type Activity, type Message } from '../client/domain';
+import { activeRun } from '../client/protocol';
+import type { T3Client } from '../client/client';
+import { childThreadInputs, childThreadInputsTitle } from '../sidebar/subagent-requests';
+import { pendingRequests } from './requests';
+import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
+import { presentBackgroundWork } from './composer-controls-view';
+import { QUEUE_VISIBLE_ROWS, forgetQueueShownInFull, queueShownInFull, queueState, queuedEdit, queuedEditBlockedReason, queuedItems } from './composer-controls-queue';
+import { chordGlyphs } from './composer-controls-model';
+import { commandChords } from './composer-presentation';
+import { probe, probeKey, type Probe } from './composer-menus';
+import { anchorFrame } from '../shared/laid-out-widths';
+import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
+
+/**
+ * A line of thread state (`kind` "thread-now"): `icon` with `tone` "info" on the one line that needs you, `title`, then
+ * `detail` (a plain description) or its `activities` with `status` "link" (an inline button opening `targetId`, named
+ * `body` when set) or "text"; the `activities` with `status` "action" are its inline buttons (`detail` the op, `targetId`
+ * its id, `tone` "muted" or "", `ok` false while disabled). `status` "alert" announces the line and "status" is the sync
+ * line; `collapsible` says the text is cut, so the line offers its details.
+ */
+type Line = { id: string; icon: string; tone?: string; status?: string; title: string; detail?: string; segments?: Activity[]; actions: Activity[] };
+
+const blank = { icon: '', output: '', result: '', failed: false, timestamp: '' };
+const segment = (id: string, label: string, targetId = '', body = ''): Activity => ({ ...blank, id, label, body, status: targetId ? 'link' : 'text', targetId, tone: 'muted' });
+const action = (id: string, label: string, op: string, targetId: string, tone = '', ok = true): Activity => ({ ...blank, id, label, body: '', status: 'action', detail: op, targetId, tone, ok });
+
+/** childInputNowItem: subagents waiting on the user, unless this thread is itself waiting on them. */
+function childInput(client: T3Client): Line | null {
+  const children = childThreadInputs(client.shell.threads, client.threadId), first = children[0];
+  const shell = client.shell.threads.find(thread => thread.id === client.threadId), requests = pendingRequests(client.projection);
+  const parentAwaiting = requests.approvals.length > 0 || requests.inputs.length > 0 || obj(shell?.pendingRuntimeRequest).kind === 'user_input';
+  if (!first || parentAwaiting) return null;
+  return { id: `child-input:${first.id}`, icon: first.approval ? 'shield-question' : 'message-circle', tone: 'info', status: 'alert', title: childThreadInputsTitle(children),
+    segments: children.map(child => segment(child.id, child.title, child.id)),
+    actions: [action('open', first.approval ? 'Open approval' : 'Open question', 'select-thread', first.id)] };
+}
+
+/** backgroundWorkNowItem: background commands and subagents once the turn is done; only work that wakes the agent is dark. */
+function backgroundWork(client: T3Client): Line | null {
+  if (activeRun(client.projection)) return null;
+  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
+  const presented = presentBackgroundWork(arr(shell?.pendingBackgroundTasks));
+  if (!presented) return null;
+  const stopping = client.busy && client.pending?.description === 'Stop background work';
+  const canOperate = client.connection === 'connected' && client.scopes.includes('orchestration:operate');
+  return { id: `background-work:${client.threadId}`, icon: presented.waiting ? 'dot' : 'dot-muted', title: presented.title,
+    detail: presented.segments.length ? '' : presented.description,
+    segments: presented.segments.map(entry => segment(entry.key, entry.label, entry.threadId, entry.threadId ? entry.aria : '')),
+    actions: [action('stop', stopping ? 'Stopping...' : 'Stop', 'cc:stop-background', '', '', canOperate && !stopping)] };
+}
+
+/** goalNowItem: the thread's goal. Its commands run as turns, so they wait while the thread works. */
+function goal(client: T3Client): Line | null {
+  const thread = client.shell.threads.find(thread => thread.id === client.threadId), current = providerGoal(thread?.goal);
+  if (!current) return null;
+  const working = providerGoalWorking(client), view = presentProviderGoal(current, working);
+  const actions = working ? [] : [...(view.canResume ? [action('resume', 'Resume', 'cc:goal-resume', '')] : []), action('clear', 'Clear', 'cc:goal-clear', '', 'muted')];
+  return { id: `goal:${client.threadId}`, icon: 'target', title: view.usage ? `${view.title} · ${view.usage}` : view.title, detail: view.objective, actions };
+}
+
+const syncSeen = new Map<T3Client, string>();
+/**
+ * resolveThreadSyncPhase. useDelayedStatus holds a status back 400ms so a short
+ * load never flashes; data sources have no clock here, so a phase shows once a
+ * second snapshot still finds it (the next event batch after it began).
+ */
+export function syncStatus(client: T3Client): string {
+  const phase = !client.threadId || client.connection !== 'connected' || !client.shell.threads.some(thread => thread.id === client.threadId) ? ''
+    : !client.thread ? 'loading' : client.ready ? '' : 'syncing';
+  const key = phase ? `${client.environmentId}:${client.threadId}:${phase}` : '';
+  const shown = !!key && syncSeen.get(client) === key;
+  syncSeen.set(client, key);
+  return shown ? (phase === 'loading' ? 'Loading messages...' : 'Syncing messages...') : '';
+}
+
+/** ThreadNow's order: what needs you, background work, the sync status while messages load (`sync`), then the goal. */
+function threadNowLines(client: T3Client, sync: string): Line[] {
+  if (!client.threadId) return [];
+  return [childInput(client), backgroundWork(client),
+    sync ? { id: `thread-sync:${client.threadId}`, icon: 'refresh-cw', status: 'status', title: sync, actions: [] } : null, goal(client)].filter((line): line is Line => line !== null);
+}
+
+/** The texts a line lays out before its actions, each at its weight: links are medium, everything else regular. */
+function lineTexts(line: Line): Array<[string, number]> {
+  const described = !!line.detail || !!line.segments?.length;
+  const parts: Array<[string, number]> = [[line.title, 400], ...(described ? [[' · ', 400] as [string, number]] : [])];
+  if (line.detail) parts.push([line.detail, 400]);
+  line.segments?.forEach((entry, index) => { parts.push([entry.label, entry.status === 'link' ? 500 : 400]); if (index < line.segments!.length - 1) parts.push([', ', 400]); });
+  return parts;
+}
+/** The probes the lines measure by, laid out with the composer's (composer-presentation.ts); the short sync line needs none. */
+export function threadNowProbes(client: T3Client): Probe[] {
+  return threadNowLines(client, '').flatMap(line => lineTexts(line).map(([text, weight]) => probe(text, 12, weight)));
+}
+
+// NoticeText: the details button shows while the text is cut. It is left out of the room it takes, so it cannot keep
+// itself shown once the text would fit.
+const detailsShown = new WeakMap<T3Client, Set<string>>();
+function cut(client: T3Client, line: Line, rootFontSize: number): boolean {
+  const laidOut = anchorFrame(client.presentation, `tn:${line.id}`);
+  const parts = lineTexts(line).map(([text, weight]) => anchorFrame(client.presentation, probeKey(text, 12, weight))?.[1] ?? 0);
+  if (!laidOut || !parts.every(width => width > 0)) return false;
+  const natural = parts.reduce((sum, width) => sum + width, 0) * rootFontSize / 16;
+  return natural > laidOut[1] + (detailsShown.get(client)?.has(line.id) ? 28 * rootFontSize / 16 : 0) + 0.5;
+}
+
+/** The thread's present at the end of the timeline, as "thread-now" rows (see Line). Call it once a snapshot (syncStatus). */
+export function threadNowRows(client: T3Client): Message[] {
+  const shown = new Set<string>(), rootFontSize = clampInterfaceFontSize(client.local.clientSettings.fontSizeInterface);
+  const rows = threadNowLines(client, syncStatus(client)).map((line): Message => {
+    const details = cut(client, line, rootFontSize);
+    if (details) shown.add(line.id);
+    return { id: line.id, kind: 'thread-now', title: line.title, body: '', icon: line.icon, tone: line.tone ?? '', status: line.status ?? '',
+      detail: line.detail ?? '', activities: [...line.segments ?? [], ...line.actions], collapsible: details };
+  });
+  detailsShown.set(client, shown);
+  return rows;
+}
+
+/**
+ * The queued turns as rows. A "queued" row is one dashed bubble: `body` its text in full, `images` its thumbnails,
+ * `runId` ('' for a send still saving), `status` "editing", "pending" or "", `title` its accessible name; `actionLabel`
+ * "Send now" while it can be sent, with `intentTip` that button's tooltip; `detail` the pencil's tooltip and `failed`
+ * whether the pencil is disabled; `continues` another bubble follows and `collapsible` the "Show all" row follows;
+ * `attribution` is the queue's announcement on the first row. A "queued-more" row is that button: `title` its label,
+ * `expanded` while the queue shows in full.
+ */
+export function queuedTurnRows(client: T3Client): Message[] {
+  const items = queuedItems(client);
+  if (!items.length) { forgetQueueShownInFull(client); return []; }
+  const state = queueState(client.projection), edit = queuedEdit(client), blocked = queuedEditBlockedReason(client);
+  // canPromoteToSteer: a running turn whose provider steers.
+  const canSend = state.canSteer;
+  const steerKey = chordGlyphs(commandChords(client.config, 'thread.steerQueuedMessage', 'Meta+Shift+Enter', false, { terminalFocus: false }).split(' ')[0] ?? '');
+  const editKey = chordGlyphs(commandChords(client.config, 'thread.editQueuedMessage', 'Alt+ArrowUp', false, { composerFocus: true }).split(' ')[0] ?? '');
+  const collapsible = items.length > QUEUE_VISIBLE_ROWS, full = queueShownInFull(client);
+  const visible = collapsible && !full ? items.slice(0, QUEUE_VISIBLE_ROWS - 1) : items;
+  const rows = visible.map((item, position): Message => {
+    const editing = !!item.runId && item.runId === edit?.runId;
+    return { id: `queued:${item.key}`, kind: 'queued', title: `Queued message ${position + 1} of ${items.length}, not sent`, body: item.text, runId: item.runId,
+      images: item.thumbnails.map(thumb => ({ id: thumb.id, name: thumb.name, snapshot: false, appName: '', appInitial: '', windowTitle: '', accessible: true, video: false })),
+      status: editing ? 'editing' : item.pending ? 'pending' : '',
+      actionLabel: canSend && !editing ? 'Send now' : '',
+      intentTip: `Send into the current turn${item.serverIndex === 0 && steerKey ? ` (${steerKey})` : ''}`,
+      detail: blocked || `Edit in the composer${item.serverIndex === state.queued.length - 1 && editKey ? ` (${editKey})` : ''}`,
+      failed: !!blocked || !item.editable, continues: position < visible.length - 1, collapsible: collapsible && position === visible.length - 1,
+      attribution: position === 0 ? `${items.length} queued` : '' };
+  });
+  if (collapsible) rows.push({ id: `queued-more:${client.threadId}`, kind: 'queued-more', title: full ? 'Show fewer' : `Show all ${items.length} queued`, body: '', expanded: full });
+  return rows;
+}
+
+/**
+ * The timeline's footer (ChatView timelineFooter): `before` (the pending handoff), what the thread is doing now, the
+ * status line, then the queued turns. The timeline asks for it before the thread's detail arrives too: ThreadNow's sync
+ * line says "Loading messages...", and the status line, which reads the shell, still shows ("Snoozed, 2h left"). Call
+ * it once a snapshot (syncStatus).
+ */
+export function threadEndRows(client: T3Client, before: Message[], status: Message | null): Message[] {
+  return [...before, ...threadNowRows(client), ...(status ? [status] : []), ...queuedTurnRows(client)];
+}
+
+/** scrollToEndSummary: what waits at the end of the timeline while it is out of view ("Subagent waiting · 2 queued"). */
+export function endSummary(client: T3Client): string {
+  if (!client.threadId) return '';
+  const queued = queueState(client.projection).queued.length;
+  return [childInput(client) ? 'Subagent waiting' : '', queued ? `${queued} queued` : ''].filter(Boolean).join(' · ');
+}

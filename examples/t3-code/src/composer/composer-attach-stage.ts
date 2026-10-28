@@ -1,5 +1,6 @@
-// One attachment's staging, adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3): chat/composerAttachmentFiles.ts
-// (classifyComposerAttachmentFile, inferImageMimeTypeFromName), lib/imageCompression.ts (prepareImageForAttachment,
+// One attachment's staging, adapted from T3 Code (MIT; see LICENSE-T3): chat/composerAttachmentFiles.ts at 7c3b3b3605ef
+// (classifyComposerAttachmentFile, composerFileAttachmentMimeType, inferImageMimeTypeFromName), packages/shared
+// mediaPreview.ts (isWorkspaceImagePreviewPath), and at 9c161462c9 lib/imageCompression.ts (prepareImageForAttachment,
 // compressImageToByteLimit, MAX_COMPRESSIBLE_SOURCE_BYTES) and packages/contracts chatAttachment.ts
 // (PROVIDER_SEND_TURN_MAX_IMAGE_BYTES). A file arrives as a `doc:` handle (a drop or a paste) or as a picked
 // `app:/tmp/picked/` copy (Attach files). An image becomes a draft beside SnapShot's, which the shelf shows and the send
@@ -66,12 +67,32 @@ export function isHeic(name: string, type: string): boolean {
   return /^image\/hei(?:c|f)$/i.test(type) || (generic(type) && /\.(?:heic|heif)$/i.test(name));
 }
 
-/** classifyComposerAttachmentFile: a supported image, an image type the provider cannot take, or a plain file. */
+const baseType = (type: string) => type.split(';', 1)[0]!.trim().toLowerCase();
+/** isSvgAttachment. */
+const isSvg = (name: string, type: string) => baseType(type) === 'image/svg+xml' || (generic(baseType(type)) && /\.svg$/i.test(name));
+/** A camera's raw DNG: an image by type, though no provider takes it as one. */
+const isDng = (name: string, type: string) => name.toLowerCase().endsWith('.dng') || ['image/dng', 'image/x-dng', 'image/x-adobe-dng'].includes(baseType(type));
+/** WORKSPACE_IMAGE_PREVIEW_EXTENSIONS: the image types the file viewer shows. */
+const PREVIEWABLE_IMAGE_EXTENSIONS = ['avif', 'bmp', 'gif', 'ico', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'svg', 'tif', 'tiff', 'webp'];
+
+/**
+ * classifyComposerAttachmentFile: a supported image, an image type the provider cannot take, or a plain file. An SVG,
+ * a DNG, and an image the viewer can show but providers refuse (AVIF, BMP, ICO, TIFF) attach as files.
+ */
 export function classifyAttachment(name: string, type: string): 'image' | 'file' | 'unsupported-image' {
+  if (isSvg(name, type) || isDng(name, type)) return 'file';
   if (isHeic(name, type)) return 'image';
   if (generic(type) && IMAGE_MIME_BY_EXTENSION[extension(name)]) return 'image';
   if (!type.toLowerCase().startsWith('image/')) return 'file';
-  return SUPPORTED_IMAGE_TYPES.has(type.toLowerCase()) ? 'image' : 'unsupported-image';
+  if (SUPPORTED_IMAGE_TYPES.has(type.toLowerCase())) return 'image';
+  return PREVIEWABLE_IMAGE_EXTENSIONS.includes(extension(name)) ? 'file' : 'unsupported-image';
+}
+
+/** composerFileAttachmentMimeType: what a file attachment is sent as; image detection downstream reads it. */
+export function fileAttachmentMimeType(name: string, type: string): string {
+  if (isDng(name, type)) return 'image/x-adobe-dng';
+  if (isSvg(name, type)) return 'image/svg+xml';
+  return videoMimeType({ name, mimeType: type }) ?? (type || 'application/octet-stream');
 }
 
 /** A `doc:/<n>/<name>` handle's name. */
@@ -100,10 +121,10 @@ const renamed = (name: string, type: string) => `${name.replace(/\.[^.]*$/, '') 
  * a GIF or WebP, which the upload leaves as it is), else `image-unreadable` or `image-too-large`. The draft is
  * `drafts/<id>.png` whatever its type: its readers decode by content (T3SnapShot.swift).
  */
-async function stageImage(fs: StageFiles, source: AttachSource, size: number): Promise<Obj> {
+async function stageImage(fs: StageFiles, source: AttachSource, size: number, id: string): Promise<Obj> {
   const name = source.name;
   if (size > MAX_COMPRESSIBLE_SOURCE_BYTES) return { kind: 'image-too-large', name, sizeBytes: size };
-  const id = uuid(), out = `${DRAFTS}/${id}.png`;
+  const out = `${DRAFTS}/${id}.png`;
   let from = source.path, scratch = '';
   try {
     await mkdir(fs, DRAFTS);
@@ -150,9 +171,34 @@ async function stageImage(fs: StageFiles, source: AttachSource, size: number): P
   }
 }
 
+/**
+ * ComposerImageThumbnail: a 256 px PNG thumbnail of the taken image for its preparing tile, or '' (the tile shows the
+ * name) for a source past 50 MB, as prepareImageForAttachment refuses those, or one that cannot be read. compressImage
+ * reads only an app file, so a dropped or pasted image is copied first and the copy goes once the thumbnail is made.
+ */
+export async function previewSource(source: AttachSource, imageId: string): Promise<string> {
+  const fs = files(), dir = `${SCRATCH}/preview-${imageId}`, thumbnail = `${dir}/thumbnail.png`;
+  let copy = '';
+  try {
+    const { size } = await fs.stat(source.path);
+    if (!(size > 0) || size > MAX_COMPRESSIBLE_SOURCE_BYTES) return '';
+    await mkdir(fs, dir);
+    if (!source.path.startsWith('app:/')) { copy = `${dir}/${scratchName(source.name)}`; await fs.copyFile(source.path, copy); }
+    await fs.compressImage(copy || source.path, thumbnail, { maxDimension: 256, maxBytes: 256 * 1024, type: 'image/png' });
+    return thumbnail;
+  } catch { return ''; } finally { if (copy) await fs.rm(copy).catch(() => undefined); }
+}
+/** The thumbnail `previewSource` made, removed with its folder once its tile is gone. */
+export async function releasePreview(path: string): Promise<void> {
+  if (!path.startsWith(`${SCRATCH}/preview-`)) return;
+  const fs = files();
+  await fs.rm(path).catch(() => undefined);
+  await fs.rm(path.slice(0, path.lastIndexOf('/'))).catch(() => undefined);
+}
+
 /** A plain file: copied into composer-files/ when the server takes files of its size (`fileLimit`, 0 when it takes none). */
 async function stageFile(fs: StageFiles, source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
-  const name = source.name, mimeType = videoMimeType({ name, mimeType: source.type }) ?? (source.type || 'application/octet-stream');
+  const name = source.name, mimeType = fileAttachmentMimeType(name, source.type);
   const file: Obj = { kind: 'file', name, sizeBytes: size, mimeType };
   if (size <= 0 || fileLimit <= 0 || size > Math.min(fileLimit, MAX_FILE_BYTES)) return file;
   const id = uuid(), to = `${STAGED}/${stagedName({ id, name, mimeType })}`;
@@ -179,10 +225,11 @@ export async function statSource(source: AttachSource): Promise<{ folder: boolea
 
 /**
  * One file of `size` bytes as addAttachedFiles takes it (`kind` image, file, unsupported-image, image-unreadable,
- * image-too-large or unreadable). `fileLimit`: the server's file staging limit (attachStagingLimit).
+ * image-too-large or unreadable). `fileLimit`: the server's file staging limit (attachStagingLimit); `imageId` the id
+ * an image's draft takes (its preparing tile's), a new one when absent.
  */
-export async function stageAttachment(source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
+export async function stageAttachment(source: AttachSource, size: number, fileLimit: number, imageId = ''): Promise<Obj> {
   const kind = classifyAttachment(source.name, source.type);
   if (kind === 'unsupported-image') return { kind, name: source.name, sizeBytes: size };
-  return kind === 'image' ? stageImage(files(), source, size) : stageFile(files(), source, size, fileLimit);
+  return kind === 'image' ? stageImage(files(), source, size, imageId || uuid()) : stageFile(files(), source, size, fileLimit);
 }

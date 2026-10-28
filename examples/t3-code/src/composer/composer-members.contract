@@ -347,10 +347,11 @@ members T3Code
       preventDefault()
       stopPropagation()
       composerStashKey(k)
-    else if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "b" or k == "B" or e.code == "KeyB" or k == "i" or k == "I" or e.code == "KeyI")
+    else if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "i" or k == "I" or e.code == "KeyI" or ((k == "b" or k == "B" or e.code == "KeyB") and composerSelectionStart != composerSelectionEnd))
       preventDefault()
       stopPropagation()
       // The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6), after any edit still waiting.
+      // ⌘B bolds selected text only; with none it stays the app's (the sidebar toggle, isRichTextBoldShortcut).
       if not e.repeat
         if composerIntentQueue.length > 0
           composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)

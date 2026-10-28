@@ -18,7 +18,7 @@ describe('attach files', () => {
     Object.assign(obj(native.config.environment).capabilities as object, { attachmentUploads: true, fileAttachments: { maxUploadBytes: 26214400 } });
     client.config.environment = native.config.environment;
     expect(snapshot(client, 0).composer.attach).toBe(true);
-    const { store } = memoryFiles({ 'app:/tmp/picked/1/shot.png': png(4, 3), 'app:/tmp/picked/2/notes.txt': text('ten bytes!'), 'app:/tmp/picked/3/scan.tiff': text('II*') });
+    const { store } = memoryFiles({ 'app:/tmp/picked/1/shot.png': png(4, 3), 'app:/tmp/picked/2/notes.txt': text('ten bytes!'), 'app:/tmp/picked/3/layers.psd': text('8BPS') });
     observeComposer(client, client.draft);
     const later = native.later.bind(native);
     native.later = async request => {
@@ -35,8 +35,8 @@ describe('attach files', () => {
     expect(client.error).toBe('');
     expect(client.draft).toBe(`[notes.txt](t3-context://v1/file/file_${copy!.slice(STAGED.length + 1)}) `);
     expect(snapshot(client, 0).snapshotDrafts.map(tile => tile.id)).toEqual([String(client.snapshotDrafts[0]!.id)]);
-    await command('cclocal:attach-files', 'pick', picks([{ path: 'app:/tmp/picked/3/scan.tiff', name: 'scan.tiff', type: 'image/tiff', size: 3 }]));
-    expect(client.error).toBe("'scan.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
+    await command('cclocal:attach-files', 'pick', picks([{ path: 'app:/tmp/picked/3/layers.psd', name: 'layers.psd', type: 'image/vnd.adobe.photoshop', size: 3 }]));
+    expect(client.error).toBe("'layers.psd' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
     await command('cclocal:attach-files', 'pick', picks([]));
     expect(client.snapshotDrafts.length).toBe(1);
   });
