@@ -14,7 +14,6 @@ use DetailsPrRowList from "./pr-attachment-shapes.contract"
 use DetailsPrRow from "./pr-attachment-shapes.contract"
 use PrSurface from "./pr-attachment-shapes.contract"
 use AttachmentSurface from "./pr-attachment-shapes.contract"
-use AttachmentCodeLine from "./pr-attachment-shapes.contract"
 use PrDetailView from "../pull-requests/pages-pr-detail.contract"
 use PrdBody from "../pull-requests/pages-pr-detail.contract"
 use prdTone from "../pull-requests/pages-pr-detail.contract"
@@ -22,8 +21,6 @@ use prdCheckIcon from "../pull-requests/pages-pr-detail.contract"
 use prdCheckTone from "../pull-requests/pages-pr-detail.contract"
 use ChatDocument from "../timeline/markdown.contract"
 use DiagramBlocks from "../timeline/markdown.contract"
-use synColor from "../timeline/markdown.contract"
-use synSlant from "../timeline/markdown.contract"
 use PgIcon from "../shared/pages-icons.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use PanelIcon from "./panel-icons.contract"
@@ -37,6 +34,8 @@ use FileSurfaceAction from "./file-surface-chrome.contract"
 use PreviewImage from "./preview-image.contract"
 use MermaidFileView from "./mermaid-file.contract"
 use FontSpecimen from "./font-preview.contract"
+use ViewerFrame from "./viewer-frame.contract"
+use AttachmentCodeRow, ArchiveEntryBody, NotebookPreview from "./notebook-preview.contract"
 
 fn surfaceMuted(): string = "light-dark(#71717b, #a1a1a1)"
 fn surfaceRowInk(): string = "light-dark(#18181bcc, #f5f5f5cc)"
@@ -203,6 +202,15 @@ component AttachmentBody
     local: action
     // The header actions' element ids are `<actionIds>-<action>` in a dialog that moves the focus to them; "" elsewhere.
     actionIds: string
+  // The viewer page's messages ride in the op, so every owner of this body passes them on as they are.
+  action viewerSaid(payload: string)
+    local(`surface-linked-att-viewer:${payload}`, att.id, "")
+  action viewerPosted(key: string)
+    local(`surface-linked-att-viewer-posted:${key}`, att.id, "")
+  action viewerPicked(value: string)
+    local(`surface-linked-att-viewer-pick:${value}`, att.id, "")
+  action notebookAct(op: string)
+    local(`surface-linked-att-${op}`, att.id, "")
   view
     // AttachmentFilePreview paints bg-background over the panel (the sheet's own fill is white).
     column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" background-color="light-dark(#fcfcfc, #000000)" testId="attachment-surface"
@@ -219,13 +227,15 @@ component AttachmentBody
             text "Try again" font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
       if att.preview == "markdown"
         AttachmentMarkdown(att=att, documents=documents, scheme=scheme, local=local)
-      if att.preview == "table"
-        scroll flex=1 min-height=0 width="100%" testId="attachment-table"
-          column min-width="100%"
-            for row in att.table key=row.id
-              row min-width="100%" background-color=(row.header ? "light-dark(#f4f4f520, #ffffff0a)" : "#00000000")
-                for cell in row.cells key=cell.id
-                  text cell.text flex=1 max-width="20rem" min-width="4rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=(row.header ? "light-dark(#e4e4e7, #ffffff14)" : "light-dark(#e4e4e799, #ffffff0c)") white-space="pre-wrap" font-size="0.75rem" line-height="1rem" font-weight=(row.header ? 500 : 400) font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)"
+      // The viewer page; an archive entry it opened is drawn under its bar, which is all of it the page then shows.
+      if att.preview == "viewer"
+        column flex=1 min-height=0 width="100%"
+          column flex=(att.entry.open ? 0 : 1) height=(att.entry.open ? "2.5rem" : "auto") min-height=0 flex-shrink=0 width="100%"
+            ViewerFrame(frame=att.viewer, scheme=scheme, sheet=sheet, message=viewerSaid, posted=viewerPosted, pick=viewerPicked, label=att.name, testId="attachment-viewer")
+          if att.entry.open
+            ArchiveEntryBody(entry=att.entry, wrap=att.wrap, testId="attachment-entry")
+      if att.preview == "notebook"
+        NotebookPreview(notebook=att.notebook, documents=documents, code=att.code, diagrams=att.diagrams, env=att.md, urls=att.mdUrls, copiedText=att.codeCopied, copiedNonce=att.codeCopyNonce, wrap=att.wrap, scheme=scheme, local=local, act=notebookAct, testId="attachment-notebook")
       if att.preview == "code"
         scroll flex=1 min-height=0 width="100%" testId="attachment-code"
           column width=(att.wrap ? "100%" : "auto") min-width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" role="code" aria-label=att.name
@@ -239,8 +249,8 @@ component AttachmentBody
           PreviewImage(url=url, name=att.name, zoomId=(actionIds != "" ? `${actionIds}-image-zoom` : "attachment-image-zoom"), expand=local("surface-linked-att-image-open", att.id, ""), failed=local("surface-linked-att-media-error", att.id), testId="attachment-image")
       if att.preview == "font"
         FontSpecimen(src=att.url, name=att.name, scheme=scheme, failed=local("surface-linked-att-font-failed", att.id, ""), testId="attachment-font")
-      // PDF, rendered HTML, audio and video (attachment-media.contract).
-      if att.preview == "pdf" or att.preview == "html" or att.preview == "audio" or att.preview == "video"
+      // Rendered HTML, audio and video (attachment-media.contract).
+      if att.preview == "html" or att.preview == "audio" or att.preview == "video"
         AttachmentMediaBody(att=att, local=local)
       if att.preview == "none"
         column flex=1 min-height=0 align-items="center" justify-content="center" gap="0.25rem" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box" role=(att.noPreviewAlert ? "alert" : "") testId="attachment-no-preview"
@@ -294,18 +304,6 @@ component AttachmentHeader
         FileSurfaceAction(id="remove", ids=actionIds, label="Remove from draft", icon="trash", toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-linked-att-remove", att.id, ""))
       if att.canClose
         FileSurfaceAction(id="close", ids=actionIds, label="Close", icon="x", toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-linked-att-close", att.id, ""))
-
-component AttachmentCodeRow
-  props
-    line: AttachmentCodeLine
-    gutter: number
-    wrap: bool
-  view
-    row width="100%" align-items="flex-start"
-      text line.number width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
-      text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.8125rem" line-height="1.25rem" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
-        for run in line.runs key=run.id
-          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
 
 // The Show more chevrons from the shell set (the pull request icon set has no chevron-up), else the pages glyphs.
 component SurfaceGlyph

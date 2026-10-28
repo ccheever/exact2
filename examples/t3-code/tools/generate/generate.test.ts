@@ -39,6 +39,18 @@ test('the generator pins its packages at the integrity values the reference lock
     ['pele@1.8.0', 'AYmHttE70cwNJVXdfPMCANGivFlmc3bGGpMG0GqH5S5vE3RgtEuLlkqbhRfe94Csv/ZEd1TUbv2dMUHpw4p1Bg=='],
     ['katex@0.16.47', 'Eeo8Ys1doU1z+x8AZsPpQu+p/QcZBI5PeOo7QGQdy2x2m0MU/hYagBbGOmXwr5KVbEfVuWv9LpnQWeehogurjg=='],
     ['dompurify@3.4.16', 'sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ=='],
+    // The document viewers' page (gen-file-preview.mjs).
+    ['@betteroffice/docx@0.4.3', 'CEErXJH3iCsi2a61gTNkAofLCzSTcktLmp710gGhMwbBfOqwQ2yI7dRFBV3ElGa9JxkS03IfejvLX0sAvlTrUQ=='],
+    ['@betteroffice/fonts@0.4.0', 'x1BVwYDAgY5R6TWI4t9NLguSiAEbH5GItN2ZlpBIFoRXTIJgjBsXd6sUxPGpexXOyY6KdhRjG8XvHjyAYxEGCw=='],
+    ['@betteroffice/pptx@0.2.0', 'pNPQ58tlA+pVibERbLdQNskvP7a0GIMf4jhkCU/gPp8043Ichf6gB3PSb4ra9sfqoIaWqOaZKCWyptovA2+Q0A=='],
+    ['@betteroffice/xlsx@0.3.0', 'K2bHtdk/epAxsmvxJlIWBRndjP3ltQU0Oh3p4gcZd2n5/YgXglo3SmMYX4nQe8WEm/yvz91p+aIasKyXXQP9Wg=='],
+    ['pdfjs-dist@6.4.299', 'AVl138zALtfaAPvADulE0PZThbYzCBS79nL4pOSL/6Sm/4AH5A21BD9VHt97OlCuzJuCpmeZtAtkinisF4Vb1g=='],
+    ['sql.js@1.15.0', '54VT5h9/VGlLaQan5pX/Zx8k6Vbykwl5hRUtl4h4+VYnaZCTraUs4P1i2WLz21O6oPVp6Gvg+d1OyPo01ZG5ig=='],
+    ['jszip@3.10.1', 'xXDvecyTpGLrqFrvkrUSoxxfJI5AH7U8zxxtVclpsUtMCq4JQ290LY8AW5c7Ggnr/Y/oK+bQMbqK2qmtk3pN4g=='],
+    ['saxes@6.0.0', 'xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA=='],
+    ['fast-xml-parser@5.7.3', 'C0AaNuC+mscy6vrAQKAc/rMq+zAPHodfHGZu4sGVehvAQt/JLG1O5zEcYcXSY5zSqr4YVgxsB+pHXTq0i7eDlg=='],
+    ['entities@8.1.0', 'kxL7msIffSuh9aaFAMD7rxAIuTRMAHMeBtgHW2yUdWw732ZNh4MehkF2gdjvtdmikkaIP9bFDDJOPlsvm7avrA=='],
+    ['effect@4.0.5', 'BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q=='],
   ]) {
     const entry = lock.split('\n').find(line => line.includes(`["${name}"`)) ?? '';
     expect(entry).toContain(`sha512-${integrity}`);

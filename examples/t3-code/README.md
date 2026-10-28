@@ -50,10 +50,14 @@ the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
 `timeline-icons`, `panel-icons`, `settings-icons`, `provider-icons`, `diff-glyphs`, `editor-icons`
 and `settings-brands`, each a `.contract` in its feature's folder under `src/`, from the Lucide names
 in `tools/generate/icon-tables.mjs` and the marks in `icon-marks.mjs`; their hand-written
-components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`)
-and the terminal buffer vectors
+components are in the `*-kit.contract` files), the morph plans (`src/shell/shell-morph.contract`),
+the terminal buffer vectors
 (`tests/terminal/vectors.json`, whose expectations are test data committed in
-`gen-vectors.mjs`). The app build runs it before it bakes (`data/build.rs`);
+`gen-vectors.mjs`), and the document viewers' page (`assets/file-preview/`: the reference's PDF.js,
+large-text, Office, OpenDocument, notebook, archive and SQLite viewers, bundled from
+`file-preview-host/src/` with their wasm, fonts and licences by `gen-file-preview.mjs`; 27 MB, the
+wasm, fonts and CMaps gzipped, so the bake's 64 MiB capture of the app's sources and assets holds it).
+The app build runs it before it bakes (`data/build.rs`);
 run it yourself before the tests and checks below:
 
 ```sh
@@ -1266,7 +1270,8 @@ target/t3-tests/timeline-keyboard-tests
 ```
 
 The terminal page's tests are Bun's (`terminal-host/src/*.test.ts`, the vendored surface's among
-them); `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries.
+them); `bun examples/t3-code/terminal-host/verify-vendor.mjs` checks the vendored binaries. The viewer
+page's are too (`file-preview-host/src/**/*.test.ts`, the reference's PDF layout and find tests).
 The SSH tests read
 a temporary home, never `~/.ssh`; the live tunnel test skips unless `T3_SSH_COMMAND`
 names an ssh test double, and agent runs of the app read hosts only from `T3_SSH_HOME`.

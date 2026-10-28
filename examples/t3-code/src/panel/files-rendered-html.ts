@@ -9,9 +9,9 @@
 // (ChatView's workspaceMutationId), so a workspace change reloads it. A renewed signature keeps the URL the page opened
 // with until that revision changes, so a page's form input and scroll survive it (BrowserDocumentFrame's
 // `documentKey`). The page is shown by the app module's sandboxed WebKit body (T3MediaPreview.swift, as the attachment's
-// HTML preview; siblings load only from the token directory), never in the app's own session. A PDF is framed at its
-// URL too, unsandboxed, and WebKit's PDF view shows it (LLP 1020.002 D10), so a revision loads it again inside the
-// frame, with no copy on disk, as the reference's BrowserDocumentFrame does. An audio file plays from a `media-file`
+// HTML preview; siblings load only from the token directory), never in the app's own session. A PDF is signed the same
+// way and opens in the viewer page's PDF.js (files-viewer.ts), mounted again for each revision as the reference's
+// BrowserDocumentFrame keys it. An audio file plays from a `media-file`
 // URL signed again for each workspace change (WorkspaceAudioPreview's revisioned asset URL); it keeps its URL while the
 // server reports the same `fileRevision`, so a command that leaves the file alone does not reload it.
 import type { T3Client } from '../client/client';
@@ -88,7 +88,7 @@ async function filesAsset(client: T3Client, native: Native | null | undefined, k
 }
 const assetKey = (client: T3Client, kind: string, cwd: string, absolutePath: string) => `${client.environmentId}|${client.threadId}|${cwd}|${absolutePath}|${kind}`;
 
-/** One HTML file or PDF. */
+/** One HTML file or PDF's signed URL. */
 export function htmlPage(client: T3Client, native: Native | null | undefined, cwd: string, absolutePath: string, revision: string, now = 0): Promise<HtmlPage> {
   return filesAsset(client, native, 'workspace-file', cwd, absolutePath, revision, now, 'Unable to load file preview.');
 }

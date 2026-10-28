@@ -33,6 +33,7 @@
 /src/diff/diff-glyphs.contract
 /assets/mermaid/vendor/
 /assets/math/vendor/
+/assets/file-preview/
 /data/pierre-icons.tsv
 /tests/terminal/vectors.json
 # The app's own Cargo workspace builds here (Cargo.toml).

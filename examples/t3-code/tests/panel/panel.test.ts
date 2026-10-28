@@ -12,7 +12,7 @@ import { toasts } from '../../src/shell/toast';
 import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths, setMarkdownTaskChecked } from '../../src/panel/files-surface';
 import { resolveChains, listLines, prsView, prCommandPayload } from '../../src/panel/linked-prs';
 import { platformSetupStatus, hubStatusLabel, deviceHubReadiness, deviceLocal, deviceView, configureInput, deviceStateEvent, watchDevice, deviceReady, DEVICE_STATE_KEY } from '../../src/device/device-surface';
-import { parseDelimited } from '../../src/panel/rendered-previews';
+import { parseDelimitedPreview } from '../../file-preview-host/src/shared/delimited-preview';
 import { surfaces } from '../../src/shell/shell';
 import { decodeClientPrefs } from '../../src/settings/settings-core';
 import { diagramPreviewAction, diagramPreviewView, noteMermaidFrame } from '../../src/timeline/timeline-mermaid';
@@ -179,10 +179,10 @@ describe('Files surface', () => {
     const subheader = async (path: string) => { await surfaceLocal(client, native, 'file', path, ''); const files = (await panelView(client, native, 0)).files; return [files.preview, files.rawText, files.openInBrowser]; };
     expect(await subheader('docs/notes.ts')).toEqual(['code', true, false]);
     expect(await subheader('docs/page.html')).toEqual(['html', false, true]);
-    // The PDF is framed at its signed URL (files-rendered-html.ts).
+    // The PDF opens in the viewer page at its signed URL (files-viewer.ts).
     const server = serveAssets(() => ({ body: '%PDF-1.4' }));
     memoryAppFiles();
-    try { expect(await subheader('docs/guide.pdf')).toEqual(['pdf', false, true]); } finally { server.restore(); }
+    try { expect(await subheader('docs/guide.pdf')).toEqual(['viewer', false, true]); } finally { server.restore(); }
     expect(await subheader('docs/logo.png')).toEqual(['media', false, false]);
     // The page's source (the eye toggle) is text again: word wrap comes back, the Browser button stays.
     await surfaceLocal(client, native, 'files-render', 'docs/page.html', '');
@@ -280,8 +280,10 @@ describe('Files surface', () => {
     diagramPreviewAction(client, 'diagram-open', flow);
     expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
   });
-  test('CSV keeps quoted cells', () => {
-    expect(parseDelimited('name,note\n"a, b","say ""hi"""\n', ',').rows).toEqual([['name', 'note'], ['a, b', 'say "hi"']]);
+  test("CSV keeps quoted cells (the viewer page's parseDelimitedPreview)", () => {
+    expect(parseDelimitedPreview('name,note\n"a, b","say ""hi"""\n', ',').rows).toEqual([['name', 'note'], ['a, b', 'say "hi"']]);
+    // The large-text viewer's limits: a page of rows, so many columns, so long a cell.
+    expect(parseDelimitedPreview('a,b,c\n1,2,3\n', ',', { maxRows: 1, maxColumns: 2, maxCellLength: 1 })).toEqual({ rows: [['a', 'b']], truncated: true });
   });
 });
 

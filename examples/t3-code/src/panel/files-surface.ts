@@ -19,7 +19,6 @@ import { lineTokens } from '../highlight/timeline-diff-syntax';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from '../details/shell-details';
 import { workspaceOf, panelKey, panelState, navigateFolderIn, type Surface, type PanelState } from './panel-surfaces';
 import { breadcrumbPathOf, fileBreadcrumbs, isHostPath, isListableHostFolder, isWindowsAbsolutePath, joinHostPath, retainedBreadcrumbTrail, trailChildOf } from './files-path';
-import { tableRows } from './rendered-previews';
 import { markdownEnv, messageChips, type MarkdownEnv } from '../timeline/message-chips'; // the chat renderer's chips and settings
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { filesMermaid, type MermaidDiagramView } from '../timeline/timeline-mermaid';
@@ -30,6 +29,8 @@ import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter 
 import { audioPage, forgetAudioPage, htmlPage, htmlToggleLabel, isBrowserPreviewFile, isHtmlPath, isPdfPath } from './files-rendered-html'; // rendered HTML, PDFs and audio
 import { isMarkdownPreviewFile, isMermaidPreviewFile, isWorkspaceAudioPreviewPath, isWorkspaceDocumentPath, maskMarkdownFrontmatter } from './file-preview-kind';
 import { attachmentOp, attachmentView, emptyAttachment, forgetPreview, type AttachmentMeta, type AttachmentView, type PreviewSource } from './attachment-surface'; // a document's or a binary file's body
+import { closedFullFile, filesViewer, filesViewerOp, refreshFilesViewer, type FullFileView } from './files-viewer'; // a PDF, a table or a full file in the viewer page
+import { emptyViewerFrame, type ViewerFrameView } from './viewer-frames';
 import { mermaidFile } from './mermaid-file'; // a Mermaid file's diagram
 import { openInlineDocumentImage } from '../timeline/timeline-attachments'; // the expanded image dialog
 import { openFileInPreview } from '../browser/browser-links'; // "Open file in preview browser"
@@ -79,8 +80,8 @@ export type FilesView = {
   // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
   // `codeCopyNonce` Copy code's check.
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
-  codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editPress: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
-  /** A rendered page or PDF's frame source, or an audio file's signed URL. */
+  codeCopied: string; codeCopyNonce: number; editing: boolean; editorText: string; editPress: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
+  /** A rendered page's frame source, or an audio file's signed URL. */
   url: string; media: MediaView;
   /** A Mermaid file the reference will not lay out names why (MermaidViewer); `diagrams` holds the file's diagram otherwise. */
   mermaidNote: string;
@@ -90,6 +91,8 @@ export type FilesView = {
   fileKey: string;
   /** A document, or a file read as binary: AttachmentFilePreview under "File" (`preview == "attachment"`). */
   attachment: AttachmentView;
+  /** A PDF, a rendered table or a text file past 1 MB in the viewer page (`preview == "viewer"`, files-viewer.ts). */
+  viewer: ViewerFrameView; fullFile: FullFileView;
 };
 export type MarkdownSource = { id: string; kind: string; title: string; body: string };
 type Entry = { path: string; kind: 'file' | 'directory'; ignored: boolean };
@@ -409,6 +412,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     const active = panelState(client).surfaces.find(entry => entry.id === panelState(client).active);
     // FilePreviewPanel's Refresh: the body mounts afresh (fileRefreshRevision); a document is not read as text.
     state.refreshRevision++;
+    refreshFilesViewer(client);
     if (active?.kind === 'file' && !isWorkspaceDocumentPath(active.path) && !state.edits.get(active.path)?.saving) await readFile(client, native, active.path);
     return '';
   }
@@ -431,6 +435,8 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   if (op === 'image-open') { if (/^https?:/i.test(id)) openInlineDocumentImage(client, id, value, 'file-image-zoom'); return ''; }
   // The attachment body's controls (Save file, Try again, a font's failure) on the document shown.
   if (op.startsWith('att-')) { if (state.attachment) await attachmentOp(client, native, state.attachment.meta, state.attachment.source, op.slice(4), 0); return ''; }
+  // The viewer page's messages and the Full file subheader (files-viewer.ts).
+  if (op.startsWith('viewer') || op.startsWith('full-')) { await filesViewerOp(client, native, op, 0); return ''; }
   // WorkspaceAudioPreview: the player's error for this URL, and Try again, which signs the file afresh.
   if (op === 'audio-error') { if (id) state.audioFailed.add(id); return ''; }
   if (op === 'audio-retry') { state.audioFailed.clear(); forgetAudioPage(client, workspaceOf(client).cwd, id); return ''; }
@@ -717,8 +723,8 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, searching: false, error: '', query: '', truncated: false, noMatches: false, emptySearch: false, loadingQuiet: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
   explorer: true, showExplorer: true, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
-  mermaidNote: '', editorRevision: 0, fileKey: '', attachment: emptyAttachment(),
+  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  mermaidNote: '', editorRevision: 0, fileKey: '', attachment: emptyAttachment(), viewer: emptyViewerFrame(), fullFile: closedFullFile(),
 });
 
 /** FileBrowserPanel's `useState("")`: each file tab mounts its own explorer, so its search starts empty and ends with it. */
@@ -759,8 +765,8 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   if (tree && selected && tree.revealed !== trail) { tree.revealed = trail ?? ''; tree.expanded.add(selected); await loadDirectory(client, native, selected, false, hostFolder); }
   const markdown = isMarkdownPath(previewPath), mermaid = isMermaidPreviewFile(previewPath), table = isTablePath(previewPath), html = isHtmlPath(previewPath);
   const rendered = (markdown && preferences.renderMarkdown) || (mermaid && preferences.renderMermaid !== false) || (table && preferences.renderTable) || (html && preferences.renderBrowserFile !== false);
-  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame, media-frame.ts), a page when
-  // rendered; one outside the workspace is signed as a `media-file` (workspaceAssetResource).
+  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame's PdfViewer, in the
+  // viewer page), a page when rendered; one outside the workspace is signed as a `media-file` (workspaceAssetResource).
   const pdf = isPdfPath(previewPath), frame = (html && rendered) || pdf;
   // The explorer the crumbs walked up to opens the workspace folder in an editor.
   const absolute = path ? (isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : crumbPath === '' ? cwd : '';
@@ -768,7 +774,6 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   // reloads it (WorkspaceBrowserPreview's revisionSuffix and documentKey).
   const revision = mutation ?? '';
   const minted = frame ? await htmlPage(client, native, cwd, absolute, revision, now) : { url: '', error: '' };
-  // A PDF is framed at its URL: WebKit's PDF view reads it, and a revision loads it again inside the frame.
   const source = frame && minted.url ? (pdf ? { src: minted.url, error: '' } : await mediaFrameSource('html', minted.url)) : null;
   const page = { url: source?.src ?? '', error: minted.error || source?.error || '' };
   // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo). An image's
@@ -785,7 +790,13 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const attachment = document ? await filesAttachment(client, native, state, previewPath, absolute, isWorkspaceDocumentPath(previewPath), mutation, now) : null;
   if (!document && state.attachment) { forgetPreview(client, state.attachment.source.key); state.attachment = null; } // its body unmounts
   const text = read?.contents ?? '';
-  const lines = previewPath && !document && read && !read.error ? codeLines(previewPath, text) : [];
+  // WorkspaceLargeTextPreview: text past 1 MB streams whole as "Full file", but in a draft and for the kinds whose
+  // rendering reads the first megabyte (Markdown, Mermaid, a page), which keep the 1 MB notice.
+  const draft = !client.threadId;
+  const fullFile = !!previewPath && !media.kind && !audio && !frame && !document && !!read && !read.error && read.truncated && !draft && !markdown && !mermaid && !html;
+  const tableShown = !!previewPath && table && rendered && !fullFile && !!read && !read.error;
+  const viewing = (pdf && !!page.url) || fullFile || tableShown;
+  const lines = previewPath && !document && !viewing && read && !read.error ? codeLines(previewPath, text) : [];
   const editable = !!previewPath && !media.kind && !audio && !pdf && !document && !!read && !read.error && !read.truncated && !isHost(previewPath);
   const rows = tree ? hostRows(tree, hostFolder, selected)
     : state.query.trim() && state.search ? searchRows(searchMatches(state.search.entries, state.query), path) : treeRows(state.dirs, state.expanded, path, state.loadingDirs);
@@ -793,15 +804,18 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const reachable = new Set(['', ...[...shown.dirs.values()].flat().filter(entry => entry.kind === 'directory').map(entry => entry.path)]);
   const error = [...shown.errors].find(([folderPath]) => reachable.has(folderPath))?.[1] ?? (tree ? '' : state.search?.error ?? '');
   const editors = await editorFor(client, native);
-  const parsedTable = previewPath && table && rendered && read && !read.error ? tableRows(previewPath, text) : null;
   // shouldShowFileExplorer: never beside a host file; a folder is the explorer alone.
   const showExplorer = !isHost(previewPath) && (preferences.explorer || !previewPath);
   // FileBrowserPanel hasNoSearchMatches: a workspace search counts once the server answered it; a host folder's filters what is loaded.
   const query = tree ? tree.query : state.query, searching = !tree && state.searching, ready = shown.dirs.has('');
   const noMatches = !!query.trim() && rows.length === 0 && (!!tree || !!state.search);
+  const viewer = viewing ? await filesViewer(client, native, {
+    kind: pdf ? 'pdf' : fullFile ? 'full' : 'table', path: previewPath, absolute, name: previewPath.split(/[\\/]/).pop() || previewPath, revision, url: page.url, text,
+    delimiter: table && rendered ? (/\.tsv$/i.test(previewPath) ? '\t' : ',') : null, revealLine: active.line > 0 ? active.line : null, revealRequestId: active.reveal,
+  }, now) : null;
   const preview = !previewPath ? '' : media.kind ? 'media' : audio ? (soundFailed ? 'audio-error' : sound?.url ? 'audio' : 'loading')
-    : frame ? (page.error ? 'error' : page.url ? (pdf ? 'pdf' : 'html') : 'loading') : document ? 'attachment' : read === undefined ? 'loading' : read.error ? 'error'
-      : rendered ? (markdown ? 'markdown' : mermaid ? 'mermaid' : 'table') : 'code';
+    : frame ? (page.error ? 'error' : page.url ? (pdf ? 'viewer' : 'html') : 'loading') : viewer ? (viewer.error ? 'error' : 'viewer') : document ? 'attachment' : read === undefined ? 'loading' : read.error ? 'error'
+      : rendered ? (markdown ? 'markdown' : 'mermaid') : 'code';
   const rich = preview === 'markdown' ? await renderedMarkdown(client, native, previewPath, absolute, text, editable, now) : null;
   const diagram = preview === 'mermaid' ? mermaidFile(client, text) : null;
   const readError = !frame && !media.kind && !audio && !document && !!read?.error;
@@ -814,24 +828,26 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer, treeMenu: filesTreeMenuRows(client),
     subheader: crumbPath !== null, explorerToggle: !!previewPath && !isHost(previewPath),
     path, preview,
-    previewError: frame ? page.error : read?.error && !folder && !document ? read.error : '',
+    previewError: frame ? page.error : viewer?.error ? viewer.error : read?.error && !folder && !document ? read.error : '',
     errorPath: readError ? read!.attempted : '', errorCwd: readError && !isHost(path) ? read!.errorCwd : '',
     crumbs: crumbPath !== null && trail !== null ? crumbs(projectName, crumbPath, trail) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
     gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,
-    // FilePreviewPanel: word wrap reaches only the text bodies (`showsRawText`); a page or a PDF opens in the Browser (`canOpenInBrowser`).
-    rawText: preview === 'code', openInBrowser: !!previewPath && client.available === true && media.kind !== 'video' && isBrowserPreviewFile(previewPath),
-    truncatedNote: previewPath && !frame && !document && read?.truncated ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.`
-      : parsedTable?.truncated ? 'Table limited to the first 100 rows and 30 columns. Switch to source for the rest.' : '',
+    // FilePreviewPanel: word wrap reaches only the text bodies (`showsRawText`), a full file's source among them; a page or
+    // a PDF opens in the Browser (`canOpenInBrowser`).
+    rawText: preview === 'code' || (fullFile && !(table && rendered)), openInBrowser: !!previewPath && client.available === true && media.kind !== 'video' && isBrowserPreviewFile(previewPath),
+    truncatedNote: previewPath && !frame && !document && !media.kind && read?.truncated && (draft || markdown || mermaid || html) ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.` : '',
     canRender: markdown || mermaid || table || html, rendered,
     renderLabel: mermaid ? (rendered ? 'Show Mermaid source' : 'Show rendered diagram') : markdown ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : table ? (rendered ? 'Show source' : 'Show table') : html ? htmlToggleLabel(rendered) : '',
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
     ...editors, absolutePath: absolute,
-    ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], diagrams: diagram?.diagrams ?? [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), table: parsedTable?.rows ?? [],
+    // A notebook shown under "File" parses its markdown cells in the same answer.
+    ...(rich ?? { markdownSource: attachment?.markdownSource ?? [], md: attachment?.notebook.open ? attachment.md : emptyFiles().md, code: attachment?.notebook.open ? attachment.code : [], diagrams: diagram?.diagrams ?? (attachment?.notebook.open ? attachment.diagrams : []), mdUrls: [], codeCopied: '', codeCopyNonce: 0 }),
     editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editPress: editPresses.get(client) ?? '', editorRevision: state.editorRevision,
     crumbMenu: crumbPath !== null && trail !== null ? crumbMenu(state, projectName, crumbPath, trail) : closedCrumbs(), crumbsMask: crumbPath !== null ? crumbsMask(client.presentation) : 'none',
-    crumbsOffset: path !== '' && previewPath !== '' && !document && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
+    crumbsOffset: path !== '' && previewPath !== '' && !document && !viewing && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
     url: frame ? page.url : sound?.url ?? '', media, mermaidNote: diagram?.note ?? '', fileKey: previewPath ? `${panelKey(client)}:${absolute}` : '',
     attachment: attachment ?? emptyAttachment(),
+    viewer: preview === 'viewer' && viewer ? viewer.viewer : emptyViewerFrame(), fullFile: preview === 'viewer' && viewer ? viewer.full : closedFullFile(),
   };
 }
 
