@@ -1,5 +1,7 @@
 # T3 Code for Exact on macOS
 
+See [the clone handoff](CLONE.md) for the current project state and next steps.
+
 A macOS client for [T3 Code](https://github.com/pingdotgg/t3code) servers, written with Exact.
 Contract draws the interface; TypeScript owns the client state, the projections and the server
 connections (HTTP, WebSocket RPC, the saved environments and their credentials). Exact's

@@ -236,23 +236,7 @@ Snapback4 consumers use published `snapback4@0.4.33` and the matching immutable
 Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
 `bun exact.mjs snapback --rebuild` after changing these pins.
 
-## Agent skills
+## T3 Code clone
 
-### Issue tracker
-
-T3 Code clone work lives in the Linear Exact T3Code Clone project. Exact framework
-escalations use ccheever/exact2 GitHub Issues. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Use the five canonical triage labels. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Use one optional root glossary and root ADR directory, preserving existing LLP
-authority. See `docs/agents/domain.md`.
-
-### Unattended clone work
-
-Before assigning clone work, publishing to PR216, using a simulator for it, or
-cleaning task storage, read `examples/t3-code/mobile/docs/parallel-work.md`.
+Before resuming clone work, read `examples/t3-code/CLONE.md` for the current
+state and basic next steps.
