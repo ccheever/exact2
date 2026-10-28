@@ -38,6 +38,7 @@ component Excord
   state endGap = 0
   state settling = false
   state topKey = ""
+  state leadHeld = false
   state topOffset = 0
   state historyStart = false
   state places: Place[] = []
@@ -361,8 +362,8 @@ component Excord
   // ack chose its newest) and after a failed ack, at most three times.
   task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
-  // The lead (F1): a page a step while fewer than 100 rows stand above a reader in history (never a short live tail); after a jump or restore it waits for the placement's own scroll report and the highlight.
-  task leadOlder when reading and current and target == "" and highlight == "" and (away or (anchor != "" and win.hasAfter)) and win.need == "" and win.hasBefore and keys.indexOf(topKey) >= 0 and keys.indexOf(topKey) < 100 and anchor != win.firstId key=win.firstId
+  // The lead (F1): a page a step while fewer than 100 rows stand above a reader in history (never a short live tail); after a jump, the highlight, and after a restore, the placement's scroll report (leadHeld).
+  task leadOlder when reading and current and target == "" and highlight == "" and not leadHeld and (away or (anchor != "" and win.hasAfter)) and win.need == "" and win.hasBefore and keys.indexOf(topKey) >= 0 and keys.indexOf(topKey) < 100 and anchor != win.firstId key=win.firstId
     after(1, older)
   // The page the window lacks while the channel is read; a failed one is asked again, at most three times.
   task fetchPage when reading and win.channel == open and not signedOutNow and win.need != "" and not historyFailed and not pending(paged) and not pending(editPaged) key=`${pageKey}/${pageTries}`
@@ -457,7 +458,6 @@ component Excord
         send acked = markRead(open)
     let t = performanceNow()
     now = t
-    topKey = open == id ? topKey : ""
     open = id
     typingAt = time.epochAtZero + t
     replyTo = ""
@@ -569,11 +569,10 @@ component Excord
     send joined = viewChannel("")
 
   // The window: the reader's place decides which run of history it holds.
-  // The reader is at the end within the last row's height of it (§3.7). The window anchors at its first
-  // row when the first visible row comes within 100 rows of it (15 at the live end, which a short tail must
-  // not leave by itself), and `leadOlder` keeps that lead as pages land (F1: a fling travels 60-90 rows);
-  // toward the newest end, 15 rows and one page. `reachstart` alone gives one viewport of lead, which a
-  // fling overruns. A page is asked only of a window that answers the present request, whatever else is refreshing.
+  // The reader is at the end within the last row's height of it (§3.7). The window anchors at its first (last)
+  // row when the first visible row comes within 15 rows of that edge, and the data module fetches the one page
+  // beyond it; toward the top, `leadOlder` anchors from 100 rows (F1). `reachstart` alone gives one viewport of
+  // lead, which a fling overruns. A page is asked only of a window that answers the present request, whatever else is refreshing.
   action scrolled(x: number, y: number, e: ScrollEvent)
     if not scrolling
       scrolling = true
@@ -602,7 +601,7 @@ component Excord
         if anchor != "" and not win.hasAfter
           anchor = ""
     if at >= 0 and current and target == ""
-      if at < (isAway and not settling ? 100 : 15) and win.hasBefore
+      if at < 15 and win.hasBefore
         anchor = win.firstId
       else
         if at > keys.length - 15 and win.hasAfter
@@ -610,6 +609,7 @@ component Excord
     endGap = gap < 1 ? 0 : round(gap)
     historyStart = e.scrollTop <= 0.5
     topKey = k
+    leadHeld = false
     topOffset = e.firstVisibleOffset
   // A send's return to the end settles at a scrollend that finds the list there;
   // momentum that carried it off is undone once the live window is in.
@@ -679,7 +679,7 @@ component Excord
         if keys.includes(key)
           if targetBlock == "offset"
             scrollIntoView("transcript", key, offset=restoreOffset, behavior="instant")
-            topKey = ""
+            leadHeld = true
           else
             scrollIntoView("transcript", key, block="center", behavior="instant")
           target = ""
