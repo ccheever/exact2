@@ -24,9 +24,11 @@ test('a second navigation root keeps its split list live while its detail suppli
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
       const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1))));
+      const file = Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1)));
+      // (the agent asks a page's /exact.json, a dev envelope this build doesn't write)
+      return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
     } });
     browser = await open({ host: 'web', url: server.url.href, size: [1000, 900] });
     expect(await browser.carrier.evaluate('document.querySelectorAll("[navigationBack]").length')).toBe(2);
@@ -84,9 +86,11 @@ component SplitDocumentAgent
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
       const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path === '/a' ? 'a/index.html' : path.slice(1))));
+      const file = Bun.file(resolve(dist, path === '/' ? 'index.html' : path === '/a' ? 'a/index.html' : path.slice(1)));
+      // (the agent asks a page's /exact.json, a dev envelope this build doesn't write)
+      return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
     } });
     browser = await open({ host: 'web', url: new URL('a', server.url).href, size: [1280, 844] });
     const state = await browser.state();
@@ -143,10 +147,12 @@ component TabsDocument
     const html = readFileSync(resolve(dist, 'index.html'), 'utf8');
     expect(html).toContain('data-testid="bump-a"');
     expect(html).toContain('data-testid="bump-b"');
-    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
       const path = new URL(req.url).pathname;
       // `/b` is served the page rendered for `/`, which selects tab A.
-      return new Response(Bun.file(resolve(dist, path === '/' || path === '/b' ? 'index.html' : path.slice(1))));
+      const file = Bun.file(resolve(dist, path === '/' || path === '/b' ? 'index.html' : path.slice(1)));
+      // (the agent asks a page's /exact.json, a dev envelope this build doesn't write)
+      return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
     } });
     browser = await open({ host: 'web', url: server.url.href, size: [420, 900] });
     expect(await browser.carrier.evaluate('exact.journal.some(l => l.endsWith("adopted the document"))')).toBe(true);

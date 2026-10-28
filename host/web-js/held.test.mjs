@@ -20,9 +20,11 @@ test('the JS target leaves a held fetch out of every clock, names it, and counts
     });
     const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
     expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
-    page = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+    page = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
       const path = new URL(req.url).pathname;
-      return new Response(Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1))));
+      const file = Bun.file(resolve(dir, 'dist', path === '/' ? 'index.html' : path.slice(1)));
+      // (the agent asks a page's /exact.json, a dev envelope this build doesn't write)
+      return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
     } });
     browser = await open({ host: 'web', url: page.url.href, webDist: resolve(dir, 'dist') });
     const seen = await driveHeld(browser, server);
