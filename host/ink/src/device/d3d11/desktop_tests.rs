@@ -680,13 +680,31 @@ fn shelf_sleep_wake() {
     use windows::{
         core::PCWSTR,
         Win32::{
-            Foundation::CloseHandle,
+            Foundation::{CloseHandle, GetLastError, ERROR_NOT_ALL_ASSIGNED, HANDLE, LUID},
+            Security::*,
             System::{Power::SetSuspendState, Threading::*},
         },
     };
     let mut app = Shelf::open("sleep", false);
     app.capture("sleep-before");
     unsafe {
+        // SetSuspendState requires SeShutdownPrivilege in the caller's token.
+        // https://learn.microsoft.com/windows/win32/api/powrprof/nf-powrprof-setsuspendstate
+        let mut token = HANDLE::default();
+        OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &mut token).unwrap();
+        let mut luid = LUID::default();
+        LookupPrivilegeValueW(None, SE_SHUTDOWN_NAME, &mut luid).unwrap();
+        let privileges = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: luid,
+                Attributes: SE_PRIVILEGE_ENABLED,
+            }],
+        };
+        AdjustTokenPrivileges(token, false, Some(&privileges), 0, None, None).unwrap();
+        let error = GetLastError();
+        CloseHandle(token).unwrap();
+        assert_ne!(error, ERROR_NOT_ALL_ASSIGNED, "sleep privilege unavailable");
         let timer = CreateWaitableTimerW(None, true, PCWSTR::null()).unwrap();
         SetWaitableTimer(timer, &(-150_000_000i64), 0, None, None, true).unwrap();
         let started = Instant::now();
