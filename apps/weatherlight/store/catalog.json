@@ -1,0 +1,34 @@
+[
+  {
+    "itemId": "plus.yearly",
+    "title": "Weatherlight+ Yearly",
+    "description": "The sixteen-day forecast, for a year.",
+    "type": "subscription",
+    "price": { "currency": "USD", "value": "19.99" },
+    "displayPrice": "$19.99",
+    "subscriptionPeriod": "P1Y",
+    "freeTrialPeriod": "P1W",
+    "familyShareable": true,
+    "apple": { "type": "autoRenewable", "subscriptionGroupID": "weatherlight.plus" }
+  },
+  {
+    "itemId": "plus.monthly",
+    "title": "Weatherlight+ Monthly",
+    "description": "The sixteen-day forecast, a month at a time.",
+    "type": "subscription",
+    "price": { "currency": "USD", "value": "2.99" },
+    "displayPrice": "$2.99",
+    "subscriptionPeriod": "P1M",
+    "familyShareable": true,
+    "apple": { "type": "autoRenewable", "subscriptionGroupID": "weatherlight.plus" }
+  },
+  {
+    "itemId": "tip.small",
+    "title": "A Small Tip",
+    "description": "Thanks for the weather.",
+    "type": "product",
+    "price": { "currency": "USD", "value": "0.99" },
+    "displayPrice": "$0.99",
+    "apple": { "type": "consumable" }
+  }
+]

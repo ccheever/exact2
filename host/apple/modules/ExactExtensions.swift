@@ -129,6 +129,14 @@ enum ExactExtensions {
             }
         }
         DispatchQueue.main.async { NotificationCenter.default.post(name: Notification.Name("exact.wakes.ready"), object: nil) }
+        // An interface declared `"start": "load"` (LLP 1133.015 D16 item 1): its implementation is made now, once the
+        // host has made the module after first pixel, rather than at its first call.
+        if !exactStartAtLoad.isEmpty {
+            DispatchQueue.main.async { [weak m] in
+                guard let m else { return }
+                for name in exactStartAtLoad { _ = adapter(m, name) }
+            }
+        }
     }
 
     /// The extensions this artifact composes, for the host to bind.

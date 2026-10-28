@@ -703,7 +703,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // marked `unshown` in the tree, struck through in a screenshot, and fails an `expect` or a `tap` (LLP 1116 D2). macOS: AppKit's sidebar for a root tab bar, `native: "sidebar-row"` (LLP 1115.002 D3); a `dialog` as its sheet and a popover that is no menu as AppKit's popover, windows of their own that `screenshot <png> window` draws over the window (D7.2, D7.3).
   if (!['agent', 'platform'].includes(chrome) || (chrome !== 'agent' && !['ios', 'host-ios', 'macos'].includes(host))) throw new Error(`chrome: ${chrome} is iOS's and macOS's (agent or platform), not ${host}'s`);
   if (chrome === 'platform') env = { ...(env ?? {}), EXACT_AGENT_CHROME: 'platform' };
-  if (bind) { if (host === 'web') throw new Error('--bind: the web drives its implementations with no agent (packages/<name>/test/web.mjs)'); env = { ...(env ?? {}), EXACT_AGENT_BIND: bind }; }
+  if (bind) { if (host === 'web') throw new Error('--bind: the web drives its implementations with no agent (packages/<name>/test/web.mjs)');
+    // A sideloaded Android build signed in with an account that is not a license tester pays real money (LLP 1133.015 §9).
+    if (host === 'android' && String(bind).split(',').includes('purchases')) throw new Error('bind-real-money: --bind purchases is refused on Android, where exact2 cannot tell a license tester from a paying account; the conformance suite runs Play Billing on a phone signed in as a license tester (LLP 1133.015 §9)'); env = { ...(env ?? {}), EXACT_AGENT_BIND: bind }; }
   // `scale` (--scale <n>): a screenshot's pixels a point, shrunk by area from the device's (an iPhone draws 3), never enlarged.
   if (scale !== undefined && !(Number.isFinite(scale) && scale > 0)) throw new Error(`--scale ${typeof scale === 'string' ? JSON.stringify(scale) : scale}: pixels a point, a number above 0 (1 is the web's CSS pixel; an iPhone draws 3)`);
   // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`), kept

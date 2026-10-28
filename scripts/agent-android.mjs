@@ -385,6 +385,8 @@ function extensionArgs(app, out, config) {
       ...bound.map((b) => `        ${JSON.stringify(b.extension)} to { c -> ${b.className}(c) },`), '    )',
       // Each view a package serves, by the extension that makes it (LLP 1133.001 D1).
       `    override val views: Map<String, String> = mapOf(${bound.flatMap((b) => (b.views ?? []).map((tag) => `${JSON.stringify(tag)} to ${JSON.stringify(b.extension)}`)).join(', ')})`,
+      // The extensions made after the reader's first frame, not at their first call (LLP 1133.015 D16 item 1).
+      `    override val startAtLoad: List<String> = listOf(${bound.filter((b) => b.start).map((b) => JSON.stringify(b.extension)).join(', ')})`,
       '}', ''].join('\n'));
   }
   // The queries and components the packages' manifest fragments declare, under the allow-list (LLP 1133.030 D9), with

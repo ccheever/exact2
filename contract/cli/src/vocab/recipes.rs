@@ -60,6 +60,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("persisted-setting"),
     recipe!("porting-and-release"),
     recipe!("ports-and-browsers"),
+    recipe!("purchases"),
     recipe!("random-and-shuffle"),
     recipe!("random-rolls"),
     recipe!("responsive-columns"),

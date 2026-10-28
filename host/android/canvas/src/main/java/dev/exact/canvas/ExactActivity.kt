@@ -290,6 +290,7 @@ open class ExactActivity : Activity() {
                 val start = intent.getStringExtra("start")?.toIntOrNull() ?: 0
                 if (start > 0 && startPitchDp > 0f) view.scrollBy(start * startPitchDp * Device.scale(this))
                 driver?.contentReady()
+                Extensions.firstFrame()
             }
         }
         view.booting = booting

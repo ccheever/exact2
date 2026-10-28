@@ -1,0 +1,42 @@
+{
+  "kind": "interface",
+  "name": "@exact/store-review",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "StoreReviewStatus": {
+      "available": "bool"
+    }
+  },
+  "names": [
+    {
+      "source": "storeReviewStatus",
+      "live": true,
+      "answers": "StoreReviewStatus",
+      "sync": {
+        "name": "storeReviewStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": false
+        }
+      }
+    },
+    {
+      "send": "requestReview",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "answers": null,
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    }
+  ]
+}

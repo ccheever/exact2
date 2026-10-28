@@ -58,6 +58,7 @@ mod presence;
 mod samples;
 mod services;
 mod spans;
+mod stale;
 mod values;
 mod views;
 mod wakes;
@@ -133,6 +134,9 @@ pub(super) struct Extensions {
     arrived: handles::Arrived,
     /// Each polled source's last ask, on the session's clock (`poll.rs`).
     polls: BTreeMap<String, f64>,
+    /// When each live source's last answer goes stale, on the session's
+    /// clock; infinite once asked (`stale.rs`).
+    stale: BTreeMap<String, f64>,
     /// What each package view's implementation was told (`views.rs`).
     views: views::Views,
     /// The polled sources whose last answer was an error, not asked again by
@@ -526,7 +530,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// `extension.source`, as `prefer` and the journal name it.
-    fn key(&self, row: &ModulesRow) -> String {
+    pub(super) fn key(&self, row: &ModulesRow) -> String {
         format!(
             "{}.{}",
             self.plan.str(row.extension),

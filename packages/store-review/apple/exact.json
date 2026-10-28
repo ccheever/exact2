@@ -1,0 +1,27 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/store-review@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "StoreReview.swift"
+    ]
+  },
+  "frameworks": {
+    "StoreKit": {
+      "ios": "17.0",
+      "macos": "14.0"
+    }
+  },
+  "artifacts": [],
+  "class": "StoreReviewModule"
+}

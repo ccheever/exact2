@@ -1318,6 +1318,19 @@ impl<D: DataSource> Runner<D> {
         };
         self.store.take_topics();
         self.snapshot_sockets();
+        // A live module source's answer may name when it goes stale (LLP
+        // 1133.015 D7), whether Contract or data code reads it.
+        let live = (self.plan.module_named(&p.source))
+            .filter(|row| row.live && !row.send)
+            .map(|row| self.key(row))
+            .or_else(|| (p.keepable.as_ref()).and_then(|r| self.module_topic(&r.body)));
+        let outcome = match (live, outcome) {
+            (Some(key), Outcome::Response(mut response)) => {
+                response.body = self.take_stale(&key, std::mem::take(&mut response.body));
+                Outcome::Response(response)
+            }
+            (_, outcome) => outcome,
+        };
         let parsed = if Self::activity_send(&p.source) {
             Self::activity_reply(&self.plan, ty, outcome)
         } else if self.plan.module_named(&p.source).is_some() {

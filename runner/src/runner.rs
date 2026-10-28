@@ -1045,9 +1045,7 @@ impl<D: DataSource> Runner<D> {
         runner.stale = vec![false; runner.plan.resources.len()];
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
-        if !ready {
-            runner.seed_kept(&seeded, device_state);
-        }
+        runner.seed_at_boot(&seeded, device_state, ready, private);
         if ready && device_state {
             // … and asked now when it can answer, showing the rendered
             // answer until it does.

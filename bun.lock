@@ -229,6 +229,10 @@
       "name": "@exact/photos",
       "version": "1.0.0",
     },
+    "packages/purchases": {
+      "name": "@exact/purchases",
+      "version": "1.0.0",
+    },
     "packages/quick-actions": {
       "name": "@exact/quick-actions",
       "version": "1.0.0",
@@ -279,6 +283,10 @@
     },
     "packages/speech-synthesis": {
       "name": "@exact/speech-synthesis",
+      "version": "1.0.0",
+    },
+    "packages/store-review": {
+      "name": "@exact/store-review",
       "version": "1.0.0",
     },
     "packages/text-detection": {
@@ -377,6 +385,8 @@
 
     "@exact/photos": ["@exact/photos@workspace:packages/photos"],
 
+    "@exact/purchases": ["@exact/purchases@workspace:packages/purchases"],
+
     "@exact/quick-actions": ["@exact/quick-actions@workspace:packages/quick-actions"],
 
     "@exact/reading": ["@exact/reading@workspace:packages/reading"],
@@ -396,6 +406,8 @@
     "@exact/speech-recognition": ["@exact/speech-recognition@workspace:packages/speech-recognition"],
 
     "@exact/speech-synthesis": ["@exact/speech-synthesis@workspace:packages/speech-synthesis"],
+
+    "@exact/store-review": ["@exact/store-review@workspace:packages/store-review"],
 
     "@exact/text-detection": ["@exact/text-detection@workspace:packages/text-detection"],
 

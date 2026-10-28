@@ -153,6 +153,7 @@ mod pointer;
 mod popover_surface;
 mod post_message;
 mod presence;
+mod purchases;
 mod queue;
 mod reach;
 mod realworld_then;

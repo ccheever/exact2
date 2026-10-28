@@ -308,6 +308,14 @@ impl<D: DataSource> Runner<D> {
         if let Some(facts) = self.facts_of(extension) {
             values.insert("facts".into(), facts);
         }
+        // The app's catalogue, which a synthetic store sells (LLP 1133.015 §9).
+        let catalog = (self.plan.modules.iter())
+            .filter(|m| self.plan.str(m.extension) == extension)
+            .map(|m| self.substitute(m)["catalog"].clone())
+            .find(|c| !c.is_null());
+        if let Some(catalog) = catalog {
+            values.insert("catalog".into(), catalog);
+        }
         let body =
             json!({ "extension": extension, "preferred": values, "permissions": permissions });
         handler(body.to_string().into_bytes(), Reply::new(|_| {}));

@@ -1241,6 +1241,14 @@
       "type": "string",
       "description": "The app's design (LLP 1121 D2): a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
     },
+    "purchases": {
+      "type": "object",
+      "description": "In-app purchases (LLP 1133.015 §9). `catalog`: a JSON file of the Digital Goods API's `ItemDetails`, relative to app.json, which the synthetic store sells under the agent; its ids are the products configured in App Store Connect and Play Console.",
+      "properties": {
+        "catalog": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "strings": {
       "type": "object",
       "description": "The UI's string tables (LLP 1060): strings/<locale>.json beside app.contract, read by `t(\"key\", name=value)`.",

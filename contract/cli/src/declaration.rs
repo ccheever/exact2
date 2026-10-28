@@ -82,6 +82,12 @@ pub(crate) fn read(path: &Path, text: &str, source_id: u32) -> Result<File, Refu
                 }
             }
             groups(&json, &file).map_err(refuse)?;
+            // An implementation made when the module loads, after first
+            // pixel, rather than at its first call (LLP 1133.015 D16 item 1);
+            // the hosts' builds read it from the interface.
+            if !json["start"].is_null() && json["start"] != "load" {
+                return Err(refuse("an interface's `start` is \"load\" or absent".into()));
+            }
         }
         "implementation" => {
             // Its platform-only names (D2) are read when one is first
@@ -564,6 +570,10 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         let many_ok = choose["many"].is_null()
             || (choose["many"].as_str()).is_some_and(|o| !object(&entry["options"])[o].is_null());
         let typed_ok = choose["typed"].is_null() || choose["typed"].is_boolean();
+        // The targets whose platform shows the sheet (LLP 1133.015 D17:
+        // restoring asks on Apple alone); elsewhere the call goes on with no ticket.
+        let targets_ok = choose["targets"].is_null()
+            || (choose["targets"].as_array()).is_some_and(|t| t.iter().all(Value::is_string));
         // A tap its status rules out (LLP 1133.028 §7): one of its `choices`,
         // by a status source's field.
         let listed =
@@ -578,9 +588,10 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             || !many_ok
             || !typed_ok
             || !unless_ok
+            || !targets_ok
         {
             return Err(format!(
-                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, the option that allows `many`, and the choices its status rules out (`unless`)"
+                "`{name}`'s `choose` names its ticket, and may name one of the interface's `agent` words, its `choices` besides cancel, whether it is `typed`, the option that allows `many`, the choices its status rules out (`unless`), and the `targets` that show it"
             ));
         }
     }
@@ -907,6 +918,12 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
             // implementation may run (`invoke`, LLP 1133.016 D15 item 1); and
             // the handle option whose handlers a call's own handles take.
             "handlers" => check(value.is_string(), "`handlers` is a field path")?,
+            // A live source whose last fresh answer seeds the next launch's
+            // first frame (LLP 1133.015 D4, LLP 1027 D4).
+            "kept" => check(
+                value.is_boolean() && entry["live"] == true && !entry["source"].is_null(),
+                "`kept` is true or false, on a live source",
+            )?,
             "handlersFrom" => check(
                 value.as_str().is_some_and(|o| {
                     (object(&entry["options"])[o].as_str())

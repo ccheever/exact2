@@ -136,6 +136,7 @@ impl<D: DataSource> Runner<D> {
         (self.polled().into_iter())
             .filter(|(key, _)| !self.asking(key))
             .map(|(_, due)| due)
+            .chain(self.stale_due_ms())
             .reduce(f64::min)
     }
 
@@ -152,12 +153,13 @@ impl<D: DataSource> Runner<D> {
             self.log(format!("poll {key}"));
             receipts.extend(self.changed(&key)?);
         }
+        receipts.extend(self.ask_stale()?);
         Ok(receipts)
     }
 
-    /// Whether a polled source's ask is in flight: what an agent's jump
-    /// waits for before it replies.
+    /// Whether a polled source's ask is in flight, or a stale answer's
+    /// (`stale.rs`): what an agent's jump waits for before it replies.
     pub fn polls_asking(&self) -> bool {
-        self.polled().iter().any(|(key, _)| self.asking(key))
+        self.polled().iter().any(|(key, _)| self.asking(key)) || self.stale_asking()
     }
 }

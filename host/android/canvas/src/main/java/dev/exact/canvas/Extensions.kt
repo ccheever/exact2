@@ -143,6 +143,9 @@ interface ExtensionRoster {
     val extensions: Map<String, (ExtensionContext) -> ExactExtension>
     /** Each view tag a package serves, with the extension that makes it (LLP 1133.001 D1). */
     val views: Map<String, String> get() = emptyMap()
+    /** The extensions whose interface says `"start": "load"`: made after the reader's first frame rather than at their
+     * first call (LLP 1133.015 D16 item 1). */
+    val startAtLoad: List<String> get() = emptyList()
 }
 
 /** What an extension may use of the host. */
@@ -514,6 +517,12 @@ internal object Extensions {
     fun authenticator(): ExactAuthenticator? = roster.keys.firstNotNullOfOrNull { extension(it) as? ExactAuthenticator }
 
     /** Extension [name], made at its first call or view. */
+    /** The reader drew its first frame: each extension declared `"start": "load"` is made now (LLP 1133.015 D16 item
+     * 1), once for the process, as an extension outlives the activities that show the app. */
+    fun firstFrame() {
+        written?.startAtLoad?.forEach { extension(it) }
+    }
+
     private fun extension(name: String): ExactExtension? = made[name]
         ?: roster[name]?.let { make -> application?.let { make(ExtensionContext(it, name)) } }?.also { made[name] = it; webauthn.forEach { f -> it.webauthnField(f, true) } }
 
