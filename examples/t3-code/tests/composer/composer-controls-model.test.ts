@@ -44,8 +44,8 @@ describe('the composer trigger names the model it runs', () => {
     claude.models = [{ slug: 'claude-opus-4-5', name: 'Claude Opus 4.5', isDefault: true, capabilities: { optionDescriptors: [] } }];
     client.providerId = 'claude'; client.modelId = 'claude-opus-4-5';
     const view = snapshot(client);
-    expect(view.modelLabel).toBe('Opus 4.5');
-    expect(view.composer).toMatchObject({ modelTip: 'Claude Opus 4.5 · ⇧⌘M', modelAria: 'Claude Opus 4.5' });
+    expect(view).toMatchObject({ modelShortLabel: 'Opus 4.5', modelLabel: 'Claude Opus 4.5', modelUnavailable: false });
+    expect(view.composer.modelTip).toBe('Claude Opus 4.5 · ⇧⌘M');
     expect(modelCatalog(client, 'claude', '').models.find(row => row.id === 'claude-opus-4-5')?.name).toBe('Claude Opus 4.5');
   });
 });

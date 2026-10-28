@@ -1,5 +1,5 @@
 // The embedded server's environment, after T3 Code's desktop
-// app (MIT, see LICENSE-T3; reference 74541bab17: apps/desktop/src/shell/DesktopShellEnvironment.ts
+// app (MIT, see LICENSE-T3; reference 7c3b3b3605ef: apps/desktop/src/shell/DesktopShellEnvironment.ts
 // `installPosixEnvironment`, backend/DesktopBackendConfiguration.ts `DESKTOP_BACKEND_ENV_NAMES`, and
 // packages/shared/src/shell.ts `buildEnvironmentCaptureCommand`, `readEnvironmentFromLoginShell`).
 //

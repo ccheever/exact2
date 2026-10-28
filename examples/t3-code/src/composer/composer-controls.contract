@@ -232,7 +232,7 @@ component ModelTrigger
     over = value
   view
     // Named by its model names (allModelNames, or the label it shows), as ProviderModelPicker is.
-    button -exact-menu="none" press=press hover=hover class=Control aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.composer.modelAria == "" ? "Choose model" : data.composer.modelAria) aria-expanded=open aria-keyshortcuts=keyModels testId="model-picker" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=(xs ? "2.5rem" : "3rem") max-width=(xs ? "10.5rem" : "624.9375rem") flex-shrink=1 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.5625rem") padding-right=(xs ? "0.4375rem" : "0.5625rem") padding-top=0 padding-bottom=0 margin-left=(xs ? "-0.625rem" : "-0.5rem") gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+    button -exact-menu="none" press=press hover=hover class=Control aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) aria-expanded=open aria-keyshortcuts=keyModels testId="model-picker" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=(xs ? "2.5rem" : "3rem") max-width=(xs ? "10.5rem" : "624.9375rem") flex-shrink=1 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.5625rem") padding-right=(xs ? "0.4375rem" : "0.5625rem") padding-top=0 padding-bottom=0 margin-left=(xs ? "-0.625rem" : "-0.5rem") gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
       // Several models (a multi-model draft): up to three overlapping marks, then "+N".
       if data.composer.fanout
         row flex-shrink=0 align-items="center" aria-hidden=true
@@ -249,8 +249,12 @@ component ModelTrigger
       // The tooltip (label · ⇧⌘M) belongs to the label, 4pt above it (ProviderModelPicker TooltipTrigger).
       if label
         box position="relative" display="flex" flex-direction="row" min-width=0 flex-shrink=1
-          text (data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"
+          text (data.composer.fanout ? data.composer.fanoutLabel : data.modelShortLabel == "" ? "Choose model" : data.modelShortLabel) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#18181b, #f5f5f5)" : xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"
           TipBubble(label=data.composer.modelTip, side="top", align="center", offset=(xs ? 20 : 24), inset=0, shown=over)
+        // An unavailable model's Badge (variant outline, size sm) after its name, as ProviderModelPicker draws it.
+        if data.modelUnavailable and not data.composer.fanout
+          row height="1rem" min-width="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" align-items="center" justify-content="center" flex-shrink=0 border-radius="0.25rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff0a)" testId="model-picker-unavailable"
+            text "Unavailable" font-size="0.625rem" line-height="0.625rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
       box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0
         CcIcon(name="chevron-down", size=(xs ? 12 : 14), color=(xs ? "light-dark(#18181bb3, #a1a1a1)" : "light-dark(#71717a, #a1a1a1)"), weight=2.25)
 
@@ -548,7 +552,7 @@ component ComposerFooter
     row width=(resting ? `calc(100% - ${2.5 * rem}px)` : "100%") height=(resting ? "2rem" : "3rem") padding-left=(resting ? "0.875rem" : "1rem") padding-right=(resting ? "0.875rem" : "1rem") padding-bottom=(resting ? "0px" : "1rem") box-sizing="border-box" align-items="center" gap="0.5rem" position=(resting ? "absolute" : "relative") left=(resting ? "1.25rem" : "0px") top=(resting ? "3.125rem" : "0px") border-radius=(resting ? "1rem" : "0px") background-color=(resting ? "light-dark(#fafafa, #101010)" : "#00000000") animation=(not restMotion ? "none" : resting ? `ccRestIn ${data.look.panelMs}ms cubic-bezier(0.32, 0.72, 0, 1)` : `ccExpandIn ${data.look.panelMs / 2}ms ${data.look.panelMs / 2}ms cubic-bezier(0.32, 0.72, 0, 1) backwards`) id="frame-toolbar" resize=frameMoved testId="composer-toolbar"
       // The labels' natural widths (composer-label-probes.contract), read by footerLayout.
       TextProbes(probes=data.composer.menuProbes)
-      ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel), traits=data.composer.traitsLabel, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
+      ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelShortLabel == "" ? "Choose model" : data.modelShortLabel), traits=data.composer.traitsLabel, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
       // The model picker sits 8pt left of this row (-ms-2; resting 10pt); main's macOS hit test reaches a
       // child's visible overflow (652a6c865), so the part outside the row takes its press.
       row flex=1 min-width=0 gap="0px" align-items="center" height="2rem" box-sizing="border-box" hatch="t3-anchor" data-anchor="controls"

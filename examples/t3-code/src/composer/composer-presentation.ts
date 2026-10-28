@@ -177,8 +177,8 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const runtime = runtimes.find(option => option.mode === client.runtimeMode) ?? runtimes[0] ?? runtimeModes[0]!;
   const planVisible = client.local.deviceSettings.planModeEnabled && !!provider && provider.showInteractionModeToggle !== false;
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
-  // getTriggerDisplayModelName (the spoken name); the tooltip and the accessible name are the full name, the tooltip with
-  // the picker's shortcut (ProviderModelPicker triggerLabel, triggerTooltipContent).
+  // getTriggerDisplayModelName (the spoken name) for the footer's layout; the tooltip is the full name with the picker's
+  // shortcut (ProviderModelPicker triggerTooltipContent). The trigger's text and accessible name are the snapshot's.
   const modelTitle = model ? triggerModelName(model, str(provider?.driver)) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
   const modelLabel = model ? `${displayModelName(model)}${model.isUnavailable === true ? ' (Unavailable)' : ''}` : modelTitle;
   const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
@@ -193,7 +193,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
       projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
-    modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel, modelAria: modelLabel,
+    modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel,
     traitsLabel: display.label,
     providerIcon: acpInstanceIcon(client.config, provider),
     ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,

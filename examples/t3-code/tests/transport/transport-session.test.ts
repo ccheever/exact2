@@ -2,6 +2,7 @@
 // streams, the Ping cadence, the reconnect ladder, probes and the saved-environment ops.
 import { describe, test, expect } from 'bun:test';
 import { Drive, FakeServer, pairing } from '../support/transport-fixture';
+import { CLIENT_VERSION } from '../../src/connections/version-skew';
 
 const ORIGIN = 'http://127.0.0.1:4001';
 type Obj = Record<string, unknown>;
@@ -15,12 +16,13 @@ async function paired(server = new FakeServer(ORIGIN)) {
 }
 
 describe('pairing (authorization/remote.ts, resolver.ts)', () => {
-  test('exchanges the code, checks the session, opens the socket with a ticket and saves the environment', async () => {
+  test('exchanges the code, opens the socket with a ticket and saves the environment', async () => {
     const { drive, server } = await paired();
     const status = value(await drive.op({ op: 'status' }));
     expect([status.state, status.environmentId, status.origin]).toEqual(['connected', 'env-1', ORIGIN]);
+    // The session's grants are not part of the connect (the reference's session atom reads them apart): `readSession`.
     expect(server.requests.map(request => `${request.method} ${request.path}`)).toEqual([
-      'GET /.well-known/t3/environment', 'POST /oauth/token', 'GET /api/auth/session', 'POST /api/auth/websocket-ticket']);
+      'GET /.well-known/t3/environment', 'POST /oauth/token', 'POST /api/auth/websocket-ticket/rpc']);
     expect(server.requests[1]!.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
     expect(server.requests[2]!.headers.Authorization).toBe('Bearer token-1');
     // The catalog keeps the entry and its token in the one secret.
@@ -35,7 +37,7 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     const drive = new Drive(new FakeServer(ORIGIN));
     let release: () => void = () => {};
     // The ticket waits until the test lets it go, so the flow is still running when the slot's answer is asked.
-    drive.holds['/api/auth/websocket-ticket'] = new Promise<void>(resolve => { release = resolve; });
+    drive.holds['/api/auth/websocket-ticket/rpc'] = new Promise<void>(resolve => { release = resolve; });
     void drive.bridge.later({ op: 'connect', origin: ORIGIN, credential: 'code-1' });
     const session = drive.transport.focused;
     expect(session.flowRunning).toBe(session.attempt);
@@ -54,12 +56,12 @@ describe('pairing (authorization/remote.ts, resolver.ts)', () => {
     const server = new FakeServer(ORIGIN), drive = new Drive(server);
     const letGo = Object.assign(new Error('the answer was let go before this reply; the request may already have been sent'), { name: 'FetchError', kind: 'Aborted' });
     let refuse: (error: unknown) => void = () => {};
-    drive.holds['/api/auth/session'] = new Promise<void>((_resolve, reject) => { refuse = reject; });
+    drive.holds['/api/auth/websocket-ticket/rpc'] = new Promise<void>((_resolve, reject) => { refuse = reject; });
     let outcome: unknown = null;
     void drive.bridge.later({ op: 'connect', origin: ORIGIN, credential: 'code-1' }).then(() => { outcome = 'replied'; }, error => { outcome = error; });
     const session = drive.transport.focused, first = session.attempt;
     for (let round = 0; round < 10; round++) await new Promise(resolve => setTimeout(resolve, 0));
-    delete drive.holds['/api/auth/session'];
+    delete drive.holds['/api/auth/websocket-ticket/rpc'];
     refuse(letGo);
     for (let round = 0; round < 10 && outcome === null; round++) await new Promise(resolve => setTimeout(resolve, 0));
     expect(outcome).toBe(letGo);
@@ -398,7 +400,7 @@ describe('HTTP through fetch', () => {
     const access = value(await drive.op({ op: 'previewStreamAccess' }));
     expect(access).toMatchObject({ httpBase: `${ORIGIN}/api/preview-stream`, wsBase: 'ws://127.0.0.1:4001/api/preview-stream' });
     expect(typeof access.ticket).toBe('string');
-    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket', headers: { Authorization: 'Bearer token-1' } });
+    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket/media', headers: { Authorization: 'Bearer token-1' } });
     expect((await drive.op({ op: 'http', path: '/api/auth/websocket-ticket', method: 'POST' })).error).toMatchObject({ kind: 'Arguments' });
     await drive.op({ op: 'disconnect' });
     expect((await drive.op({ op: 'previewStreamAccess' })).error).toMatchObject({ kind: 'Disconnected' });
@@ -409,7 +411,7 @@ describe('HTTP through fetch', () => {
     const first = value(await drive.op({ op: 'deviceHubAccess' })), second = value(await drive.op({ op: 'deviceHubAccess' }));
     expect(first.origin).toBe(ORIGIN);
     expect(server.tickets.has(String(first.ticket)) && server.tickets.has(String(second.ticket)) && first.ticket !== second.ticket).toBe(true);
-    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket', headers: { Authorization: 'Bearer token-1' } });
+    expect(server.requests.at(-1)).toMatchObject({ method: 'POST', path: '/api/auth/websocket-ticket/media', headers: { Authorization: 'Bearer token-1' } });
     await drive.op({ op: 'disconnect' });
     expect((await drive.op({ op: 'deviceHubAccess' })).error).toMatchObject({ kind: 'Disconnected' });
   });
@@ -425,11 +427,16 @@ describe('HTTP through fetch', () => {
     expect((await drive.op({ op: 'http', path: '/x', method: 'POST' })).error).toMatchObject({ kind: 'Arguments' });
   });
 
-  test('an unavailable pull request host reads the reference sentence', async () => {
+  test("an unavailable pull request host reads the server's requirement, else the reason's sentence", async () => {
     const { drive, server } = await paired();
-    server.routes['/api/pull-requests/diff'] = () => ({ status: 503, body: { _tag: 'PullRequestUnavailableError', reason: 'cli-unauthenticated', provider: 'github' } });
+    const requirement = 'GitHub CLI is not authenticated. Run `gh auth login` on the T3 Code server, or set GH_TOKEN there, and retry.';
+    server.routes['/api/pull-requests/diff'] = () => ({ status: 503, body: { _tag: 'PullRequestUnavailableError', reason: 'cli-unauthenticated', provider: 'github', requirement } });
     const diff = await drive.op({ op: 'prDiff', payload: { projectId: 'p', repository: 'o/r', number: 3 } });
-    expect((diff.error as Obj).message).toBe('GitHub CLI is not authenticated. Run `gh auth login` and retry.');
+    expect((diff.error as Obj).message).toBe(requirement);
+    // A 0.1.2 server names no requirement.
+    server.routes['/api/pull-requests/diff'] = () => ({ status: 503, body: { _tag: 'PullRequestUnavailableError', reason: 'cli-missing', provider: 'github' } });
+    const older = await drive.op({ op: 'prDiff', payload: { projectId: 'p', repository: 'o/r', number: 4 } });
+    expect((older.error as Obj).message).toBe('The tool this host is read through is not installed or set up.');
   });
 
   test('an attachment uploads its bytes under its type, without the bearer', async () => {
@@ -450,5 +457,118 @@ describe('HTTP through fetch', () => {
       .toEqual({ stored: '<file app:/data/snapshots/drafts/x.png>', type: 'image/png' });
     expect((await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', bodyFrom: from, sizeBytes: 51 * 1024 * 1024, contentType: 'application/zip' })).error).toMatchObject({ message: 'Choose a file up to 50MB.' });
     expect((await drive.op({ op: 'uploadAttachment', path: '/api/attachments/upload/a1', bodyFrom: 'doc:/1/a.zip', sizeBytes: 9, contentType: 'application/zip' })).error).toMatchObject({ message: 'Choose a file up to 50MB.' });
+  });
+});
+
+describe('a slow host and a refused pairing (reference 7c3b3b3605ef)', () => {
+  test('a read names its own deadline, and one that runs past it fails with reason timeout', async () => {
+    const { drive, server } = await paired();
+    server.delays['/api/auth/session'] = 10_000;
+    const slow = await drive.op({ op: 'http', path: '/api/auth/session', timeoutMs: 6_000 });
+    expect(slow.error).toMatchObject({ kind: 'Network', reason: 'timeout' });
+    expect(value(await drive.op({ op: 'http', path: '/api/auth/session', timeoutMs: 12_000 }))).toMatchObject({ authenticated: true });
+    expect(server.requests.filter(request => request.path === '/api/auth/session').slice(-2).map(request => request.timeoutMs)).toEqual([6_000, 12_000]);
+    // Without one, or with one out of range, a read keeps the 30 s deadline.
+    await drive.op({ op: 'http', path: '/api/auth/session', timeoutMs: 120_000 });
+    expect(server.requests.at(-1)!.timeoutMs).toBe(30_000);
+  });
+
+  // The session's grants (client-runtime state/session.ts sessionStateAtom, fetchEnvironmentSessionState).
+  const sessionEvents = async (drive: Drive) => (value(await drive.op({ op: 'events', after: 0 })).events as Obj[])
+    .filter(event => event.key === 'session-state').map(event => event.value);
+  const sessionDeadlines = (server: FakeServer) => server.requests.filter(request => request.path === '/api/auth/session').map(request => request.timeoutMs);
+
+  test('the session read is asked for apart from the connection: it answers at once, and the grants come in under session-state', async () => {
+    const { drive, server } = await paired();
+    let release: () => void = () => {};
+    drive.holds['/api/auth/session'] = new Promise<void>(resolve => { release = resolve; });
+    expect(value(await drive.op({ op: 'readSession' }))).toEqual({ id: '1' });
+    // The read is out; the connection serves requests meanwhile.
+    server.methods['server.getConfig'] = () => ({ environment: { environmentId: 'env-1' } });
+    expect(value(await drive.op({ op: 'request', method: 'server.getConfig', payload: {} }))).toMatchObject({ environment: { environmentId: 'env-1' } });
+    expect(await sessionEvents(drive)).toEqual([]);
+    delete drive.holds['/api/auth/session'];
+    release();
+    await drive.settle();
+    expect(await sessionEvents(drive)).toEqual([{ _reply: { authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] } }]);
+    expect(sessionDeadlines(server)).toEqual([6_000]);
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+  });
+
+  test('a session read 10 s slow completes on its second try (6 s, then 12 s)', async () => {
+    const { drive, server } = await paired();
+    server.delays['/api/auth/session'] = 10_000;
+    await drive.op({ op: 'readSession' });
+    await drive.settle();
+    expect(sessionDeadlines(server)).toEqual([6_000, 12_000]);
+    expect(await sessionEvents(drive)).toEqual([{ _reply: { authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] } }]);
+  });
+
+  test('the ladder stops at 60 s, and a failure other than a timeout is not asked again', async () => {
+    const { drive, server } = await paired();
+    server.delays['/api/auth/session'] = 120_000;
+    await drive.op({ op: 'readSession' });
+    await drive.settle();
+    expect(sessionDeadlines(server)).toEqual([6_000, 12_000, 24_000, 48_000, 60_000]);
+    expect(await sessionEvents(drive)).toEqual([expect.objectContaining({ _replyError: expect.objectContaining({ reason: 'timeout' }) })]);
+    const refused = await paired();
+    refused.server.routes['/api/auth/session'] = () => ({ status: 500, body: { message: 'Internal server error' } });
+    await refused.drive.op({ op: 'readSession' });
+    await refused.drive.settle();
+    expect(sessionDeadlines(refused.server)).toEqual([6_000]);
+    expect(await sessionEvents(refused.drive)).toEqual([expect.objectContaining({ _replyError: expect.objectContaining({ kind: 'HTTP', message: 'Internal server error' }) })]);
+    // Neither failure touches the connection.
+    expect([value(await drive.op({ op: 'status' })).state, value(await refused.drive.op({ op: 'status' })).state]).toEqual(['connected', 'connected']);
+  });
+
+  // LLP 1016.000, "An answer let go": the runner may start the answer that replaces one before or after that one's
+  // rejection settles.
+  const LET_GO = Object.assign(new Error('the answer was let go before this reply; the request may already have been sent'), { name: 'FetchError', kind: 'Aborted' });
+
+  test('a connect answer let go leaves the session read for the next one, started before or after the rejection', async () => {
+    for (const order of ['rejection first', 'new answer first'] as const) {
+      const { drive, server } = await paired();
+      let refuse: (error: unknown) => void = () => {};
+      drive.holds['/api/auth/session'] = new Promise<void>((_resolve, reject) => { refuse = reject; });
+      await drive.op({ op: 'readSession' });
+      const session = drive.transport.focused;
+      // The runner starts the answer again with the same inputs.
+      const again = () => drive.transport.connect(0, 'focused', session.attempt, session.check, drive.module);
+      delete drive.holds['/api/auth/session'];
+      let replaced: Promise<unknown>;
+      if (order === 'rejection first') { refuse(LET_GO); await drive.settle(); expect(await sessionEvents(drive)).toEqual([]); replaced = again(); }
+      else { replaced = again(); refuse(LET_GO); }
+      await replaced;
+      await drive.settle();
+      expect(await sessionEvents(drive)).toEqual([{ _reply: { authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] } }]);
+      // The read let go never reached the server (the fixture holds it before it answers); the one that did starts again at 6 s.
+      expect(sessionDeadlines(server)).toEqual([6_000]);
+    }
+  });
+
+  test("an SSH host's pairing answered with HTTP 500 by a server on another version ends with the reference's sentence", async () => {
+    const server = new FakeServer(ORIGIN, 'env-1', { label: 'Build box', serverVersion: '0.1.3' });
+    server.routes['/oauth/token'] = () => ({ status: 500, body: { message: 'Internal server error' } });
+    const drive = new Drive(server);
+    const reply = await drive.op({ ...pairing(), ssh: true });
+    expect(reply.error).toMatchObject({ kind: 'Pairing', reason: 'exchange_http_500', context: { label: 'Build box', serverVersion: '0.1.3' },
+      message: `Build box runs T3 Code 0.1.3, but this desktop is ${CLIENT_VERSION}, and that server could not accept its pairing. Restart the T3 server on Build box so it runs ${CLIENT_VERSION}, then retry.` });
+    expect(value(await drive.op({ op: 'status' }))).toMatchObject({ state: 'error', failureKind: 'Pairing' });
+    await drive.advance(10_000);
+    expect(server.requests.filter(request => request.path === '/oauth/token')).toHaveLength(1);
+    // Pairing another environment beside the active connection fails the same way.
+    const added = await drive.op({ op: 'pairEnvironment', origin: ORIGIN, credential: 'code-1', ssh: true });
+    expect(added.error).toMatchObject({ kind: 'Pairing', reason: 'exchange_http_500' });
+  });
+
+  test('any other pairing 500 stays the HTTP failure it was: not over SSH, or from a server on this version', async () => {
+    const other = new FakeServer(ORIGIN, 'env-1', { label: 'Build box', serverVersion: '0.1.3' });
+    other.routes['/oauth/token'] = () => ({ status: 500, body: { message: 'Internal server error' } });
+    expect((await new Drive(other).op(pairing())).error).toMatchObject({ kind: 'HTTP', message: 'Internal server error' });
+    const same = new FakeServer(ORIGIN, 'env-1', { label: 'Build box', serverVersion: CLIENT_VERSION });
+    same.routes['/oauth/token'] = () => ({ status: 500, body: { message: 'Internal server error' } });
+    expect((await new Drive(same).op({ ...pairing(), ssh: true })).error).toMatchObject({ kind: 'HTTP' });
+    const drive = new Drive(other);
+    expect((await drive.op({ op: 'pairEnvironment', origin: ORIGIN, credential: 'code-1' })).error).toMatchObject({ kind: 'HTTP' });
   });
 });

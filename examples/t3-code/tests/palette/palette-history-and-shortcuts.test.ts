@@ -9,7 +9,8 @@ import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { parseWhen } from '../../src/settings/keybinding-view';
 import { keyboardDispatch, type DispatchContext } from '../../src/shell/keyboard-dispatch';
 import { newThreadInItems, rootActions } from '../../src/palette/palette';
-import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 import { primaryAt, primaryOff, resetPrimary } from '../support/local-primary-fixture';
 
 const root = contractComponent('app.contract', 'T3Code');
@@ -77,6 +78,28 @@ describe('going back in the palette keeps the search that led there (#15940)', (
     p.call('paletteShow', 'files', '');
     p.call('paletteClose');
     expect(p.state).toMatchObject({ paletteMode: 'command', paletteQuery: '' });
+  });
+});
+
+describe('a thread row\'s pick carries its moment and the query it was found by', () => {
+  // The palette's own derive, read alone: the root's other derives need the whole app's state.
+  const threadQuery = /^  derive paletteThreadQuery = (.+)$/m.exec(appText('src/palette/palette-members.contract'))![1]!;
+  /** What paletteRun sends paletteCommand for a thread row picked on `page` with `query` (the clock reads 1000 + 234.5). */
+  function picked(page: string, query: string) {
+    const p = palette(), sent: unknown[][] = [];
+    Object.assign(p.state, { palettePage: page, paletteQuery: query });
+    Object.assign(p.scope, { wallTime: { epochAtZero: 1000 }, performanceNow: () => 234.5, paletteCommand: (...args: unknown[]) => sent.push(args) });
+    p.scope.paletteThreadQuery = value(threadQuery, { ...p.scope, ...p.state });
+    p.call('paletteRun', 'thread', 't1', '');
+    return sent;
+  }
+  test('the root page\'s query; none for a submenu\'s rows or a pull request\'s linked threads', () => {
+    const url = 'https://github.com/acme/web/pull/12';
+    expect(picked('', 'old')).toEqual([['thread', 't1', '1234.5 old']]);
+    expect(picked('theme', 'old')).toEqual([['thread', 't1', '1234.5 ']]);
+    expect(picked(`pr-linked|${url}`, url)).toEqual([['thread', 't1', '1234.5 ']]);
+    // A query moved off the URL lists the thread results again, which count.
+    expect(picked(`pr-linked|${url}`, 'old')).toEqual([['thread', 't1', '1234.5 old']]);
   });
 });
 

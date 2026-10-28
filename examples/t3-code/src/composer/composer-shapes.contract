@@ -155,8 +155,6 @@ shape FanoutMark
 shape ComposerView
   placeholder: string
   modelTip: string
-  // The model trigger's accessible name: the model's full name, as its tooltip says it.
-  modelAria: string
   fanout: bool
   fanoutLabel: string
   fanoutAria: string
