@@ -50,12 +50,26 @@ const [cmd, argv] = model === 'gpt'
   : ['claude', ['-p', '--model', 'claude-opus-5-5', '--permission-mode', 'auto', '--output-format', 'stream-json', '--verbose']];
 const log = createWriteStream(resolve(round, 'logs', `${name}.jsonl`));
 const started = Date.now();
+const usage = { input: 0, cached: 0, output: 0, cost: null, calls: 0, toolCalls: 0 };
+let timedOut = false, atCapacity = false;
+// A model at capacity refuses the run before any work; that is the service's, not the build's, so the run is
+// tried again (four times, waiting longer each time) and its wall clock counts from the try that ran.
+let code, runStarted = started;
+for (let attempt = 0; ; attempt++) {
+  atCapacity = false; runStarted = Date.now();
+  code = await runOnce();
+  if (!atCapacity || usage.output > 0 || attempt >= 4) break;
+  log.write(JSON.stringify({ retry: attempt + 1, reason: 'model at capacity' }) + '\n');
+  await new Promise((r) => setTimeout(r, 90000 * (attempt + 1)));
+}
+
+function runOnce() {
 const child = spawn(cmd, argv, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
 child.stdin.end(prompt);
 let buf = '';
-const usage = { input: 0, cached: 0, output: 0, cost: null, calls: 0, toolCalls: 0 };
 child.stdout.on('data', (d) => {
   log.write(d);
+  if (/at capacity/.test(d)) atCapacity = true;
   buf += d;
   let i;
   while ((i = buf.indexOf('\n')) >= 0) {
@@ -79,11 +93,10 @@ child.stdout.on('data', (d) => {
   }
 });
 child.stderr.on('data', (d) => log.write(JSON.stringify({ stderr: String(d) }) + '\n'));
-let timedOut = false;
 const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); setTimeout(() => child.kill('SIGKILL'), 10000); }, LIMIT_MIN * 60000);
-const code = await new Promise((r) => child.on('exit', (c) => r(c)));
-clearTimeout(timer);
-const minutes = (Date.now() - started) / 60000;
+return new Promise((r) => child.on('exit', (c) => { clearTimeout(timer); r(c); }));
+}
+const minutes = (Date.now() - runStarted) / 60000;
 
 // The id the builder actually set (it may have kept another).
 let finalId = appId;
