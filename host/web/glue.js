@@ -1246,8 +1246,8 @@ async function clock(request) {
     collections.settle(); const scrolls = rounds < 15 ? await collections.fireOwedScrolls() : null; if (scrolls?.fired || scrolls?.owed) continue; // every list built and measured where it shows (LLP 1070 G3); a list's moved offset owes a `scroll` event, fired at a rendering step with its handler: waited for (collection-glue `owedScrolls`)
     if (waiting().length || wasm.exact_requests_pending() || mediaAttaching.size) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
-    if (next <= agentClock && !world.pending && (!settle || scrollsSeen?.() === scrolled || rounds >= 15)) { if (imageHold) await (await imageHold).ready(); const held = ask({ op: "holds" }); return held.holds?.length ? { ...reply(false), reason: "device", tickets: held.tickets } : collections.owedScrolls() ? { ...reply(false), reason: "scroll-event" } : reply(true); } // a hold is never waited on (LLP 1069.007 D3)
-    if (rounds >= 15) return reply(false);
+    if (next <= agentClock && !world.pending && settle && !(await glidesSettled?.(glide) ?? true)) return { ...reply(false), reason: "scroll" }; const moved = settle && next <= agentClock && !world.pending && scrollsSeen?.() !== scrolled; /* two frames: a scroll this round's work began has its first event at the next frame's step; then another round */ if (next <= agentClock && !world.pending && !moved) { if (imageHold) await (await imageHold).ready(); const held = ask({ op: "holds" }); return held.holds?.length ? { ...reply(false), reason: "device", tickets: held.tickets } : collections.owedScrolls() ? { ...reply(false), reason: "scroll-event" } : reply(true); } // a hold is never waited on (LLP 1069.007 D3)
+    if (rounds >= 15) return moved ? { ...reply(false), reason: "scroll" } : reply(false);
   }
 }
 let ticker = null, timerFactory = null, toldOffset = null;

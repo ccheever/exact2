@@ -457,6 +457,7 @@ export function install(exact) {
           // (fired in its scroll wait or its frame) found no quiet round.
           let quiet = false, lastRound = exact.lists?.scrollsFired?.() ?? 0;
           const glide = { ms: GLIDE_BOUND_MS };
+          let moved = false;
           for (let round = 0; round < 16; round++) {
             // A scroller still gliding from the last input moves on its own: it ends first (input-glue.js).
             if (!(await glidesSettled(glide))) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
@@ -491,8 +492,14 @@ export function install(exact) {
               if (!stopped) break;
               while (exact.inflight.n > unwaited() && performance.now() < end) await new Promise(r => setTimeout(r, 1));
             }
-            // (quiet, unless this round's work set a scroller moving: the next round waits for it)
-            if (!(to > at) && exact.clock.epoch === epoch && scrollsSeen() === scrolled) { quiet = true; break; }
+            // Quiet, unless this round's work set a scroller moving: two frames tell (its first event comes at the
+            // next frame's rendering step); then the next round waits for it and runs what it fired.
+            if (!(to > at) && exact.clock.epoch === epoch) {
+              if (!(await glidesSettled(glide))) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
+              if (scrollsSeen() === scrolled) { quiet = true; break; }
+              moved = true;
+              continue;
+            }
             seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
@@ -503,6 +510,8 @@ export function install(exact) {
           // A list still owing a scroll event its reader hasn't had, or one whose
           // handler ran in the last round with no quiet round after, is not settled.
           if (exact.lists?.owedScrolls?.() || (!quiet && (exact.lists?.scrollsFired?.() ?? 0) !== lastRound)) return { clock: exact.clock.now, settled: false, reason: 'scroll-event' };
+          // The rounds ran out with a scroller still being set moving: not settled.
+          if (!quiet && moved) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
         // A jump that crosses timers stops after each timer whose commit
