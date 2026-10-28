@@ -99,6 +99,8 @@ export class Backend implements Native {
     if (op === 'connect') { this.generation++; this.subscriptions = {}; return this.good(this.status()); }
     if (op === 'disconnect') { this.generation++; return this.good({ ...this.status(), state: 'disconnected' }); }
     if (op === 'ids') return this.good(Array.from({ length: Number(request.count) }, () => `uuid-${++this.serial}`));
+    // The transport reads the session's grants on its own and files them in the inbox (transport-session.ts readSession).
+    if (op === 'readSession') { this.emit('session-state', { _reply: { authenticated: true, scopes: this.scopes } }); return this.good({ id: `session-${++this.serial}` }); }
     if (op === 'http') {
       if (request.path === '/api/auth/session') return this.good({ authenticated: true, scopes: this.scopes });
       if (request.path === '/api/orchestration/shell') return this.good(this.shell);

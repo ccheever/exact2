@@ -666,14 +666,14 @@ describe('terminal activity in thread lists', () => {
     expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'a')).toMatchObject({ terminalCount: 2, terminalLabel: '2 terminal processes running' });
     expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'b')).toMatchObject({ terminalCount: 0, terminalLabel: '' });
     expect(legacySidebarSnapshot(client, NOW, helpers).projects.flatMap(project => project.threads).find(row => row.id === 'a')?.terminalCount).toBe(2);
-    expect(threadItems(client, NOW, new Map(), '').find(item => item.row.key === 'a')?.row.terminalCount).toBe(2);
+    expect(threadItems(client, NOW, '').find(item => item.row.key === 'a')?.row.terminalCount).toBe(2);
     expect(terminalProcessCount(client, 'fleet:other:a')).toBe(0);
     update([summary('a', 'term-1', true)]);
     expect(sidebarSnapshot(client, NOW, helpers).threads.find(row => row.id === 'a')?.terminalLabel).toBe('1 terminal process running');
     update([]);
     expect(sidebarSnapshot(client, NOW, helpers).threads.every(row => row.terminalCount === 0)).toBe(true);
     expect(legacySidebarSnapshot(client, NOW, helpers).projects.flatMap(project => project.threads).every(row => row.terminalCount === 0)).toBe(true);
-    expect(threadItems(client, NOW, new Map(), '').every(item => item.row.terminalCount === 0)).toBe(true);
+    expect(threadItems(client, NOW, '').every(item => item.row.terminalCount === 0)).toBe(true);
   });
   test('Command-hold jump hints disappear while the terminal owns focus and return on blur', () => {
     const { client } = fake([shell('a')], { threadId: 'a', settings: { legacySidebarEnabled: true } });

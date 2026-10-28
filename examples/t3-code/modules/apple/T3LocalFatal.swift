@@ -4,7 +4,7 @@
 // "T3 Code failed to start" with "Stage: <stage>" and the message, then quits. A server that
 // crashes is not fatal: it backs off and the primary reads "Reconnecting: <reason>"
 // instead. A server that exits because another one owns the T3 home, or because an older background service
-// is set up for it (reference 74541bab17, backend/DesktopBackendPool.ts `onStateDirOwned`), shows "This T3
+// is set up for it (reference 7c3b3b3605ef, backend/DesktopBackendPool.ts `onStateDirOwned`), shows "This T3
 // home is unavailable", then quits.
 // Return and Escape both dismiss the alert.
 import AppKit

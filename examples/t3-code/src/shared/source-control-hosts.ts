@@ -1,18 +1,28 @@
-// T3 Code 9c161462c9 (MIT): packages/source-control-*/src/client/definition.ts.
+// T3 Code 9c161462c9 (MIT): packages/source-control-*/src/client/definition.ts; each host's change request terms at
+// 7c3b3b3605ef (src/shared/definition.ts `changeRequest`).
 // Host presentation and supported operations are shared by clone, publish and PR consumers.
 import { num, str, type Obj } from '../client/domain';
 
+/** What a host calls a change request; the article follows how the short label is said ("an MR"). */
+export type ChangeRequestTerms = { shortLabel: string; shortLabelWithArticle: string; singular: string; plural: string };
+const PULL_REQUEST: ChangeRequestTerms = { shortLabel: 'PR', shortLabelWithArticle: 'a PR', singular: 'pull request', plural: 'pull requests' };
+const MERGE_REQUEST: ChangeRequestTerms = { shortLabel: 'MR', shortLabelWithArticle: 'an MR', singular: 'merge request', plural: 'merge requests' };
+/** UNKNOWN_SOURCE_CONTROL_CLIENT's terms, for a host no definition claims. */
+export const CHANGE_REQUEST_TERMS: ChangeRequestTerms = { shortLabel: 'change request', shortLabelWithArticle: 'a change request', singular: 'change request', plural: 'change requests' };
+
 export const sourceControlHosts = [
-  { kind: 'github', label: 'GitHub', pickerLabel: 'GitHub', host: 'github.com', pathHint: 'owner/repo', cloneTransport: 'https', inferOwner: true, actions: ['merge', 'ready', 'draft', 'close', 'reopen', 'delete-branch', 'update-branch', 'enable-auto-merge', 'disable-auto-merge', 'revert', 'approve-workflows'] },
-  { kind: 'gitlab', label: 'GitLab', pickerLabel: 'GitLab', host: 'gitlab.com', pathHint: 'group/project', cloneTransport: 'ssh', inferOwner: true, actions: ['merge', 'ready', 'draft', 'close', 'reopen', 'update-branch', 'enable-auto-merge', 'disable-auto-merge'] },
-  { kind: 'forgejo', label: 'Forgejo', pickerLabel: 'Forgejo / Gitea', host: 'your server', pathHint: 'owner/repo', cloneTransport: 'https', inferOwner: true, actions: ['merge', 'close', 'reopen', 'update-branch'] },
-  { kind: 'bitbucket', label: 'Bitbucket', pickerLabel: 'Bitbucket', host: 'bitbucket.org', pathHint: 'workspace/repository', cloneTransport: 'ssh', inferOwner: false, actions: ['merge', 'close'] },
-  { kind: 'azure-devops', label: 'Azure DevOps', pickerLabel: 'Azure DevOps', host: 'dev.azure.com', pathHint: 'project/repository', cloneTransport: 'ssh', inferOwner: false, actions: ['merge', 'ready', 'draft', 'close', 'reopen', 'enable-auto-merge', 'disable-auto-merge'] },
-  { kind: 'gitcafe', label: 'GitCafe', pickerLabel: 'GitCafe', host: 'git.cafe', pathHint: 'owner/repo', cloneTransport: 'ssh', inferOwner: true, actions: ['merge', 'ready', 'draft', 'close', 'reopen', 'update-branch'] },
+  { kind: 'github', label: 'GitHub', pickerLabel: 'GitHub', host: 'github.com', pathHint: 'owner/repo', cloneTransport: 'https', inferOwner: true, changeRequest: PULL_REQUEST, actions: ['merge', 'ready', 'draft', 'close', 'reopen', 'delete-branch', 'update-branch', 'enable-auto-merge', 'disable-auto-merge', 'revert', 'approve-workflows'] },
+  { kind: 'gitlab', label: 'GitLab', pickerLabel: 'GitLab', host: 'gitlab.com', pathHint: 'group/project', cloneTransport: 'ssh', inferOwner: true, changeRequest: MERGE_REQUEST, actions: ['merge', 'ready', 'draft', 'close', 'reopen', 'update-branch', 'enable-auto-merge', 'disable-auto-merge'] },
+  { kind: 'forgejo', label: 'Forgejo', pickerLabel: 'Forgejo / Gitea', host: 'your server', pathHint: 'owner/repo', cloneTransport: 'https', inferOwner: true, changeRequest: PULL_REQUEST, actions: ['merge', 'close', 'reopen', 'update-branch'] },
+  { kind: 'bitbucket', label: 'Bitbucket', pickerLabel: 'Bitbucket', host: 'bitbucket.org', pathHint: 'workspace/repository', cloneTransport: 'ssh', inferOwner: false, changeRequest: PULL_REQUEST, actions: ['merge', 'close'] },
+  { kind: 'azure-devops', label: 'Azure DevOps', pickerLabel: 'Azure DevOps', host: 'dev.azure.com', pathHint: 'project/repository', cloneTransport: 'ssh', inferOwner: false, changeRequest: PULL_REQUEST, actions: ['merge', 'ready', 'draft', 'close', 'reopen', 'enable-auto-merge', 'disable-auto-merge'] },
+  { kind: 'gitcafe', label: 'GitCafe', pickerLabel: 'GitCafe', host: 'git.cafe', pathHint: 'owner/repo', cloneTransport: 'ssh', inferOwner: true, changeRequest: PULL_REQUEST, actions: ['merge', 'ready', 'draft', 'close', 'reopen', 'update-branch'] },
 ];
 export const sourceControlHost = (kind: string) => sourceControlHosts.find(host => host.kind === kind);
 export const sourceControlHostName = (kind: string) => sourceControlHost(kind)?.label ?? kind;
 export const sourceControlHostActions = (kind: string) => sourceControlHost(kind)?.actions ?? [];
+/** A host's change request terms, "change request" for a host no definition claims. */
+export const changeRequestTerms = (kind: string): ChangeRequestTerms => sourceControlHost(kind)?.changeRequest ?? CHANGE_REQUEST_TERMS;
 
 export function checkoutCommand(detail: Obj): string {
   const number = num(detail.number);
