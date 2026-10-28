@@ -332,7 +332,10 @@ impl Downloads {
         cooling.retain(|_, (until, _)| *until > now);
         cooling.insert(url.to_owned(), (at, message.to_owned()));
         while cooling.len() > CACHE_ENTRIES {
-            let others = cooling.iter().filter(|(other, _)| *other != url);
+            // (One already past is no wait to keep.)
+            let others = cooling
+                .iter()
+                .filter(|(other, _)| *other != url || at <= now);
             let soonest = others.min_by_key(|(_, (until, _))| *until);
             let soonest = soonest.map(|(url, _)| url.clone()).expect("not empty");
             cooling.remove(&soonest);
