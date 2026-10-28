@@ -11,27 +11,40 @@
 use super::*;
 use crate::request::{SocketOp, SocketOrigin, SocketSend};
 
+#[path = "listen.rs"]
+mod listen;
+
 /// The host's live count of the bytes a socket's transport buffers, by the
 /// socket's stream ticket; `None` for a ticket it holds no socket for.
 pub type SocketReader = std::sync::Arc<dyn Fn(u64) -> Option<u64> + Send + Sync>;
+
+/// The host's live views of its sockets and listeners, when it has them.
+#[derive(Clone, Default)]
+pub(super) struct Readers {
+    buffered: Option<SocketReader>,
+    listen: Option<crate::listen::ListenReader>,
+}
 
 /// What `state.streams` shows of a resource's socket.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SocketState {
     /// The WebSocket `readyState` as the runner knows it: 0 until the
-    /// socket's `open` is delivered, then 1. Its end takes the stream away.
+    /// socket's `open` is delivered (a listener's `listening`), then 1. Its
+    /// end takes the stream away.
     pub ready_state: u8,
     /// Frames the host has accepted for sending.
     pub sent: u64,
     /// The transport's buffered bytes as of the last turn or publication.
     pub buffered: u64,
+    /// A local listener's address, where it stands (LLP 1133.005 D2).
+    pub listen: Option<crate::listen::Standing>,
 }
 
 impl<D: DataSource> Runner<D> {
     /// Read each socket's buffered bytes from the host's transport with
     /// `reader`, at the start of every turn that may read a handle.
     pub fn set_socket_reader(&mut self, reader: SocketReader) {
-        self.socket_reader = Some(reader);
+        self.socket_reader.buffered = Some(reader);
     }
 
     /// Before every turn that may read a handle (a mutation's, a mapper's,
@@ -49,7 +62,8 @@ impl<D: DataSource> Runner<D> {
                 continue;
             };
             if socket.ready_state == 1 {
-                if let Some(buffered) = self.socket_reader.as_ref().and_then(|r| r(p.ticket)) {
+                let reader = self.socket_reader.buffered.as_ref();
+                if let Some(buffered) = reader.and_then(|r| r(p.ticket)) {
                     socket.buffered = buffered;
                 }
                 let held = (self.sockets.iter().flat_map(|b| &b.ops))
@@ -74,7 +88,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Socket `ticket`'s buffered bytes now: the host's count, else `last`.
     pub fn socket_buffered(&self, ticket: u64, last: u64) -> u64 {
-        (self.socket_reader.as_ref())
+        (self.socket_reader.buffered.as_ref())
             .and_then(|read| read(ticket))
             .unwrap_or(last)
     }
@@ -218,12 +232,10 @@ impl<D: DataSource> Runner<D> {
             Err(why) => return self.log(refused(&batch.origin, &why)),
         };
         for (_, name, op) in &batch.ops {
-            self.log(exact_num::text!(
-                "socket {}: {} bytes ({})",
-                op.name(),
-                op.size(),
-                name
-            ));
+            self.log(match op.connection() {
+                Some(c) => listen::sent(name, c, op),
+                None => exact_num::text!("socket {}: {} bytes ({})", op.name(), op.size(), name),
+            });
         }
         for (ticket, sent, buffered) in sockets {
             let socket = self
@@ -253,7 +265,13 @@ pub(super) fn refused(origin: &SocketOrigin, why: &str) -> String {
 /// A stream's count for a request: a two-way socket's state too.
 pub(super) fn stream_count(request: &crate::Request) -> Option<StreamCount> {
     request.stream.then(|| StreamCount {
-        socket: request.socket.then(SocketState::default),
+        socket: request.socket.then(|| SocketState {
+            listen: request
+                .listen
+                .is_some()
+                .then_some(crate::listen::Standing::Binding),
+            ..SocketState::default()
+        }),
         ..StreamCount::default()
     })
 }
@@ -261,8 +279,14 @@ pub(super) fn stream_count(request: &crate::Request) -> Option<StreamCount> {
 /// A delivered message's effect on its socket's state: `open` opens it.
 pub(super) fn socket_message(count: &mut StreamCount, message: &crate::Message) {
     if let Some(socket) = count.socket.as_mut() {
-        if message.event == "open" {
+        let opens = if socket.listen.is_some() {
+            "listening"
+        } else {
+            "open"
+        };
+        if message.event == opens && socket.ready_state == 0 {
             socket.ready_state = 1;
+            socket.listen = socket.listen.map(|_| crate::listen::Standing::Listening);
         }
     }
 }

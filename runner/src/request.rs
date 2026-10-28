@@ -193,6 +193,9 @@ pub struct Request {
     /// Who asked it, for the check at each fetch hop and WebSocket open
     /// (LLP 1133.036 D6). The runner stamps it when the request goes out.
     pub reach: crate::local_network::Reach,
+    /// A local listener's options (LLP 1133.005 D1): the URL is its
+    /// address, and the stream its events. Set by [`Request::listen`].
+    pub listen: Option<Box<crate::listen::Listen>>,
 }
 
 /// The event of a long poll's message that is a reply but no event (LLP
@@ -303,6 +306,7 @@ impl Request {
             redirect: Redirect::Follow,
             held: false,
             reach: Default::default(),
+            listen: None,
         }
     }
 
@@ -364,6 +368,7 @@ impl Request {
             redirect: Redirect::Follow,
             held: false,
             reach: Default::default(),
+            listen: None,
         }
     }
 
@@ -389,6 +394,7 @@ impl Request {
             redirect: Redirect::Follow,
             held: false,
             reach: Default::default(),
+            listen: None,
         }
     }
 
@@ -677,6 +683,30 @@ impl Request {
         }
     }
 
+    /// A local listener on `address`, `unix:<path>` (LLP 1133.005 D1): a
+    /// two-way stream, answered with [`Answer::stream`].
+    pub fn listen(address: &str, options: crate::listen::Listen) -> Self {
+        Self {
+            socket: true,
+            listen: Some(Box::new(options)),
+            ..Self::get(address)
+        }
+    }
+
+    /// Why this request's listener is refused, if it is one and is: not a
+    /// stream, an address that is not a `unix:` path `sun_path` holds, or
+    /// options out of bounds. The grant is the host's to check (D11).
+    pub fn listen_refusal(&self) -> Option<String> {
+        let listen = self.listen.as_deref()?;
+        if !self.stream || !self.socket {
+            return Some("exactListen answers a resource as a stream".into());
+        }
+        if let Err(why) = crate::listen::unix_path(&self.url) {
+            return Some(why);
+        }
+        listen.refusal().map(str::to_string)
+    }
+
     /// Yield to a host-owned executor without inventing a network URL or grant.
     pub fn continuation(token: u64) -> Self {
         Self {
@@ -769,6 +799,19 @@ pub enum SocketOp {
         /// The close reason.
         reason: String,
     },
+    /// A listener's line to one connection, sent with a `\n` (LLP 1133.005 D6).
+    Line {
+        /// The connection's id.
+        connection: u64,
+        /// The line, without its terminator.
+        text: String,
+    },
+    /// A listener's end of one connection, once what was sent before it
+    /// has been written (LLP 1133.005 D6).
+    End {
+        /// The connection's id.
+        connection: u64,
+    },
 }
 
 impl SocketOp {
@@ -777,15 +820,26 @@ impl SocketOp {
         match self {
             SocketOp::Text(text) => text.len(),
             SocketOp::Binary(bytes) => bytes.len(),
-            SocketOp::Close { .. } => 0,
+            // Its terminator is on the wire too.
+            SocketOp::Line { text, .. } => text.len() + 1,
+            SocketOp::Close { .. } | SocketOp::End { .. } => 0,
         }
     }
 
-    /// Its name in the journal: `send` or `close`.
+    /// Its name in the journal: `send`, `close` or `end`.
     pub fn name(&self) -> &'static str {
         match self {
             SocketOp::Close { .. } => "close",
+            SocketOp::End { .. } => "end",
             _ => "send",
+        }
+    }
+
+    /// The listener connection it is addressed to, if it is a listener's.
+    pub fn connection(&self) -> Option<u64> {
+        match self {
+            SocketOp::Line { connection, .. } | SocketOp::End { connection } => Some(*connection),
+            _ => None,
         }
     }
 }

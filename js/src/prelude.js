@@ -569,95 +569,22 @@
   }
   FetchError.prototype = Object.create(Error.prototype);
 
-  // A resource's two-way socket (LLP 1016.000 D7): the handle its mapper
-  // receives. Its state is what the mapper has seen: CONNECTING until
-  // `open`, OPEN until the end, CLOSED once the stream ends or its answer
-  // is let go. A mutation's synchronous source and the socket's own mapper
-  // answering `open` or a `message` may send or close: each operation is
-  // copied now, handed over with that turn's answer (`settle`,
-  // `__exact_message`) and published once the commit that settles it stands.
-  // An answer in flight's go to the host as each is made, in any turn of it (amendment of 2026-10-18).
-  var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
   // A mutation does one kind of effect, socket operations or a fetch: whichever
   // comes second refuses, and the mutation with it, before either leaves.
   var SOCKET_AND_FETCH = "a mutation cannot both send on a socket and fetch";
-  function socketOwner(ticket, byMutation) {
-    var owner = { ticket: ticket, state: 0 };
-    // The transport's bytes as this turn began, earlier turns' unsent ones and
-    // an answer's this turn (door op 15; none on wasm, whose handle never
-    // opens), as WHATWG's `bufferedAmount` counts them at a task's start.
-    function buffered() { try { return Number(host(15, String(ticket), "")) || 0; } catch (e) { return 0; } }
-    function turn() { return mapping && mapping.owner === owner ? mapping : currentCall; } // its own mapper's call, else the turn's
-    var closed = function () { return new DOMException("the socket is not open", "InvalidStateError"); }, quota = function (what) { return new DOMException(what, "QuotaExceededError"); };
-    function stage(op) {
-      var call = turn(), mapper = !!mapping && call === mapping;
-      // A turn of an answer the runner still holds, in no mapper call: a resource's, or a mutation's after a source that answered with a promise.
-      var answer = !mapper && !inMapper && !!call && !call.replied && !call.letGo && (call.answer || call.mutation && !call.sync && call.status === "pending");
-      if (!call || !mapper && !answer && (!call.mutation || !call.sync)) throw new Error("socket." + (op.op === "close" ? "close" : "send") + " is only available in a mutation's synchronous source, its socket's own mapper or an answer in flight");
-      if (owner.state !== 1 || answer && byMutation) throw closed();
-      if (answer) return sendNow(call, op);
-      if (!mapper && call.tickets.length) { call.socketConflict = true; throw new Error(SOCKET_AND_FETCH); }
-      var over = function (what) { var e = quota(what); if (mapper) call.overload = e; return e; }; // fails a mapper's snapshot, caught or not
-      var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size, kind = mapper ? "mapper call" : "mutation";
-      if (ops.length >= SOCKET_OPS) throw over("socket " + kind + " exceeds 256 operations");
-      for (var i = 0; i < ops.length; i++) {
-        if (ops[i].owner === owner && ops[i].op === "close") throw closed();
-        bytes += ops[i].size;
-        if (ops[i].owner === owner) mine += ops[i].size;
-      }
-      // The turn's payload as a whole; this socket's buffer with what it stages on it.
-      if (bytes > SOCKET_BYTES) throw over("socket " + kind + " exceeds 1 MiB");
-      if (buffered() + mine > SOCKET_BYTES) throw over("socket buffer exceeds 1 MiB");
-      op.owner = owner;
-      ops.push(op);
-    }
-    // An answer's operation goes to the host now; D7's bounds count over all its turns.
-    function sendNow(call, op) {
-      var sent = call.socketSent || (call.socketSent = { ops: 0, bytes: 0, closed: [] });
-      if (sent.closed.indexOf(owner) >= 0) throw closed();
-      if (sent.ops >= SOCKET_OPS) throw quota("socket answer exceeds 256 operations");
-      if (sent.bytes + op.size > SOCKET_BYTES) throw quota("socket answer exceeds 1 MiB");
-      if (buffered() + op.size > SOCKET_BYTES) throw quota("socket buffer exceeds 1 MiB");
-      sent.ops++; sent.bytes += op.size;
-      if (op.op === "close") sent.closed.push(owner);
-      host(17, String(ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason }));
-    }
-    owner.handle = Object.freeze({
-      get readyState() { return owner.state; },
-      get bufferedAmount() {
-        var n = buffered(), call = turn(), ops = call && call.socketOps;
-        for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
-        return n;
-      },
-      send: function (data) {
-        if (typeof data === "string") return stage({ op: "text", data: data, size: utf8Length(data) });
-        if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) throw new TypeError("socket.send expects a string, ArrayBuffer or ArrayBufferView");
-        var bytes = new Uint8Array(copyBytes(data, "socket.send"));
-        stage({ op: "binary", data: toBase64(bytes), size: bytes.length });
-      },
-      close: function (code, reason) {
-        if (code === undefined) code = 1000; if (reason === undefined) reason = "";
-        if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) throw new DOMException("invalid socket close code", "InvalidAccessError");
-        if (typeof reason !== "string" || utf8Length(reason) > 123) throw new SyntaxError("socket close reason exceeds 123 UTF-8 bytes");
-        stage({ op: "close", code: code, reason: reason, size: 0 });
-      },
-    });
-    return owner;
-  }
+  // A resource's two-way socket (LLP 1016.000 D7) and a listener's connections (LLP 1133.005 D6): their handles (binary.js `sockets`).
+  var sockets = binary.sockets({ host: host, copyBytes: copyBytes, current: function () { return currentCall; }, mapping: function () { return mapping; }, inMapper: function () { return inMapper; }, conflict: SOCKET_AND_FETCH });
+  var socketOwner = sockets.socketOwner, listenOwner = sockets.listenOwner, handSocketOps = sockets.hand;
   // A refused mutation's fetches, withdrawn before any was handed out.
   function withdrawFetches(call) {
     for (var i = 0; i < call.tickets.length; i++) { settled(call.tickets[i]); host(16, String(call.tickets[i]), ""); }
     call.tickets = [];
     call.socketOps = null;
   }
-  // A turn's staged operations to the host, with its answer.
-  function handSocketOps(call, door) { // door 17: a promise-answering mutation's first answer turn, counted toward its bounds
-    var ops = call.socketOps || [], sent = door === 17 && (call.socketSent = { ops: ops.length, bytes: 0, closed: [] }); call.socketOps = null;
-    ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.op === "close") sent.closed.push(op.owner); } host(door || 14, String(op.owner.ticket), JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason })); });
-  }
-
   global.Response = Response;
-  global.fetch = function (url, init) {
+  global.fetch = function (url, init) { return request(url, init); };
+  // `listen`: a listener's options (`exactListen`, LLP 1133.005 D1).
+  function request(url, init, listen) {
     if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
     var call = currentCall;
     // A continuation running as an answer already given still fetches: the
@@ -751,12 +678,12 @@
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
-    var socket = stream && /^wss?:/i.test(String(url));
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined }));
+    var socket = stream && (!!listen || /^wss?:/i.test(String(url)));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    var owner = socket ? (call.socket = socketOwner(ticket, call.mutation)) : null;
+    var owner = socket ? (call.socket = listen ? listenOwner(ticket) : socketOwner(ticket, call.mutation)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
@@ -766,6 +693,18 @@
       // stream itself runs until the runner lets its ticket go.
       if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) reject(signal.reason); });
     });
+  }
+  // A local listener (LLP 1133.005 D1): a resource's answer, as `fetch(url, {exactStream})` is, whose events
+  // are mapped now with the connection's handle beside them. Natively on desktop hosts only (door 12 `listen`);
+  // elsewhere the global is absent, so `"exactListen" in globalThis` is the feature test (§8).
+  if (host(12, "listen", "") === "1") global.exactListen = function exactListen(address, options) {
+    var o = options || {}, call = currentCall;
+    if (call && call.mutation) throw new DOMException("exactListen() is a resource's answer: a mutation's listener would have no end", "InvalidStateError");
+    if (typeof o.exactStream !== "function") return Promise.reject(new TypeError("exactListen(address, {exactStream(event, connection)}) maps each event to the answer"));
+    var bound = function (name, most) { var v = o[name]; if (v !== undefined && (!Number.isInteger(v) || v < 1 || v > most)) throw new TypeError("exactListen: " + name + " is an integer from 1 to " + most); return v; };
+    try { var listen = { takeover: !!o.takeover, first_line_timeout_ms: bound("firstLineTimeout", 600000), max_line_bytes: bound("maxLineBytes", 1048576), max_connections: bound("maxConnections", 64) }; }
+    catch (e) { return Promise.reject(e); }
+    return request(String(address), { exactStream: o.exactStream, exactIndependentHttp: { maxResponseBytes: 1048576 } }, listen);
   };
 
   // --- signing in through the system browser (LLP 1069.006) ---------------
@@ -1341,7 +1280,7 @@
     var call = calls.get(Number(id));
     if (!call) return "";
     // A released resource's socket handle is stale from now on (D7).
-    if (call.socket) call.socket.state = 3;
+    if (call.socket) { call.socket.state = 3; if (call.socket.close) call.socket.close(); }
     // Not a fetch another answer has since claimed: that one waits on it.
     var dropped = [];
     for (var i = 0; i < call.tickets.length; i++) {
@@ -1385,18 +1324,23 @@
   global.__exact_message = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (!call || !call.stream) return fail(new Error("no stream answer " + id));
-    var o = JSON.parse(outcomeJson), event, socket = call.socket;
-    if (o.message) event = { type: o.message.event || "message", data: binary.messageData(o.message), lastEventId: o.message.id, coalesced: o.message.coalesced };
+    var o = JSON.parse(outcomeJson), event, socket = call.socket, listened = socket && socket.listen && o.message ? sockets.listenEvent(socket, o.message) : null;
+    if (listened) event = listened.event;
+    else if (o.message) event = { type: o.message.event || "message", data: binary.messageData(o.message), lastEventId: o.message.id, coalesced: o.message.coalesced };
     else if (o.closed) event = { type: "close", data: "", lastEventId: "", coalesced: 0, code: o.closed.code, reason: o.closed.reason, wasClean: o.closed.wasClean };
     else if (o.failed) event = { type: "error", data: "", lastEventId: "", coalesced: 0, kind: o.failed.kind, message: o.failed.message, status: 0 };
     else event = { type: "error", data: o.response.body, lastEventId: "", coalesced: 0, kind: "Response", message: "HTTP " + o.response.status, status: o.response.status };
-    // The socket's state as of this event (D7): `open` opens it, an end closes it.
+    // The socket's state as of this event (D7): `open` opens it, an end closes it. A listener's stream ends as its `error`.
+    // `AddressInUse` travels as `Refused`, its message so prefixed (executor_listen.rs).
+    if (socket && !o.message && socket.close) { var f = o.failed || { kind: "Network", message: event.message }, inUse = /^AddressInUse: /.test(f.message); socket.close(); event = { type: "error", kind: inUse ? "AddressInUse" : f.kind, message: inUse ? f.message.slice(14) : f.message }; }
     if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
     currentCall = call; inMapper = true;
     // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
-    var turn = mapping = socket && o.message && socket.state === 1 ? { owner: socket, socketOps: null, overload: null } : null;
+    // A listener's, on the connection whose `connection` or `message` it answers (LLP 1133.005 D6).
+    var own = listened && listened.connection && (event.type === "connection" || event.type === "message") ? listened.connection : null;
+    var turn = mapping = socket && o.message && socket.state === 1 && (!socket.listen || own) ? { owner: socket, connection: own, socketOps: null, overload: null } : null;
     try {
-      var value = socket ? call.stream(event, socket.handle) : call.stream(event);
+      var value = !socket ? call.stream(event) : socket.listen ? call.stream(event, listened && listened.connection ? listened.connection.handle : undefined) : call.stream(event, socket.handle);
       if (value && typeof value.then === "function") throw new Error("exactStream answers each event now; it cannot await");
       if (turn && turn.overload) throw turn.overload;
       return ok(value);

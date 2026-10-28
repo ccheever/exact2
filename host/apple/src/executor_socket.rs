@@ -241,6 +241,12 @@ fn frame(shared: &Shared, ticket: u64, message: Message, limit: usize) -> Frame 
 }
 
 impl Core {
+    /// Each listener's address and open connections, by its stream ticket,
+    /// read live (LLP 1133.005 D12).
+    pub(crate) fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        super::listen::reader(self.shared.clone())
+    }
+
     /// Each open socket's buffered bytes, by its stream ticket, read live
     /// from its transport: the runner's snapshot at each turn's start.
     pub(crate) fn socket_reader(&self) -> exact_runner::SocketReader {
@@ -257,6 +263,10 @@ impl Core {
     /// or nothing is sent. For each socket, the frames it accepted and the
     /// bytes it now buffers.
     pub(crate) fn socket(&self, batch: &SocketSend) -> Result<Vec<(u64, u64, u64)>, String> {
+        // A listener's, by connection (LLP 1133.005 D6).
+        if batch.ops.iter().any(|(_, _, op)| op.connection().is_some()) {
+            return super::listen::send(&self.shared, batch);
+        }
         let not_open = || "InvalidStateError: the socket is not open".to_string();
         {
             let state = self.shared.state.lock().unwrap();
@@ -297,6 +307,8 @@ impl Core {
                     socket.closing = true;
                     socket.sender.close(Some(*code), reason)
                 }
+                // A listener's: no socket of this ticket takes them.
+                SocketOp::Line { .. } | SocketOp::End { .. } => return Err(not_open()),
             };
             // The transport failed partway: what it took is gone, and the
             // journal says how much.

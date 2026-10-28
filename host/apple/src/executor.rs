@@ -101,6 +101,10 @@ impl Executor {
     pub fn retry_reader(&self) -> exact_runner::RetryReader {
         self.core.retry_reader()
     }
+    /// Each listener's address and connections, by its stream ticket, live.
+    pub fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        self.core.listen_reader()
+    }
 }
 
 /// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
@@ -133,6 +137,10 @@ pub trait Io {
     fn socket_reader(&self) -> exact_runner::SocketReader;
     /// [`Executor::retry_reader`].
     fn retry_reader(&self) -> exact_runner::RetryReader;
+    /// [`Executor::listen_reader`]; none by default.
+    fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        std::sync::Arc::new(|_| None)
+    }
 }
 
 impl Io for Executor {
@@ -174,6 +182,9 @@ impl Io for Executor {
     }
     fn retry_reader(&self) -> exact_runner::RetryReader {
         Executor::retry_reader(self)
+    }
+    fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        Executor::listen_reader(self)
     }
 }
 

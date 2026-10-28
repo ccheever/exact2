@@ -59,6 +59,10 @@ pub(super) fn run(
     if shared.abort.signal().aborted() {
         abort.abort();
     }
+    // A local listener (LLP 1133.005), on this thread until it is let go.
+    if request.listen.is_some() {
+        return listen::run(shared, ticket, request, grants, abort);
+    }
     let two_way = request.socket;
     let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // A source's scope narrows the app's grants, as on the workers.
@@ -483,6 +487,8 @@ impl EventStream {
 
 #[path = "executor_bytes.rs"]
 mod bytes;
+#[path = "executor_listen.rs"]
+pub(crate) mod listen;
 #[path = "executor_longpoll.rs"]
 mod long_poll;
 #[path = "executor_socket.rs"]

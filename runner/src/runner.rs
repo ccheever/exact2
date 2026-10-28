@@ -368,7 +368,7 @@ impl PendingReq {
     /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9),
     /// not a re-ask's wait (no I/O: the agent's settle goes to its time, `overrun.rs`).
     fn waited(&self) -> bool {
-        self.in_flight() && !self.held && !self.replied && self.reask_at.is_none()
+        self.in_flight() && !self.quiet() && !self.replied && self.reask_at.is_none()
     }
 }
 
@@ -488,8 +488,8 @@ pub struct Runner<D: DataSource> {
     requests: Vec<RequestOut>,
     /// Socket operations of commits that stood, since the last take (D7).
     sockets: Vec<crate::SocketSend>,
-    /// The host's live count of a socket's buffered bytes (D7), if it has one.
-    socket_reader: Option<sockets::SocketReader>,
+    /// The host's live views of its sockets (D7) and listeners (LLP 1133.005).
+    socket_reader: sockets::Readers,
     /// The host's live view of its long polls' backoff waits (D8), if it has one.
     retry_reader: Option<crate::RetryReader>,
     mutation_requests: u64,
@@ -949,7 +949,7 @@ impl<D: DataSource> Runner<D> {
             held_edges: Vec::new(),
             requests: Vec::new(),
             sockets: Vec::new(),
-            socket_reader: None,
+            socket_reader: Default::default(),
             retry_reader: None,
             mutation_requests: 0,
             refresh_next: Vec::new(),

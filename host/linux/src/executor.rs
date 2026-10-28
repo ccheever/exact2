@@ -30,6 +30,8 @@ fn portable_host() -> ibex2::host::Host {
 impl Executor {
     /// Start native transport owners from the app's grants.
     pub fn start(grants: &str) -> Self {
+        #[cfg(unix)]
+        core::stream::listen::install(listen_module());
         let (wake, signal) = UnixStream::pair().expect("executor socketpair");
         wake.set_nonblocking(true).expect("nonblocking wake");
         signal.set_nonblocking(true).expect("nonblocking signal");
@@ -152,5 +154,23 @@ impl Executor {
     /// Each long poll's backoff wait, by its stream ticket, live (D8).
     pub fn retry_reader(&self) -> exact_runner::RetryReader {
         self.core.retry_reader()
+    }
+    /// Each listener's address and connections, by its stream ticket, live.
+    pub fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        self.core.listen_reader()
+    }
+}
+
+/// The listener this host links (LLP 1133.005 D13: a plain dependency here,
+/// as the SVG island rasterizer is).
+#[cfg(unix)]
+fn listen_module() -> core::stream::listen::Module {
+    use exact_listen::abi::*;
+    core::stream::listen::Module {
+        open: exact_listen_open,
+        send: exact_listen_send,
+        buffered: exact_listen_buffered,
+        view: exact_listen_view,
+        close: exact_listen_close,
     }
 }

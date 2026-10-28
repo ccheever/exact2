@@ -1198,6 +1198,10 @@ impl<D: DataSource> Runner<D> {
                 self.long_poll_replied(pos);
                 return Ok(None);
             }
+            // A listener's word on its address alone (LLP 1133.005 D2).
+            if self.listen_event(pos, m) {
+                return Ok(None);
+            }
             return self.message(pos, outcome, &summary);
         }
         // A re-ask's wait was never sent (`overrun.rs`): only its invocation's end fails it.

@@ -124,6 +124,8 @@ export function install(grants, target) {
     if (u.authority.includes("@")) return refuse(502, "the authorization URL carries userinfo");
     if (!cb || cb.fragment != null || cb.query != null || (["http", "https"].includes(cb.scheme) && cb.authority == null)) return refuse(502, "the callback is not a scheme:/path or https://host/path");
     if (cb.authority?.includes("@")) return refuse(502, "the callback carries userinfo");
+    // A loopback callback other than the page's own (LLP 1133.005 D9): the popup and its callback page are the web's.
+    if (cb.scheme === "http" && /^(127\.0\.0\.1|\[::1\]):\d+$/.test(cb.authority ?? "") && s.callback !== location.origin + CALLBACK) return refuse(501, "a page cannot listen");
     const denied = check(s);
     if (denied) return refuse(403, denied);
     // One session per window: the same target's earlier one is superseded;

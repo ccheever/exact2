@@ -60,7 +60,9 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if exact_grants::process::is_process_line(line) {
+        if let Some(why) = own(line).then(|| listen_refusal(line)).flatten() {
+            errors.push(format!("line {}: {why}", index + 1));
+        } else if exact_grants::process::is_process_line(line) {
             match exact_grants::process::validate(line) {
                 Ok(()) => lines.push(line),
                 Err(error) => errors.push(format!("line {}: {error}", index + 1)),
@@ -99,6 +101,10 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
 /// names it (LLP 1016.000 D7).
 pub fn admitting<'a>(spec: &'a str, scope: Option<&'a str>, url: &str) -> Option<&'a str> {
     use exact_grants::{GrantSet, Operation};
+    // A listener's line, by its path as written (LLP 1133.005 D11).
+    if let Ok(path) = crate::listen::unix_path(url) {
+        return crate::listen::admitting(spec, scope, path, str::to_string);
+    }
     let origin = exact_grants::origin_of(url).ok()?;
     let operation = if matches!(origin.scheme.as_str(), "ws" | "wss") {
         Operation::WebSocket { origin }
@@ -134,17 +140,26 @@ pub fn refusal(errors: &[String]) -> String {
 /// (`net.dns-sd <type>`, LLP 1133.036 D7), never by the I/O executor's
 /// grammar; and the desktop-process lines (`process.spawn`, `env.read
 /// login:`, `secret.hold`, LLP 1133.007 §6), which the runner and the data
-/// executor read with `exact_grants::process`.
+/// executor read with `exact_grants::process`, and `net.listen`, which the
+/// listener checks (LLP 1133.005 D11).
 pub(crate) fn own(line: &str) -> bool {
     line == "doc.keep"
         || exact_grants::process::is_process_line(line)
         || line.starts_with("net.dns-sd ")
+        || line.split_whitespace().next() == Some("net.listen")
         || line == "browser.automation"
         || line.starts_with("surface.read ")
         || line.starts_with("surface.write ")
         || crate::device::is_device_line(line)
         || crate::hardened::is_runtime_line(line)
         || line.starts_with("auth.")
+}
+
+/// Why an own line naming `net.listen` is not one, if it is not.
+fn listen_refusal(line: &str) -> Option<String> {
+    (line.split_whitespace().next() == Some("net.listen"))
+        .then(|| crate::listen::grant_refusal(line))
+        .flatten()
 }
 
 /// One declaration in the browser-facing form. `source` retains every
