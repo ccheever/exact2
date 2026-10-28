@@ -715,9 +715,32 @@ fn shelf_sleep_wake() {
         Win32::{
             Foundation::{CloseHandle, GetLastError, ERROR_NOT_ALL_ASSIGNED, HANDLE, LUID},
             Security::*,
-            System::{Power::SetSuspendState, Threading::*},
+            System::{Power::*, Threading::*},
         },
     };
+    fn wake_display() {
+        use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        unsafe {
+            assert_ne!(
+                SetThreadExecutionState(ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED).0,
+                0
+            );
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dx: 1,
+                        dwFlags: MOUSEEVENTF_MOVE,
+                        ..Default::default()
+                    },
+                },
+            };
+            assert_eq!(SendInput(&[input], size_of::<INPUT>() as i32), 1);
+        }
+    }
+    let screen = || unsafe { [GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)] };
+    wake_display();
+    until("physical desktop before sleep", || screen() == [5120, 1440]);
     let mut app = Shelf::open("sleep", false);
     app.capture("sleep-before");
     unsafe {
@@ -756,6 +779,12 @@ fn shelf_sleep_wake() {
     until("unlocked desktop after wake", || {
         app.alive();
         unlocked()
+    });
+    // A resume timer wakes the system, not necessarily its physical display.
+    wake_display();
+    until("physical desktop after wake", || {
+        app.alive();
+        screen() == [5120, 1440]
     });
     fresh_comparison("sleep", app);
 }
