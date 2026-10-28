@@ -29,11 +29,25 @@ require them.
   parity and final integrated checks remain unverified.
 - The InlineShortcut comparison has no complete verdict. Its cached test
   executable is missing, so another test run needs a fresh build.
-- An iOS release build reached Apple validation. Export compliance still blocks
-  tester availability. Apple account work remains deferred at Nate's request.
+- An earlier iOS release reached Apple validation but export compliance blocked
+  tester availability. Verify the current release state at the next checkpoint.
+  Production builds and TestFlight submissions are now authorized.
 
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
+
+## Prove the core POC first
+
+The first POC must connect to a real authorized T3 environment, open a project,
+create a thread, send a message, display streamed output, stop a response, and
+retain the environment and conversation after restart. Keep navigation, keyboard
+behavior, and connection errors usable on iPhone. Mock responses do not complete
+this POC.
+
+Build only the dependencies needed for that flow first. After the core POC works,
+complete the remaining reference behavior and visual parity. iPad and desktop
+remain in the full goal. Architecture work must unblock an observed build or app
+failure in the current milestone.
 
 ## Execution milestones
 
@@ -49,7 +63,8 @@ Keep the complete one-to-one goal across these milestones.
    confirm the environment remains saved.
 3. **Finish the main chat flow.** Open a project, create a thread, send a message,
    receive streamed output, stop a response, and reopen the conversation after
-   restart. Show the working flow and run its focused tests.
+   restart. Show the working flow and run its focused tests. This completes the
+   core POC and triggers a production build and TestFlight submission.
 4. **Close the remaining phone differences.** Use a short list of reference
    screens, flows and states. Match each through the real interface, including
    settings, attachments, terminal, loading, empty, error and offline behavior.
@@ -59,11 +74,30 @@ Keep the complete one-to-one goal across these milestones.
    Desktop uses a separate reference version and needs its own integration work.
 6. **Verify and deliver.** Run the required checks on the integrated code, check
    persistence and performance, and confirm an installable build and tester
-   access. Resume Apple account work when Nate chooses to do so.
+   access. Complete the production build and TestFlight checkpoint below.
 
 Mobile selects its own Contract entry. The unfinished desktop Root extraction
 does not inherently block the first mobile build. Bring other checkpoint changes
 into the working branch when a concrete build or behavior dependency needs them.
+
+## Ship production builds at major checkpoints
+
+Produce a new signed production iOS build and submit it through `eas submit`
+after the core POC, phone parity, and iPad parity checkpoints. TestFlight builds
+are part of each checkpoint. Routine fixes between checkpoints use the local
+development loop.
+
+Reuse the clone's existing native release path, EAS project, signing credentials,
+bundle ID, and App Store Connect app. Build the tested commit with a new build
+number. Submit that exact artifact using its EAS build ID or IPA path and the
+existing store submission profile. Follow the [EAS iOS submission guide](https://docs.expo.dev/submit/ios/).
+
+Record the commit, version and build number, build and submission links, and verified
+TestFlight state in the PR. Check Apple processing and intended tester access.
+An upload alone does not establish installability. Handle routine release errors
+with existing credentials and truthful compliance answers. If a human-only
+account action blocks availability, report that action and continue independent
+app work. Distribution scope is TestFlight.
 
 ## Execute with pstack
 
@@ -72,8 +106,9 @@ debugging, and review. Follow Nate's configured pstack model roles. Choose the
 smallest working change that advances the next app flow.
 
 - Routine source edits, dependency installation, builds, tests, simulator use,
-  local commits, and normal pushes to PR216 are authorized. Make reversible
-  implementation decisions without asking Nate to manage the work.
+  local commits, normal pushes to PR216, checkpoint production builds, and EAS
+  TestFlight submissions are authorized. Make reversible implementation decisions
+  without asking Nate to manage the work.
 - Start with one implementation owner. Delegate bounded work on disjoint files
   after the iPhone baseline runs. Give shared entry points, build output, and
   each simulator one owner. Review independently at working milestones.
@@ -87,4 +122,4 @@ smallest working change that advances the next app flow.
   mismatch, and pushed commit. Keep useful logs and screenshots with the work.
 - Finish when the reference flows, visual behavior, persistence, accessibility,
   and performance are verified on iPhone, iPad, and desktop. Record incomplete
-  acceptance explicitly. Apple account work remains deferred.
+  acceptance and any remaining tester access blocker explicitly.
