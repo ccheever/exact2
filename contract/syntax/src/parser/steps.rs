@@ -659,7 +659,7 @@ impl Parser {
                     });
                 }
                 let form = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" || w == "pinch" => {
+                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" || w == "pinch" || w == "wheel" => {
                         self.next();
                         match w.as_str() {
                             "hover" => TapForm::Hover,
@@ -684,6 +684,15 @@ impl Parser {
                                     None
                                 };
                                 TapForm::Pinch { scale, at }
+                            }
+                            // `tap "id" wheel <dx> <dy>`: the agent's wheel, so a Mac's scroll can be tested.
+                            "wheel" => {
+                                let dx = self.step_number("the wheel's dx, in points")?;
+                                let dy = self.step_number("the wheel's dy, in points")?;
+                                if !dx.is_finite() || !dy.is_finite() {
+                                    return self.err("syntax-expected-step", "`wheel` takes two finite deltas");
+                                }
+                                TapForm::Wheel { dx, dy }
                             }
                             _ => TapForm::Into(self.str_lit("the row's key")?),
                         }

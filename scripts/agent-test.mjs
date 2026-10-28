@@ -817,6 +817,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           case 'tap': {
             const opts = st.form === 'into' ? { into: { key: st.key } }
               : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
+              : st.form === 'wheel' ? { wheel: st.wheel }
               : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) }
               : st.form !== 'press' ? { [st.form]: true }
               : st.modifiers ? { modifiers: st.modifiers } : undefined;

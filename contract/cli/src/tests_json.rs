@@ -86,6 +86,9 @@ fn step_json(step: &Step, s: &mut String) {
                         s.push_str(&format!(",\"at\":[{x},{y}]"));
                     }
                 }
+                TapForm::Wheel { dx, dy } => {
+                    s.push_str(&format!("\"wheel\",\"wheel\":[{dx},{dy}]"))
+                }
                 // @ref LLP 1098 D10 — the platform's action, never a press.
                 TapForm::MediaSession { action, seconds } => {
                     s.push_str("\"mediasession\",\"action\":");
