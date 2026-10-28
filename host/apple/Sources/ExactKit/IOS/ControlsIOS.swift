@@ -168,6 +168,9 @@ final class ControlHost: NSObject {
             kept.tag = Int(node.id)
             controls[node.id] = kept
             kinds[node.id] = kind
+            #if os(iOS)
+            presenter.menus.adoptNativeMenu(kept, of: node.id)
+            #endif
             return kept
         }
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
@@ -201,16 +204,22 @@ final class ControlHost: NSObject {
     }
 
     /// Whether a native button parks with its row (NodePool) rather than
-    /// going as a heavy leaf: drawn in its node, not glass, opening no menu,
+    /// going as a heavy leaf: drawn in its node, not glass, showing no menu,
     /// and not under a touch. A `UIButton` holds no value, and its action
     /// reaches whichever node owns it, so nothing of one row reaches the
     /// next. A button leaving the window and a new one configured cost a
-    /// list's new row more than the rest of it.
+    /// list's new row more than the rest of it. A pull-down keeps its menu,
+    /// built again for the next row (`MenuHost.adoptNativeMenu`). One not
+    /// made yet (in a closed popover, `unshown`) parks as its bare node,
+    /// the shape the next row's create ops give it (`NodePool.take`).
     func parks(_ node: NodeView) -> Bool {
-        guard node.isNativeButton, let b = controls[node.id] as? NativeButtonIOS, b.owner === node, b.superview === node,
-              !b.isGlass, !b.isTracking, !b.isHighlighted else { return false }
+        guard node.isNativeButton else { return false }
+        guard let b = controls[node.id] as? NativeButtonIOS else {
+            return controls[node.id] == nil && !node.subviews.contains { $0 is UIControl }
+        }
+        guard b.owner === node, b.superview === node, !b.isGlass, !b.isTracking, !b.isHighlighted else { return false }
         #if os(iOS)
-        return b.menu == nil && b.popover == nil
+        return b.menuAtRest
         #else
         return true
         #endif
@@ -218,6 +227,9 @@ final class ControlHost: NSObject {
     /// `id`'s node parks: its button stays in it, out of every map, until the
     /// node's next id takes it back (`control(for:)`).
     func park(_ id: UInt32) {
+        #if os(iOS)
+        presenter.menus.parkNativeMenu(id)
+        #endif
         controls.removeValue(forKey: id)
         reported.removeValue(forKey: id); faces.removeValue(forKey: id); kinds.removeValue(forKey: id)
         menus.removeValue(forKey: id); lastRange.removeValue(forKey: id); appliedRange.removeValue(forKey: id)
