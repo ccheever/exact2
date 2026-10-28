@@ -960,14 +960,7 @@ impl<D: DataSource> Runner<D> {
         let applies = sub["when"]
             .as_object()
             .is_none_or(|when| when.iter().all(|(k, v)| args.get(k) == Some(v)));
-        // `{"whenAny": [options], "is": "app"}`: only a call giving one of
-        // them is held to `app` (LLP 1133.012 D12 item 5).
-        let app_only = match &sub["origin"] {
-            Json::Object(o) if o.contains_key("none") => false,
-            Json::Object(o) => (o["whenAny"].as_array().into_iter().flatten())
-                .any(|a| a.as_str().is_some_and(|a| given(args, a))),
-            o => o == "app",
-        };
+        let app_only = held_to_app(&sub, args);
         // `{"none": [origins]}`: refused while any of them is among the
         // call's possible causes, read before they are folded to one (LLP
         // 1133.035 D16 item 6).
@@ -1030,6 +1023,18 @@ pub(in crate::runner) const ORIGINS: [CallOrigin; 4] = [
     CallOrigin::Tool,
     CallOrigin::App,
 ];
+
+/// Whether a name declared `sub` holds a call giving `args` to the `app`
+/// origin: `"origin": "app"`, or `{"whenAny": [options], "is": "app"}` when
+/// the call gives one of them (LLP 1133.012 D12 item 5).
+pub(super) fn held_to_app(sub: &Json, args: &Json) -> bool {
+    match &sub["origin"] {
+        Json::Object(o) if o.contains_key("none") => false,
+        Json::Object(o) => (o["whenAny"].as_array().into_iter().flatten())
+            .any(|a| a.as_str().is_some_and(|a| given(args, a))),
+        o => o == "app",
+    }
+}
 
 /// Whether a call gave option `argument`: set and not `false`. The grant
 /// key `"*"` is given by every call.

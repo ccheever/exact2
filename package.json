@@ -24,6 +24,7 @@
     "@exact/lists": "workspace:*",
     "@exact/cards": "workspace:*",
     "@exact/gamepad": "workspace:*",
+    "@exact/child-process": "workspace:*",
     "@exact/geolocation": "workspace:*",
     "@exact/alarms": "workspace:*",
     "@exact/language-model": "workspace:*",

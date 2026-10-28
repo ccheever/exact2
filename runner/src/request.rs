@@ -191,7 +191,9 @@ pub struct Request {
     /// Set by TypeScript's `fetch(url, {exactHeld: true})` and [`Request::held`].
     pub held: bool,
     /// Who asked it, for the check at each fetch hop and WebSocket open
-    /// (LLP 1133.036 D6). The runner stamps it when the request goes out.
+    /// (LLP 1133.036 D6) and before a first capture of the login shell's
+    /// environment (LLP 1133.007 D13). The runner stamps it when the
+    /// request goes out.
     pub reach: crate::local_network::Reach,
     /// A local listener's options (LLP 1133.005 D1): the URL is its
     /// address, and the stream its events. Set by [`Request::listen`].
@@ -843,6 +845,15 @@ pub enum SocketOp {
         /// The connection's id.
         connection: u64,
     },
+    /// An operation on a resource's child process (LLP 1133.007 D2),
+    /// addressed to the incarnation whose handle made it: a host refuses it
+    /// once that incarnation has ended.
+    Process {
+        /// The incarnation, from 1.
+        incarnation: u32,
+        /// What it does.
+        op: crate::process::ProcessOp,
+    },
 }
 
 impl SocketOp {
@@ -854,14 +865,17 @@ impl SocketOp {
             // Its terminator is on the wire too.
             SocketOp::Line { text, .. } => text.len() + 1,
             SocketOp::Close { .. } | SocketOp::End { .. } => 0,
+            SocketOp::Process { op, .. } => op.size(),
         }
     }
 
-    /// Its name in the journal: `send`, `close` or `end`.
+    /// Its name in the journal: `send`, `close` or `end`, or a child's
+    /// `write`, `end` or `kill`.
     pub fn name(&self) -> &'static str {
         match self {
             SocketOp::Close { .. } => "close",
             SocketOp::End { .. } => "end",
+            SocketOp::Process { op, .. } => op.name(),
             _ => "send",
         }
     }
@@ -999,6 +1013,9 @@ pub enum FailureKind {
     Aborted,
     /// Its deadline ([`Request::timeout_ms`]) passed; the host cancelled it.
     Timeout,
+    /// What it names does not exist: a program a spawn could not find
+    /// (`ENOENT`, LLP 1133.007 D2).
+    NotFound,
 }
 
 /// Where a module instance runs (LLP 1027.002 D1): on the runner's thread,
@@ -1184,6 +1201,7 @@ mod summary_tests {
             FailureKind::Unsupported,
             FailureKind::Aborted,
             FailureKind::Timeout,
+            FailureKind::NotFound,
         ] {
             // Every variant is listed: adding one breaks this match.
             match kind {
@@ -1191,7 +1209,8 @@ mod summary_tests {
                 | FailureKind::Refused
                 | FailureKind::Unsupported
                 | FailureKind::Aborted
-                | FailureKind::Timeout => {}
+                | FailureKind::Timeout
+                | FailureKind::NotFound => {}
             }
             let name = format!("{kind:?}");
             assert!(name.is_ascii(), "{name}");

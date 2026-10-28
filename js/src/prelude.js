@@ -32,8 +32,7 @@
   // The engine's own Date, through its prototype: a browser realm under a
   // page's fake clock (Playwright's `clock.install`) has a fake `Date` that
   // keeps the real prototype.
-  var NativeDate = global.Date.prototype.constructor;
-  var construct = Reflect.construct;
+  var NativeDate = global.Date.prototype.constructor, construct = Reflect.construct;
   var InputDate = new Proxy(NativeDate, {
     apply: function () { return refuseAmbient("Date()"); },
     construct: function (target, args, newTarget) {
@@ -131,8 +130,7 @@
   // (D2, D3). `subtle` has what is built, the same on every executor: over
   // ibex2's `crypto` and the bytes door natively, over the realm's own on the
   // web. Every other `subtle` member refuses by name (D1).
-  var platformCrypto = global.crypto;
-  var fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
+  var platformCrypto = global.crypto, fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
   var platformSubtle = platformCrypto.subtle; // the web's, in a secure context
   // Natively: `(op, name, arrayBuffer) -> string`, the byte work in Rust.
   var bytesDoor = global.__exact_bytes;
@@ -438,10 +436,6 @@
   // ends its watch on `signal`.
   var pending = new Map(), currentCall = null, mapping = null, inMapper = false; // the answer a fetch belongs to; a socket's mapper answering a frame (D7); any mapper call
   global.__exact_async_context = Object.freeze({ current: function () { return currentCall; }, swap: function (call) { var before = currentCall; currentCall = call; return before; } }); // the bundle's async helper resumes each step under its answer (LLP 1133.002 D14)
-  // A fetch's `signal` is watched through Ibex's own abort hooks natively,
-  // which run before any listener and so cannot be stopped by one; a
-  // browser realm's signal is the browser's, watched by a listener, and
-  // checked again when the reply lands. Either watch ends with the fetch.
   // Calls with storage steps in flight, settled or not: a step a settled
   // call left behind is still the module's work (see `settle`).
   var storing = new Set();
@@ -470,9 +464,7 @@
   // issued; one in flight at a time. So only the issuer of the operation in
   // flight waits on the store's shared completions: one completion wakes one
   // waiter, and the next answer's read sees the write issued before it.
-  var MAX_QUEUED = 256;
-  var queue = [];
-  var head = null;
+  var MAX_QUEUED = 256, queue = [], head = null;
   function issue(op) {
     head = op;
     var promise;
@@ -494,6 +486,8 @@
   }
   // The operation in flight's owner, or null.
   function headOwner() { return head ? owner(head.call) : null; }
+  // A fetch's `signal` is watched through Ibex's own abort hooks natively, which no listener can stop; a browser
+  // realm's is the browser's, watched by a listener and checked again when the reply lands. Either ends with the fetch.
   var abortHooks = global.__exact_ibex2_abort_hooks;
   delete global.__exact_ibex2_abort_hooks;
   function watchAbort(signal, aborted) {
@@ -563,8 +557,9 @@
   }
   global.Response = Response;
   global.fetch = function (url, init) { return request(url, init); };
-  // `listen`: a listener's options (`exactListen`, LLP 1133.005 D1).
-  function request(url, init, listen) {
+  // `listen`: a listener's options (`exactListen`, LLP 1133.005 D1); `own(ticket,
+  // call)`: a child's stream owner (js/src/process.js).
+  function request(url, init, listen, own) {
     if (overlaying || mapping) return Promise.reject(overlaying ? inOverlay("fetch()") : new Error("fetch() is unavailable in a socket's mapper: it answers each frame now"));
     var call = currentCall;
     // A continuation running as an answer already given still fetches: the
@@ -660,12 +655,12 @@
     if (timed) timeout = Math.min(left, 3600000);
     var ticket = nextTicket++;
     // A WebSocket stream owns a two-way socket (LLP 1016.000 D7); an HTTP one's body that is not events is bytes.
-    var socket = stream && (!!listen || /^wss?:/i.test(String(url)));
+    var socket = stream && (!!listen || !!own || /^wss?:/i.test(String(url)));
     var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, socket: socket ? true : undefined, bytes: stream && !socket && !poll ? true : undefined, long_poll: poll, timeout_ms: timeout, body_from: bodyFrom, body_to: bodyTo, redirect: redirect, held: held ? true : undefined, listen: listen }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    var owner = socket ? (call.socket = listen ? listenOwner(ticket) : socketOwner(ticket, call.mutation)) : null;
+    var owner = socket ? (call.socket = listen ? listenOwner(ticket) : own ? own(ticket, call) : socketOwner(ticket, call.mutation)) : null;
     return new Promise(function (resolve, reject) {
       // `early`: made while its answer was still in flight (its body, or its
       // own continuation), so that answer's own, whoever else is pending.
@@ -1324,7 +1319,9 @@
     // The socket's state as of this event (D7): `open` opens it, an end closes it. A listener's stream ends as its `error`.
     // `AddressInUse` travels as `Refused`, its message so prefixed (executor_listen.rs).
     if (socket && !o.message && socket.close) { var f = o.failed || { kind: "Network", message: event.message }, inUse = /^AddressInUse: /.test(f.message); socket.close(); event = { type: "error", kind: inUse ? "AddressInUse" : f.kind, message: inUse ? f.message.slice(14) : f.message }; }
-    if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
+    // A child's owner reads its own events (js/src/process.js).
+    if (socket && socket.event) event = socket.event(o, event);
+    else if (socket) socket.state = !o.message ? 3 : event.type === "open" && socket.state === 0 ? 1 : socket.state;
     currentCall = call; inMapper = true;
     // Its mapper may reply on it answering `open` or a `message` (never on wasm, where it never opens): handed over however the call ends, sent if the frame's commit stands.
     // A listener's, on the connection whose `connection` or `message` it answers (LLP 1133.005 D6).
@@ -1425,6 +1422,8 @@
   global.__exact_timer = function (id, at, due) { var call = calls.get(Number(id)); if (call) { currentCall = call; timers.fire(call, at, due === "due"); } };
   // A yielded answer's new turn: its yields resolve in the drain that follows.
   global.__exact_yielded = function (id) { var call = calls.get(Number(id)); if (call) { currentCall = call; endYields(call); } };
+  // The child-process module's seam (LLP 1133.007), natively only: js/src/process.js takes it, and it is gone.
+  if (global.__exact_process_host) global.__exact_process_seam = Object.freeze({ request: request, socketOwner: socketOwner, host: host, copyBytes: copyBytes, toBase64: toBase64 });
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = settled(Number(ticket));
     if (!p) return;

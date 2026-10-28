@@ -1036,10 +1036,10 @@ export function configure(stage, incremental=false, parse) {
 const membersOf=(name, interfaces)=>interfaces.flatMap(i=>Object.entries(i.declaration.members ?? {}).filter(([o])=>o.split('#')[0]===name).flatMap(([o,m])=>Object.entries(m ?? {}).map(([option,spec])=>[o.split('#')[1],{ option, type: spec.type, answers: spec.answers, shapes: i.declaration.shapes ?? {} }]))).reduce((out,[fn,m])=>((out[fn] ??= []).push(m), out),{});
 function moduleBindings(stage, app) {
   const out=new Map();
-  const interfaces=moduleInterfaces(app); for (const {name,declaration,implementations} of interfaces) {
+  const interfaces=moduleInterfaces(app); for (const {name,root,declaration,implementations} of interfaces) {
     const file='__exact_modules/'+name.replace(/^@/,'').replace(/\//g,'__')+'.ts';
     mkdirSync(resolve(stage,'__exact_modules'),{recursive:true});
-    const text=moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces)), at=resolve(stage,file);
+    const text=(Array.isArray(declaration.executor) && typeof declaration.binding==='string' ? readFileSync(resolve(root,declaration.binding),'utf8') : null) ?? moduleBinding(name,declaration,implementations.map(i=>i.json),names=>domDeclarations(app,names),membersOf(name,interfaces)), at=resolve(stage,file); // an interface the executor implements carries its own binding (LLP 1133.007 D12)
     if (!existsSync(at) || readFileSync(at,'utf8')!==text) writeFileSync(at,text);
     out.set(name,'./'+file);
   }

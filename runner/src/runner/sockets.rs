@@ -108,7 +108,7 @@ impl<D: DataSource> Runner<D> {
         let ops = self.address(staged)?;
         let mutation = self.plan.str(self.plan.mutations[m].name).to_string();
         let origin = SocketOrigin::Mutation(mutation);
-        self.sockets.push(SocketSend { origin, ops });
+        self.push_batch(SocketSend { origin, ops });
         Ok(())
     }
 
@@ -147,7 +147,7 @@ impl<D: DataSource> Runner<D> {
         }
         let origin = SocketOrigin::Answer(self.target_name(target));
         match self.address(staged) {
-            Ok(ops) => self.sockets.push(SocketSend { origin, ops }),
+            Ok(ops) => self.push_batch(SocketSend { origin, ops }),
             Err(why) => self.log(refused(&origin, &why)),
         }
     }
@@ -191,8 +191,22 @@ impl<D: DataSource> Runner<D> {
             .map(|(_, op)| (p.ticket, name.clone(), op))
             .collect();
         let origin = SocketOrigin::Mapper(name);
-        self.sockets.push(SocketSend { origin, ops });
+        self.push_batch(SocketSend { origin, ops });
         Ok(())
+    }
+
+    /// `batch` for publication once its commit stands; refused whole, and
+    /// said, when it writes to, ends or signals a child from an origin that
+    /// may not (LLP 1133.007 D13). The commit stands either way.
+    fn push_batch(&mut self, batch: SocketSend) {
+        let refusal = (batch.ops.iter()).find_map(|(_, _, op)| match op {
+            SocketOp::Process { op, .. } => self.admit_process(op.declared(), None).err(),
+            _ => None,
+        });
+        match refusal {
+            Some(why) => self.log(refused(&batch.origin, &why)),
+            None => self.sockets.push(batch),
+        }
     }
 
     /// The socket operations of the commits that stood since the last
@@ -237,6 +251,11 @@ impl<D: DataSource> Runner<D> {
                 None => exact_num::text!("socket {}: {} bytes ({})", op.name(), op.size(), name),
             });
         }
+        for (ticket, _, op) in &batch.ops {
+            if let SocketOp::Process { op, .. } = op {
+                self.note_child_sent(*ticket, op.size() as u64);
+            }
+        }
         for (ticket, sent, buffered) in sockets {
             let socket = self
                 .pending
@@ -276,7 +295,9 @@ pub(super) fn stream_count(request: &crate::Request) -> Option<StreamCount> {
     })
 }
 
-/// A delivered message's effect on its socket's state: `open` opens it.
+/// A delivered message's effect on its socket's state: `open` (a
+/// listener's `listening`) opens it, as a child's first `spawn` does (LLP
+/// 1133.007 D2), which stays open across its restarts.
 pub(super) fn socket_message(count: &mut StreamCount, message: &crate::Message) {
     if let Some(socket) = count.socket.as_mut() {
         let opens = if socket.listen.is_some() {
@@ -284,7 +305,7 @@ pub(super) fn socket_message(count: &mut StreamCount, message: &crate::Message) 
         } else {
             "open"
         };
-        if message.event == opens && socket.ready_state == 0 {
+        if (message.event == opens || message.event == "spawn") && socket.ready_state == 0 {
             socket.ready_state = 1;
             socket.listen = socket.listen.map(|_| crate::listen::Standing::Listening);
         }

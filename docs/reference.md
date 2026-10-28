@@ -1523,6 +1523,34 @@ the web at the first, with the redirect not followed. The app's own code and a
 person's input are never refused: their reach is the ask. The web, Linux and
 Windows have no browser (`available` false); a typed address still works there.
 
+### Child processes (`@exact/child-process`)
+
+A desktop app's data code starts programs with Node's names (LLP 1133.007):
+`spawn(program, args, {exactStream, …})` is a resource's answer, a child that
+lives while the resource holds it, and `execFile`, `execPath`,
+`loginShellEnvironment()` and `appEnvironment()` are steps an answer awaits.
+Each program is named by a grant line: `process.spawn path:ssh`,
+`process.spawn /usr/bin/tar`, `process.spawn home:/.t3/runtime/versions` or a
+`bundle:` helper; the call names it as its line does
+(`spawn("path:ssh", …)`). The mapper receives `spawn`, `stdout` and `stderr`
+chunks, `exit`, `close`, `drain`, `ready` and `ready-timeout` in order, with
+that incarnation's handle (`write`, `end`, `kill`); a mutation writes through
+a kept handle, staged with its commit. `exactRestart` and `exactReady` keep a
+service alive and say when it serves. Only a person's turn starts, writes to,
+ends or signals a child: a tool, wake or headless one fails
+`person-required`. macOS and Linux implement it; iOS, tvOS, Android, Windows
+and the web reject every name with `NotSupportedError`, and
+`processStatus()` says which (`{available, state}`).
+
+Under the agent nothing runs unless the drive names it: `--process
+<target>=script:<file.json>` answers from a script with no process (the
+format is `host/apple/src/executor_process_script.rs`'s), and its events,
+restart delays and readiness move with `clock`. A tool's call (`call <tool>
+<json>`) runs as a tool's commit, to see the refusal. `packages/child-process/test/`
+holds a fixture app and its script. Real programs (`--process
+<target>=real`, or a substitute executable) need the process transport,
+LLP 1133.007's stage 1.
+
 ### Apple Health
 
 Exact has no Health API: the app's own Swift module (LLP 1067) calls

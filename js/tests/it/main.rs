@@ -21,6 +21,7 @@ mod overlay;
 mod overrun;
 mod pinned_engines;
 mod presence;
+mod process;
 mod pure;
 mod render;
 mod snapshot;

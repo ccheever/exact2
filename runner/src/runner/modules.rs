@@ -56,6 +56,7 @@ mod permits;
 mod pictures;
 mod poll;
 mod presence;
+mod processes;
 mod samples;
 mod services;
 mod sheet;
@@ -92,6 +93,8 @@ const TOKENS: std::ops::Range<u64> = 1 << 62..1 << 63;
 /// or the session ends).
 #[derive(Default)]
 pub(super) struct Extensions {
+    /// `@exact/child-process`'s children and clock (LLP 1133.007).
+    processes: processes::Processes,
     /// The agent's preferred values, by `extension.source`.
     preferred: BTreeMap<String, Json>,
     /// Each declared permission's state, by its name: `prompt` when absent.

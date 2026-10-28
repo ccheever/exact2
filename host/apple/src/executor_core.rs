@@ -183,6 +183,8 @@ struct Shared {
     /// Long polls waiting to ask again, by stream ticket (LLP 1016.000 D8;
     /// `executor_longpoll.rs`): the attempt, when it asks, and what failed.
     retrying: Mutex<std::collections::HashMap<u64, (u32, std::time::Instant, String)>>,
+    /// Child processes (LLP 1133.007; `process.rs`).
+    processes: process::Processes,
 }
 
 impl Shared {
@@ -300,6 +302,7 @@ impl Core {
             roots: std::sync::OnceLock::new(),
             sockets: Mutex::default(),
             retrying: Mutex::default(),
+            processes: process::Processes::new(),
         });
         let count = if lanes.is_some() {
             asynch::THREADS
@@ -504,7 +507,8 @@ impl Core {
         }
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
-            // A stream starts at once, so it is charged its ceiling now.
+            // A stream starts at once, so it is charged its ceiling now; a
+            // process request too, on a thread of its own (LLP 1133.007).
             let (full, charge) = if r.request.stream {
                 (state.streams >= STREAMS, limit)
             } else {
@@ -522,7 +526,15 @@ impl Core {
                     state.counts[0] - state.light >= COUNTS[0]
                         || state.counts[0] - state.agains >= ORDERED_READS
                 };
-                (full, charge)
+                // A process request runs at once on its own thread: its ceiling.
+                (
+                    full,
+                    if r.request.is_process() {
+                        limit
+                    } else {
+                        charge
+                    },
+                )
             };
             // A parked upload's outstanding charge counts as taken, so a
             // later request can't crowd it out (LLP 1120 §6 question 8).
@@ -558,10 +570,11 @@ impl Core {
         }
         state.counts[lane] += 1;
         state.bytes[lane] += charge;
-        if r.request.stream {
+        if r.request.stream || r.request.is_process() {
             // Never queued behind held replies: a stream opens on its own
             // thread with its own transport, and reads there (LLP 1067 D3).
-            state.streams += 1;
+            let stream = r.request.stream;
+            state.streams += usize::from(stream);
             let abort = AbortController::new();
             state.running.push(Running {
                 started: std::time::Instant::now(),
@@ -571,7 +584,7 @@ impl Core {
                 limit,
                 abort: Some(abort.clone()),
                 forgotten: false,
-                stream: true,
+                stream,
                 read: false,
                 terminal: false,
                 live: 0,
@@ -588,7 +601,12 @@ impl Core {
                 .name(format!("exact-stream-{ticket}"))
                 .spawn({
                     let shared = shared.clone();
-                    move || stream::run(&shared, ticket, request, forced, &grants, &*host, abort)
+                    move || match request.is_process() {
+                        true => process::run(&shared, ticket, request, &grants, &*host, abort),
+                        false => {
+                            stream::run(&shared, ticket, request, forced, &grants, &*host, abort)
+                        }
+                    }
                 });
             if let Err(e) = spawned {
                 complete(&shared, ticket, failed(FailureKind::Network, e.to_string()));
@@ -650,9 +668,10 @@ impl Core {
             state.streams -= usize::from(done.stream);
             state.bytes[lane] -= done.bytes;
         }
-        // An ordered job may be waiting for these bytes, and a re-ask for
-        // this room in the window.
+        // An ordered job may be waiting for these bytes, a re-ask for this
+        // room in the window, and a child's output for room in its queue.
         rouse(&self.shared, &state);
+        self.shared.processes.drained.notify_all();
         place_waiting(&mut state);
         if has_ready(&state) {
             wake(&mut state);
@@ -882,6 +901,7 @@ impl Core {
             machine.retire();
         }
         let _ = stream::close_sockets(&self.shared, None);
+        process::quit(&self.shared);
         self.shared.abort.abort();
         // Never join arbitrary native work on the UI thread. Its WorkerSlot
         // remains charged until return, including across repeated replacement.
@@ -1410,44 +1430,17 @@ fn execute(
     }
 }
 
-/// A request's deadline: a thread that aborts the request when it passes,
-/// and ends at once when the request finishes first (the sender drops).
-struct Deadline {
-    passed: Arc<std::sync::atomic::AtomicBool>,
-    _done: std::sync::mpsc::Sender<()>,
-}
-
-impl Deadline {
-    fn arm(ms: u32, abort: &AbortController) -> Result<Deadline, String> {
-        let (done, wait) = std::sync::mpsc::channel::<()>();
-        let passed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (flag, abort) = (passed.clone(), abort.clone());
-        std::thread::Builder::new()
-            .name("exact-fetch-deadline".into())
-            .spawn(move || {
-                // A request the caller already aborted (a newer answer, an
-                // unload) stays Aborted: the deadline did not end it.
-                if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
-                    wait.recv_timeout(std::time::Duration::from_millis(ms.into()))
-                {
-                    if !abort.signal().aborted() {
-                        flag.store(true, Ordering::Release);
-                        abort.abort();
-                    }
-                }
-            })
-            .map_err(|e| format!("the request's deadline could not be armed: {e}"))?;
-        Ok(Deadline {
-            passed,
-            _done: done,
-        })
-    }
-
-    fn passed(&self) -> bool {
-        self.passed.load(Ordering::Acquire)
-    }
-}
-
+// The process transport exists where a host starts programs (LLP 1133.007
+// §8); elsewhere every request answers `Unsupported` and none of it links.
+#[cfg_attr(
+    any(target_os = "macos", target_os = "linux"),
+    path = "executor_process.rs"
+)]
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux")),
+    path = "executor_process_off.rs"
+)]
+mod process;
 #[path = "executor_stream.rs"]
 pub(crate) mod stream;
 
@@ -1460,7 +1453,7 @@ mod asynch;
 mod outcome;
 use asynch::{asynch_lanes, asynchronous, drained};
 use outcome::{
-    bounded_outcome, build_number, check_headers, fetch_failure, fetch_request, retained,
+    bounded_outcome, build_number, check_headers, fetch_failure, fetch_request, retained, Deadline,
 };
 
 #[path = "executor_reach.rs"]

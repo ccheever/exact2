@@ -25,6 +25,36 @@ pub(super) fn state<D: DataSource>(runner: &Runner<D>, s: &mut String) {
             s.push_str(",\"grant\":");
             quote(grant, s);
         }
+        // A child process (LLP 1133.007 D2): what ran, its incarnation,
+        // bytes each way, restarts, its exit and whether it drained.
+        if let Some(child) = runner.child_state(*ticket) {
+            s.push_str(",\"kind\":\"process\",\"program\":");
+            quote(&child.program, s);
+            s.push_str(",\"ran\":");
+            quote(&child.ran, s);
+            let pid = child.pid.map_or("null".into(), |p| p.to_string());
+            let _ = write!(
+                s,
+                ",\"pid\":{pid},\"incarnation\":{},\"restarts\":{},\"bytesOut\":{},\"bytesIn\":{}",
+                child.incarnation, child.restarts, child.bytes_out, child.bytes_in
+            );
+            match &child.exit {
+                Some((code, signal)) => {
+                    let code = code.map_or("null".into(), |c| c.to_string());
+                    let _ = write!(s, ",\"exit\":{{\"code\":{code},\"signal\":");
+                    match signal {
+                        Some(signal) => quote(signal, s),
+                        None => s.push_str("null"),
+                    }
+                    s.push('}');
+                }
+                None => s.push_str(",\"exit\":null"),
+            }
+            let drained = child
+                .drained
+                .map_or("null", |d| if d { "true" } else { "false" });
+            let _ = write!(s, ",\"drained\":{drained}");
+        }
         // A two-way socket's state, as the web JS target lists it.
         if let Some(socket) = count.socket {
             let _ = write!(

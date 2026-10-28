@@ -841,6 +841,9 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
+        if self.keeps_child(target, &request) {
+            return;
+        }
         // A re-ask after a turn over its budget carries its streak on.
         let reasks = self.overrun_reasks(target, &args, forced);
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
@@ -854,9 +857,12 @@ impl<D: DataSource> Runner<D> {
         let name = self.target_name(target);
         let mut request = request;
         self.number_data_call(&mut request);
-        self.log(super::lines::enqueued(ticket, &name, &request));
-        self.note_asked(target, ticket);
         request.reach = self.reach_of(self.origin_for(Some(target)));
+        self.log(super::lines::enqueued(ticket, &name, &request));
+        // A program starts only from the app's origin (LLP 1133.007 D13):
+        // otherwise the ticket is refused here and never reaches the host.
+        let refusal = self.process_refusal(&request);
+        self.note_asked(target, ticket);
         self.note_handles(ticket, &source, &request.body);
         self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);
@@ -865,7 +871,7 @@ impl<D: DataSource> Runner<D> {
                 Target::Resource(i) => self.inspected_request(i),
                 Target::Mutation(_) => 0,
             },
-            refusal: None,
+            refusal: refusal.map(|why| (why, false)),
             refused: false,
             ticket,
             target,
@@ -877,10 +883,10 @@ impl<D: DataSource> Runner<D> {
             grant: request
                 .stream
                 .then(|| {
-                    crate::grants::admitting(
+                    crate::grants::admitting_request(
                         self.data.grants(),
                         request.grants.as_deref(),
-                        &request.url,
+                        &request,
                     )
                 })
                 .flatten()
@@ -897,12 +903,15 @@ impl<D: DataSource> Runner<D> {
             reask_at: None,
             reasks,
         });
-        self.requests.push(RequestOut {
-            ticket,
-            target: name,
-            request,
-            forced,
-        });
+        self.note_child(ticket, &request);
+        if refusal.is_none() {
+            self.requests.push(RequestOut {
+                ticket,
+                target: name,
+                request,
+                forced,
+            });
+        }
         self.sync_pending_flags();
     }
 
@@ -1041,6 +1050,8 @@ impl<D: DataSource> Runner<D> {
     pub fn has_pending(&self) -> bool {
         self.background_ticket().is_some()
             || (self.tool_tickets().iter()).any(|(_, t)| !self.data_timer_held(*t))
+            // A child's outcomes its work owes on the agent's clock (LLP 1133.007 §7).
+            || self.work_owed()
             || self
                 .pending
                 .iter()
@@ -1100,6 +1111,11 @@ impl<D: DataSource> Runner<D> {
             .filter(|p| p.waited() && !self.held_for_agent(p) && !self.data_timer_held(p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
+        // Child processes' outcomes their work owes on the agent's clock
+        // (LLP 1133.007 §7), listed as `processes`.
+        if self.work_owed() {
+            out.push(("processes".into(), 0));
+        }
         out.extend(
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),
@@ -1279,6 +1295,9 @@ impl<D: DataSource> Runner<D> {
             sockets::socket_message(count, m);
         }
         let p = p.clone();
+        if let Outcome::Message(m) = &outcome {
+            self.note_child_message(p.ticket, m);
+        }
         self.sync_pending_flags();
         let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
         let what = super::lines::fulfilling(ticket, &name, summary);
