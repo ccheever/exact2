@@ -29,12 +29,24 @@ require them.
   parity and final integrated checks remain unverified.
 - The InlineShortcut comparison has no complete verdict. Its cached test
   executable is missing, so another test run needs a fresh build.
-- An earlier iOS release reached Apple validation but export compliance blocked
-  tester availability. Verify the current release state at the next checkpoint.
-  Production builds and TestFlight submissions are now authorized.
+- Live EAS status on October 28 reports `1.0.0 (20261026153804)` as `VALID`,
+  `IN_BETA_TESTING` internally, and `BETA_APPROVED` externally. The earlier
+  export-compliance blocker has cleared. Intended tester access still needs
+  verification for each new checkpoint build.
 
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
+
+The current pickup starts at mobile `250d863`. After generating the pinned tables,
+the connection, thread-submission, and outbox tests pass all 92 tests. The full
+mobile run passes 3,692 tests; one compiler-backed workspace test requires the
+missing `target/debug/contract` executable. The first iPhone build is in progress.
+This is baseline evidence, not acceptance of the real-environment POC.
+
+The app uses Exact Contract, TypeScript/Hermes, and UIKit, with no React Native
+runtime or Metro. Use Bun 1.4.2 and the separate app Cargo workspace. Ordinary
+restart tests must launch without Exact agent mode, which keeps connection
+credentials and environment metadata in memory.
 
 ## Prove the core POC first
 
