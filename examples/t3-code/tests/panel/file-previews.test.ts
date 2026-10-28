@@ -13,6 +13,7 @@ import { MERMAID_REFUSED } from '../../src/panel/mermaid-file';
 import { base64, fontSpecimen, forgetFontPages } from '../../src/panel/font-preview';
 import { imagePreviewView } from '../../src/timeline/timeline-attachments';
 import { memoryAppFiles, serveAssets } from '../support/asset-server';
+import { contractComponent, type Env } from '../support/contract-action-fixture';
 
 describe('filePreviewKind (filePreview.test.ts)', () => {
   test.each([
@@ -86,7 +87,7 @@ describe('maskMarkdownFrontmatter (markdownFrontmatter.test.ts)', () => {
     expect(setMarkdownTaskChecked(markdown, masked.indexOf('[ ]'), true)).toBe('---\r\nname: skill\r\n---\r\n# Skill\n- [x] item\n');
   });
   test('a byte order mark, CR line endings, a ... closing fence, and UTF-16 units kept', () => {
-    expect(maskMarkdownFrontmatter('﻿---\na: 1\n---\n# Body')).toBe('    \n    \n   \n# Body');
+    expect(maskMarkdownFrontmatter('\uFEFF---\na: 1\n---\n# Body')).toBe('    \n    \n   \n# Body');
     expect(maskMarkdownFrontmatter('---\ra: 1\r...\r# Body')).toBe('   \r    \r   \r# Body');
     expect(maskMarkdownFrontmatter('---\n---\n# Body')).toBe('   \n   \n# Body');
     const emoji = '---\ntitle: 🎉 é\n---\n- [ ] x';
@@ -184,6 +185,38 @@ describe('a sent file\'s preview (AttachmentFilePreview at 7c3b3b3605ef)', () =>
     const large = { id: 'f2', name: 'Huge.otf', mimeType: '', sizeBytes: 11 * 1024 * 1024 };
     const big = await attachmentView(attachmentClient([large]), native, large, 1000);
     expect([big.preview, big.noPreview]).toEqual(['none', 'Font previews are limited to 10 MB. Save it to open in another app.']);
+  });
+
+  test('a font whose specimen left the four kept pages is written again; Try again deletes the page it replaces', async () => {
+    const files = memoryAppFiles();
+    body = new Uint8Array([0, 1, 0, 0]);
+    const metas = [1, 2, 3, 4, 5].map(n => ({ id: `f${n}`, name: `F${n}.ttf`, mimeType: 'font/ttf', sizeBytes: 4 }));
+    const c = attachmentClient(metas);
+    const pages: string[] = [];
+    for (const meta of metas) pages.push((await attachmentView(c, native, meta, 1000)).url);
+    await Bun.sleep(1); // the page that left is deleted
+    expect([files.has(pages[0]!), pages.slice(1).every(page => files.has(page))]).toEqual([false, true]);
+    const first = await attachmentView(c, native, metas[0]!, 1000);
+    expect([first.preview, first.url !== pages[0], files.has(first.url)]).toEqual(['font', true, true]);
+    await attachmentLocal(c, native, 'retry', metas[0]!.id, 1000);
+    await Bun.sleep(1);
+    expect(files.has(first.url)).toBe(false);
+    const again = await attachmentView(c, native, metas[0]!, 1000);
+    expect([again.preview, files.has(again.url)]).toEqual(['font', true]);
+  });
+
+  test('a font that could not be read keeps its reason until Try again, with no read per view', async () => {
+    memoryAppFiles();
+    server.restore();
+    server = serveAssets(() => ({ status: 404 }));
+    const meta = { id: 'f9', name: 'Gone.ttf', mimeType: 'font/ttf', sizeBytes: 4 };
+    const c = attachmentClient([meta]);
+    expect((await attachmentView(c, native, meta, 1000)).noPreview).toBe('The font could not be loaded. Save it to open in another app.');
+    await attachmentView(c, native, meta, 1000);
+    expect(server.calls).toHaveLength(1);
+    await attachmentLocal(c, native, 'retry', meta.id, 1000);
+    await attachmentView(c, native, meta, 1000);
+    expect(server.calls).toHaveLength(2);
   });
 
   test('an image opens the expanded image dialog on its signed URL; a document without its viewer has no preview; a notebook is its source', async () => {
@@ -303,5 +336,132 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
     await filesLocal(client, native, 'crumb-refresh', '', '');
     expect((await filesView(client, native, surface('notes.md'), 1000)).crumbMenu.retry).toBe('');
     expect(filesState(client).errors.size).toBe(0);
+  });
+
+  test('a folder whose first listing failed offers "Retry loading folder", whose press lists it again', async () => {
+    const { client, failListings } = filesClient();
+    failListings(true);
+    await filesView(client, native, surface('notes.md'), 1000);
+    await filesLocal(client, native, 'crumb', '.', 'open');
+    const failed = await filesView(client, native, surface('notes.md'), 1000);
+    expect([failed.crumbMenu.status, failed.crumbMenu.statusRetry, failed.crumbMenu.entries.length]).toEqual(['Retry loading folder', true, 0]);
+    failListings(false);
+    // The row presses its folder as a folder entry does (files-surface.contract `pick(menu.dir, true)`).
+    await filesLocal(client, native, 'crumb-dir', failed.crumbMenu.dir, '');
+    const listed = await filesView(client, native, surface('notes.md'), 1000);
+    expect([listed.crumbMenu.status, listed.crumbMenu.statusRetry, listed.crumbMenu.entries.length]).toEqual(['', false, 5]);
+  });
+
+  test('a file in another tab reads again when it is shown after a workspace change (revisionedQuery)', async () => {
+    const { client, calls, contents, projection } = filesClient();
+    contents['a.md'] = 'a-first'; contents['b.md'] = 'b-first';
+    expect((await filesView(client, native, surface('a.md'), 1000)).text).toBe('a-first');
+    expect((await filesView(client, native, surface('b.md'), 1000)).text).toBe('b-first');
+    contents['a.md'] = 'a-second'; contents['b.md'] = 'b-second';
+    projection.visibleTurnItems.push({ item: { id: 'cmd-1', type: 'command_execution', status: 'completed' } });
+    expect((await filesView(client, native, surface('b.md'), 1000)).text).toBe('b-second');
+    expect((await filesView(client, native, surface('a.md'), 1000)).text).toBe('a-second');
+    // Shown again with no change since: neither reads again.
+    const reads = () => calls.filter(call => call.method === 'projects.readFile').length, before = reads();
+    await filesView(client, native, surface('b.md'), 1000);
+    await filesView(client, native, surface('a.md'), 1000);
+    expect(reads()).toBe(before);
+  });
+
+  test('a notebook and an RTF file, which Files shows as text, read again after a workspace change', async () => {
+    const { client, contents, projection } = filesClient();
+    contents['analysis.ipynb'] = '{"cells": []}'; contents['notes.rtf'] = '{\\rtf1 first}';
+    for (const path of ['analysis.ipynb', 'notes.rtf']) {
+      expect((await filesView(client, native, surface(path), 1000)).preview).toBe('code');
+      contents[path] = 'EDITED';
+      projection.visibleTurnItems.push({ item: { id: `cmd-${path}`, type: 'command_execution', status: 'completed' } });
+      expect((await filesView(client, native, surface(path), 1000)).text).toBe('EDITED');
+    }
+  });
+
+  test('an audio file is signed again for each workspace change and keeps its URL until then (WorkspaceAudioPreview)', async () => {
+    const { client, calls, projection } = filesClient();
+    const first = await filesView(client, native, surface('tone.mp3'), 1000);
+    // Six minutes on, the signature is renewed, and the player keeps the URL it plays.
+    const later = await filesView(client, native, surface('tone.mp3'), 1000 + 6 * 60_000);
+    expect([later.url, mints(calls).length]).toEqual([first.url, 2]);
+    projection.visibleTurnItems.push({ item: { id: 'cmd-a', type: 'command_execution', status: 'completed' } });
+    const changed = await filesView(client, native, surface('tone.mp3'), 1000 + 6 * 60_000);
+    expect(mints(calls).length).toBe(3);
+    expect(changed.url).not.toBe(first.url);
+    expect(new URL(changed.url).searchParams.get('workspace-revision')).toBe('["cmd-a",null]');
+  });
+
+  test('an image and a PDF carry the workspace revision in their URL, so a change loads them again; a video keeps its URL', async () => {
+    const { client, projection } = filesClient();
+    const files = memoryAppFiles();
+    const server = serveAssets(() => ({ body: '%PDF-1.4' }));
+    try {
+      const image = await filesView(client, native, surface('photo.png'), 1000);
+      expect([image.preview, image.media.url.includes('workspace-revision')]).toEqual(['media', false]);
+      const video = await filesView(client, native, surface('clip.mp4'), 1000);
+      expect([video.media.kind, video.media.url.startsWith('http://127.0.0.1:9/api/assets/signed/')]).toEqual(['video', true]);
+      const pdf = await filesView(client, native, surface('report.pdf'), 1000);
+      expect(pdf.preview).toBe('pdf');
+      projection.visibleTurnItems.push({ item: { id: 'cmd-m', type: 'file_change', status: 'completed' } });
+      const imageAfter = await filesView(client, native, surface('photo.png'), 1000);
+      expect(new URL(imageAfter.media.url).searchParams.get('workspace-revision')).toBe('["cmd-m",null]');
+      expect((await filesView(client, native, surface('clip.mp4'), 1000)).media.url).toBe(video.media.url);
+      const pdfAfter = await filesView(client, native, surface('report.pdf'), 1000);
+      expect([pdfAfter.preview, pdfAfter.url !== pdf.url, files.has(pdfAfter.url)]).toEqual(['pdf', true, true]);
+      expect(new URL(server.calls.at(-1)!.url).searchParams.get('workspace-revision')).toBe('["cmd-m",null]');
+    } finally { server.restore(); }
+  });
+
+  test('a press on the picture opens the expanded image dialog on it (PreviewImageContent)', async () => {
+    const { client } = filesClient();
+    await filesLocal(client, native, 'image-open', 'http://127.0.0.1:9/api/assets/signed/1?sig=1', 'photo.png');
+    expect([imagePreviewView(client).imagePreviewName, imagePreviewView(client).imagePreviewReturn]).toEqual(['photo.png', 'file-image-zoom']);
+  });
+});
+
+// PreviewImageContent's bar, run from preview-image.contract with Contract's action semantics.
+describe('the image size and zoom bar (PreviewImageContent)', () => {
+  const bar = contractComponent('preview-image.contract', 'PreviewImage');
+  const helpers: Env = { min: Math.min, max: Math.max, round: Math.round, formatNumber: (n: number) => n.toLocaleString('en-US'), expand: () => {}, failed: () => {} };
+  const derived = (state: Env) => bar.derives(state, helpers);
+  const run = (state: Env, action: string, ...args: unknown[]) => bar.call(action, state, { ...helpers, ...derived(state) }, args);
+
+  test('the natural size, the fitted scale, ×1.25 steps between 5 % and 800 %, Fit image and Actual image size', () => {
+    const state = bar.state();
+    expect([derived(state).sizeLabel, derived(state).canZoomIn, derived(state).canZoomOut]).toEqual(['Loading image…', false, false]);
+    run(state, 'viewport', 540, 700);
+    run(state, 'pictured', 4000, 3000);
+    run(state, 'pictured', 100, 100); // only the first, unsized layout is the natural size
+    expect([derived(state).sizeLabel, derived(state).percent, state.zoom]).toEqual(['4,000 × 3,000', '13%', -1]); // fit: (540 − 32) / 4000
+    run(state, 'changeZoom', 1.25);
+    expect(derived(state).percent).toBe('16%');
+    for (let step = 0; step < 40; step++) run(state, 'changeZoom', 1.25);
+    expect([state.zoom, derived(state).percent, derived(state).canZoomIn]).toEqual([8, '800%', false]);
+    for (let step = 0; step < 60; step++) run(state, 'changeZoom', 0.8);
+    expect([state.zoom, derived(state).percent, derived(state).canZoomOut]).toEqual([0.05, '5%', false]);
+    run(state, 'actualSize');
+    expect([state.zoom, derived(state).percent]).toEqual([1, '100%']);
+    run(state, 'fitImage');
+    expect([state.zoom, derived(state).percent]).toEqual([-1, '13%']);
+  });
+});
+
+// StandardAudioPreview's loadedSource, run from files-surface.contract's FilesAudio.
+describe('the audio player in Files (AudioPreview)', () => {
+  test('a URL renewed while it plays waits until playback pauses', () => {
+    const audio = contractComponent('files-surface.contract', 'FilesAudio');
+    const state = audio.state();
+    let url = 'http://h/a?sig=1';
+    const src = () => audio.derives(state, { url }).src;
+    const run = (action: string) => audio.call(action, state, { url, failed: () => {}, ...audio.derives(state, { url }) }, []);
+    expect(src()).toBe('http://h/a?sig=1');
+    run('started');
+    url = 'http://h/a?sig=2&workspace-revision=r2';
+    expect(src()).toBe('http://h/a?sig=1');
+    run('started'); // playing again after a stall keeps the URL it plays
+    expect(src()).toBe('http://h/a?sig=1');
+    run('stopped');
+    expect(src()).toBe('http://h/a?sig=2&workspace-revision=r2');
   });
 });

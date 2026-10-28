@@ -5,10 +5,13 @@
 // T3 Code 7c3b3b3605ef). An `.html` / `.htm` file opens as its page; the eye toggle ("Show HTML source" / "Show
 // rendered page") switches to the numbered source and back, and the choice is a preference, not a property of one
 // file. The page is read from a signed asset URL (`assets.createUrl`: `workspace-file` for a thread, `media-file` for a
-// file outside the workspace, `draft-workspace-file` for a draft's workspace), suffixed with the workspace revision so
-// an edit reloads it. An audio file plays from a `media-file` URL signed the same way. A renewed signature keeps the URL the page opened with until that revision changes, so a page's form
-// input and scroll survive it (BrowserDocumentFrame's `documentKey`). It is shown by the app module's sandboxed WebKit body (T3MediaPreview.swift,
-// as the attachment's HTML preview; siblings load only from the token directory), never in the app's own session.
+// file outside the workspace, `draft-workspace-file` for a draft's workspace), suffixed with the workspace revision
+// (ChatView's workspaceMutationId), so a workspace change reloads it. A renewed signature keeps the URL the page opened
+// with until that revision changes, so a page's form input and scroll survive it (BrowserDocumentFrame's
+// `documentKey`). An audio file plays from a `media-file` URL that is signed again for each revision, as
+// WorkspaceAudioPreview's revisioned asset URL is: a signature lives an hour. The page is shown by the app module's
+// sandboxed WebKit body (T3MediaPreview.swift, as the attachment's HTML preview; siblings load only from the token
+// directory), never in the app's own session.
 import type { T3Client } from '../client/client';
 import { obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -38,38 +41,36 @@ export function workspaceAssetResource(kind: 'workspace-file' | 'media-file', th
 /** A page or a PDF: its `workspace-file`, or the `media-file` of one outside the workspace. */
 export const htmlResource = (threadId: string, cwd: string, absolutePath: string) => workspaceAssetResource('workspace-file', threadId, cwd, absolutePath);
 
-/** A short revision of the contents last read (FNV-1a), the `workspace-revision` the page reloads on. */
-export function contentRevision(text: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < text.length; index++) { hash ^= text.charCodeAt(index); hash = Math.imul(hash, 0x01000193) >>> 0; }
-  return hash.toString(36);
-}
-
 /** The page URL with its revision (WorkspaceBrowserPreview's `revisionSuffix`). */
 export const revisedUrl = (url: string, revision: string) => (url && revision ? `${url}${url.includes('?') ? '&' : '?'}workspace-revision=${encodeURIComponent(revision)}` : url);
 
-type Minted = { key: string; url: string; at: number; error: string; shown?: { revision: string; url: string } };
+/** One asset's signature: `signedFor` the revision it was signed for, `shown` the URL the preview shows for a revision. */
+type Minted = { key: string; url: string; at: number; error: string; signedFor: string; shown?: { revision: string; url: string } };
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
 const STALE_URL_MS = 5 * 60_000; // signed URLs live an hour; re-mint after five minutes, as the attachment does
 
 export type HtmlPage = { url: string; error: string };
 
-/** useAssetUrlState for one Files asset: '' while it is minted, `failure` when the server refuses it. */
-async function filesAsset(client: T3Client, native: Native | null | undefined, kind: 'workspace-file' | 'media-file', cwd: string, absolutePath: string, revision: string, now: number, failure: string): Promise<HtmlPage> {
+/**
+ * useAssetUrlState for one Files asset: '' while it is minted, `failure` when the server refuses it. `perRevision`
+ * signs it again when the revision changes (useAssetUrlState's `revision`), not only after five minutes.
+ */
+async function filesAsset(client: T3Client, native: Native | null | undefined, kind: 'workspace-file' | 'media-file', cwd: string, absolutePath: string, revision: string, now: number, failure: string, perRevision = false): Promise<HtmlPage> {
   let map = minted.get(client);
   if (!map) { map = new Map(); minted.set(client, map); }
   const key = assetKey(client, kind, cwd, absolutePath);
   let entry = map.get(key);
   const previous = entry;
   const stale = !!entry && !entry.error && now > 0 && entry.at > 0 && now - entry.at > STALE_URL_MS;
-  if ((!entry || stale) && native?.available && client.ready) {
+  const resign = perRevision && !!entry && !entry.error && entry.signedFor !== revision;
+  if ((!entry || stale || resign) && native?.available && client.ready) {
     try {
       const result = obj(await client.rpc(native, 'assets.createUrl', { resource: workspaceAssetResource(kind, client.threadId, cwd, absolutePath) }));
       const url = assetUrl(client.origin, str(result.relativeUrl));
-      entry = { key, url, at: now, error: url ? '' : failure };
+      entry = { key, url, at: now, error: url ? '' : failure, signedFor: revision };
     } catch (error) {
       if (letGo(error)) throw error;
-      entry = { key, url: '', at: now, error: failure };
+      entry = { key, url: '', at: now, error: failure, signedFor: revision };
     }
     if (previous?.shown) entry.shown = previous.shown;
     map.set(key, entry);
@@ -84,9 +85,12 @@ const assetKey = (client: T3Client, kind: string, cwd: string, absolutePath: str
 export function htmlPage(client: T3Client, native: Native | null | undefined, cwd: string, absolutePath: string, revision: string, now = 0): Promise<HtmlPage> {
   return filesAsset(client, native, 'workspace-file', cwd, absolutePath, revision, now, 'Unable to load file preview.');
 }
-/** WorkspaceAudioPreview's `media-file` URL; a refused one is "Unable to load audio.". */
-export function audioPage(client: T3Client, native: Native | null | undefined, cwd: string, absolutePath: string, now = 0): Promise<HtmlPage> {
-  return filesAsset(client, native, 'media-file', cwd, absolutePath, '', now, 'Unable to load audio.');
+/**
+ * WorkspaceAudioPreview's `media-file` URL for workspace revision `revision`, signed again when the revision changes; a
+ * refused one is "Unable to load audio.".
+ */
+export function audioPage(client: T3Client, native: Native | null | undefined, cwd: string, absolutePath: string, revision: string, now = 0): Promise<HtmlPage> {
+  return filesAsset(client, native, 'media-file', cwd, absolutePath, revision, now, 'Unable to load audio.', true);
 }
 /** Try again on an audio file: its URL is signed afresh (useAssetUrlRefresh). */
 export function forgetAudioPage(client: T3Client, cwd: string, absolutePath: string): void { minted.get(client)?.delete(assetKey(client, 'media-file', cwd, absolutePath)); }

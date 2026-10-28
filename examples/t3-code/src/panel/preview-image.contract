@@ -29,6 +29,10 @@ component PreviewImage
   derive measured = naturalWidth > 0 and naturalHeight > 0
   derive fit = measured ? min(1, min(max(1, viewWidth - 32) / naturalWidth, max(1, viewHeight - 32) / naturalHeight)) : 1
   derive scale = zoom < 0 ? fit : zoom
+  derive sizeLabel = measured ? `${formatNumber(naturalWidth, "decimal")} × ${formatNumber(naturalHeight, "decimal")}` : "Loading image…"
+  derive percent = `${round(scale * 100)}%`
+  derive canZoomOut = measured and scale > 0.05
+  derive canZoomIn = measured and scale < 8
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
   action changeZoom(factor: number)
@@ -56,11 +60,11 @@ component PreviewImage
     else
       column flex=1 min-height=0 width="100%" overflow="hidden" testId=testId
         row min-height="2.5rem" flex-shrink=0 flex-wrap="wrap" align-items="center" justify-content="space-between" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" testId=`${testId}-bar`
-          text (measured ? `${formatNumber(naturalWidth, "decimal")} × ${formatNumber(naturalHeight, "decimal")}` : "Loading image…") font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`${testId}-size`
+          text sizeLabel font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`${testId}-size`
           row align-items="center" gap="0.25rem"
-            FileSurfaceAction(id="zoom-out", ids="", label="Zoom out", icon="minus", toggle=false, pressed=false, disabled=(not measured or scale <= 0.05), hovered=hovered, hover=hover, press=changeZoom(0.8))
-            text `${round(scale * 100)}%` min-width="2.5rem" text-align="center" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`${testId}-scale`
-            FileSurfaceAction(id="zoom-in", ids="", label="Zoom in", icon="plus", toggle=false, pressed=false, disabled=(not measured or scale >= 8), hovered=hovered, hover=hover, press=changeZoom(1.25))
+            FileSurfaceAction(id="zoom-out", ids="", label="Zoom out", icon="minus", toggle=false, pressed=false, disabled=(not canZoomOut), hovered=hovered, hover=hover, press=changeZoom(0.8))
+            text percent min-width="2.5rem" text-align="center" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`${testId}-scale`
+            FileSurfaceAction(id="zoom-in", ids="", label="Zoom in", icon="plus", toggle=false, pressed=false, disabled=(not canZoomIn), hovered=hovered, hover=hover, press=changeZoom(1.25))
             FileSurfaceAction(id="fit", ids="", label="Fit image", icon="scan", toggle=true, pressed=(zoom < 0), disabled=false, hovered=hovered, hover=hover, press=fitImage)
             FileSurfaceAction(id="actual", ids="", label="Actual image size", icon="maximize", toggle=true, pressed=(zoom == 1), disabled=false, hovered=hovered, hover=hover, press=actualSize)
         scroll flex=1 min-height=0 width="100%" resize=viewport testId=`${testId}-scroll`

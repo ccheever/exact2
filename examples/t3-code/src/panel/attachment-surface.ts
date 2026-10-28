@@ -31,7 +31,7 @@ import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
 import { filePreviewDelimiter, filePreviewKind, maskMarkdownFrontmatter, type FilePreviewKind } from './file-preview-kind';
 import { mermaidFile } from './mermaid-file'; // a Mermaid file's diagram
-import { FONT_REFUSED, fontPage, forgetFontPage, type FontPage } from './font-preview'; // a font's specimen
+import { FONT_REFUSED, fontPage, fontPageKept, forgetFontPage } from './font-preview'; // a font's specimen
 import { openInlineDocumentImage } from '../timeline/timeline-attachments'; // the expanded image dialog
 
 export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeBytes: number };
@@ -62,7 +62,9 @@ export type AttachmentView = {
   /** "No preview for this file" reports a failure (FontViewer's), not only a format. */
   noPreviewAlert: boolean;
 };
-type State = { url: string; urlAt: number; urlError: string; content: Content | null; contentError: string; rendered: boolean; saving: boolean; copiedAt: number; mediaError: string; font: FontPage | null; fontFailed: boolean };
+type State = { url: string; urlAt: number; urlError: string; content: Content | null; contentError: string; rendered: boolean; saving: boolean; copiedAt: number; mediaError: string;
+  /** Why the font has no specimen: its read failed, or its frame's FontFace did not load it; kept until Try again. */
+  fontError: string };
 const states = new WeakMap<T3Client, Map<string, State>>();
 const STALE_URL_MS = 5 * 60_000; // AttachmentFilePreview: signed URLs live an hour; re-mint after five minutes
 
@@ -98,7 +100,7 @@ function stateOf(client: T3Client, id: string): State {
   if (!map) { map = new Map(); states.set(client, map); }
   let state = map.get(id);
   // AttachmentFilePreview opens rendered.
-  if (!state) { state = { url: '', urlAt: 0, urlError: '', content: null, contentError: '', rendered: true, saving: false, copiedAt: 0, mediaError: '', font: null, fontFailed: false }; map.set(id, state); }
+  if (!state) { state = { url: '', urlAt: 0, urlError: '', content: null, contentError: '', rendered: true, saving: false, copiedAt: 0, mediaError: '', fontError: '' }; map.set(id, state); }
   return state;
 }
 async function mint(client: T3Client, native: Native, meta: AttachmentMeta, disposition: 'inline' | 'attachment'): Promise<string> {
@@ -154,7 +156,9 @@ export async function attachmentView(client: T3Client, native: Native | null | u
       else state.contentError = str(reply.message, 'Could not load this file.');
     }
   } else if (native?.available && client.ready) {
-    if (!state.urlError && (!state.url || (needsText && !state.content && !state.contentError && now && now - state.urlAt > STALE_URL_MS))) {
+    // A font whose specimen must be written again reads the font from a URL signed afresh, as its text does.
+    const rereads = (needsText && !state.content && !state.contentError) || (kind === 'font' && !state.fontError && !fontPageKept(source.key));
+    if (!state.urlError && (!state.url || (rereads && now && now - state.urlAt > STALE_URL_MS))) {
       try { state.url = await mint(client, native, meta, 'inline'); state.urlAt = now; }
       catch (error) { if (letGo(error)) throw error; state.urlError = message(error, 'The attachment is unavailable.'); }
     }
@@ -168,14 +172,15 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   const frame = !needsText && (kind === 'pdf' || kind === 'html') && state.url && !state.urlError && !state.mediaError ? await mediaFrameSource(kind, state.url) : null;
   if (frame?.error) state.mediaError = frame.error;
   // FontViewer: the specimen once its bytes are read; its frame says whether the face loaded.
-  if (kind === 'font' && state.url && !state.urlError && !state.font) state.font = await fontPage(state.url, meta.sizeBytes);
-  const fontError = kind !== 'font' ? '' : state.fontFailed ? FONT_REFUSED : state.font?.error ?? '';
+  const font = kind === 'font' && state.url && !state.urlError && !state.fontError ? await fontPage(source.key, state.url, meta.sizeBytes) : null;
+  if (font?.error) state.fontError = font.error;
+  const fontError = kind === 'font' ? state.fontError : '';
   const failure = state.urlError || (needsText ? state.contentError : state.mediaError);
   const content = state.content, rendered = state.rendered;
   const showsRawText = !failure && needsText && !!content && !(delimiter && rendered) && !((kind === 'markdown' || kind === 'mermaid') && rendered);
   const preview = failure ? 'error' : !state.url || (needsText && !content) ? 'loading'
     : needsText && content ? (delimiter && rendered ? 'table' : kind === 'mermaid' && rendered ? 'mermaid' : kind === 'markdown' && rendered ? 'markdown' : 'code')
-      : kind === 'font' ? (fontError ? 'none' : state.font?.page ? 'font' : 'loading')
+      : kind === 'font' ? (fontError ? 'none' : font?.page ? 'font' : 'loading')
         : kind === 'image' ? 'image' : mediaBody(kind, rendered) || 'none';
   const text = content?.text ?? '';
   const table = preview === 'table' ? tableRows(meta.name, text) : null;
@@ -196,7 +201,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     truncatedNote: content?.truncated ? `Preview limited to the first 1 MB${meta.sizeBytes > 0 ? ` of a ${meta.sizeBytes.toLocaleString('en-US')} byte file` : ''}. Save the file to read it in full.` : '',
     ...rich, ...(diagram ? { diagrams: diagram.diagrams } : {}), table: table?.rows ?? [],
     lines, gutter: sourceGutter(lines.length),
-    url: preview === 'pdf' || preview === 'html' ? frame?.src ?? '' : preview === 'font' ? state.font?.page ?? '' : preview === 'image' || mediaBody(preview, true) ? state.url : '',
+    url: preview === 'pdf' || preview === 'html' ? frame?.src ?? '' : preview === 'font' ? font?.page ?? '' : preview === 'image' || mediaBody(preview, true) ? state.url : '',
     // The unsupported body, or why a font has no specimen.
     noPreview: preview !== 'none' ? '' : fontError ? `${fontError} Save it to open in another app.` : `Save it to open in an app that supports ${extension} files.`,
     mermaidNote: diagram?.note ?? '', noPreviewAlert: !!fontError,
@@ -210,7 +215,7 @@ export const emptyAttachment = (): AttachmentView => ({
 export const attachmentToken = (name: string) => fileIconToken(name);
 
 /** Drops a preview's state (a draft's preview opens afresh, as its dialog mounts a new AttachmentFilePreview). */
-export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); }
+export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); forgetFontPage(key); }
 
 /** `surface-linked-att-*`: the header's controls. */
 export async function attachmentLocal(client: T3Client, native: Native, op: string, id: string, now: number): Promise<string> {
@@ -224,14 +229,14 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
   if (op === 'render') { state.rendered = !state.rendered; if (filePreviewKind(meta) === 'html') state.contentError = ''; return ''; }
   if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
   if (op === 'retry') {
-    if (state.url) forgetFontPage(state.url);
-    state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; state.font = null; state.fontFailed = false;
+    forgetFontPage(source.key);
+    state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; state.fontError = '';
     return '';
   }
   // The audio/video player's or the picture's `error` event; a late one from a body already gone is ignored.
   if (op === 'media-error') { if (state.url && !state.mediaError) state.mediaError = mediaErrorMessage(previewBody(filePreviewKind(meta))); return ''; }
   // The specimen's FontFace did not load the bytes (font-preview.ts).
-  if (op === 'font-failed') { if (state.font?.page) state.fontFailed = true; return ''; }
+  if (op === 'font-failed') { if (fontPageKept(source.key)) state.fontError = FONT_REFUSED; return ''; }
   // PreviewImageContent's press: the expanded image dialog over this one image, the focus going back to the picture.
   if (op === 'image-open') {
     if (/^https?:/i.test(state.url)) openInlineDocumentImage(client, state.url, meta.name, source.dialog ? 'chip-file-preview-image-zoom' : 'attachment-image-zoom');

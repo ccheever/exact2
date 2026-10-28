@@ -127,7 +127,7 @@ export const isMermaidPreviewFile = (path: string): boolean => /\.(mmd|mermaid)$
 /** FilePreviewPanel's `isDocument`: a file only a document viewer reads (an archive, a database, an Office file or a font). */
 export const isWorkspaceDocumentPath = (path: string): boolean => binaryPreviewKind({ name: path }) !== null || officePreviewKind({ name: path }) !== null || isWorkspaceFontPreviewPath(path);
 
-const LEADING_FRONTMATTER = /^﻿?---[ \t]*(?:\r\n|\r|\n)(?:[\s\S]*?(?:\r\n|\r|\n))?(?:---|\.\.\.)[ \t]*(?=\r\n|\r|\n|$)/;
+const LEADING_FRONTMATTER = /^\uFEFF?---[ \t]*(?:\r\n|\r|\n)(?:[\s\S]*?(?:\r\n|\r|\n))?(?:---|\.\.\.)[ \t]*(?=\r\n|\r|\n|$)/;
 /**
  * maskMarkdownFrontmatter: a leading YAML frontmatter block blanked, so a rendered preview skips it instead of drawing a
  * rule and a setext heading. Each masked UTF-16 unit becomes a space and line breaks stay, so the task checkboxes'

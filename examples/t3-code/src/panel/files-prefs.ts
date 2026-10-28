@@ -1,12 +1,9 @@
-// The Files surface preferences the reference keeps in
-// localStorage (MIT reference, see LICENSE-T3: components/files/FilePreviewPanel.tsx
-// FILE_EXPLORER_STORAGE_KEY "t3code.fileExplorerOpen" (default true),
-// RENDER_MARKDOWN_STORAGE_KEY "t3code.renderMarkdown" (default false),
-// RENDER_TABLE_STORAGE_KEY "t3code.renderTable" (default true), "t3code.renderMermaid" (default true; T3 Code
-// 7c3b3b3605ef)), kept inside the
-// one versioned preference file the client persists (app:/data/t3-code.json)
-// under `files`. Word wrap is the client setting `wordWrap`, already persisted
-// with clientSettings. The client writes the file after every command.
+// The Files surface preferences the reference keeps in localStorage (MIT reference, see LICENSE-T3:
+// components/files/FilePreviewPanel.tsx; T3 Code 7c3b3b3605ef): FILE_EXPLORER_STORAGE_KEY "t3code.fileExplorerOpen"
+// (default true), RENDER_MARKDOWN_STORAGE_KEY "t3code.renderMarkdown" (default false), RENDER_TABLE_STORAGE_KEY
+// "t3code.renderTable" (default true) and "t3code.renderMermaid" (default true), kept inside the one versioned
+// preference file the client persists (app:/data/t3-code.json) under `files`. Word wrap is the client setting
+// `wordWrap`, already persisted with clientSettings. The client writes the file after every command.
 import { obj, type Obj } from '../client/domain';
 import { adoptRightPanels } from './saved-panel';
 

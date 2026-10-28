@@ -389,7 +389,9 @@ component FilePreview
     // WorkspaceAudioPreview: AudioPreview's player centred in 24pt, or "Unable to load audio." with Try again.
     if files.preview == "audio"
       column flex=1 min-height=0 width="100%" padding="1.5rem" box-sizing="border-box" align-items="center" justify-content="center" testId="file-audio"
-        video files.url controls=true preload="metadata" aria-label=files.path error=local("surface-files-audio-error", files.url) width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="file-audio-player"
+        // One player per file, as FilePreviewPanel keys it by path.
+        for path in [files.absolutePath] key=path
+          FilesAudio(url=files.url, label=files.path, failed=local("surface-files-audio-error", files.url))
     if files.preview == "audio-error"
       FileSurfaceFailure(message="Unable to load audio.", canRetry=true, retry=local("surface-files-audio-retry", files.absolutePath, ""), testId="file-audio-failed")
     // A rendered HTML page or a PDF (always rendered), as an attachment's (BrowserDocumentFrame, media-frame.contract).
@@ -604,3 +606,25 @@ component FilesTreeRowView
         box width=16 height=16 flex-shrink=0 display="flex" opacity=0.6 animation=(still ? "none" : "filesTreeSpin 1s linear infinite") role="status" aria-label="Loading…" testId=`tree-loading-${row.path}`
           svg width=16 height=16 viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" aria-hidden=true
             path d="M21 12a9 9 0 1 1-6.219-8.56"
+
+// AudioPreview's player in Files. A workspace change renews its URL; one that comes while it plays is taken once
+// playback pauses or ends, so the change does not stop it (StandardAudioPreview's loadedSource).
+component FilesAudio
+  props
+    url: string
+    label: string
+    failed: action
+  state playing = false
+  state held = ""
+  derive src = playing and held != "" ? held : url
+  action started
+    if not playing
+      held = url
+    playing = true
+  action stopped
+    playing = false
+  action broke(message: string)
+    playing = false
+    failed(message)
+  view
+    video src controls=true preload="metadata" aria-label=label playing=started pause=stopped ended=stopped error=broke width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="file-audio-player"

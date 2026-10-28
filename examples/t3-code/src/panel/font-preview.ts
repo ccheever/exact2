@@ -14,7 +14,7 @@ const MAX_FONT_BYTES = 10 * 1024 * 1024;
 export const FONT_TOO_LARGE = 'Font previews are limited to 10 MB.';
 export const FONT_UNLOADED = 'The font could not be loaded.';
 export const FONT_TIMEOUT = 'The font took too long to load.';
-/** Chromium's rejection of `new FontFace(name, bytes).load()` for bytes its sanitizer refuses, as the oracle shows it. */
+/** Chromium's message when `new FontFace(name, bytes).load()` rejects bytes its sanitizer refuses; the reference shows it. */
 export const FONT_REFUSED = 'Invalid font data in ArrayBuffer.';
 /** What the specimen's script posts. */
 export const FONT_LOADED_MESSAGE = 'font-loaded';
@@ -78,18 +78,21 @@ async function readFont(url: string, sizeBytes: number): Promise<Uint8Array> {
 type SpecimenFiles = { mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>; writeFile(path: string, bytes: Uint8Array): Promise<unknown>; rm?(path: string): Promise<unknown> };
 const files = (): SpecimenFiles => appFiles().fs as unknown as SpecimenFiles;
 
+/** The specimens written, by preview, the most recently shown last. */
 const kept = new Map<string, Promise<FontPage>>();
 let serial = 0;
-/** Specimens kept at once: each holds its font, so the oldest file goes when another arrives. */
+/** Specimens kept at once: each holds its font, so the least recently shown one's file goes when another arrives. */
 const KEPT = 4;
 
 /**
- * The specimen page for the font at `url` (a signed asset URL or a draft's `t3-staged:<name>`), written once per URL,
- * or the reason there is none. A failure is not kept, so Try again reads the font afresh.
+ * The specimen page of preview `key` for the font at `url` (a signed asset URL or a draft's `t3-staged:<name>`), or the
+ * reason there is none. The page is written once and kept while it is among the four most recently shown; a preview
+ * whose page went is written again from the font, as FontViewer reads it again when it mounts. A failure is not kept,
+ * so Try again reads the font afresh.
  */
-export function fontPage(url: string, sizeBytes: number): Promise<FontPage> {
-  const known = kept.get(url);
-  if (known) return known;
+export function fontPage(key: string, url: string, sizeBytes: number): Promise<FontPage> {
+  const known = kept.get(key);
+  if (known) { kept.delete(key); kept.set(key, known); return known; }
   const made = (async (): Promise<FontPage> => {
     try {
       const bytes = await readFont(url, sizeBytes);
@@ -102,16 +105,28 @@ export function fontPage(url: string, sizeBytes: number): Promise<FontPage> {
       return { page: '', error: error instanceof FontReadError ? error.message : FONT_UNLOADED };
     }
   })();
-  kept.set(url, made);
-  void made.then(result => { if (result.error && kept.get(url) === made) kept.delete(url); });
+  kept.set(key, made);
+  void made.then(result => { if (result.error && kept.get(key) === made) kept.delete(key); });
   while (kept.size > KEPT) {
     const [oldest, gone] = kept.entries().next().value!;
     kept.delete(oldest);
-    void gone.then(result => { if (result.page) return files().rm?.(result.page); }).catch(() => undefined);
+    removePage(gone);
   }
   return made;
 }
 
-/** Forgets the specimens written (a retry, and tests). */
-export function forgetFontPage(url: string): void { kept.delete(url); }
-export function forgetFontPages(): void { kept.clear(); }
+const removePage = (made: Promise<FontPage>) => void made.then(result => { if (result.page) return files().rm?.(result.page); }).catch(() => undefined);
+
+/** Whether preview `key`'s specimen is kept: one that is not reads the font again when it is next shown. */
+export function fontPageKept(key: string): boolean { return kept.has(key); }
+/** Forgets preview `key`'s specimen and deletes its page (Try again, a draft's preview closed). */
+export function forgetFontPage(key: string): void {
+  const gone = kept.get(key);
+  kept.delete(key);
+  if (gone) removePage(gone);
+}
+/** Forgets every specimen and deletes their pages (tests). */
+export function forgetFontPages(): void {
+  for (const gone of kept.values()) removePage(gone);
+  kept.clear();
+}
