@@ -18,6 +18,7 @@ use vello::kurbo::{Affine, BezPath, Rect};
 use vello::peniko::{Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, Mix};
 
 /// A layer open in the scene, as pushed, so a flush can push it again.
+#[derive(Clone)]
 pub(super) enum Layer {
     Clip(Fill, Affine, BezPath),
     Opacity(f32),
@@ -45,11 +46,13 @@ fn brush(p: Pixmap) -> ImageBrush {
 
 impl Gpu {
     pub(super) fn push_recorded(&mut self, layer: Layer) {
-        self.push_layer(&layer);
+        if !self.record(super::rows::Op::Push(layer.clone())) {
+            self.push_layer(&layer);
+        }
         self.layers.push(layer);
     }
 
-    fn push_layer(&mut self, layer: &Layer) {
+    pub(super) fn push_layer(&mut self, layer: &Layer) {
         match layer {
             Layer::Clip(fill, a, path) => self.scene.push_clip_layer(*fill, *a, path),
             Layer::Group(a, path) => {
@@ -71,10 +74,16 @@ impl Gpu {
 
     pub(super) fn pop_recorded(&mut self) {
         self.layers.pop();
-        self.scene.pop_layer();
+        if !self.record(super::rows::Op::Pop) {
+            self.scene.pop_layer();
+        }
     }
 
     pub(super) fn filter_backdrop(&mut self, s: &Shape, filter: &BackdropFilter, ts: Transform) {
+        let ts = self.record_transform(ts);
+        if self.record(super::rows::Op::Backdrop(*s, filter.clone(), ts)) {
+            return;
+        }
         if s.rect.2 <= 0.0 || s.rect.3 <= 0.0 || self.image_refused {
             return;
         }

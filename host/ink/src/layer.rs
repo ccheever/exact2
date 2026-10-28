@@ -11,6 +11,16 @@ pub struct Pool {
 }
 
 impl Pool {
+    pub fn used(&self) -> usize {
+        self.used
+    }
+    pub fn retained(&self) -> usize {
+        self.targets.len()
+    }
+    pub fn bytes(&self) -> u64 {
+        self.targets.len() as u64 * u64::from(self.size[0]) * u64::from(self.size[1]) * 4
+    }
+
     pub fn begin(&mut self, device: &mut impl Device, size: [u32; 2]) -> Result<()> {
         if self.size != size {
             for target in self.targets.drain(..) {

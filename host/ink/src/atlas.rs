@@ -1,4 +1,4 @@
-//! Shelf pages stay pinned until the frame ends. @ref LLP 1149 D2.3, D8.
+//! Shelf pages stay valid while a frame or kept row references them. @ref LLP 1149 D4, D8.
 use crate::device::{Device, Format, Result, TextureDesc};
 use crate::instance::TextureId;
 use std::collections::HashMap;
@@ -27,6 +27,8 @@ pub struct Atlas {
     pages: Vec<Page>,
     entries: HashMap<Vec<u32>, Entry>,
     overflow: Vec<TextureId>,
+    overflow_sizes: HashMap<TextureId, u64>,
+    pins: HashMap<TextureId, usize>,
     stats: Stats,
 }
 
@@ -35,9 +37,11 @@ pub struct Stats {
     pub entries: usize,
     pub bytes: u64,
     pub misses: u64,
+    pub hits: u64,
     pub uploaded_bytes: u64,
     pub overflow_bytes: u64,
     pub overflow_textures: usize,
+    pub pinned_textures: usize,
 }
 
 impl Atlas {
@@ -57,6 +61,8 @@ impl Atlas {
                 * u64::from(self.size[1])
                 * u64::from(self.format.channels()),
             overflow_textures: self.overflow.len(),
+            pinned_textures: self.pins.len(),
+            overflow_bytes: self.overflow_sizes.values().sum(),
             ..self.stats
         }
     }
@@ -83,6 +89,8 @@ impl Atlas {
             pages: Vec::new(),
             entries: HashMap::new(),
             overflow: Vec::new(),
+            overflow_sizes: HashMap::new(),
+            pins: HashMap::new(),
             stats: Stats::default(),
         }
     }
@@ -90,11 +98,37 @@ impl Atlas {
     pub fn begin(&mut self, device: &mut impl Device) -> Result<()> {
         self.frame += 1;
         self.stats = Stats::default();
-        for id in self.overflow.drain(..) {
+        for id in self
+            .overflow
+            .extract_if(.., |id| !self.pins.contains_key(id))
+        {
+            self.overflow_sizes.remove(&id);
             self.entries.retain(|_, e| e.texture != id);
             device.retire_texture(id)?;
         }
         Ok(())
+    }
+
+    /// Page-level pinning also protects neighbouring entries from page eviction.
+    pub fn pin(&mut self, texture: TextureId) {
+        if self.pages.iter().any(|p| p.id == texture) || self.overflow.contains(&texture) {
+            *self.pins.entry(texture).or_default() += 1;
+        }
+    }
+
+    pub fn unpin(&mut self, texture: TextureId) {
+        if let Some(count) = self.pins.get_mut(&texture) {
+            *count -= 1;
+            if *count == 0 {
+                self.pins.remove(&texture);
+            }
+        }
+    }
+
+    pub fn touch(&mut self, texture: TextureId) {
+        if let Some(page) = self.pages.iter_mut().find(|p| p.id == texture) {
+            page.used = self.frame;
+        }
     }
 
     pub fn get(&mut self, key: &[u32]) -> Option<Entry> {
@@ -102,6 +136,7 @@ impl Atlas {
             self.stats.misses += 1;
             return None;
         };
+        self.stats.hits += 1;
         if let Some(page) = self.pages.iter_mut().find(|p| p.id == entry.texture) {
             page.used = self.frame;
         }
@@ -130,7 +165,7 @@ impl Atlas {
                     .pages
                     .iter()
                     .enumerate()
-                    .filter(|(_, p)| p.used != self.frame)
+                    .filter(|(_, p)| p.used != self.frame && !self.pins.contains_key(&p.id))
                     .min_by_key(|(_, p)| p.used)
                     .map(|(i, _)| i);
                 if self.pages.len() < self.ceiling || oldest.is_some() {
@@ -174,8 +209,10 @@ impl Atlas {
                 mipmapped: false,
             })?;
             self.overflow.push(id);
-            self.stats.overflow_bytes +=
-                u64::from(padded[0]) * u64::from(padded[1]) * u64::from(self.format.channels());
+            self.overflow_sizes.insert(
+                id,
+                u64::from(padded[0]) * u64::from(padded[1]) * u64::from(self.format.channels()),
+            );
             (id, [0, 0], padded)
         };
         let channels = self.format.channels() as usize;
@@ -224,6 +261,60 @@ mod tests {
     use crate::device::Error;
     use crate::instance::Bindings;
     use crate::{Brush, Encoder, Instance, Kind, Wgpu};
+
+    #[test]
+    fn kept_references_pin_pages_and_overflow_until_released() {
+        let mut device = Wgpu::new().expect("native adapter");
+        let mut atlas = Atlas::new([4, 4], Format::Alpha, 0, 1);
+        atlas.begin(&mut device).unwrap();
+        let kept = atlas
+            .insert(&mut device, vec![1], [4, 4], &[73; 16])
+            .unwrap();
+        atlas.pin(kept.texture);
+        atlas.pin(kept.texture);
+        atlas.unpin(kept.texture);
+        atlas.begin(&mut device).unwrap();
+        let spill = atlas
+            .insert(&mut device, vec![2], [4, 4], &[181; 16])
+            .unwrap();
+        assert_ne!(kept.texture, spill.texture);
+        atlas.pin(spill.texture);
+        atlas.begin(&mut device).unwrap();
+        assert!(atlas.contains(&[1]) && atlas.contains(&[2]));
+        assert_eq!(atlas.stats().pinned_textures, 2);
+        assert_eq!(atlas.stats().overflow_bytes, 16);
+        let mut encoder = Encoder::new(2, 1);
+        for (x, entry) in [kept, spill].into_iter().enumerate() {
+            let mut i = Instance::new(Kind::Coverage, Brush::Solid, [x as f32, 0., 1., 1.]);
+            i.uv = entry.uv;
+            encoder
+                .push(
+                    i,
+                    Bindings {
+                        path: entry.texture,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        let target = device.create_target(2, 1).unwrap();
+        device
+            .render(&encoder.finish(), target, Some([0.; 4]))
+            .unwrap();
+        assert_eq!(
+            device.readback(target).unwrap(),
+            [73, 73, 73, 73, 181, 181, 181, 181]
+        );
+        atlas.unpin(kept.texture);
+        atlas.unpin(spill.texture);
+        atlas.begin(&mut device).unwrap();
+        let replacement = atlas
+            .insert(&mut device, vec![3], [4, 4], &[255; 16])
+            .unwrap();
+        assert_eq!(replacement.texture, kept.texture);
+        assert!(!atlas.contains(&[1]) && !atlas.contains(&[2]));
+        assert_eq!(atlas.stats().overflow_textures, 0);
+    }
 
     #[test]
     fn a_full_atlas_preserves_frame_references_through_spill_and_eviction() {

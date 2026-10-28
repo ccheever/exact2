@@ -6,6 +6,7 @@ pub mod glyph;
 pub mod instance;
 pub mod layer;
 pub mod path;
+pub mod rows;
 
 pub use device::wgpu::Wgpu;
 pub use instance::{Brush, Encoder, Frame, Instance, Kind};

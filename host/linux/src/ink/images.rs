@@ -6,19 +6,37 @@ use std::collections::HashMap;
 pub(super) struct Images {
     bitmaps: HashMap<usize, (Arc<Bitmap>, TextureId)>,
     pixmaps: HashMap<usize, (Arc<Pixmap>, TextureId)>,
+    pins: HashMap<TextureId, usize>,
 }
 
 impl Images {
+    pub fn pin(&mut self, texture: TextureId) {
+        if self.bitmaps.values().any(|(_, t)| *t == texture)
+            || self.pixmaps.values().any(|(_, t)| *t == texture)
+        {
+            *self.pins.entry(texture).or_default() += 1;
+        }
+    }
+
+    pub fn unpin(&mut self, texture: TextureId) {
+        if let Some(n) = self.pins.get_mut(&texture) {
+            *n -= 1;
+            if *n == 0 {
+                self.pins.remove(&texture);
+            }
+        }
+    }
+
     pub fn begin(&mut self, device: &mut impl Device) -> Result<()> {
         for (_, (_, texture)) in self
             .bitmaps
-            .extract_if(|_, (p, _)| Arc::strong_count(p) == 1)
+            .extract_if(|_, (p, t)| Arc::strong_count(p) == 1 && !self.pins.contains_key(t))
         {
             device.retire_texture(texture)?;
         }
         for (_, (_, texture)) in self
             .pixmaps
-            .extract_if(|_, (p, _)| Arc::strong_count(p) == 1)
+            .extract_if(|_, (p, t)| Arc::strong_count(p) == 1 && !self.pins.contains_key(t))
         {
             device.retire_texture(texture)?;
         }

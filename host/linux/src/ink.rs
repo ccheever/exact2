@@ -17,6 +17,7 @@ mod stats;
 pub use stats::{Statistics, StatisticsReader};
 mod gradient;
 mod images;
+mod rows;
 mod svg;
 #[cfg(test)]
 mod tests;
@@ -45,6 +46,7 @@ pub struct Ink {
     layer_ms: f64,
     last_ms: (f64, f64),
     statistics: StatisticsReader,
+    rows: rows::Rows,
 }
 
 impl Ink {
@@ -86,6 +88,7 @@ impl Ink {
             layer_ms: 0.,
             last_ms: (0., 0.),
             statistics: StatisticsReader::default(),
+            rows: rows::Rows::default(),
         }
     }
 
@@ -110,6 +113,12 @@ impl Ink {
 
     fn emit(&mut self, instance: Instance, bindings: Bindings) -> Result<()> {
         if self.error.is_some() {
+            return Ok(());
+        }
+        if let Some(capture) = self.rows.capture.last_mut() {
+            capture
+                .drawing
+                .push(instance.translated(capture.offset(self.scale)), bindings);
             return Ok(());
         }
         if self.encoder.push(instance, bindings).is_err() {
@@ -163,7 +172,7 @@ impl Ink {
             rule,
             clips,
             dev,
-            self.size,
+            self.rows.capture.is_empty().then_some(self.size),
         )?;
         Ok(coverage.map(|c| {
             let mut instance = Instance::new(Kind::Coverage, Brush::Solid, c.rect);
@@ -223,7 +232,7 @@ impl Backend for Ink {
         "ink"
     }
     fn needs_geometry_paint(&self) -> bool {
-        false
+        true
     }
     fn page(&mut self, color: [u8; 4]) {
         self.page = color;
@@ -262,6 +271,7 @@ impl Backend for Ink {
     fn fill(&mut self, shape: &Shape, c: [u8; 4], ts: Transform) {
         let dev = self.device_transform(ts);
         if c[3] == 255
+            && self.rows.capture.is_empty()
             && !shape.rounded()
             && self.clips.is_empty()
             && self.groups.is_empty()
@@ -398,6 +408,9 @@ impl Backend for Ink {
         self.accept(result);
     }
     fn pop_clip(&mut self) {
+        if self.record(rows::Marker::PopClip) {
+            return;
+        }
         if let Some(layer) = self.clips.pop() {
             if layer {
                 let r = self.close_group();
@@ -408,14 +421,23 @@ impl Backend for Ink {
         }
     }
     fn push_opacity(&mut self, alpha: f32) {
+        if self.record(rows::Marker::Opacity(alpha)) {
+            return;
+        }
         self.open_group(alpha.clamp(0., 1.), None);
     }
     fn pop_opacity(&mut self) {
+        if self.record(rows::Marker::PopOpacity) {
+            return;
+        }
         let r = self.close_group();
         self.accept(r);
     }
 
     fn push_mask(&mut self, _: &Shape, _: Transform) {
+        if self.record(rows::Marker::Opacity(1.)) {
+            return;
+        }
         self.open_group(1., None);
     }
     fn pop_mask(
@@ -424,6 +446,10 @@ impl Backend for Ink {
         mask: &std::result::Result<GradientPaint, [u8; 4]>,
         ts: Transform,
     ) {
+        let ts = self.record_transform(ts);
+        if self.record(rows::Marker::Mask(*shape, mask.clone(), ts)) {
+            return;
+        }
         let result = self.masked(shape, mask, ts);
         self.accept(result);
     }
@@ -433,6 +459,10 @@ impl Backend for Ink {
         filter: &exact_kernel::style::BackdropFilter,
         ts: Transform,
     ) {
+        let ts = self.record_transform(ts);
+        if self.record(rows::Marker::Backdrop(*shape, filter.clone(), ts)) {
+            return;
+        }
         let result = self.backdrop(shape, filter, ts);
         self.accept(result);
     }
@@ -503,6 +533,51 @@ impl Backend for Ink {
     }
     fn last_frame_ms(&self) -> Option<(f64, f64)> {
         Some(self.last_ms)
+    }
+
+    fn rows(&self) -> bool {
+        true
+    }
+    fn row_begin(&mut self, id: u32, origin: (f32, f32), _: Option<u32>) {
+        self.record_row(id, origin);
+    }
+    fn row_end(&mut self, _: Rect4) -> u32 {
+        self.keep_row()
+    }
+    fn row_draw(&mut self, id: u32, origin: (f32, f32), _: Rect4) {
+        let r = self.draw_row(id, origin);
+        self.accept(r);
+    }
+    fn row_free(&mut self, id: u32) {
+        self.free_row(id);
+    }
+    fn row_culled(&self, bounds: Rect4) -> bool {
+        self.culled(bounds)
+    }
+    fn group_begin(&mut self, id: exact_kernel::ViewId, scroll: (f32, f32)) {
+        self.rows.groups.push((id, scroll));
+    }
+    fn group_end(&mut self) {
+        self.rows.groups.pop();
+    }
+    fn slot_begin(&mut self, id: exact_kernel::ViewId) {
+        self.record_slot(id);
+    }
+    fn slot_end(&mut self) {
+        self.keep_slot();
+    }
+    fn slot_again(&mut self, row: u32, id: exact_kernel::ViewId) -> bool {
+        self.replace_slot(row, id)
+    }
+    fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
+        self.record_layer(key, ts, pivot, base);
+        true
+    }
+    fn layer_recolored(&mut self) { /* Each layer_begin records the current colour. */
+    }
+    fn layer_end(&mut self) {
+        let r = self.keep_layer();
+        self.accept(r);
     }
 }
 

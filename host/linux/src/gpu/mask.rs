@@ -14,6 +14,11 @@ impl Gpu {
         mask: &Result<GradientPaint, [u8; 4]>,
         ts: Transform,
     ) {
+        let ts = self.record_transform(ts);
+        if self.record(super::rows::Op::Mask(*s, mask.clone(), ts)) {
+            self.layers.pop();
+            return;
+        }
         let a = self.affine(ts);
         self.scene.push_layer(
             Fill::NonZero,

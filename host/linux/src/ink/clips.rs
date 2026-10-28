@@ -9,6 +9,7 @@ pub(super) struct Group {
     opacity: f32,
     mask: Option<Coverage>,
     destination: Option<TextureId>,
+    pub(super) transform: Option<Transform>,
 }
 
 impl Ink {
@@ -22,6 +23,7 @@ impl Ink {
             opacity,
             mask,
             destination: None,
+            transform: None,
         });
     }
 
@@ -78,6 +80,9 @@ impl Ink {
             [0., 0., self.size[0] as f32, self.size[1] as f32],
         );
         instance.param[0] = group.opacity;
+        if let Some(ts) = group.transform {
+            instance.xform = affine(ts);
+        }
         let mut bindings = Bindings {
             image: target,
             ..Default::default()
@@ -102,6 +107,10 @@ impl Ink {
     }
 
     pub(super) fn clip(&mut self, shape: &Shape, ts: Transform) -> Result<()> {
+        let ts = self.record_transform(ts);
+        if self.record(rows::Marker::Clip(*shape, ts)) {
+            return Ok(());
+        }
         if shape.rect.2 <= 0. || shape.rect.3 <= 0. {
             self.encoder
                 .push_clip(Clip::Scissor(Scissor {
@@ -130,7 +139,7 @@ impl Ink {
                 FillRule::Winding,
                 &[],
                 dev,
-                self.size,
+                Some(self.size),
             )?,
             None => None,
         };

@@ -134,6 +134,15 @@ impl Ink {
         coverage: exact_ink::path::Coverage,
         transformed: bool,
     ) -> Result<()> {
+        let mut coverage = coverage;
+        if let Some(c) = self.rows.capture.last() {
+            let offset = c.offset(self.scale);
+            coverage.rect[0] += offset[0];
+            coverage.rect[1] += offset[1];
+        }
+        if self.record(rows::Marker::Coverage(coverage, transformed)) {
+            return Ok(());
+        }
         let clip = CoverageClip {
             texture: coverage.entry.texture,
             rect: coverage.rect,
@@ -181,7 +190,7 @@ impl Ink {
             &mut self.device,
             &[vec![(path, rule)]],
             dev,
-            self.size,
+            self.rows.capture.is_empty().then_some(self.size),
         )?;
         self.coverage_clip(c, dev.kx != 0. || dev.ky != 0.)?;
         Ok(true)
@@ -220,7 +229,7 @@ impl Ink {
             &mut self.device,
             &groups,
             dev,
-            self.size,
+            self.rows.capture.is_empty().then_some(self.size),
         )?;
         self.coverage_clip(c, dev.kx != 0. || dev.ky != 0.)?;
         Ok(1)
