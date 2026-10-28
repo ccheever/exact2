@@ -784,6 +784,16 @@ test('a known user\'s new name moves the identity revision; a new user or the sa
   expect(s.identityRevision).toBe(before + 1);
 });
 
+test('a known user\'s new name moves the version of a DM with them, and of no other channel', () => {
+  const s = seeded();
+  applyDispatch(s, 'CHANNEL_CREATE', { id: '4000', type: 1, recipients: [other], last_message_id: '90' }, 0);
+  const dm = channelVersion(s, '4000'), elsewhere = channelVersion(s, '2000');
+  send(s, '101', { author: { ...other, global_name: 'Friendly' } });
+  expect(channelVersion(s, '4000')).toBe(dm + 1);
+  expect(channelVersion(s, '2000')).toBe(elsewhere);
+  expect(channel(s, '4000')?.recipients?.[0]?.global_name).toBe('Friendly');
+});
+
 test('a thousand real-shaped MESSAGE_CREATEs append within 500 ms', () => {
   const s = seeded('0');
   let seed = 0x512a291;

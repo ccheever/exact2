@@ -713,6 +713,26 @@ test "what was read at the end is acknowledged (review: Grok 4)"
   clock settle
   expect state channels.0 .unread == 0
 
+// A reaction while someone types changes the channel, not when their typing stops.
+test "the typing line goes ten seconds after the typing, whatever else changes in the channel"
+  clock settle
+  clock until state gateway.state == "ready" within 5000
+  tap "channel-general"
+  clock data
+  clock settle
+  tap "fixture"
+  tap "inject-typing"
+  clock data
+  expect tree has "typing"
+  clock +6000
+  tap "fixture"
+  tap "inject-react-above"
+  clock data
+  expect tree has "typing"
+  clock +4500
+  clock data
+  expect tree missing "typing"
+
 test "paging is not refused while another refresh is in flight (review: Grok 6)"
   clock +500 real
   tap "channel-general"

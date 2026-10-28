@@ -274,7 +274,13 @@ function rememberUser(s: Store, user: DiscordObject | undefined): void {
   if (!user?.id) return;
   const known = s.users.get(user.id);
   if (known && SHOWN.every(key => !(key in user) || known[key] === user[key])) return;
-  if (known) s.identityRevision++;
+  if (known) {
+    s.identityRevision++;
+    // A DM is drawn under its recipient's name and picture (`channel`), so its own version moves too.
+    for (const [id, channel] of s.channelMap) {
+      if (channel.recipient_ids?.includes(user.id)) s.versions.set(id, (s.versions.get(id) ?? 0) + 1);
+    }
+  }
   s.users.set(user.id, { ...known, ...user } as User);
 }
 

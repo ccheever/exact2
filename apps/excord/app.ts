@@ -158,7 +158,8 @@ function channelRecord(id: string): Channel {
   const read = S.unread(store, id);
   const known = read.unread ? unreadAfter(id, read.lastReadId) : { count: 0, more: false, at: 0 };
   const first = S.firstUnread(store, id);
-  const typing = S.typingUsers(store, id, clock.now).map(t => t.user.global_name || t.user.username || displayName(t.user.id));
+  const typers = S.typingUsers(store, id, clock.now);
+  const typing = typers.map(t => t.user.global_name || t.user.username || displayName(t.user.id));
   const name = c?.name || (c?.recipients ?? []).map((u: { id: string }) => displayName(u.id)).join(', ');
   const recipients: { id: string }[] = c?.recipients ?? [];
   const avatar = c?.type === 1 && recipients[0] ? avatarUrl(live.origins.cdn, S.user(store, recipients[0].id) ?? recipients[0])
@@ -169,7 +170,8 @@ function channelRecord(id: string): Channel {
     firstUnread: first ?? '', firstUnreadAt: read.unread ? known.at : 0,
     lastRead: read.lastReadId ?? (read.unread ? NEVER : ''),
     arrived: live.arrived.get(id) ?? 0,
-    typing: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…` };
+    typing: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…`,
+    typingUntil: Math.max(0, ...typers.map(t => t.expiresAtMs)) };
 }
 let pastes = 0;
 const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',

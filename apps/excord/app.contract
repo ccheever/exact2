@@ -342,8 +342,9 @@ component Excord
     after(1, digestNow)
   task traffic when live and open != ""
     every(2500, trafficTick)
-  // Discord's typing lasts ten seconds unless sent again.
-  task typingEnds when chan.typing != "" key=chan.version
+  // Discord's typing lasts ten seconds unless sent again. Another change to the channel (a reaction, a
+  // typer's new name) moves its version but not when the typing stops.
+  task typingEnds when chan.typing != "" key=chan.typingUntil
     after(10000, stopTyping)
   task scrollQuiet when scrolling key=scrollTick
     after(200, scrollSettled)
