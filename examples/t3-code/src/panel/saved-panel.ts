@@ -9,13 +9,14 @@
 // As the migration does, an active surface that was not kept falls back to the first kept one while
 // the panel is open, and a panel with nothing kept stays closed. The turn whose diff was last offered
 // proactively (`proactiveDiffTurnId`, 74541bab17) is kept with the panel, also when it keeps no surface,
-// so a closed proactive diff stays closed after a relaunch.
+// so a closed proactive diff stays closed after a relaunch; so are the device tabs the person closed
+// (`dismissedDeviceSurfaceIds`), so an agent opening that device again after a relaunch adds no tab.
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { PanelState, Surface } from './panel-surfaces';
 import { keepRestored, readRestored, RESTORED_KINDS, type RestoredSurface, type SurfaceEntry } from './saved-surfaces';
 
 export type SavedSurface = { id: string; kind: 'files' | 'file' | 'pull-requests'; path: string; line: number; folderTrail?: string } | RestoredSurface;
-export type SavedPanel = { visible: boolean; active: string; surfaces: SavedSurface[]; maximized?: true; proactiveDiffTurnId?: string };
+export type SavedPanel = { visible: boolean; active: string; surfaces: SavedSurface[]; maximized?: true; proactiveDiffTurnId?: string; dismissedDeviceSurfaceIds?: string[] };
 type Holder = { local: object };
 const KEPT = new Set(['files', 'file', 'pull-requests']);
 const MAX_PANELS = 200;
@@ -33,10 +34,12 @@ function keep(surface: SurfaceEntry): SavedSurface | null {
 }
 
 /** One panel as saved: its kept surfaces, the active one (or the first while open), open only with something kept. */
-export function savedPanel(state: { surfaces: readonly SurfaceEntry[]; active: string; visible: boolean; maximized?: boolean; proactiveDiffTurnId?: string }): SavedPanel | null {
+export function savedPanel(state: { surfaces: readonly SurfaceEntry[]; active: string; visible: boolean; maximized?: boolean; proactiveDiffTurnId?: string; dismissedDevices?: readonly string[] }): SavedPanel | null {
   const surfaces = state.surfaces.map(keep).filter((entry): entry is SavedSurface => !!entry);
-  const offered = typeof state.proactiveDiffTurnId === 'string' && state.proactiveDiffTurnId ? { proactiveDiffTurnId: state.proactiveDiffTurnId } : {};
-  if (!surfaces.length) return 'proactiveDiffTurnId' in offered ? { visible: false, active: '', surfaces, ...offered } : null;
+  const dismissed = [...new Set((state.dismissedDevices ?? []).filter(id => typeof id === 'string' && id))];
+  const offered = { ...(typeof state.proactiveDiffTurnId === 'string' && state.proactiveDiffTurnId ? { proactiveDiffTurnId: state.proactiveDiffTurnId } : {}),
+    ...(dismissed.length ? { dismissedDeviceSurfaceIds: dismissed } : {}) };
+  if (!surfaces.length) return Object.keys(offered).length ? { visible: false, active: '', surfaces, ...offered } : null;
   const kept = surfaces.some(entry => entry.id === state.active);
   const visible = state.visible;
   return { visible, active: kept ? state.active : visible ? surfaces[0]!.id : '', surfaces, ...(state.maximized === true ? { maximized: true } : {}), ...offered };
@@ -53,6 +56,7 @@ export function adoptRightPanels(next: object, saved: Obj): void {
       surfaces: arr(entry.surfaces).map(readRestored),
       active: str(entry.active), visible: entry.visible === true, maximized: entry.maximized === true,
       ...(typeof entry.proactiveDiffTurnId === 'string' ? { proactiveDiffTurnId: entry.proactiveDiffTurnId } : {}),
+      dismissedDevices: Array.isArray(entry.dismissedDeviceSurfaceIds) ? entry.dismissedDeviceSurfaceIds.filter((id): id is string => typeof id === 'string') : [],
     });
     if (key && panel) panels[key] = panel;
   }
@@ -64,7 +68,7 @@ export function syncRightPanels(owner: Holder, panels: ReadonlyMap<string, Panel
   const record = local(owner), next: Record<string, SavedPanel> = { ...(record.rightPanels ?? {}) };
   for (const [key, state] of panels) {
     // An untouched panel (not restored yet, never used this session) leaves its saved state alone.
-    if (!state.surfaces.length && !state.userRevision && state.proactiveDiffTurnId === undefined) continue;
+    if (!state.surfaces.length && !state.userRevision && state.proactiveDiffTurnId === undefined && state.dismissedDevices === undefined) continue;
     const panel = savedPanel(state);
     if (panel) next[key] = panel; else delete next[key];
   }
@@ -77,6 +81,17 @@ export function syncRightPanels(owner: Holder, panels: ReadonlyMap<string, Panel
 
 const restored = new WeakMap<object, Set<string>>();
 
+/**
+ * The device tabs a panel closed in an earlier launch, for a panel not restored yet that the session has not given them:
+ * the store's loaded thread state keeps them (rightPanelStore `dismissedDeviceSurfaceIds`), so an agent's opening in a
+ * background thread finds them, and the panels' save writes them back with the tab it opened.
+ */
+export function adoptSavedDismissals(owner: Holder, key: string, state: { dismissedDevices?: string[] }): void {
+  if (state.dismissedDevices !== undefined || restored.get(owner)?.has(key)) return;
+  const saved = local(owner).rightPanels?.[key]?.dismissedDeviceSurfaceIds;
+  if (saved?.length) state.dismissedDevices = [...saved];
+}
+
 /** A panel the session has not touched takes its saved state, once, after the preferences were read and the
  *  client is live (a request made before the connection settles can be abandoned with its generation). */
 export function restoreRightPanel(owner: Holder & { preferencesLoaded: boolean; ready: boolean }, key: string, state: PanelState): boolean {
@@ -87,6 +102,7 @@ export function restoreRightPanel(owner: Holder & { preferencesLoaded: boolean; 
   seen.add(key);
   const saved = local(owner).rightPanels?.[key];
   if (saved?.proactiveDiffTurnId && state.proactiveDiffTurnId === undefined) state.proactiveDiffTurnId = saved.proactiveDiffTurnId;
+  if (saved?.dismissedDeviceSurfaceIds?.length && state.dismissedDevices === undefined) state.dismissedDevices = [...saved.dismissedDeviceSurfaceIds];
   if (!saved || !saved.surfaces.length || state.surfaces.length || state.userRevision) return false;
   state.surfaces = saved.surfaces.map((entry): Surface => ({
     id: entry.id, kind: entry.kind, path: entry.path, line: entry.line, reveal: 0,
