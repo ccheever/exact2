@@ -856,3 +856,244 @@ ignored in ordinary runs because it needs a logged-in composition display.
 MSVC cross-compilation of Ink's tests and GNU cross-compilation of the
 Windows carrier also pass on the Mac; the missing-`fxc` build stub names the
 missing DXBC if opened at runtime.
+
+## S2.1
+
+**Windows Ink still defaults to wgpu.** The overlapped composition path exceeds
+the 10 ms first-screen allowance at both sizes. Lock/unlock is also unqualified
+because no unlock operator was confirmed; that journey was not attempted.
+
+The S2.1 window qualification uses the same NucBox, display, Windows SDK and
+profiles as C6. Shelf's manifest selects Ink; the desktop journeys select
+`EXACT_INK_DEVICE=d3d11`. The window remains on the attached 5120×1440 display;
+the DPI journey changes Settings from 100% to 150% and back through UI Automation.
+The executed journeys run as native ignored tests in the signed-in desktop session.
+
+### Implementation and measurement boundary
+
+`device/d3d11.rs` prepares the D3D11 device, immediate context and DXBC pipeline
+on a worker while the presenter loads fonts and performs the first layout.
+The paint thread joins before installing the backend. Only COM objects cross
+that boundary; the renderer's `Rc` resources are created on the receiving
+thread. No two threads use the immediate context concurrently. This follows
+[Microsoft's D3D11 threading model](https://learn.microsoft.com/en-us/windows/win32/direct3d11/overviews-direct3d-11-render-multi-thread-intro).
+
+The composition timer now separates DXGI factory/swap-chain setup from the
+DirectComposition device, target, visual and commit. Device and pipeline timers
+still measure their full work; the join timer measures the remaining wait and
+paint-thread resource initialization. First-present duration comes from the
+window carrier. Shader objects use build-time DXBC; the application compiles no
+shader source at startup.
+
+A forced TDR also interrupted DWM. Recovery now establishes a CPU frame through
+WARP composition before retrying hardware, and marks presentation successful
+only after the CPU frame has been presented. The native test waits for that
+success, then for hardware recovery and its backoff. It uses `dxcap -forcetdr`,
+not an injected backend error.
+
+The serial baseline is `8de5b7c264` with only the SDK input-watcher correction:
+`build.rs` no longer registers every directory on `PATH` as source input. That
+watcher pulled Rust's standard libraries into the app's captured-source check
+and prevented the Windows bake. The correction changes no renderer behavior.
+The measured candidate is `766fb4f015`; subsequent code commits change only
+the desktop fixtures' activation after Settings and display-wake handling. Executable SHA-256:
+
+| Shelf executable | SHA-256 |
+|---|---|
+| Serial baseline | `63b078e24c0e188932d25a27704b7a822c9763086dd7eb5f1085cafdc6dd4ce4` |
+| Overlapped candidate | `546c492e21c01122882bfce10c50b6b699c610b6dd47551b700b676bed37a331` |
+
+### Desktop journeys
+
+Captures read the actual desktop client pixels with GDI after compositor
+synchronization and stable captures. They wait through opening, restore and
+DPI animations. Settings can retain Windows' foreground permission; in that
+case the test activates Shelf with a title-bar click. Comparisons use a fresh
+Shelf process at the same position and client size. The band is mean maximum
+RGB error below 5/255 and fewer than 6% of pixels with error above 32/255.
+
+| Journey | Result | Mean error /255 | Pixels above 32/255 |
+|---|---|---:|---:|
+| Drag-resize 1024×720 → 800×600 → 1280×900 → 1920×1080 → 1024×720 | Passed, real mouse drags | 0 | 0% |
+| Minimize and restore | Passed | 0 | 0% |
+| Focused field left idle | Passed; three transitions, 20 changed caret pixels | 0 | 0% |
+| Settings 100% → 150% → 100% | Passed; HWND DPI 96 → 144 → 96 | 0.000071 | 0% |
+| Forced device loss | Passed; CPU composition followed by hardware after 1,020.010 ms | 0 | 0% |
+| Sleep and wake | Passed after the physical 5120×1440 desktop returned | 3.049929 | 0% |
+| Lock and unlock | Not attempted; no unlock operator confirmed | — | — |
+
+The resize log contains 77 frames: its 49.84 ms median interval follows the
+test's 50 ms input polling, with paint p50/p95 of 1.84/2.36 ms. The idle caret's
+last two transitions are 530.399 and 530.321 ms apart. Minimize/restore includes
+an intentional 367.07 ms p95 interval. TDR includes a 5,279.21 ms frame gap and
+a 4,820.49 ms failed paint while the compositor is unavailable; those are
+recorded outages, not steady-state frame-time claims. After recovery the window
+matches its fresh-launch reference. No ordinary journey reported device loss
+or a resize error.
+
+The sleep test enables its own `SeShutdownPrivilege` and calls
+`SetSuspendState` with a 15-second resume timer. Windows records sleep and
+resume events; the successful call returned after 74,742 ms, not 15 seconds.
+The Modern Standby exit event names `Power Button`; the wake trigger was not
+independently verified, so this does not qualify timer-only unattended wake.
+A timer can resume Windows while the physical display remains asleep. The test
+wakes the display with mouse input and `SetThreadExecutionState`, then requires
+the original 5120×1440 desktop before comparing frames. An earlier run compared
+against Windows' temporary 640×480 desktop and failed; it is not counted as a
+successful journey. The final test takes 84.49 seconds. No sleep, wake or sign-in
+policy is changed. This qualifies this machine's Modern Standby path, not S3.
+
+### Startup, before and after
+
+Ten rounds at each size rotate CPU/softbuffer, serial D3D11/composition and
+overlapped D3D11/composition. There are 60 successful fresh processes, each
+running 120 frames, with isolated application storage. All builds and other
+GPU tests finish before sampling. The desktop's ordinary applications remain
+running. These are warm-machine, fresh-process measurements; no driver-cache-
+cold claim is made. The first complete screen is Shelf's `library-count` marker.
+
+Milliseconds, median [minimum–maximum]. DWM is the same process-age
+synchronization proxy used in C6. DXGI confirms the corresponding present ID
+for all 40 Direct3D first screens. The CPU path has no DXGI display timestamp.
+
+| Pixels | Path | DWM first-screen proxy | DXGI displayed first screen | Total composition setup |
+|---|---|---:|---:|---:|
+| 1024×720 | CPU / softbuffer | 174.082 [161.085–199.465] | — | — |
+| 1024×720 | Serial D3D11 / composition | 230.032 [224.686–324.484] | 242.659 [237.674–337.140] | 2.064 [1.825–2.571] |
+| 1024×720 | Overlapped D3D11 / composition | 201.091 [197.286–213.908] | 214.413 [209.673–227.023] | 2.018 [1.955–2.656] |
+| 1920×1080 | CPU / softbuffer | 182.991 [176.463–190.043] | — | — |
+| 1920×1080 | Serial D3D11 / composition | 230.890 [226.176–240.632] | 243.673 [239.014–253.361] | 2.050 [1.868–2.795] |
+| 1920×1080 | Overlapped D3D11 / composition | 200.101 [196.439–228.877] | 213.012 [209.012–240.566] | 1.905 [1.790–2.134] |
+
+Paired differences subtract the CPU run from the same round. They include the
+whole path, not just composition creation. The new series replaces C6's older
+46–49 ms comparison for this decision; C6's absolute startup times are not
+mixed into it.
+
+| Pixels | Before minus CPU | After minus CPU | Gate |
+|---|---:|---:|---|
+| 1024×720 | 59.237 [49.757–125.019] | 26.751 [-1.737–45.183] | Fails ≤10 ms |
+| 1920×1080 | 48.904 [38.371–54.691] | 17.072 [6.396–49.256] | Fails ≤10 ms |
+
+The candidate's phases are below. Device and pipeline work overlap the fonts
+and layout; do not add their full times to the join time. Total composition
+also includes backdrop attributes and the initial statistics query. First
+present is the carrier's duration for frame one, which can precede the complete
+first screen. Its first paint includes initial text/atlas work. The preserved
+serial executable reports total composition and first-present return, but not
+the newly split phase timers; those missing measurements are not inferred.
+
+| Candidate phase, ms | 1024×720 | 1920×1080 |
+|---|---:|---:|
+| Device creation | 46.523 [44.409–58.295] | 46.508 [43.635–51.372] |
+| DXBC pipeline objects | 2.670 [2.589–2.863] | 2.759 [2.612–2.815] |
+| Remaining join and resource setup | 16.059 [14.016–26.620] | 16.089 [13.605–21.970] |
+| DXGI factory and swap chain | 1.114 [1.005–1.534] | 1.032 [0.937–1.218] |
+| Composition device, target, visual and commit | 0.720 [0.675–1.057] | 0.693 [0.655–0.769] |
+| First paint | 11.927 [0.454–14.352] | 12.686 [0.453–15.504] |
+| First present duration | 1.267 [1.150–1.426] | 1.312 [1.098–1.687] |
+| First present return, elapsed from host start | 157.317 [149.493–178.156] | 155.644 [150.068–189.984] |
+
+The remaining join is about 16 ms at both sizes. Overlap improves startup, but
+neither size meets the promotion threshold. The new path's steady redraw
+intervals are 16.635/17.100 ms p50/p95 at 1024×720 and 16.625/17.080 ms at
+1920×1080 (medians of ten runs; 119 post-first-frame intervals per run).
+
+### Native desktop test results
+
+| Filter | Verbatim result |
+|---|---|
+| shelf_resize | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 6.63s` |
+| shelf_minimize_restore | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 2.32s` |
+| shelf_idle_caret | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 3.02s` |
+| shelf_dpi_roundtrip | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 5.15s` |
+| shelf_device_loss | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 8.80s` |
+| shelf_sleep_wake | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 84.49s` |
+| shelf_startup_series | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 138.63s` |
+| direct_window_blinks_without_a_softbuffer_surface | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.35s` |
+
+`shelf_lock_unlock` was not run.
+
+### Pinned and carrier suites
+
+The NucBox runs set `EXACT_REQUIRED=1` and `WGPU_BACKEND=dx12`; no missing
+GPU is silently skipped. Each filter uses its normal CPU, Vello and Ink arms.
+The device column selects Ink's device; it does not change the CPU oracle.
+
+| Device | Suite | Verbatim result |
+|---|---|---|
+| d3d11 | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 13.60s` |
+| d3d11 | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 2.06s` |
+| d3d11 | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 101 filtered out; finished in 0.55s` |
+| d3d11 | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 1.00s` |
+| d3d11 | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.55s` |
+| d3d11 | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 3.96s` |
+| d3d11 | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.53s` |
+| d3d11 | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.65s` |
+| wgpu | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 72.27s` |
+| wgpu | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 7.88s` |
+| wgpu | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 101 filtered out; finished in 2.29s` |
+| wgpu | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 6.55s` |
+| wgpu | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.65s` |
+| wgpu | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 12.80s` |
+| wgpu | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.68s` |
+| wgpu | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 2.16s` |
+| d3d11 | exact-windows | `test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.11s` |
+| wgpu | exact-windows | `test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.11s` |
+
+The native `exact-ink` unit tests, including transferring the prepared device
+to its receiving thread, report `test result: ok. 25 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 8.46s`
+
+The Mac named filters report:
+
+| Filter | Verbatim result |
+|---|---|
+| paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 2.00s` |
+| borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 0.94s` |
+| tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.98s` |
+| backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 1.44s` |
+| gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.98s` |
+| visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 1.49s` |
+| materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.58s` |
+| image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.72s` |
+
+### Checks and reproduction
+
+The Mac passes the six required checks, including both Clippy and formatting,
+and `cargo test -p exact-linux --lib --tests --no-fail-fast`. The Linux library
+reports 1,553 passed and 20 ignored; its complete integration run includes
+130 `it` tests and 103 pinned tests, all passing. The Mac named filters above
+ran with Ink's wgpu device. MSVC compilation of the Windows-only Ink tests and
+GNU cross-compilation of the Windows carrier also pass. The shared Unix listener test module
+is now correctly excluded from Windows, where neither Unix sockets nor its
+linked listener implementation exists.
+
+| Mac command | Exit | Seconds |
+|---|---:|---:|
+| `cargo build --all-targets --keep-going` | 0 | 0.79 |
+| `cargo test --tests --no-fail-fast` | 0 | 105.63 |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | 0.87 |
+| `cargo fmt --all -- --check` | 0 | 5.36 |
+| `bun scripts/caps.mjs` | 0 | 2.15 |
+| `bun scripts/boot.mjs` | 0 | 0.02 |
+| `cargo check --workspace --all-targets --keep-going` | 0 | 25.26 |
+| `cargo test -p exact-linux --lib --tests --no-fail-fast` | 0 | 94.06 |
+
+An additional optimized Windows `exact-linux --lib` test build was stopped
+while compiling that large test binary; it was not run or counted as passing.
+Windows' requested pinned, image and carrier suites were built and run as
+separate targets. The full Linux library/integration requirement ran on the Mac.
+
+Build the executables before measurement. Run `device::d3d11::desktop_tests`
+filters from `exact-ink --lib` in the interactive desktop, using `--ignored
+--nocapture --test-threads=1`. `INK_SHELF` names the candidate and
+`INK_SHELF_BEFORE` the preserved serial executable. Do not run the complete
+module unattended: lock/unlock requires an operator. The DPI test writes
+`target/ink-s2/dpi-waiting` and `dpi-at-150`; select 150%, then 100%, in Settings.
+Its Scale control's automation ID is
+`SystemSettings_Display_Scaling_ItemSizeOverride_ComboBox`.
+
+Raw desktop images, per-frame/startup logs and parsed startup samples are in
+`target/ink-s2-nucbox/`; Mac check logs are in `target/ink-s2-mac-bcbda9/`.
+The remote fixtures record every child PID and close or terminate only their
+own children. Temporary desktop tasks are removed after the runs.
