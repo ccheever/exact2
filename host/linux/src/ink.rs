@@ -229,6 +229,14 @@ impl Ink {
 
 impl Backend for Ink {
     #[cfg(windows)]
+    fn platform_text(&mut self, text: &str) -> std::result::Result<bool, String> {
+        if let Selected::D3d11(device) = &self.device {
+            return device.type_text(text).map_err(|e| e.to_string());
+        }
+        Ok(false)
+    }
+
+    #[cfg(windows)]
     fn attach_window(
         &mut self,
         window: exact_ink::device::d3d11::Window,
@@ -255,6 +263,10 @@ impl Backend for Ink {
     }
     fn page(&mut self, color: [u8; 4]) {
         self.page = color;
+        #[cfg(windows)]
+        if matches!(&self.device, Selected::D3d11(d) if d.has_window()) {
+            self.page = [0; 4];
+        }
     }
 
     fn begin(&mut self, width: f32, height: f32, scale: f32) {

@@ -20,7 +20,11 @@ use windows::{
     },
 };
 mod composition;
+pub mod rich_edit;
 mod setup;
+#[cfg(test)]
+mod tests;
+mod text_host;
 pub use composition::Window;
 
 struct Texture {
@@ -53,6 +57,7 @@ pub struct D3d11 {
     owner: Rc<()>,
     info: Info,
     composition: Option<composition::Composition>,
+    editor: Option<rich_edit::RichEdit>,
 }
 
 impl D3d11 {
@@ -108,6 +113,7 @@ impl D3d11 {
             retired: Vec::new(),
             owner,
             composition: None,
+            editor: None,
             info: Info {
                 adapter,
                 api: "direct D3D11".into(),
@@ -208,7 +214,12 @@ impl D3d11 {
                 );
             }
             self.context.Unmap(&staging, 0);
-            self.completed()?;
+            if desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM {
+                for pixel in bytes.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+            }
+            self.wait(submission)?;
             Ok(bytes)
         }
     }

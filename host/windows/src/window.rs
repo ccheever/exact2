@@ -928,6 +928,23 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 if event.state == ElementState::Pressed {
                     self.caret.activity(Instant::now());
                 }
+                if event.state == ElementState::Pressed {
+                    if let Some(text) = event.text.as_deref() {
+                        match p.platform_text(text) {
+                            Ok(true) => {
+                                if let Some(window) = &self.window {
+                                    window.request_redraw();
+                                }
+                                return;
+                            }
+                            Err(e) => {
+                                self.fail(events, e);
+                                return;
+                            }
+                            Ok(false) => {}
+                        }
+                    }
+                }
                 // Unicode input (VK_PACKET) has text but no physical key.
                 let (code, key) = key_names(
                     event.physical_key,

@@ -12,7 +12,7 @@ use windows::Win32::{
 /// A live HWND and its owner, retained until DirectComposition releases it.
 #[derive(Clone)]
 pub struct Window {
-    hwnd: HWND,
+    pub(super) hwnd: HWND,
     _owner: Rc<dyn Any>,
 }
 impl Window {
@@ -136,13 +136,25 @@ impl D3d11 {
         if size.contains(&0) {
             return Err(Error::Invalid("composition size".into()));
         }
-        let composition = Composition::new(&self.device, window, size)?;
+        let composition = Composition::new(&self.device, window.clone(), size)?;
+        if let Ok(initial) = std::env::var("EXACT_INK_RICHEDIT") {
+            let editor = super::rich_edit::RichEdit::new(self, window, [320, 48])?;
+            editor.type_text(&initial)?;
+            self.editor = Some(editor);
+        }
         eprintln!(
             "exact-ink: composition swap chain {:.3} ms",
             composition.creation_ms
         );
         self.composition = Some(composition);
         Ok(())
+    }
+    pub fn type_text(&self, text: &str) -> Result<bool> {
+        if let Some(editor) = &self.editor {
+            editor.type_text(text)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
     pub fn has_window(&self) -> bool {
         self.composition.is_some()
@@ -151,6 +163,37 @@ impl D3d11 {
         let start = Instant::now();
         let desc = self.texture(id)?.desc;
         let size = [desc.width, desc.height];
+        if let Some(editor) = self.editor.take() {
+            let result = (|| {
+                let texture = editor.draw(self)?;
+                let mut encoder = crate::Encoder::new(size[0], size[1]);
+                let y = size[1].saturating_sub(80) as f32;
+                encoder
+                    .push(
+                        Instance::rounded([12., y, 344., 64.], [8.; 4], [0.9, 0.9, 0.9, 0.92]),
+                        Bindings::default(),
+                    )
+                    .map_err(|_| Error::Invalid("editor background".into()))?;
+                let mut image = Instance::new(
+                    Kind::RoundedRect,
+                    crate::Brush::Image,
+                    [24., y + 8., 320., 48.],
+                );
+                image.uv = [0., 0., 1., 1.];
+                encoder
+                    .push(
+                        image,
+                        Bindings {
+                            image: texture,
+                            ..Default::default()
+                        },
+                    )
+                    .map_err(|_| Error::Invalid("editor image".into()))?;
+                self.render(&encoder.finish(), id, None)
+            })();
+            self.editor = Some(editor);
+            result?;
+        }
         let composition = self
             .composition
             .as_mut()

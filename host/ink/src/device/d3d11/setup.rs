@@ -170,6 +170,14 @@ pub(super) fn texture(device: &ID3D11Device, desc: TextureDesc) -> Result<Textur
     } else {
         DXGI_FORMAT_R8G8B8A8_UNORM
     };
+    texture_format(device, desc, format)
+}
+
+pub(super) fn texture_format(
+    device: &ID3D11Device,
+    desc: TextureDesc,
+    format: DXGI_FORMAT,
+) -> Result<Texture> {
     let mut raw = None;
     unsafe {
         device.CreateTexture2D(
