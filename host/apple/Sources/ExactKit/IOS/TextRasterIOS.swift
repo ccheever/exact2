@@ -157,6 +157,7 @@ final class TextRasterizer {
             ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init),
             // A layer shadow and a vibrancy view each take the ink as it is.
             tints: key.spec.shadow == nil && (node.vibrantColor == nil || node.enclosingBlur == nil),
+            antialiased: key.spec.antialiased,
             measuredGlyphs: key.spec.color.count == 4 ? engine.measuredGlyphs(key.spec, width: key.box.width) : nil,
             measuredColor: TextEngine.color(key.spec.color).cgColor)
         // A job for the paragraph's previous text or box paints nothing now.

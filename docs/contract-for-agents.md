@@ -3597,6 +3597,15 @@ count, as Chrome's do, on every host. It balances up to six lines (more, or a
 `line-clamp`, wrap as usual), moves only the breaks (the box measures as
 before, and `text-align` places the lines in it), and `auto` turns it off. `pretty` and `stable` are refused; supported values are `auto | balance`.
 
+`-webkit-font-smoothing="antialiased"` (inherited) draws text as Chrome and
+Safari on the Mac do under that property: lighter glyphs, without the stem
+darkening the Mac's default smoothing adds. Write it on the root only when the
+web app being matched sets it; unsaid, text is the platform's. AppKit draws it
+and the web writes it. Linux, Windows, a terminal and the widget and watch
+drivers accept it and draw as before, as browsers off the Mac ignore it; iOS
+is expected to as well, but has not been measured. `none` and
+`subpixel-antialiased` are refused; supported values are `auto | antialiased`.
+
 `text-box` cuts a paragraph's line box to its glyphs (CSS Inline Layout 3 §4),
 to centre a label in a pill or line a heading's cap height up with an icon
 without padding by eye: `text-box="trim-both cap alphabetic"` trims the first

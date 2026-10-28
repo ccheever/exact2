@@ -26,7 +26,6 @@ component App
     takeover = not takeover
   action answer
     send answered = answerLater()
-    refresh echo
   action focusWindow
     focus()
   view

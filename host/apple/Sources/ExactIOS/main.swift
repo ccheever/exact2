@@ -70,8 +70,8 @@ final class Adapter: ExactSessionDelegate {
             UIApplication.shared.open(url)
         // A scene is the system's to close; an app cannot (studio diary R17).
         case "close": session.log("close: unsupported: iOS closes a scene, an app does not")
-        // Bare `focus()`: the one scene is the one shown (LLP 1133.025 §8).
-        case "focus": break
+        // Bare `focus()`: a phone app is in front or not running (LLP 1133.005 D10).
+        case "focus": session.log("focus window: unsupported: an iOS app is in front or not running")
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }

@@ -2212,7 +2212,7 @@ the presenter's placement and order for open top-layer content.
 
 | Scope | Swift (`ExactModule`) | Page module (`modules/web/index.js`) |
 |---|---|---|
-| A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)` | `element(e)`, `elementEnded(e)` |
+| A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)`; a frame's `elementConfiguration(_:_:)` | `element(e)`, `elementEnded(e)` |
 | A route, a navigation stack, tabs (iOS; the web's elements) | `route`, `routeEnded`, `navigation`, `tabs`, `tabContainer` | `route`, `routeEnded`, `navigation`, `tabs` |
 | The window toolbar (macOS) | `toolbar(_:)` | none |
 | The app: its facts, by the web's names, and the root node's `data-*` words as `data` (each in `app.json` `data`, which `hatch --app` adds; Swift reads `data-booted` as `app.data[.booted]`) | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
@@ -2225,8 +2225,16 @@ one when the arm replaces it (a new `partition`, a PDF to HTML). The arm owns
 `navigationDelegate`, `uiDelegate`, `pageZoom`, the appearance, the user
 scripts of its content controller and a PDF view's `delegate`, and a
 development build names one the hatch changed (LLP 1020.002 §9); a script
-message handler a hatch adds is not detected. The moment before construction, with the `WKWebViewConfiguration`, is not
-built.
+message handler a hatch adds is not detected. Before each web view is made,
+`elementConfiguration(_:_:)` hands the `WKWebViewConfiguration`. The arm has
+set its data store and content worlds, and the frame has its own new
+`WKPreferences` with the arm's two settings. Set an `applicationNameForUserAgent`, content rule lists, URL scheme
+handlers for the app's own schemes, or the frame's preferences; the data store
+and the content controller must stay the arm's. Change only the configuration
+there: the node may not be in the tree yet. A hatched frame's first web view
+waits for the module to connect, so this call comes before the web view is
+made. The web view then arrives at `built`; if `built` has no `platform` (as
+on macOS or in an iOS list row), the `changed` after this call hands it.
 
 **Linux, Windows and Android paint their own pixels**, so there is no platform
 object to hand over. A hatch there is Rust: one type that implements

@@ -36,6 +36,10 @@ final class ElementHatches {
     private var unhandledByPlan: Set<String> = []
     /// What hatches told the agent of what they made (HatchRegions.swift).
     lazy var regions = HatchRegions(presenter)
+    /// Hatched frames whose web view waits for the module's hatches, and
+    /// nodes that heard `configuring` before their `built`.
+    private var waitingFrames: [UInt32: () -> NodeView?] = [:]
+    private var configured: Set<UInt32> = []
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -77,6 +81,7 @@ final class ElementHatches {
         }
         let entry = Entry(node: node, told: true, data: known.data, inList: Self.list(holding: node) != nil)
         nodes[node.id] = entry
+        configured.remove(node.id)
         let reusable = call(.built, entry)
         say(word, node: node, inList: entry.inList, reusable: reusable)
     }
@@ -104,6 +109,41 @@ final class ElementHatches {
         say(word, node: node, inList: entry.inList, reusable: reusable)
     }
 
+    /// A hatched frame's arm is about to make its web view: its hatch hears
+    /// `configuring` with the `WKWebViewConfiguration` (LLP 1020.002 §9).
+    /// Within a batch or a held leaf's release, so the node may not be in
+    /// `presenter.views` yet, nor have a superview.
+    func configuring(_ node: NodeView, _ configuration: AnyObject) {
+        guard let word = node.props["hatch"], let natives = presenter.session?.natives, natives.hatchesConnected,
+              natives.handledHatches?.contains(word) != false else { return }
+        let count = (calls[word]?[RouteHatchEvent.configuring.name] ?? 0) + 1
+        calls[word, default: [:]][RouteHatchEvent.configuring.name] = count
+        configured.insert(node.id)
+        natives.elementHatch(node, event: RouteHatchEvent.configuring.rawValue, platform: configuration, quiet: count > 1 && Self.inList(node, presenter))
+    }
+
+    /// Whether a hatched frame's web view waits: until the module's hatches
+    /// connect, so its hatch hears `configuring` before the first one, on a
+    /// cold launch's first screen too. A word the module does not handle,
+    /// or a module that will not connect, waits for nothing.
+    func waits(_ node: NodeView) -> Bool {
+        guard let word = node.props["hatch"], presenter.session?.natives.hatchesMayConnect(word) == true else { return false }
+        waitingFrames[node.id] = { [weak node] in node }
+        return true
+    }
+
+    /// The hatches connected, or never will: the waiting frames are made.
+    func releaseFrames() {
+        let waiting = waitingFrames
+        waitingFrames = [:]
+        for id in waiting.keys.sorted() {
+            if let node = waiting[id]?(), presenter.views[id] === node { node.embedFrame(presenter) }
+        }
+        // Outside a batch: a held frame outside a list's rows is made now, as
+        // at a batch's end, not by the tick, which makes only the near ones.
+        if !waiting.isEmpty { presenter.leaves.batchApplied(moved: true) }
+    }
+
     /// Before a batch's ops: every hatched node it destroys ends now, its view
     /// still in its row. A row's root is destroyed before its children, and
     /// the node pool decides at the root whether the row parks, so a
@@ -117,7 +157,9 @@ final class ElementHatches {
     /// A node the batch destroys: its hatch hears `ended` while its view is
     /// still there.
     func destroyed(_ id: UInt32) {
-        guard let entry = nodes.removeValue(forKey: id), entry.told else { return }
+        waitingFrames[id] = nil
+        // Configured and not yet built: its element ends too.
+        guard let entry = nodes.removeValue(forKey: id), configured.remove(id) != nil || entry.told else { return }
         call(.ended, entry)
     }
 
@@ -125,6 +167,8 @@ final class ElementHatches {
     func reset() {
         for id in nodes.keys.sorted() { destroyed(id) }
         nodes = [:]
+        waitingFrames = [:]
+        configured = []
         regions.reset()
         // The window and the app end with them, and are built again after a reload (ScopeHatches.swift).
         presenter.session?.natives.scopesReset()
@@ -132,6 +176,7 @@ final class ElementHatches {
 
     /// The module connected after these were built (LLP 1075.003 Q3 (c)).
     func replay() {
+        releaseFrames()
         for id in nodes.keys.sorted() { if let entry = nodes[id], !entry.told { build(entry.node) } }
     }
 
@@ -182,6 +227,14 @@ final class ElementHatches {
             presenter.session?.log("hatch element \(word) is in a row of \(name): each row's mount calls its hatch on the main thread"
                 + (lost.contains("pool") ? ", and its row is never reused" : ""))
         }
+    }
+
+    /// Whether `node` is in a list's row, or in one the batch is making (iOS).
+    private static func inList(_ node: NodeView, _ presenter: Presenter) -> Bool {
+        #if os(iOS) || os(tvOS)
+        if presenter.pool.list(creating: node.id) != nil { return true }
+        #endif
+        return list(holding: node) != nil
     }
 
     /// The virtualized list whose row holds `node`, if any.
@@ -400,5 +453,17 @@ final class ElementHatches {
         }
         return true
         #endif
+    }
+}
+
+extension NodeView {
+    /// An iframe's web view, made once the node has its props: the arm then
+    /// builds it with the frame's `partition`, and a hatched frame's moment
+    /// before construction has the node's word and `data-*`. A hatched one
+    /// waits for the module's hatches (LLP 1020.002 §9).
+    func embedFrame(_ presenter: Presenter) {
+        guard kind == "iframe", !presenter.elements.waits(self) else { return }
+        presenter.leaves.embed(self)
+        updateEmbedded()
     }
 }

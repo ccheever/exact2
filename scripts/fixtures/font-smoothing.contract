@@ -1,0 +1,26 @@
+// LLP 1019 D12's parity page: the same labels with `-webkit-font-smoothing`
+// unset and `antialiased`, Chrome on the Mac the oracle. Black on white at the
+// sizes and weights a desktop app's labels use, in the system face on both.
+// `flip` binds the third column, so a change is seen to redraw.
+component FontSmoothing
+  state on = false
+  action flip
+    on = not on
+  view
+    main testId="font-smoothing" position="relative" width=420 height=220 background-color="#ffffff" color="#000000" font-family="system-ui"
+      column testId="auto" position="absolute" left=12 top=12 width=124 row-gap=6
+        text "Settings" font-size=13 font-weight=400
+        text "Settings" font-size=13 font-weight=500
+        text "Full access" font-size=14 font-weight=500
+        text "Default" font-size=16 font-weight=600
+      column testId="antialiased" position="absolute" left=148 top=12 width=124 row-gap=6 -webkit-font-smoothing="antialiased"
+        text "Settings" font-size=13 font-weight=400
+        text "Settings" font-size=13 font-weight=500
+        text "Full access" font-size=14 font-weight=500
+        text "Default" font-size=16 font-weight=600
+      column testId="bound" position="absolute" left=284 top=12 width=124 row-gap=6 -webkit-font-smoothing=(on ? "antialiased" : "auto")
+        text "Settings" font-size=13 font-weight=400
+        text "Settings" font-size=13 font-weight=500
+        text "Full access" font-size=14 font-weight=500
+        text "Default" font-size=16 font-weight=600
+      button testId="flip" press=flip aria-label="Flip" position="absolute" left=12 top=160 width=40 height=40 background-color="#757575"

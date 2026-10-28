@@ -880,7 +880,7 @@ package final class Presenter {
                 v.swipeOwner = op.props["swipeContent"] != nil
                 v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
-                if reused != nil { v.finishReuse() }
+                if reused != nil { v.finishReuse() } else { v.embedFrame(self) }
                 views[id] = v
                 elements.created(v)
                 if v.kind == "video" { leaves.created(v) }
