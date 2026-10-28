@@ -1,0 +1,19 @@
+[package]
+name = "exact-ink"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["wgsl", "metal", "vulkan", "dx12"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"] }
+web-time = "1"
+
+[build-dependencies]
+naga = { version = "30", features = ["wgsl-in", "msl-out", "hlsl-out", "spv-out", "glsl-out"] }
