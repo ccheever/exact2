@@ -1,4 +1,4 @@
-// T3 Code 74541bab17 (MIT, LICENSE-T3): auth/RpcAuthorization.ts and contracts/clientRpcPermissions.ts.
+// T3 Code 7c3b3b3605ef (MIT, LICENSE-T3): auth/RpcAuthorization.ts and contracts/clientRpcPermissions.ts.
 // Client guards provide immediate feedback; the server authorizes every request.
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
@@ -92,6 +92,7 @@ const RPC_SCOPES: Record<string, Permission> = {
   'pullRequests.diffFileContents': 'orchestration:read',
   'pullRequests.changeBreakdown': 'orchestration:read',
   'pullRequests.filesViewed': 'orchestration:read',
+  'pullRequests.filterOptions': 'orchestration:read',
   'pullRequests.generateReviewGuide': 'orchestration:operate',
   'pullRequests.invalidate': 'orchestration:read',
   'pullRequests.labelCandidates': 'orchestration:read',

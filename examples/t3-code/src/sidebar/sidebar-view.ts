@@ -13,8 +13,9 @@ import type { T3Client } from '../client/client';
 import { knownSessions } from '../terminal/terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session';
 import { terminalFocused } from '../terminal/terminal-focus';
-import { searchMatch, serverMatches, snoozePresets, threadSearchPending, type SearchPart, type SnoozePreset } from './sidebar-presentation';
-import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, sidebarPrefs, sidebarSession, undoLive, undoSummary } from './sidebar-state';
+import { snoozePresets, type SnoozePreset } from './sidebar-presentation';
+import { searchMatch, searchRows, threadSearchPending, type SearchPart } from './sidebar-search';
+import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, noteSnapshotTime, sidebarPrefs, sidebarSession, undoLive, undoSummary } from './sidebar-state';
 import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar';
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './sidebar-glyph';
@@ -36,7 +37,7 @@ import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow
 import { draftMenuRows } from './draft-rows';
 import { replaceContextReferences } from '../composer/composer-editor-menu'; // a draft row's chips read as their labels
 import { renameHeld } from './sidebar-rename-wait';
-import { pullRequestSearchTerms, rowPullRequestLinks, searchPullRequest } from './search-pull-request';
+import { rowPullRequestLinks, searchPullRequest } from './search-pull-request';
 import { routeRowThreadId } from './sidebar-lineage';
 import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 import { triggerDisplayModelName } from './model-short-name';
@@ -200,21 +201,6 @@ export function renderedRows(client: T3Client, parts: Partition): { thread: Obj;
   return rows;
 }
 
-/** The search's matches over every shelf in sidebar order: title matches first, then server content matches. */
-export function searchRows(client: T3Client, parts: Partition): { thread: Obj; section: SidebarSection }[] {
-  const query = client.query.trim().toLowerCase();
-  if (!query) return [];
-  const server = serverMatches(client), titles: { thread: Obj; section: SidebarSection }[] = [], content: typeof titles = [];
-  for (const section of ['pinned', 'active', 'working', 'snoozed', 'settled'] as SidebarSection[]) {
-    for (const thread of parts[section]) {
-      const terms = [str(thread.title), ...pullRequestSearchTerms(thread)];
-      if (terms.some(term => term.toLowerCase().includes(query))) titles.push({ thread, section });
-      else if (server.has(str(thread.id))) content.push({ thread, section });
-    }
-  }
-  return [...titles, ...content];
-}
-
 /**
  * The title's ink (SidebarThreadRow title span). A settled row's whole content is secondary at rest unless it is open
  * (variantAction "unsettle"); a receding card title is foreground/75 and inks up on hover in the row.
@@ -283,7 +269,7 @@ function threadConfig(client: T3Client, thread: Obj): Obj {
   if (!ref || ref.environmentId === client.environmentId) return client.config;
   return obj([...fleet.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.config);
 }
-function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[]; spans: boolean }): SidebarThread {
+function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[]; spans: boolean; match?: Obj }): SidebarThread {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
   const environment = threadConfig(client, thread), providers = arr(environment.providers);
   const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
@@ -319,7 +305,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
     ...prBadge, // resolveThreadPullRequestBadge (pr-surface.ts), else the branch's pull request
     section, status: pill?.label ?? '', selected: active, routeThread, searchFirst: extra.searchFirst,
-    ...searchMatch(thread, client.query, serverMatches(client).get(id)),
+    ...searchMatch(extra.match, session.searchFoundFor), // a row listed for its message
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
     // metaLineEmpty: only the provider icon would remain, so a card drops its third line and the icon joins the title.
     metaEmpty: !str(thread.branch) && !scratch && !prBadge.badge && !remote && terminalCount === 0,
@@ -404,13 +390,14 @@ function revealRows(client: T3Client, rows: { thread: Obj }[], searching: boolea
 export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarHelpers): { threads: SidebarThread[]; searchFirstId: string; snoozePresets: SnoozePreset[]; sidebar: SidebarView } {
   // The legacy sidebar keeps its own reveal while it is the one shown (legacy-sidebar-view.ts).
   const searching = client.query.trim() !== '', reveals = client.local.clientSettings?.legacySidebarEnabled !== true;
+  noteSnapshotTime(client, now);
   if (reveals) revealRoute(client, searching);
   const prefs = sidebarPrefs(client), session = sidebarSession(client), parts = partition(client, now);
   const scopes = projectScopes(client), scope = scopes.find(group => group.key === prefs.scope);
   notePlaces(client, parts); // a row's moves count while its shelf is collapsed too
-  const rows = searching ? searchRows(client, parts) : renderedRows(client, parts);
-  if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchIndex = 0; }
-  const searchIndex = rows.length ? Math.min(session.searchIndex, rows.length - 1) : 0;
+  const rows: { thread: Obj; section: SidebarSection; match?: Obj }[] = searching ? searchRows(client, parts, now) : renderedRows(client, parts);
+  if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchKey = ''; }
+  const searchIndex = Math.max(0, session.searchKey ? rows.findIndex(entry => entry.thread.id === session.searchKey) : 0);
   // The embedded terminal owns keystrokes while it has focus, and a search numbers no rows.
   const jumping = !searching && !terminalFocused(client);
   const jumps = jumping ? jumpLabels(client, rows.length) : [];
@@ -421,8 +408,8 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const menuOf = (thread: Obj): MenuRow[] => searching ? []
     : session.selection.includes(str(thread.id)) ? bulk : menuRows(threadMenuItems(threadMenuState(client, thread, false, scopes, now)));
   const spans = projectsSpanEnvironments(client);
-  const threads = rows.map(({ thread, section }, index) => row(client, thread, section, now, helpers,
-    { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread), spans }));
+  const threads = rows.map(({ thread, section, match }, index) => row(client, thread, section, now, helpers,
+    { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread), spans, match }));
   const total = parts.pinned.length + parts.active.length + parts.working.length + parts.snoozed.length + parts.settled.length;
   const shownSettled = Math.min(parts.settled.length, session.settledVisible + (parts.settled.slice(session.settledVisible).some(thread => thread.id === routeRowThreadId(client)) ? 1 : 0));
   const hidden = parts.settled.length - shownSettled;

@@ -27,7 +27,7 @@ test('settle actions preserve independent setup roles and stay reachable without
 });
 
 test('a never-run thread held by a PR watch stays Working until the server removes its monitor', () => {
-  const thread = { latestRunId: null, activeProviderThreadId: null, status: 'idle', pendingBackgroundTasks: [{ kind: 'monitor', taskId: 'pull-request-watch:example', description: 'Watching pull request #12' }] };
+  const thread = { latestRunId: null, activeProviderThreadId: null, status: 'idle', pendingBackgroundTasks: [{ kind: 'monitor', taskId: 'pull-request-watch:example', description: 'Watching pull request #12', awaited: true }] }; // pullRequestWatchTasks marks it awaited
   expect(shellRuntime(thread)?.status).toBe('idle');
   expect(isWorkingThread(thread)).toBe(true);
   expect(shellRuntime({ ...thread, pendingBackgroundTasks: [] })).toBeNull();

@@ -9,15 +9,17 @@ import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { canSnooze, capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
 import { bulkMenuState, canArchive, threadMenuState } from './sidebar-menu';
-import { wall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
+import { wall, latestWall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
-import { partition, projectScopes, renderedRows, scopedRowKey, searchRows, undoLabel, workingInbox } from './sidebar-view';
+import { partition, projectScopes, renderedRows, scopedRowKey, undoLabel, workingInbox } from './sidebar-view';
+import { pickSearchResult, showPendingFind } from './sidebar-search';
 import { announce, cancelAnnouncement } from '../shell/announce';
 import { completeRouteReveal } from './route-reveal';
 import { snoozePresets } from './sidebar-presentation';
 import { sidebarDrop } from './sidebar-drop';
 import { dismissProviderPill, scheduleProviderPill } from './sidebar-provider-pill';
+import { claimThreadOpen } from '../palette/palette-search';
 import { syncFavicons } from './sidebar-glyph';
 import { syncBranchPullRequests } from './sidebar-branch-pr';
 import { resetSidebarWidth } from './sidebar-width';
@@ -367,7 +369,11 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
   catch (error) { toast(client, 'Failed to copy', error); }
 }
 
-// ── Visits (ChatView visit effect): the open thread's watermark, deduped per updatedAt, throttled 10s mid-turn.
+// ── Visits (createThreadVisitTracker): showing a thread is its open, whether or not its shell has arrived. This client
+// records the open at once (claimThreadOpen, which recent threads and search ranking read), and the open rides on the
+// first visit the server hears, however late the shell arrives. A ⌘K query pick claims its open first
+// (palette-commands.ts claimPick), so the claim here is refused: sending that open, with the pick's query, is the
+// palette's. Then the watermark, deduped per updatedAt, throttled 10s mid-turn.
 // The effect runs whenever the open thread's shell changes, so it is asked after every refresh too: a thread
 // opened on a background environment arrives by the reconnect to that environment, not by openSelected, and
 // a turn completing on the open thread lands as a shell event.
@@ -378,17 +384,33 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
 // left the dedupe key on the thread visited before, so that thread, marked unread meanwhile, stayed unread when it
 // was opened again.
 const visits = new WeakMap<T3Client, { key: string; thread: string; at: number }>();
+const shownThreads = new WeakMap<T3Client, { route: string; openPending: boolean }>();
 export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
+  // A view with no thread (a draft, ⌘N) ends the last thread's: showing it again is a new open, as the reference's
+  // tracker unmounts and mounts again.
+  if (!client.threadId) { shownThreads.delete(client); return; }
+  // routeThreadKey: the same thread id on another environment is another thread.
+  const route = `${client.environmentId}:${client.threadId}`;
+  let shown = shownThreads.get(client);
+  if (!shown || shown.route !== route) {
+    shown = { route, openPending: claimThreadOpen(client.environmentId, client.threadId, latestWall(client)) };
+    shownThreads.set(client, shown);
+  }
   const thread = threadOf(client, client.threadId);
   if (!thread || !client.ready) return;
   const updated = Date.parse(str(thread.updatedAt));
   if (!Number.isFinite(updated)) return;
   const prefs = sidebarPrefs(client), tracked = thread.lastVisitedAt !== undefined && capabilities(client.config).visitedTracking;
   const seen = Date.parse(str(tracked ? thread.lastVisitedAt : prefs.visited[str(thread.id)]));
+  if (!tracked) { if (!(Number.isFinite(seen) && seen >= updated)) prefs.visited[str(thread.id)] = str(thread.updatedAt); return; }
+  const key = `${route}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', thread: '', at: 0 };
+  if (shown.openPending && client.writable) {
+    shown.openPending = false;
+    visits.set(client, { key, thread: route, at: wall(client) });
+    void dispatch(client, nativeHandle, { type: 'thread.visit', threadId: str(thread.id), visitedAt: str(thread.updatedAt), opened: true }).catch(() => undefined);
+    return;
+  }
   if (Number.isFinite(seen) && seen >= updated) return;
-  if (!tracked) { prefs.visited[str(thread.id)] = str(thread.updatedAt); return; }
-  // routeThreadKey: the same thread id on another environment is another thread.
-  const route = `${client.environmentId}:${str(thread.id)}`, key = `${route}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', thread: '', at: 0 };
   if (last.key === key || !client.writable) return;
   const completed = Date.parse(str(latestRun(thread)?.completedAt));
   const unseen = Number.isFinite(completed) && (!Number.isFinite(seen) || completed > seen);
@@ -421,7 +443,7 @@ export async function sidebarSelecting(client: T3Client, _nativeHandle: Native, 
       return true;
     }
   }
-  if (value === 'search') { client.query = ''; session.searchIndex = 0; }
+  if (value === 'search') { pickSearchResult(client, id); client.query = ''; session.searchKey = ''; }
   // A double-click's own presses select the row it is renaming; another row drops the edit.
   session.selection = []; session.anchor = id;
   if (session.renameId !== id) { session.renameId = ''; session.renameTitle = ''; }
@@ -443,9 +465,10 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
   await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
   startHeldRename(client); // a double-click's rename, once its row's environment is in
   visitOpenThread(client, nativeHandle);
+  showPendingFind(client); // a message result's find, once its thread is the open one
 }
-/** After a thread opens: the server visit lands at once for an unseen completion. */
-export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); }
+/** After a thread opens: the server visit lands at once for an unseen completion, and a message result finds its message. */
+export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); showPendingFind(client); }
 
 const menuState = (client: T3Client, thread: Obj) => threadMenuState(client, thread, false, projectScopes(client), wall(client));
 
@@ -468,14 +491,15 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
   else if (op === 'scope-query') session.scopeQuery = value;
   else if (op === 'scope-key') { if (value === 'Escape') { session.scopeOpen = false; session.scopeQuery = ''; } }
   else if (op === 'width-reset') resetSidebarWidth(client); // Forget the stored width
+  // The search's highlight moves over the rows as painted (sidebar-search.ts searchRows) and follows its thread.
   else if (op === 'search-hover') {
-    const at = client.query.trim() ? searchRows(client, partition(client, wall(client))).findIndex(entry => entry.thread.id === id) : -1;
-    if (at >= 0) session.searchIndex = at;
+    if (client.query.trim() && session.searchShown.some(row => row.id === id)) session.searchKey = id;
   } else if (op === 'search-key') {
-    const count = client.query.trim() ? searchRows(client, partition(client, wall(client))).length : 0;
-    if (value === 'Escape') { client.query = ''; session.searchIndex = 0; }
-    else if (count && value === 'ArrowDown') session.searchIndex = (session.searchIndex + 1) % count;
-    else if (count && value === 'ArrowUp') session.searchIndex = (session.searchIndex - 1 + count) % count;
+    const shown = client.query.trim() ? session.searchShown : [], count = shown.length;
+    const at = Math.max(0, session.searchKey ? shown.findIndex(row => row.id === session.searchKey) : 0);
+    if (value === 'Escape') { client.query = ''; session.searchKey = ''; }
+    else if (count && value === 'ArrowDown') session.searchKey = shown[(at + 1) % count]!.id;
+    else if (count && value === 'ArrowUp') session.searchKey = shown[(at - 1 + count) % count]!.id;
   } else if (op === 'rename-start') startRename(client, id); // after its first click's open has landed (app.contract)
   else if (op === 'rename-key') { if (value === 'Escape' && session.renameId === id) { session.renameId = ''; session.renameTitle = ''; } }
   else if (op === 'rename-input') { if (session.renameId === id) session.renameTitle = value; } // the field's text, for its direction
