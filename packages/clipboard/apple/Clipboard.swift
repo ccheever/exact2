@@ -97,13 +97,11 @@ public final class ClipboardModule: ExactPackage {
         switch record["image/png"] {
         case nil: break
         case let path as String:
-            // The file a link names, whose size the bound is.
-            guard let url = context.file(path)?.resolvingSymlinksInPath() else { return reply(refused("NotFoundError", "no file at \(path)")) }
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-            guard let size else { return reply(refused("NotFoundError", "no file at \(path)")) }
-            guard size <= Self.mostFile else { return reply(refused("DataError", "too large: \(path) is over 64 MiB")) }
-            guard let data = try? Data(contentsOf: url) else { return reply(refused("NotReadableError", "\(path) could not be read")) }
-            source = data
+            guard let url = context.file(path) else { return reply(refused("NotFoundError", "no file at \(path)")) }
+            switch Self.contents(url, path) {
+            case .success(let data): source = data
+            case .failure(let why): return reply(refused(why.code, why.message))
+            }
         case let wire as [String: Any]:
             guard let b64 = wire["base64"] as? String, let data = Data(base64Encoded: b64) else { return reply(refused("TypeError", "image/png is an app:/ path or bytes")) }
             guard data.count <= Self.mostBytes else { return reply(refused("DataError", "image/png is over 2 MiB as bytes: pass an app:/ path")) }
@@ -205,6 +203,29 @@ public final class ClipboardModule: ExactPackage {
     }
 
     struct Refusal: Error, CustomStringConvertible { let description: String }
+    struct FileRefusal: Error { let code: String, message: String }
+
+    /// The file at `url`, opened once, so what is checked is what is read: the
+    /// file a link names, a regular one (a device's size says nothing of what
+    /// it gives), at most 64 MiB by its size and by what is read of it.
+    static func contents(_ url: URL, _ path: String) -> Result<Data, FileRefusal> {
+        let fd = open(url.path, O_RDONLY)
+        guard fd >= 0 else {
+            return .failure(errno == ENOENT ? FileRefusal(code: "NotFoundError", message: "no file at \(path)")
+                : FileRefusal(code: "NotReadableError", message: "\(path) could not be read"))
+        }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
+            return .failure(FileRefusal(code: "NotReadableError", message: "\(path) is not a file"))
+        }
+        let tooLarge = FileRefusal(code: "DataError", message: "too large: \(path) is over 64 MiB")
+        guard Int(info.st_size) <= mostFile else { return .failure(tooLarge) }
+        guard let data = try? handle.read(upToCount: mostFile + 1) ?? Data() else {
+            return .failure(FileRefusal(code: "NotReadableError", message: "\(path) could not be read"))
+        }
+        return data.count <= mostFile ? .success(data) : .failure(tooLarge)
+    }
 
     /// A new PNG of `data`'s pixels, frame 0 of an animation, or why not.
     static func sanitized(_ data: Data) -> Result<Sanitized, Refusal> {

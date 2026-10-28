@@ -13,7 +13,7 @@ const { app } = makeFixture();
 run('bun', ['exact.mjs', 'web-build', '--render', 'none'], app);
 
 // Where the build writes: the app's target, or a CARGO_TARGET_DIR the shell names.
-const dist = join(process.env.CARGO_TARGET_DIR ?? join(app, 'target'), 'web-dist');
+const dist = join(process.env.CARGO_TARGET_DIR ? resolve(app, process.env.CARGO_TARGET_DIR) : join(app, 'target'), 'web-dist');
 const types = { '.js': 'text/javascript', '.html': 'text/html', '.wasm': 'application/wasm', '.json': 'application/json', '.css': 'text/css' };
 const server = Bun.serve({ port: 0, async fetch(req) {
   let path = new URL(req.url).pathname;

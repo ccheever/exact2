@@ -1200,10 +1200,7 @@ fn bake_in(
     }
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
     resident::write_config(stage)?;
-    // The target a module binding answers `supports` for (LLP 1133.006 D7):
-    // Cargo's name for it in an app's build script, which is an
-    // implementation's `targets` word (`ios`, `tvos`, `android`, …).
-    let target = std::env::var("CARGO_CFG_TARGET_OS").ok();
+    let target = resident::binding_target();
     write_changed(
         &stage.join("__exact_paths.json"),
         serde_json::json!({"app": app, "mounts": mounts(&app)?, "target": target})

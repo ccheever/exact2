@@ -23,6 +23,7 @@ afterEach(() => { sent.length = 0; });
 const outcome = (p) => p.then(() => 'ok', (e) => e.name);
 
 test('supports answers the declared types where an implementation is, and none elsewhere', async () => {
+  // (Bun runs the binding untyped; js/bake/tests/producer.rs bakes it through tsc for tvOS and iOS.)
   expect((await load('ios')).ClipboardItem.supports('image/png')).toBe(true);
   expect((await load('web')).ClipboardItem.supports('text/plain')).toBe(true);
   expect((await load('tvos')).ClipboardItem.supports('text/plain')).toBe(false);
@@ -38,10 +39,15 @@ test('text over 1 MiB refuses before it is sent, as a key and as writeText', asy
 });
 
 test('a call over the 4 MiB request bound refuses DataError before it is sent', async () => {
-  const { write, ClipboardItem } = await load('web');
+  const { write, writeText, ClipboardItem } = await load('web');
   // Each image within its 2 MiB, the two together over the request's 4 MiB as base64.
   const item = () => new ClipboardItem({ 'image/png': new Uint8Array(2 * 1024 * 1024) });
   expect(await outcome(write([item(), item()]))).toBe('DataError');
+  // JSON escapes count as the host measures them: 1 MiB of newlines is 2 MiB on the wire beside a 2 MiB image,
+  // and 1 MiB of U+0001 is 6 MiB; each is within its own bound before escaping.
+  const MiB = 1024 * 1024;
+  expect(await outcome(write([new ClipboardItem({ 'text/plain': '\n'.repeat(MiB), 'image/png': new Uint8Array(2 * MiB) })]))).toBe('DataError');
+  expect(await outcome(writeText('\u0001'.repeat(MiB)))).toBe('DataError');
   expect(sent).toEqual([]);
 });
 

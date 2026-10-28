@@ -18,11 +18,9 @@ enum AgentPasteboard {
     nonisolated(unsafe) private static var named: Set<String> = []
     private static let removedAtExit: Void = { atexit { AgentPasteboard.removeAll() } }()
 
-    /// Session `owner`'s private pasteboard, or nil where writes go to the person's.
+    /// Session `owner`'s private pasteboard, registered for removal at exit, or nil where writes go to the person's.
     static func name(_ owner: String) -> String? {
-        let env = ExactEnv.environment
-        let bound = (env["EXACT_AGENT_BIND"] ?? "").split(separator: ",").contains("clipboard")
-        guard ExactEnv.agentMode, !bound, env["EXACT_DEVICE"] != "real" else { return nil }
+        guard ExactEnv.agentMode, !ExactEnv.agentBind.contains("clipboard"), ExactEnv.environment["EXACT_DEVICE"] != "real" else { return nil }
         let name = "exact.agent.clipboard.\(owner)"
         _ = removedAtExit
         lock.lock(); named.insert(name); lock.unlock()

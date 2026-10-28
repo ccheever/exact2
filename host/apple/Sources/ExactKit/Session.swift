@@ -330,9 +330,10 @@ public final class ExactSession {
     public let app: ExactApp
     /// A host-owned name the agent carrier routes by (D9) and logs carry.
     public let label: String
-    let notificationOwnerID = UUID().uuidString
-    /// Under the agent the session's own pasteboard, which `copyText` and @exact/clipboard write (AgentPasteboard.swift).
-    var agentPasteboard: String? { AgentPasteboard.name(notificationOwnerID) }
+    let notificationOwnerID: String
+    /// Under the agent the session's own pasteboard, which `copyText` and @exact/clipboard write, registered for
+    /// removal when the session is made, so a process that exits removes it too (AgentPasteboard.swift).
+    let agentPasteboard: String?
     public weak var delegate: ExactSessionDelegate?
     public private(set) var state: State = .created {
         didSet { if state != oldValue { let changed = state; app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, didChange: changed) } } }
@@ -485,6 +486,8 @@ public final class ExactSession {
     #endif
 
     init(app: ExactApp, label: String, launchPlace: LaunchPlace = LaunchPlace()) {
+        let owner = UUID().uuidString
+        notificationOwnerID = owner; agentPasteboard = AgentPasteboard.name(owner)
         self.launchPlace = launchPlace
         self.app = app
         self.label = label
