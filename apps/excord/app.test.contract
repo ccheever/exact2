@@ -117,7 +117,7 @@ test "reading back moves the window a page ahead of the reader, who stays put (Â
   expect state win.rows.0 .key == "1561797858988926588"
   expect tree has "message-1562732896249194217"
 
-test "the lead pages on with no scroll event and stops once 100 rows stand above the reader (F1)"
+test "the lead pages on with no scroll by the reader and stops once 100 rows stand above them (F1)"
   clock settle
   clock until state gateway.state == "ready" within 10000
   clock settle
@@ -125,7 +125,9 @@ test "the lead pages on with no scroll event and stops once 100 rows stand above
   clock settle
   tap "mark-read"
   // One scroll: the reader's row, 40 from the end, is 9 rows below the window's first. The first page
-  // brings 50 rows above it (59), so the lead asks the next with no scroll; at 109 it stops.
+  // brings 50 rows above it (59), so the lead asks the next with no scroll by the reader; at 109 it
+  // stops. (Here a prepend's offset correction is itself a scroll event, which `scrolled` also follows;
+  // `leadOlder` is what keeps the chain on a host that sends none.)
   tap "transcript" into "1562732896249194217"
   clock settle
   expect state topKey == "1562732896249194217"
