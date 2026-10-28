@@ -1,0 +1,12 @@
+{
+  "name": "@exact/in-app-browser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A web page shown over the app with the platform's browser controls, or opened in the browser beside it (LLP 1133.024 Part II).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

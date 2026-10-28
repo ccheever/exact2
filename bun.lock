@@ -24,6 +24,7 @@
         "@exact/geofencing": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/health": "workspace:*",
+        "@exact/in-app-browser": "workspace:*",
         "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
@@ -154,6 +155,10 @@
     },
     "packages/hid": {
       "name": "@exact/hid",
+      "version": "1.0.0",
+    },
+    "packages/in-app-browser": {
+      "name": "@exact/in-app-browser",
       "version": "1.0.0",
     },
     "packages/language-model": {
@@ -313,6 +318,8 @@
     "@exact/health": ["@exact/health@workspace:packages/health"],
 
     "@exact/hid": ["@exact/hid@workspace:packages/hid"],
+
+    "@exact/in-app-browser": ["@exact/in-app-browser@workspace:packages/in-app-browser"],
 
     "@exact/language-model": ["@exact/language-model@workspace:packages/language-model"],
 

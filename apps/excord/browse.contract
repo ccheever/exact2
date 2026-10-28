@@ -1,0 +1,14 @@
+// A message's link (an embed's title, an attachment's row) opens its page over the conversation where
+// the platform shows one there, so Done returns to it; elsewhere the link is followed, as any link is
+// (LLP 1133.024 D13).
+use openBrowser, inAppBrowserStatus, InAppBrowserStatus, BrowserResult from "@exact/in-app-browser"
+
+members Excord
+  // Over the app on iOS, and on Android with a Custom Tabs browser; in the browser beside it elsewhere.
+  resource browser = inAppBrowserStatus() as shape InAppBrowserStatus else empty(available=false, overApp=false)
+  mutation browsed as shape BrowserResult
+  action openLink(url: string)
+    if browser.overApp
+      send browsed = openBrowser(url=url)
+    else
+      openURL(url)
