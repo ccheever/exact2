@@ -58,7 +58,6 @@ pub struct D3d11 {
     info: Info,
     composition: Option<composition::Composition>,
     editor: Option<rich_edit::RichEdit>,
-    first_present: bool,
 }
 
 impl D3d11 {
@@ -115,7 +114,6 @@ impl D3d11 {
             owner,
             composition: None,
             editor: None,
-            first_present: true,
             info: Info {
                 adapter,
                 api: "direct D3D11".into(),

@@ -61,6 +61,12 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
+    /// Displayed-frame time since process creation, when the device exposes it.
+    /// Explicit measurement only: this may wait for the compositor.
+    #[cfg(windows)]
+    fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        Ok(None)
+    }
     /// Attach the carrier's owned window when the device can present directly.
     #[cfg(windows)]
     fn attach_window(
@@ -305,6 +311,10 @@ pub trait Backend {
 }
 
 impl super::Painter {
+    #[cfg(windows)]
+    pub(crate) fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        self.backend.displayed_process_ms()
+    }
     #[cfg(windows)]
     pub(crate) fn platform_text(&mut self, text: &str) -> Result<bool, String> {
         self.backend.platform_text(text)

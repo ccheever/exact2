@@ -81,6 +81,12 @@ impl Composition {
             visual.SetContent(&swap)?;
             target.SetRoot(&visual)?;
             device.Commit()?;
+            // The first statistics query establishes the interval; it may report
+            // DXGI_ERROR_FRAME_STATISTICS_DISJOINT before any frame is presented.
+            let mut statistics = DXGI_FRAME_STATISTICS_MEDIA::default();
+            let _ = swap
+                .cast::<IDXGISwapChainMedia>()?
+                .GetFrameStatisticsMedia(&mut statistics);
             let latency = swap.GetFrameLatencyWaitableObject();
             if latency.is_invalid() {
                 return Err(Error::Device("DXGI frame latency handle".into()));
@@ -231,24 +237,13 @@ impl D3d11 {
         }
         let s = self.submit()?;
         self.textures.get_mut(&id).unwrap().last = s;
-        let present_ms = start.elapsed().as_secs_f64() * 1000.;
-        if std::mem::take(&mut self.first_present)
-            && std::env::var_os("EXACT_AGENT_WINDOW_FRAMES").is_some()
-        {
-            match self.presented_process_ms() {
-                Ok(ms) => eprintln!("exact-ink: process to displayed frame {ms:.3} ms (DXGI)"),
-                Err(error) => {
-                    eprintln!("exact-ink: displayed-frame timestamp unavailable: {error}")
-                }
-            }
-        }
-        Ok(present_ms)
+        Ok(start.elapsed().as_secs_f64() * 1000.)
     }
 }
 
 impl D3d11 {
-    /// The displayed frame's DXGI timestamp relative to process creation. Called
-    /// only by explicit measurements: DwmFlush waits for the compositor.
+    /// The displayed frame's DXGI timestamp relative to process creation. The
+    /// measurement caller first waits with `compositor_sync_process_ms`.
     pub fn presented_process_ms(&self) -> Result<f64> {
         use windows::Win32::{
             Foundation::FILETIME,
@@ -263,7 +258,6 @@ impl D3d11 {
             .as_ref()
             .ok_or(Error::Unsupported("no composition window"))?;
         unsafe {
-            DwmFlush()?;
             let media: IDXGISwapChainMedia = c.swap.cast()?;
             let mut stats = DXGI_FRAME_STATISTICS_MEDIA::default();
             media.GetFrameStatisticsMedia(&mut stats)?;

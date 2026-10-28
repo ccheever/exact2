@@ -184,6 +184,12 @@ impl<D: DataSource> Presenter<D> {
         self.brush.attach_window(window, size)
     }
 
+    /// A bounded measurement may wait for the last frame's displayed timestamp.
+    #[cfg(windows)]
+    pub fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        self.brush.displayed_process_ms()
+    }
+
     /// The pixels, as a PNG at `path`.
     pub fn screenshot(&mut self, path: &str) -> Result<String, String> {
         let frame = self.frame();

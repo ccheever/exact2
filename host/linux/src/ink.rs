@@ -229,6 +229,16 @@ impl Ink {
 
 impl Backend for Ink {
     #[cfg(windows)]
+    fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
+        if let Selected::D3d11(device) = &self.device {
+            return device
+                .presented_process_ms()
+                .map(Some)
+                .map_err(|e| e.to_string());
+        }
+        Ok(None)
+    }
+    #[cfg(windows)]
     fn platform_text(&mut self, text: &str) -> std::result::Result<bool, String> {
         if let Selected::D3d11(device) = &self.device {
             return device.type_text(text).map_err(|e| e.to_string());

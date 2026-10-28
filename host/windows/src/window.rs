@@ -43,6 +43,7 @@ struct App<D: DataSource> {
     minimized: bool,
     occluded: bool,
     frames: u64,
+    measured_first_screen: bool,
     paint_ms: f64,
     present_ms: f64,
     previous_frame: Option<Instant>,
@@ -230,6 +231,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         minimized: false,
         occluded: false,
         frames: 0,
+        measured_first_screen: false,
         paint_ms: 0.,
         present_ms: 0.,
         previous_frame: None,
@@ -514,6 +516,28 @@ impl<D: DataSource + Default + 'static> App<D> {
                 "exact-windows: first present returned at {:.3} ms after host start",
                 self.started.elapsed().as_secs_f64() * 1000.
             );
+        }
+        if self.frame_limit.is_some()
+            && !self.measured_first_screen
+            && p.last_frame_succeeded()
+            && !p.data_activating()
+            && !p.pending()
+        {
+            let synchronized = exact_ink::device::compositor_sync_process_ms();
+            match p.displayed_process_ms() {
+                Ok(Some(ms)) => {
+                    eprintln!("exact-windows: process to displayed first screen {ms:.3} ms (DXGI)")
+                }
+                Err(error) => {
+                    eprintln!("exact-windows: displayed-frame timestamp unavailable: {error}")
+                }
+                Ok(None) => {}
+            }
+            match synchronized {
+                Ok(ms) => eprintln!("exact-windows: process to first-screen compositor sync {ms:.3} ms (upper bound)"),
+                Err(error) => eprintln!("exact-windows: compositor sync: {error}"),
+            }
+            self.measured_first_screen = true;
         }
         self.frames += 1;
         p.first_pixel();

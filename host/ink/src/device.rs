@@ -184,6 +184,39 @@ impl From<windows::core::Error> for Error {
     }
 }
 
+/// Process age after the calling thread's outstanding updates reach a DWM sync.
+/// This is an upper bound for first display, not a swap-chain frame timestamp.
+#[cfg(windows)]
+pub fn compositor_sync_process_ms() -> Result<f64> {
+    use windows::Win32::{
+        Foundation::FILETIME,
+        Graphics::Dwm::DwmFlush,
+        System::{
+            SystemInformation::GetSystemTimePreciseAsFileTime,
+            Threading::{GetCurrentProcess, GetProcessTimes},
+        },
+    };
+    unsafe {
+        DwmFlush()?;
+        let now = GetSystemTimePreciseAsFileTime();
+        let (mut created, mut exited, mut kernel, mut user) = (
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+        );
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &mut created,
+            &mut exited,
+            &mut kernel,
+            &mut user,
+        )?;
+        let ticks = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+        Ok((ticks(now) - ticks(created)) as f64 / 10_000.)
+    }
+}
+
 /// Windows process CPU and working set, in the same units as the S0 Mac probe.
 #[cfg(windows)]
 pub fn process_usage() -> std::io::Result<[f64; 5]> {
