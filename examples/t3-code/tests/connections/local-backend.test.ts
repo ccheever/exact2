@@ -7,7 +7,7 @@ import { appPath } from '../support/app-files';
 describe('local backend status', () => {
   test('reads a ready server', () => {
     const status = parseLocalBackendStatus({ state: 'ready', port: 16437, httpBaseUrl: 'http://127.0.0.1:16437', wsBaseUrl: 'ws://127.0.0.1:16437',
-      bearerReady: true, restartAttempt: 0, nextRestartMs: null, lastExit: null, version: '0.1.2-nightly.20261021.3457', pid: 4242 });
+      bearerReady: true, restartAttempt: 0, nextRestartMs: null, lastExit: null, version: '0.1.4-nightly.20261027.3770', pid: 4242 });
     expect(status).toMatchObject({ state: 'ready', port: 16437, bearerReady: true, restartAttempt: 0, nextRestartMs: null, lastExit: '', pid: 4242, install: null });
   });
 

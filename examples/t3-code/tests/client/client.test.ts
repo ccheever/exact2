@@ -205,7 +205,7 @@ function abandonNext(native: Backend, matches: (request: Obj) => boolean): Promi
 describe('answer cancellation', () => {
   const stages: [string, (request: Obj) => boolean][] = [
     ['status', request => request.op === 'status'],
-    ['authentication', request => request.path === '/api/auth/session'],
+    ['session read', request => request.op === 'readSession'],
     ['configuration', request => request.method === 'server.getConfig'],
     ['configuration subscription', request => request.op === 'subscribe' && request.key === 'config'],
     ['shell snapshot', request => request.path === '/api/orchestration/shell'],

@@ -14,7 +14,7 @@
 // A job's socket is one of the transport's update sockets; its HTTP steps run in the answer the
 // transport asks for each step (the descriptor, the ticket, each poll); the tick schedules polls.
 import { TransportFailure, canSelfUpdate, compatibility, credential as parseCredential, decode, encode, exchangeForm, exchangeScopes, failure as wireFailure,
-  failureMessage, failureReason, identifier, letGoAbort, origin as parseOrigin, path as onOrigin, protocolOf, request as wireRequest, PROTOCOL_VERSION } from './transport-wire';
+  failureMessage, failureReason, identifier, letGoAbort, mintTicket, origin as parseOrigin, path as onOrigin, protocolOf, request as wireRequest, PROTOCOL_VERSION } from './transport-wire';
 import { json, type Http } from './transport-routes';
 import { socketURL, type SocketEvent, type SocketHandle } from './transport-session';
 import type { Catalog } from './transport-catalog';
@@ -106,7 +106,9 @@ export class OutdatedHosts {
     }
     const decoded = json(reply);
     if (reply.status < 200 || reply.status >= 300 || typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-      throw new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', failureMessage(decoded, reply.status), false, failureReason(decoded));
+      const refused = new TransportFailure(reply.status === 401 || reply.status === 403 ? 'Authentication' : 'HTTP', failureMessage(decoded, reply.status), false, failureReason(decoded));
+      refused.status = reply.status;
+      throw refused;
     }
     return decoded as Obj;
   }
@@ -241,7 +243,7 @@ export class OutdatedHosts {
     const token = this.hooks.catalog.token(run.origin, run.environment);
     if (!token) { this.fail(run.key, `Pair with ${label} again to update it.`); return ''; }
     let ticket = '';
-    try { ticket = str((await this.http('/api/auth/websocket-ticket', run.origin, { method: 'POST', body: '', bearer: token })).ticket); }
+    try { ticket = str((await mintTicket('rpc', path => this.http(path, run.origin, { method: 'POST', body: '', bearer: token }))).ticket); }
     catch (error) { if (letGoAbort(error)) throw error; this.fail(run.key, (error as Error).message); return ''; }
     if (!this.alive || this.runs.get(run.key) !== run || run.step !== step) return '';
     if (!ticket) { this.fail(run.key, 'The server did not issue a socket ticket.'); return ''; }

@@ -6,7 +6,7 @@ import { sourceControlHosts } from '../shared/source-control-hosts';
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
-import { closedView, filterGroups, flatten, row, type Group, type Item, type PaletteView } from './palette';
+import { closedView, filterGroups, flatten, row, type Group, type Item, type PaletteView, type SearchExtra } from './palette';
 import { letGo } from '../client/let-go';
 import { addProjectEnvironments, addTarget, targetRequest, type AddEnvironment } from './palette-environments';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
@@ -173,7 +173,8 @@ export function environmentItem(option: AddEnvironment): Item {
       description: option.isPrimary ? 'This device' : option.environmentId }) };
 }
 
-export type AddContext = { page: string; query: string; highlighted: boolean };
+/** `fallback`: what a list page (Environments, Sources) searches when nothing on it matches, the root's results. */
+export type AddContext = { page: string; query: string; highlighted: boolean; fallback?: SearchExtra };
 /**
  * Every add-project page; the root's browse mode (a path typed at the root) too. With several connected
  * environments `add-project` is the Environments step and each one's Sources is `add-project/env:<id>`
@@ -187,8 +188,8 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   if (!native?.available) return { ...base, empty: 'Connect an environment to add projects.' };
   const options = addProjectEnvironments(client, source);
   if (page === 'add-project' && options.length > 1 && !isBrowseQuery(query)) {
-    const rows = flatten(filterGroups([{ value: 'environments', label: 'Environments', items: options.map(environmentItem) }], query, true, { projects: [], settings: [], threads: [] }));
-    return { ...base, rows, count: rows.length, empty: rows.length ? '' : 'No matching commands, projects, or threads.' };
+    const rows = flatten(filterGroups([{ value: 'environments', label: 'Environments', items: options.map(environmentItem) }], query, true, context.fallback ?? { projects: [], settings: [], threads: [] }));
+    return { ...base, rows, count: rows.filter(entry => entry.index >= 0).length, empty: rows.length ? '' : 'No matching commands, projects, or threads.' };
   }
   const target = addTarget(client, page, source);
   if (!target) return { ...base, empty: 'Connect an environment to add projects.' };
@@ -252,7 +253,7 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   }
   // Sources.
   const ready = readiness(discovery);
-  const groups = filterGroups([{ value: `sources`, label: 'Sources', items: sourceItems(target.config, ready, page || 'add-project') }], query, true, { projects: [], settings: [], threads: [] });
+  const groups = filterGroups([{ value: `sources`, label: 'Sources', items: sourceItems(target.config, ready, page || 'add-project') }], query, true, context.fallback ?? { projects: [], settings: [], threads: [] });
   const rows = flatten(groups);
   return { ...base, rows, count: rows.filter(entry => entry.index >= 0).length, empty: rows.length ? '' : 'No matching commands, projects, or threads.' };
 }

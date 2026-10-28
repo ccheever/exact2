@@ -122,7 +122,7 @@ async function smoke(tree, pin) {
   const home = mkdtempSync(join(tmpdir(), "t3-stage-home-"));
   const port = await lanePort();
   const token = createHash("sha256").update(String(Math.random())).digest("hex").slice(0, 48);
-  const envelope = { mode: "desktop", noBrowser: true, port, t3Home: home, host: "127.0.0.1", desktopBootstrapToken: token, tailscaleServeEnabled: false, tailscaleServePort: 443 };
+  const envelope = { mode: "desktop", noBrowser: true, port, t3Home: home, host: "127.0.0.1", desktopBootstrapToken: token, shellEnvironmentPrepared: true, tailscaleServeEnabled: false, tailscaleServePort: 443 };
   const child = spawn(join(tree, "t3"), ["--bootstrap-fd", "0"], {
     cwd: home, stdio: ["pipe", "pipe", "pipe"],
     env: { PATH: "/usr/bin:/bin:/usr/sbin:/sbin", HOME: home, T3CODE_TELEMETRY_ENABLED: "false" },
