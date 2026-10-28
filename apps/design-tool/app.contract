@@ -1082,7 +1082,7 @@ component DesignTool
               if hello.local and canvasCheck.refused != ""
                 text canvasCheck.refused color="-exact-system-orange" font="-exact-footnote" testId="canvas-refused"
               if galleryOn and hello.local and hello.page != "" and canvasView != "states"
-                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
+                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. Each cell is a column's width, as a caller's column shows it. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
               if not hello.local
                 // (A grant spent, or an entry slower than its 30 s: a new one.)
                 if canvasAt.frame != ""

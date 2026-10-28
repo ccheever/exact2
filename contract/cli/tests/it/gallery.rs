@@ -985,6 +985,14 @@ component Tinted
     column background-color=ink
       text "m" color=mark
 
+component Lined
+  props
+    ink: enum<"\n-exact-label", "-exact-system-red">
+    mark: string
+  view
+    column background-color=ink
+      text "m" color=mark
+
 component Spelled
   props
     ink: string
@@ -1007,7 +1015,7 @@ component Inks
       input value="" aria-label="field" caret-color=caret accent-color=accent
 "#;
 
-const STYLED_APP: &str = r#"use Dot, Ring, Glow, Pair, Tinted, Spelled, Inks from "@acme/lib"
+const STYLED_APP: &str = r#"use Dot, Ring, Glow, Pair, Tinted, Lined, Spelled, Inks from "@acme/lib"
 
 component App
   action go
@@ -1018,6 +1026,7 @@ component App
       Glow(glow="glow")
       Pair(ink="red", mark="blue")
       Tinted(ink="-exact-system-blue", mark="blue")
+      Lined(ink="-exact-system-red", mark="blue")
       Spelled(ink="red", mark="blue")
       Inks(caret="red", accent="red", pressed="red", pressInk="red", go=go)
 "#;
@@ -1096,6 +1105,12 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         .expect("a Tinted cell");
     assert!(tinted.contains(r#"ink="-exact-system-blue""#), "{tinted}");
     assert!(tinted.contains(r#"mark="-exact-label""#), "{tinted}");
+    // An enum colour placed by its placeholder (its first literal), read as
+    // written, not as its escaped source (re-check 2, Astra).
+    let lined = (text.lines())
+        .find(|l| l.contains("Lined("))
+        .expect("a Lined cell");
+    assert!(lined.contains(r#"mark="-exact-system-blue""#), "{lined}");
     let spelled = (text.lines())
         .find(|l| l.contains(r#"Spelled(ink="-EXACT-LABEL""#))
         .expect("Spelled's -EXACT-LABEL cell");
