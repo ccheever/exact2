@@ -104,14 +104,14 @@ component MobileFileView
               scroll flex=1 min-height=0 refresh=refresh
                 text data.contents markup="markdown" padding=14 font-size=16 line-height="23px" color=colors.foreground
             else
-              list id="file-source" appearance="none" flex=1 min-height=0 virtualized=true estimated-item-height=22 padding-top=8 padding-bottom=rowHeight refresh=refresh
+              list id="file-source" appearance="none" flex=1 min-height=0 virtualized=true estimated-item-height=22 padding-bottom=rowHeight refresh=refresh
                 for row in data.rows key=row.id
                   row min-height=rowHeight align-items="start" background-color=(row.selected ? colors.selection : colors.codeBackground)
-                    text row.newNumber width=46 box-sizing="border-box" padding-right=10.5 text-align="right" font-family="Menlo" font-size=numberSize line-height=`${rowHeight}px` color=colors.tertiary
+                    text row.newNumber width=46 box-sizing="border-box" padding-right=7 text-align="right" font-family="monospace" font-size=numberSize line-height=`${rowHeight}px` color=colors.tertiary
                     view flex=1 min-width=0 overflow-x=(wrap ? "hidden" : "auto")
-                      text padding-left=(wrap ? 0 : 7) font-family="Menlo" font-size=fontSize line-height=`${rowHeight}px` white-space=(wrap ? "pre-wrap" : "pre") color=colors.foreground
+                      text padding-left=7 padding-right=(wrap ? 17 : 0) font-family="monospace" font-size=fontSize line-height=`${rowHeight}px` white-space=(wrap ? "pre-wrap" : "pre") color=colors.foreground
                         if row.tokens.length == 0
                           text (row.text == "" ? " " : row.text)
                         else
                           for token in row.tokens key=token.id
-                            text token.text color=token.color font-weight=token.weight font-style=token.slant
+                            text token.text color=token.color
