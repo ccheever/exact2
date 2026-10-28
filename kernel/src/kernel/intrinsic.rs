@@ -50,12 +50,17 @@ impl Kernel {
         if self.measures_symbol(slot) {
             return Ok(());
         }
+        if size.is_none() {
+            self.mark_withdrawn(slot);
+        }
+        // The key a mark's report is made under, kept while it stands.
+        match (size, crate::control::mark_key(&self.arena, slot)) {
+            (Some(_), Some(key)) => self.arena.mark_reports.insert(slot, key),
+            _ => self.arena.mark_reports.remove(&slot),
+        };
         if size.is_some_and(|size| self.mark_reported(slot, size)) {
             self.arena.set_intrinsic(slot, size);
             return Ok(());
-        }
-        if size.is_none() {
-            self.mark_withdrawn(slot);
         }
         self.arena.set_intrinsic(slot, size);
         self.intrinsic_changed(slot);
@@ -98,21 +103,22 @@ impl Kernel {
     /// to the kernel, after a report it took back): the shared size goes with
     /// it, and the marks still reading it are laid out again at the kind's own.
     fn mark_withdrawn(&mut self, slot: u32) {
-        let Some(key) = crate::control::mark_key(&self.arena, slot) else {
+        // Judged by the key its report was made under (a switch that became a
+        // checkbox withdraws a switch's report), not by what the node is now.
+        let Some(&key) = self.arena.mark_reports.get(&slot) else {
             return;
         };
         let own = self.arena.intrinsic(slot);
-        if own.is_none() || crate::control::shared_size(&self.arena, slot) != own {
+        let shared = (self.arena.mark_sizes.iter())
+            .find(|(k, _)| *k == key)
+            .map(|&(_, size)| size);
+        if own.is_none() || shared != own {
             return;
         }
-        // Another mark of the kind still reporting that size holds it for the
-        // marks with none (two equal reports, or a node whose kind changed
-        // since its report withdrawing one that equals this kind's).
-        let held = (self.arena.iter_live()).any(|s| {
-            s != slot
-                && self.arena.intrinsic(s) == own
-                && crate::control::mark_key(&self.arena, s) == Some(key)
-        });
+        // Another mark's report under that key, of that size, still holds it
+        // for the marks with none (two equal reports).
+        let held = (self.arena.mark_reports.iter())
+            .any(|(&s, &k)| s != slot && k == key && self.arena.intrinsic(s) == own);
         if held {
             return;
         }

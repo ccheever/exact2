@@ -1444,3 +1444,74 @@ fn a_withdrawn_report_leaves_a_shared_size_another_mark_still_reports() {
     kernel.compute_layout(1, offer).unwrap();
     assert_eq!(size(&kernel, 4), (22.0, 22.0), "mark 2 still reports it");
 }
+
+/// A mark holds its kind's shared size by the kind it reported as, not the
+/// kind it is now (round 1, Astra): a radio's report of the checkboxes' size
+/// keeps no checkbox size once it becomes a checkbox, so the checkbox that
+/// reported it, withdrawing, takes the size back.
+#[test]
+fn a_mark_holds_a_shared_size_by_the_kind_it_reported_as() {
+    let control = |id, kind: &str| {
+        [
+            Op::CreateView {
+                id,
+                node_type: NodeType::Control,
+            },
+            Op::SetProp {
+                id,
+                prop: PropId::Type,
+                value: PropValue::Str(kind.into()),
+            },
+        ]
+    };
+    let size = |kernel: &Kernel, id| {
+        let f = kernel.node(id).unwrap().frame;
+        (f.width, f.height)
+    };
+    let offer = Offer::definite(400.0, 600.0);
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&rows(
+                "display:flex;align-items:flex-start;width:400px",
+            ))),
+        },
+    ];
+    ops.extend(control(2, "checkbox"));
+    ops.extend(control(3, "radio"));
+    ops.extend(control(4, "checkbox"));
+    ops.extend([
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3, 4],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    kernel.set_intrinsic_size(2, Some((22.0, 22.0))).unwrap();
+    kernel.set_intrinsic_size(3, Some((22.0, 22.0))).unwrap();
+    kernel
+        .apply(
+            1,
+            2,
+            &[Op::SetProp {
+                id: 3,
+                prop: PropId::Type,
+                value: PropValue::Str("checkbox".into()),
+            }],
+        )
+        .unwrap();
+    kernel.set_intrinsic_size(2, None).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    assert_eq!(
+        size(&kernel, 4),
+        (13.0, 13.0),
+        "the radio's report holds no checkbox size"
+    );
+}
