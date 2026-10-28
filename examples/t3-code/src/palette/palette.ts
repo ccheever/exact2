@@ -11,7 +11,7 @@ import { terminalProcessCount } from '../sidebar/sidebar-view';
 import { searchPullRequest } from '../sidebar/search-pull-request';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { projectIdentity } from '../client/presentation';
-import { searchSettings, searchContext, breadcrumbLabel, settingsNavigation } from '../settings/settings-search';
+import { searchSettings, searchContext, breadcrumbLabel } from '../settings/settings-search';
 import { themeCards } from '../appearance/settings-appearance';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { chordWinners, type DispatchContext } from '../shell/keyboard-dispatch';
@@ -414,15 +414,23 @@ function appearanceItems(client: T3Client): Item[] {
   return [['system', 'System', 'monitor'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']].map(([value, label, icon]) => ({ terms: [label!, 'appearance', 'mode'],
     row: row({ key: `appearance:${value}`, op: 'device', arg: 'appearanceMode', arg2: value!, icon: icon!, title: label!, trailing: mode === value ? 'Current' : '' }) }));
 }
+// Targets whose page focuses another element in their place (settings-search.ts NATIVE_TARGETS).
+const FOCUSED_INSTEAD: Readonly<Record<string, string>> = { archive: 'refresh-archive', 'storage-worktrees': 'storage-toggle-worktreeOnDelete',
+  'storage-artifacts': 'storage-toggle-browserArtifactsAfterDays', 'remote-environments': 'manage-connection', 'connections-environment': 'manage-connection',
+  keybindings: 'keybindings-filter' };
 /**
- * The settings a query can find, ranked by the palette's own matcher; each opens its page at its row, by the rule the
- * Settings search focuses a result with (settingsNavigation's targets).
+ * The element a Settings result opens its page at (CommandPalette.tsx `hash: item.targetId ?? item.id`): a command's
+ * `keybinding-<command>`, else `setting-<targetId ?? id>`, the id the pages drawn from settings-core give a row's
+ * control. A page that has no element with that id opens at its top.
  */
+export function settingTarget(item: { id: string; target: string }): string {
+  return item.id.startsWith('keybinding-') ? item.id : FOCUSED_INSTEAD[item.target] ?? `setting-${item.target}`;
+}
+/** The settings a query can find, ranked by the palette's own matcher. */
 export function settingsItems(client: T3Client, query: string): Item[] {
   const context = searchContext(client.config, client.ready, client.projectId ? 'environment' : 'all');
-  const targets = new Map(settingsNavigation(query, context).items.map(item => [item.id.replace(/^search-result-/, ''), item.target]));
   return searchSettings(query, context).map(item => ({ ...(item.secondary ? { secondary: true } : {}), terms: [item.title, breadcrumbLabel(item.route), ...item.terms],
-    row: row({ key: `setting:${item.id}`, op: 'settings', arg: item.route, arg2: targets.get(item.id) ?? '', icon: 'settings', title: item.title, description: `Settings · ${breadcrumbLabel(item.route)}` }) }));
+    row: row({ key: `setting:${item.id}`, op: 'settings', arg: item.route, arg2: settingTarget(item), icon: 'settings', title: item.title, description: `Settings · ${breadcrumbLabel(item.route)}` }) }));
 }
 
 /**

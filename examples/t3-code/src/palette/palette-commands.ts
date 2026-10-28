@@ -22,6 +22,7 @@ import { startTrackedClone } from '../shell/project-clones-live';
 import { cloneTracking } from '../client/live-streams';
 import { letGo } from '../client/let-go';
 import { composerNow } from '../composer/composer-controls';
+import { claimThreadOpen } from './palette-search';
 import { addTarget, targetRequest, type AddEnvironment } from './palette-environments';
 import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
@@ -64,9 +65,18 @@ async function createProject(client: T3Client, native: Native, storage: Files, t
   }
 }
 
+/**
+ * CommandPaletteThreadItems runThread: a thread picked from a search counts as opened by this client, for Recent Threads
+ * and the use boost. `query` is the root page's search (the palette passes "" elsewhere); the open thread is no pick.
+ */
+function claimPick(client: T3Client, threadId: string, query: string): void {
+  if (query.trim().length > 0 && !query.startsWith('>') && threadId !== client.threadId) claimThreadOpen(client.environmentId, threadId, composerNow(client));
+}
+
 export async function paletteCommand(client: T3Client, native: Native | null | undefined, storage: Files, op: string, id: string, value: string, source: EnvironmentFleet = fleet): Promise<PaletteResult> {
-  // A thread row and New thread in <project>: the palette closes and the window navigates.
-  if (op === 'thread') return done(client, '', id);
+  // A thread row and New thread in <project>: the palette closes and the window navigates. A thread row's `value` is the
+  // query it was found by.
+  if (op === 'thread') { claimPick(client, id, value); return done(client, '', id); }
   if (op === 'new-thread') return done(client, id);
   if (!native?.available) return stay(client, false, 'Open this app on macOS to connect to T3 Code.');
   const flow = flowOf(client);

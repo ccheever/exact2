@@ -296,6 +296,22 @@ describe('file picker and content search', () => {
     expect(native.calls.find(call => call.method === 'projects.searchContents')!.payload).toMatchObject({ caseSensitive: true, wholeWord: false, useRegex: true, limit: 500 });
     expect(parseFlags('word').wholeWord).toBe(true);
   });
+  test('messages are searched once the query holds a word of three letters or two CJK characters, by its first 200', async () => {
+    const c = client(), native = new Fake();
+    native.replies['orchestration.searchThreads'] = { matches: [] };
+    // useThreadSearch: the trimmed query cut to THREAD_SEARCH_QUERY_MAX_LENGTH, asked with no limit.
+    const asked = async (query: string) => {
+      native.calls = [];
+      await paletteView(c, native, [true, 'command', '', query, '', false, NOW, 'dark']);
+      return native.calls.filter(call => call.method === 'orchestration.searchThreads').map(call => call.payload);
+    };
+    for (const query of ['ab', 'ab cd', '日', '>fixture']) expect(await asked(query), query).toEqual([]);
+    expect(await asked('  fix ')).toEqual([{ query: 'fix' }]);
+    expect(await asked('日本')).toEqual([{ query: '日本' }]);
+    const long = `${'word '.repeat(39)}wording and more`;
+    expect(long.length).toBeGreaterThan(200);
+    expect(await asked(long)).toEqual([{ query: long.slice(0, 200).trim() }]);
+  });
   test('the resource routes modes and closes', async () => {
     const c = client(), native = new Fake();
     expect((await paletteView(c, native, [false])).open).toBe(false);

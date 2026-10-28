@@ -23,6 +23,9 @@ members T3Code
   mutation paletteChanged as shape PaletteResult refreshes data then paletteDone
   derive paletteHighlight = palette.count == 0 ? -1 : (paletteCursor >= 0 ? min(paletteCursor, palette.count - 1) : (palette.autoHighlight and (paletteCursor == -1 or palette.panel == "picker") ? 0 : -1))
   derive paletteListHeight = min(330, min(448, viewport.height * 0.7))
+  // The query a thread row was found by (CommandPalette.tsx threadSearchQuery): the root page's, which is also the
+  // linked threads' page opened on a pull request's URL; "" on a submenu.
+  derive paletteThreadQuery = (palettePage == "" or palettePage.startsWith("pr-linked|")) ? paletteQuery : ""
   action paletteShow(mode: string, page: string)
     let show = page != "" or not (paletteOpen and paletteMode == mode)
     let shownPage = palettePage
@@ -184,7 +187,7 @@ members T3Code
       rightPanelAt = op == "thread-pull-requests" ? shell.panel.key : rightPanelAt
     if (op == "flow" or op == "open-project" or op == "finder" or op == "open-file" or op == "thread" or op == "new-thread" or op == "thread-pull-requests") and not paletteBusy
       paletteBusy = true
-      send paletteChanged = paletteCommand(op == "flow" ? arg : (op == "finder" ? "pick-folder" : op), op == "flow" ? arg2 : arg, op == "open-file" ? arg2 : palettePage)
+      send paletteChanged = paletteCommand(op == "flow" ? arg : (op == "finder" ? "pick-folder" : op), op == "flow" ? arg2 : arg, op == "open-file" ? arg2 : (op == "thread" ? paletteThreadQuery : palettePage))
   action paletteDone
     paletteBusy = false
     match paletteChanged
