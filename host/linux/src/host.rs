@@ -917,6 +917,19 @@ impl<D: DataSource> Host<D> {
         self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
+    /// [`Self::dispatch_at`] at the runner's own time, running nothing the
+    /// clock owes before the handler: for an event whose target the caller
+    /// has just checked against what is due (an image's `load`,
+    /// `presenter/images.rs`). Not a press, so no navigation refusal applies.
+    pub(crate) fn dispatch_now(&mut self, view: ViewId, event: Event) -> Option<String> {
+        let event = self.document_value(view, event);
+        let at_ms = self.runner.now_ms().max(self.now_ms);
+        match crate::traced(c"exact dispatch", || self.runner.dispatch(view, event)) {
+            Ok(receipt) => self.commit(&[Timed { at_ms, receipt }], None),
+            Err(e) => self.commit(&[], Some(format!("{e:?}"))),
+        }
+    }
+
     // Current eligibility only DENIES an old picture's target. It never finds
     // a replacement handler or supplies coordinates/arguments from the live tree.
     pub(crate) fn retained_action_eligible(&self, key: NodeKey) -> bool {

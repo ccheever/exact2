@@ -30,34 +30,22 @@ impl<D: DataSource> Presenter<D> {
     /// (LLP 1011 §4) and is still that node showing that source, assigned
     /// that time, as it is sent: since it landed, input, a timer or an
     /// earlier load's action may have changed any of them. The work due by
-    /// the host's or the runner's time, whichever is later (a mutation's
-    /// `then` armed at an earlier load's commit; a timer a loop deferred)
-    /// runs first, until none is (to a bound), with the load still
-    /// queued, so a source it changes drops it (`Images::sync_shown`); the
-    /// load is then sent at that same time, so dispatching runs nothing
-    /// before its handler. Loads that land meanwhile wait for the next turn
-    /// (owed at once). Whether any was sent.
+    /// the later of the host's and the runner's time (a mutation's `then`
+    /// armed at an earlier load's commit; a timer a loop deferred) runs
+    /// first, once, with the load still queued, so a source it changes drops
+    /// it (`Images::sync_shown`); the load is then sent with nothing run
+    /// before its handler (`Host::dispatch_now`). Loads that land meanwhile
+    /// wait for the next turn (owed at once). Whether any was sent.
     pub(crate) fn deliver_image_loads(&mut self) -> bool {
         let mut loads = false;
-        // The later of the host's time and the runner's (a live clock's
-        // sample at an earlier load's commit, where its `then` was armed).
-        let clock = |p: &Self| p.host.now().max(p.host.runner().now_ms());
         for _ in 0..self.images.load_events.len() {
-            let mut now = clock(self);
-            for _ in 0..8 {
-                if !self.host.timer_due_ms().is_some_and(|due| due <= now) {
-                    break;
-                }
-                if let Some(error) = self.advance(now) {
+            let cutoff = self.host.now().max(self.host.runner().now_ms());
+            if self.host.timer_due_ms().is_some_and(|due| due <= cutoff) {
+                if let Some(error) = self.advance(cutoff) {
                     self.host.log(error);
                 }
-                now = clock(self);
             }
-            // Still owed work at this time (a live clock running on): the
-            // next turn sends it.
-            if self.host.timer_due_ms().is_some_and(|due| due <= now)
-                || self.images.load_events.is_empty()
-            {
+            if self.images.load_events.is_empty() {
                 break;
             }
             let event = self.images.load_events.remove(0);
@@ -69,7 +57,7 @@ impl<D: DataSource> Presenter<D> {
             if !same || !(self.host.runner().handlers_of(event.id)).contains(&EventKind::Load) {
                 continue;
             }
-            let sent = self.host.dispatch_at(event.id, Event::Load, now);
+            let sent = self.host.dispatch_now(event.id, Event::Load);
             let after = self.after_commit();
             if let Some(error) = sent.or(after) {
                 self.host.log(error);
