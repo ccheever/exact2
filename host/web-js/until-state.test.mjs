@@ -70,6 +70,9 @@ test "a miss fails with the last value"
   clock until state gateway == "ready" within 10000
   clock until state gateway == "gone" within 300
 `);
+  // runTests names the app in EXACT_APP_DIR (scripts/app.mjs resolveApp): put back as found, so a later test file in
+  // the same run (agent-modal) resolves its own app.
+  const appDir = process.env.EXACT_APP_DIR;
   let page;
   try {
     const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'until-state', '--out', resolve(dir, 'dist'), '--render', 'none'], {
@@ -91,5 +94,8 @@ test "a miss fails with the last value"
     page?.stop(true);
     peer.stop(true);
     rmSync(dir, { recursive: true, force: true });
+    if (appDir === undefined) delete process.env.EXACT_APP_DIR;
+    else process.env.EXACT_APP_DIR = appDir;
   }
+  expect(process.env.EXACT_APP_DIR).toBe(appDir);
 }, 180_000);
