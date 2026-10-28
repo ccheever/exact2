@@ -133,7 +133,7 @@ describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
     useAutomationCalls(null);
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, false)).toMatchObject({ pickActive: true, pickTip: 'Cancel annotation (Esc)', separateWindow: true });
     // pickDisabled: a failed load covers the page; captureDisabled and floatDisabled: no web contents, or a failed load.
-    expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, true)).toMatchObject({ pickDisabled: true, pickTip: 'Page didn’t load — pick unavailable until the page renders', captureDisabled: true, floatDisabled: true });
+    expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, true)).toMatchObject({ pickDisabled: true, pickTip: 'Page didn\'t load. Pick is unavailable until the page renders', captureDisabled: true, floatDisabled: true });
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, false, false)).toMatchObject({ captureDisabled: true, floatDisabled: true, pickDisabled: false });
     expect(browserCaptureView(client, ref, '', runtimeId, true, false).pickDisabled).toBe(true);
   });

@@ -40,11 +40,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
 const GENERATORS = ['gen-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs'];
 
-/** Every input: this directory's scripts, package.json and bun.lock, and the two assets gen-page-scripts.mjs copies (no
+/** Every input: this directory's scripts, package.json and bun.lock, and the assets gen-page-scripts.mjs copies (no
  *  generator reads another app source). */
 export function inputs() {
   return [...readdirSync(here).filter(name => /\.mjs$/.test(name) || name === 'package.json' || name === 'bun.lock').map(name => join(here, name)),
-    join(example, 'assets/browser-annotate.js'), join(example, 'assets/vendor/playwright/injected-script.js')];
+    ...['browser-annotate.js', 'browser-annotate.css', 'vendor/playwright/injected-script.js'].map(asset => join(example, 'assets', asset))];
 }
 
 /** The pinned packages: a frozen install with nothing to do takes milliseconds; a missing package is fetched once.

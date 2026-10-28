@@ -124,7 +124,7 @@ describe('theme import size guard', () => {
     if (result.kind !== 'batch') return;
     expect(result.themes.map(theme => theme.label)).toEqual(['Night Owl']);
     expect(result.failures).toEqual(['big.json: too large', 'locked.json: Theme files must contain a JSON object.']);
-    expect(result.failures.join(' — ')).toBe('big.json: too large — locked.json: Theme files must contain a JSON object.');
+    expect(result.failures.join('; ')).toBe('big.json: too large; locked.json: Theme files must contain a JSON object.');
   });
 });
 

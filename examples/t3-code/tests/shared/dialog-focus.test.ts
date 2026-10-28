@@ -425,3 +425,22 @@ describe('post-created provider traversal follows the Sign in content', () => {
     expect(setup).toContain('button id=testId data-focus-stop=(disabled ? "" : "enabled")');
   });
 });
+
+// _chat.settings.tsx at 7c3b3b3605ef: Base UI's trap wraps Shift+Tab from the modal's first stop to its last tabbable in
+// tree order, the page's last control, not the header's close button.
+describe('Settings\' and Usage\'s modal wraps Shift+Tab to the page\'s last control', () => {
+  const guard = contractComponent('dialog-trap.contract', 'RouteFocusGuard');
+  const enter = (page: string[]) => {
+    const focused: string[] = [];
+    guard.call('enter', {}, { targets: ['settings-search', 'close-settings'], popup: 'settings-dialog', stopPropagation() {},
+      querySelectorAll: (selector: string) => selector.includes('dialog-focus') ? ['settings-dialog'] : selector.includes('"page"') ? page : ['settings-search', 'close-settings', ...page],
+      focus: (id: string) => focused.push(id) }, []);
+    return focused;
+  };
+  test('the last page control, in tree order', () => {
+    expect(enter(['setting-theme', 'setting-font-size'])).toEqual(['setting-font-size']);
+  });
+  test('the close button when the page has no controls', () => {
+    expect(enter([])).toEqual(['close-settings']);
+  });
+});

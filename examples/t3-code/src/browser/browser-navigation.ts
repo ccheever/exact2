@@ -20,8 +20,9 @@ import { chordWinners, type DispatchAdd } from '../shell/keyboard-dispatch';
 import { panelState, type PanelState, type Surface } from '../panel/panel-surfaces';
 import { readSnapshot, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting } from './browser-state';
 import { normalizePreviewUrl } from './browser-url';
-import { browserHistory, formatRelativeTimeLabel, recentUrlLabel } from './browser-history';
-import { discoveredServers, environmentHostname, getConfiguredPreviewUrls, preparedConnection, previewableServers, resolveDiscoveredServerUrl, watchDiscoveredServers } from './browser-targets';
+import { formatRelativeTimeLabel, recentUrlLabel } from './browser-history';
+import { recentHistory, recordPreviewTitles, recordVisit, removeVisit } from './browser-history-record';
+import { discoveredServers, getConfiguredPreviewUrls, preparedConnection, previewableServers, resolveDiscoveredServerUrl, watchDiscoveredServers } from './browser-targets';
 import {
   FILL_PREVIEW_VIEWPORT, PREVIEW_VIEWPORT_PRESETS, browserResponsiveViewportForToggle, browserViewportSettingKey, commitViewportAndAspectRatio, isValidViewport,
   normalizeZoomFactor, nextZoomLevel, resizeBrowserViewportFromRail, resizeFreeformViewport, resolveBrowserDeviceViewportArea, resolveBrowserDeviceViewportLayout, resolvePreviewViewport,
@@ -53,16 +54,10 @@ const viewportOf = (snapshot: PreviewSessionSnapshot | null): PreviewViewportSet
 
 // ── Effects before the projection (PreviewView's effects, PreviewEmptyState's query) ───────────
 export async function navigationPrepare(client: T3Client, native: Native, state: PanelState): Promise<void> {
-  const ref = activeRef(client), history = browserHistory(client.local);
+  // Every thread's tabs title the pages they settle on (browser-history-record.ts), whatever the panel shows.
+  recordPreviewTitles(client);
+  const ref = activeRef(client);
   if (!ref) return;
-  // No project registration here: at 1e2ecbd975 nothing calls registerThreadProject (de34391427 removed ChatView's
-  // effect), so a thread's visits wait unregistered (user decision 2026-10-09: match the reference).
-  // PreviewView: a settled page titles the visit it came from (agent-driven pages only enrich an existing one).
-  const host = environmentHostname(client), sessions = browserHost(client).store.read(ref).sessions;
-  if (history.threadRecentHistory(ref, 1).length) for (const tabId of Object.keys(sessions)) {
-    const { nav: status } = effectiveNav(client, ref, tabId);
-    if (status._tag === 'Success' && status.title) history.setTitleForThreadUrl(ref, status.url, status.title, host);
-  }
   // The live server list lasts while a Browser tab of this thread shows its empty state.
   const active = state.visible ? state.surfaces.find(surface => surface.id === state.active) : undefined;
   const empty = active?.kind === 'browser' && !!active.browser && effectiveNav(client, ref, active.browser.tabId).nav._tag === 'Idle';
@@ -164,7 +159,7 @@ export function navigationView(client: T3Client, ref: ScopedThreadRef, runtimeId
   };
   if (!empty) return view;
   // PreviewEmptyState: Recently used (parseable, at most 8) and the live Local servers.
-  view.recents = browserHistory(client.local).threadRecentHistory(ref, 50).filter(entry => canParse(entry.url)).slice(0, 8).map(entry => {
+  view.recents = recentHistory(client, ref, 50).filter(entry => canParse(entry.url)).slice(0, 8).map(entry => {
     const label = recentUrlLabel(entry.url), visitedAt = formatRelativeTimeLabel(entry.lastVisitedAt, now);
     return { url: entry.url, title: entry.title ?? label, subtitle: `${entry.title ? `${label} · ` : ''}${visitedAt}`, ...siteIcon(client, entry.url), removeLabel: `Remove ${label} from history` };
   });
@@ -220,7 +215,7 @@ export async function showPreview(client: T3Client, native: Native, state: Panel
 export async function navigationLocal(client: T3Client, native: Native, surface: Surface, op: string, value: string): Promise<string | null> {
   const ref = surface.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
   if (!ref || !surface.browser) return null;
-  const tabId = surface.browser.tabId, { runtimeId, tab, snapshot } = effectiveNav(client, ref, tabId), history = browserHistory(client.local);
+  const tabId = surface.browser.tabId, { runtimeId, tab, snapshot } = effectiveNav(client, ref, tabId);
   const viewport = viewportOf(snapshot), zoom = snapshot?.runtime === 'server' ? normalizeZoomFactor(snapshot.zoomFactor) : tabZoom(tab), locked = nav(client).aspectLocked.has(runtimeId);
   // The viewport's layout: a desktop tab's zoom over the window's (a server tab streams, unaffected by it).
   const layoutZoom = snapshot?.runtime === 'server' ? zoom : resolveBrowserLayoutZoomFactor(zoom, windowZoomFactor(client));
@@ -239,10 +234,10 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
       try { url = normalizePreviewUrl(resolved); } catch { return ''; }
       navigateFrame(client, runtimeId, url);
       browserHost(client).store.rememberUrl(ref, url);
-      history.recordVisitForThread(ref, value, navigationNow(client), environmentHostname(client));
+      recordVisit(client, ref, value, navigationNow(client));
       return '';
     }
-    case 'remove-recent': history.removeUrlForThread(ref, value); return '';
+    case 'remove-recent': removeVisit(client, ref, value); return '';
     // Manager.ts applyZoom steps the tab's own zoom.
     case 'zoom-in': case 'zoom-out': nativeSet(client, runtimeId, { zoomStep: op === 'zoom-in' ? 'in' : 'out' }); return '';
     case 'zoom-reset': nativeSet(client, runtimeId, { zoom: 1 }); return '';
