@@ -187,11 +187,12 @@ describe('the Working shelf over a grace', () => {
     let parts = partition(client, T0);
     expect(parts.working.map(item => item.id)).toEqual(['a', 'b']);
     expect(parts.active.map(item => item.id)).toEqual(['older']);
-    // The window's clock starts both graces at its next tick.
-    expect(sidebarSnapshot(client, T0, helpers).sidebar).toMatchObject({ graceUntil: 0, ticking: true, workingCount: 2 });
+    // The root's timer reads the window's clock for both graces at once (app.contract workingGraceOwed); the grace
+    // itself never keeps the window's clock ticking.
+    expect(sidebarSnapshot(client, T0, helpers).sidebar).toMatchObject({ graceUntil: 0, ticking: false, workingCount: 2 });
     expect(sidebarSnapshot(client, T0, helpers).sidebar.graceOwed).toBeGreaterThan(0);
     await sidebarLocal(client, native, 'working-grace', '', String(T0));
-    expect(sidebarSnapshot(client, T0, helpers).sidebar).toMatchObject({ graceUntil: T0 + 2_000, graceOwed: 0, ticking: true, workingCount: 2 });
+    expect(sidebarSnapshot(client, T0, helpers).sidebar).toMatchObject({ graceUntil: T0 + 2_000, graceOwed: 0, ticking: false, workingCount: 2 });
     // b settles within the grace: straight to Settled, never in the inbox.
     client.shell.threads = [thread('a', false), thread('b', false, { settledOverride: 'settled', settledAt: stamp(T0 + 1_000) }), older];
     parts = partition(client, T0 + 1_000);

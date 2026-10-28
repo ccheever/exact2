@@ -1,4 +1,4 @@
-// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
 // The sidebar's thread model (Sidebar.tsx, Sidebar.logic.ts, client-runtime
 // models.ts/threadSettled.ts/threadSort.ts; MIT, see LICENSE-T3): status, the
 // shelf a thread lives on, the static sort, unread/woke/recede prominence and

@@ -19,6 +19,14 @@ describe('autoDirection (dir="auto")', () => {
     expect(autoDirection('42 — 7 ✓')).toBeUndefined();
     expect(autoDirection('')).toBeUndefined();
   });
+  it('reads bidi classes, not letter categories: marks are strong, Roman numerals are L, modifier primes are neutral', () => {
+    expect(autoDirection('\u200Fhello')).toBe('rtl'); // RLM is R
+    expect(autoDirection('\u061Chello')).toBe('rtl'); // ALM is AL
+    expect(autoDirection('\u200Eمرحبا')).toBe('ltr'); // LRM is L
+    expect(autoDirection('Ⅻ مرحبا')).toBe('ltr'); // ROMAN NUMERAL TWELVE is L
+    expect(autoDirection('\u02B9مرحبا')).toBe('rtl'); // MODIFIER LETTER PRIME is ON
+    expect(autoDirection('٤٢ hello')).toBe('ltr'); // Arabic-Indic digits are AN, weak
+  });
 });
 
 const windowWith = (title: string) => ({

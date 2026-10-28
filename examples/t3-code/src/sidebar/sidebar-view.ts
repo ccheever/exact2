@@ -14,7 +14,7 @@ import { knownSessions } from '../terminal/terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session';
 import { terminalFocused } from '../terminal/terminal-focus';
 import { searchMatch, serverMatches, snoozePresets, threadSearchPending, type SearchPart, type SnoozePreset } from './sidebar-presentation';
-import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, sidebarPrefs, sidebarSession, undoLive } from './sidebar-state';
+import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, sidebarPrefs, sidebarSession, undoLive, undoSummary } from './sidebar-state';
 import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar';
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './sidebar-glyph';
@@ -83,9 +83,9 @@ export interface SidebarView {
   drafts: SidebarDraft[];
   searching: boolean; searchPending: boolean; searchIndex: number; searchSelectedId: string;
   settledCount: number; snoozedCount: number; workingCount: number; ticking: boolean; probes: Probe[];
-  /** The soonest Working grace's end (window time), 0 for none: the window's clock ends it there (thread-inbox.ts). */
+  /** The soonest Working grace's end (window time), 0 for none: the root's timer ends it 2 s after it started. */
   graceUntil: number;
-  /** Non-zero while a grace's start or a return's stamp waits for the window's clock; it changes with each new one. */
+  /** Non-zero while a grace's start or a return's stamp waits for the window's clock, changing with each new one. */
   graceOwed: number;
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
@@ -354,6 +354,11 @@ export function shortcutLabel(client: T3Client, command: string): string {
   const shortcut = obj(binding?.shortcut), key = str(shortcut.key);
   return binding && key ? `${shortcut.ctrlKey ? '⌃' : ''}${shortcut.altKey ? '⌥' : ''}${shortcut.shiftKey ? '⇧' : ''}${shortcut.modKey || shortcut.metaKey ? '⌘' : ''}${key.length === 1 ? key.toUpperCase() : key}` : '';
 }
+/** threadUndoLabel: the undo shortcut's label, "⌘Z to undo", or "Undo" without one. */
+export function undoLabel(client: T3Client): string {
+  const shortcut = shortcutLabel(client, 'thread.undo');
+  return shortcut ? `${shortcut} to undo` : 'Undo';
+}
 /**
  * The modifiers of each thread.jump.N shortcut in effect (effectiveShortcutsForCommand: the newest binding whose
  * `when` holds and whose chord no newer binding claims), named as the window names the ones held
@@ -433,8 +438,9 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       searching, searchPending: searching && rows.length === 0 && threadSearchPending(client), searchIndex,
       searchSelectedId: searching ? str(rows[searchIndex]?.thread.id) : '',
       settledCount: parts.settled.length, snoozedCount: parts.snoozed.length, workingCount: parts.working.length, probes: SIDEBAR_PROBES,
-      // A Working row's label ticks each second, and so does the clock a grace or a timed provider pill waits on.
-      ticking: threads.some(thread => thread.workingSince > 0) || graceUntil > 0 || graceOwed > 0 || (pill?.until ?? 0) > 0, graceUntil, graceOwed,
+      // A Working row's label ticks each second, and so does the clock a timed provider pill waits on. The Working
+      // shelf's grace runs on the root's timers (app.contract workingGraceOwed, workingGraceEnds).
+      ticking: threads.some(thread => thread.workingSince > 0) || (pill?.until ?? 0) > 0, graceUntil, graceOwed,
       settledExpanded: prefs.settledExpanded, snoozedExpanded: prefs.snoozedExpanded, workingExpanded: prefs.workingExpanded,
       showMore: prefs.settledExpanded && hidden > 0 ? Math.min(hidden, SETTLED_TAIL_PAGE_COUNT) : 0,
       emptyText: searching || total > 0 || draftRows(client, helpers.projectIdentity).length > 0 ? '' : client.shell.projects.length === 0 ? 'No projects yet' : scope ? `No threads in ${scope.name} yet` : 'No threads yet',
@@ -447,9 +453,9 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
       scopeFirst: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity)[0]?.key ?? '',
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
-      undoText: undo && live ? `${undo.action} ${undo.threadIds.length} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${undo.threadIds.length === 1 ? '' : 's'},` : '', // drafts (upstream 95edeb753b)
+      undoText: undo && live ? `${undoSummary(undo)},` : '', // drafts (upstream 95edeb753b)
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
-      undoLabel: shortcutLabel(client, 'thread.undo') ? `${shortcutLabel(client, 'thread.undo')} to undo` : 'Undo',
+      undoLabel: undoLabel(client),
       // The first bottom shelf header hosts the notice; while searching or with no rows it heads the footer.
       undoHost: searching || total === 0 ? '' : parts.working.length > 0 ? 'working' : parts.snoozed.length > 0 ? 'snoozed' : 'settled',
       dialog: session.dialog.kind, dialogTitle: dialogTitle(session.dialog), dialogDescription: dialogDescription(session.dialog),

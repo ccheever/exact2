@@ -1,4 +1,4 @@
-// SidebarProviderUpdatePill (T3 Code 74541bab17 components/sidebar/SidebarProviderUpdatePill.tsx,
+// SidebarProviderUpdatePill (T3 Code 7c3b3b3605ef components/sidebar/SidebarProviderUpdatePill.tsx,
 // ProviderUpdateLaunchNotification.logic.ts getProviderUpdateSidebarPillView;
 // MIT, see LICENSE-T3): above the footer icons while a provider updates, then
 // its outcome — failed and still-outdated notices until dismissed, a success

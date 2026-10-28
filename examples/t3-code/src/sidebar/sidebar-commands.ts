@@ -9,10 +9,11 @@ import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { canSnooze, capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
 import { bulkMenuState, canArchive, threadMenuState } from './sidebar-menu';
-import { wall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
+import { wall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
-import { partition, projectScopes, renderedRows, scopedRowKey, searchRows, workingInbox } from './sidebar-view';
+import { partition, projectScopes, renderedRows, scopedRowKey, searchRows, undoLabel, workingInbox } from './sidebar-view';
+import { announce, cancelAnnouncement } from '../shell/announce';
 import { completeRouteReveal } from './route-reveal';
 import { snoozePresets } from './sidebar-presentation';
 import { sidebarDrop } from './sidebar-drop';
@@ -89,12 +90,27 @@ export function remember(client: T3Client, native: Native, action: UndoAction, t
   const group = [] as string[];
   for (let index = kept.length - 1; index >= 0 && kept[index]!.action === action; index--) group.push(kept[index]!.threadId);
   session.undo = { action, threadIds: group, at: now };
+  noticeChanged(client);
   void native.later({ op: 'sidebarNotify', delay: 5100 }).catch(() => undefined);
 }
 function forget(client: T3Client, threadId: string): void {
   const session = sidebarSession(client), list = (undos.get(client) ?? []).filter(entry => entry.threadId !== threadId);
   undos.set(client, list);
   if (session.undo) { session.undo.threadIds = session.undo.threadIds.filter(id => id !== threadId); if (!session.undo.threadIds.length) session.undo = null; }
+  noticeChanged(client);
+}
+const announcedNotices = new WeakMap<T3Client, string>();
+/**
+ * showThreadUndoNotice's setNotice: a changed notice is announced as "<summary>, ⌘Z to undo", and one that has not
+ * been spoken yet is dropped once the notice is gone. The line itself is no live region, since a region that mounts
+ * already holding its text is not spoken.
+ */
+function noticeChanged(client: T3Client): void {
+  const undo = sidebarSession(client).undo, summary = undo && undoLive(client) ? undoSummary(undo) : '';
+  if (summary === (announcedNotices.get(client) ?? '')) return;
+  announcedNotices.set(client, summary);
+  if (summary) announce(client, `${summary}, ${undoLabel(client)}`, 'thread-undo-notice');
+  else cancelAnnouncement(client, 'thread-undo-notice');
 }
 /** thread.undo / the inline Undo: reverts the displayed group once, with this command's module handle. */
 export async function undoLatest(client: T3Client, native: Native): Promise<boolean> {
@@ -105,6 +121,7 @@ export async function undoLatest(client: T3Client, native: Native): Promise<bool
   for (let index = list.length - 1; index >= 0 && list[index]!.action === action; index--) group.push(list[index]!);
   undos.set(client, list.filter(entry => !group.includes(entry)));
   session.undo = null;
+  noticeChanged(client);
   await Promise.all(group.map(async entry => { try { await entry.undo(native); } catch (error) { toast(client, entry.failureTitle, error); } }));
   return true;
 }
@@ -112,6 +129,7 @@ export async function undoLatest(client: T3Client, native: Native): Promise<bool
 /** showThreadUndoNotice's expiry: actions past their five seconds commit (a discarded draft's uploads are released). */
 export function commitExpiredUndos(client: T3Client): void {
   if (undoLive(client)) return;
+  noticeChanged(client);
   const list = undos.get(client) ?? [];
   if (!list.length) return;
   undos.set(client, []);
@@ -436,7 +454,7 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
   if (op.startsWith('legacy-')) return legacyLocal(client, op.slice(7), id, value);
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
   if (op === 'pill-dismiss') { dismissProviderPill(client, value); return ''; }
-  // The window's clock (sidebar.contract graceDue): owed Working stamps are paid with it, and a grace past it ends.
+  // The window's clock (app.contract workingGraceClock): owed Working stamps are paid with it, and a grace past it ends.
   if (op === 'working-grace') { workingInbox(client).advance(Number(value)); return ''; }
   // The open row scrolled into view (sidebar.contract revealDue): the route's reveal is done.
   if (op === 'reveal-done') { completeRouteReveal(session.reveal, scopedRowKey(client, id)); return ''; }

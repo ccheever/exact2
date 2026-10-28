@@ -3,9 +3,9 @@
 // stops working keeps its place under Working for the grace, so a server that settles it meanwhile sends it straight
 // to Settled; then it heads the inbox at its return. The reference stamps a grace's start and a return with the
 // client's own `now()`. A data module has no clock: its snapshot time lags by up to a minute, and a shell's
-// `updatedAt` is the server's clock. So an observation only owes those stamps, and the window pays them with its
-// live clock (`advance`, reported by sidebar.contract at its next tick), and again once a deadline passes. Until a
-// return is stamped it sorts as the newest thread, where the reference's `now()` puts it.
+// `updatedAt` is the server's clock. So an observation only owes those stamps, and the root's timers pay them with
+// the window's clock (`advance`): at once for an owed stamp (app.contract workingGraceOwed), and 2 s after the soonest
+// grace started (workingGraceEnds). Until a return is stamped it sorts as the newest thread, where `now()` puts it.
 import type { Obj } from '../client/domain';
 import { effectiveSnoozed, inboxTime, isWorkingThread, latestRun, pendingApproval, pendingInput, shellRuntime } from './sidebar-model';
 import { pendingSubagentRequest } from './subagent-requests';

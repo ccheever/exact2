@@ -15,6 +15,7 @@ import { recordTerminalFocus } from '../../src/terminal/terminal-focus';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from '../../src/sidebar/sidebar-commands';
 import { localDate, localTime, resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from '../../src/sidebar/sidebar-state';
 import { titleMenu } from '../../src/shell/shell';
+import { announcements } from '../../src/shell/announce';
 import { resolveSidebarRowThreadId } from '../../src/sidebar/sidebar-lineage';
 import { contractComponent } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
@@ -401,6 +402,20 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     const plain = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) })], { threadId: 'a' });
     await sidebarCommand(plain.client, native, files, 'settle', 'a', '');
     expect(sidebarSnapshot(plain.client, NOW, helpers).sidebar.undoHost).toBe('settled');
+  });
+
+  test('the undo notice is announced as "<summary>, ⌘Z to undo" when it changes, and an unspoken one is dropped when it goes', async () => {
+    const { client } = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) }), shell('c', { createdAt: iso(-3) })], { threadId: 'a' });
+    await sidebarCommand(client, native, files, 'settle', 'a', '');
+    const label = sidebarSnapshot(client, NOW, helpers).sidebar.undoLabel;
+    (client as unknown as { ready: boolean }).ready = false; // no open thread for the announcer to follow
+    announcements(client, 1_000);
+    expect(announcements(client, 1_500).first).toBe(`Settled 1 thread, ${label}`);
+    // A merged notice is a new summary, said again; undoing it drops what has not been said yet.
+    await sidebarCommand(client, native, files, 'settle', 'c', '');
+    await sidebarCommand(client, native, files, 'undo', '', '');
+    announcements(client, 2_000);
+    expect(announcements(client, 2_500)).toMatchObject({ first: `Settled 1 thread, ${label}`, second: '' });
   });
 
   test('rename trims, warns on empty, skips unchanged; failures and successes surface as toasts', async () => {

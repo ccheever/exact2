@@ -140,6 +140,11 @@ export function adoptCommandTime(client: T3Client, at: number): void {
  * (snoozePresets then returns nothing), so no 1970 value is written (persisted-instants.test.ts).
  */
 export function wall(client: T3Client): number { return clock() + (offsets.get(client) ?? 0); }
+/** threadUndoNoticeSummary: "Settled 2 threads", "Discarded 1 draft". */
+export function undoSummary(undo: UndoEntry): string {
+  const count = undo.threadIds.length;
+  return `${undo.action} ${count} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${count === 1 ? '' : 's'}`;
+}
 /** showThreadUndoNotice: the notice lives five seconds. */
 export function undoLive(client: T3Client): boolean {
   const undo = sidebarSession(client).undo;

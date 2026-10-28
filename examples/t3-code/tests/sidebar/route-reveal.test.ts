@@ -135,7 +135,8 @@ describe('the legacy sidebar', () => {
     const scope = {
       data: { legacy }, legacy, // `legacy` is the component's derive of `data`; an action reads it as it stands
       frame: () => ({ unavailable: !built }),
-      scrollIntoView: (...args: unknown[]) => { calls.push(['scroll', ...args]); },
+      // The virtualized list builds a project's rows as it scrolls the project in.
+      scrollIntoView: (...args: unknown[]) => { calls.push(['scroll', ...args]); if (args[0] === 'legacy-projects') built = true; },
       local: (...args: unknown[]) => { calls.push(['local', ...args]); },
     };
     expect(sidebar.drawn('testId="legacy-reveal"', state, scope)).toBe(true);
@@ -143,7 +144,6 @@ describe('the legacy sidebar', () => {
     expect(calls).toEqual([['scroll', 'legacy-projects', 'env:/a', { block: 'nearest', behavior: 'instant' }]]);
     expect(sidebar.drawn('testId="legacy-reveal"', state, scope)).toBe(false);
     expect(sidebar.drawn('testId="legacy-reveal-row"', state, scope)).toBe(true);
-    built = true;
     sidebar.call('revealRowDue', state, scope, ['t9', 1, 1]);
     expect(calls.slice(1)).toEqual([['scroll', 'legacy-row-t9', { block: 'nearest', behavior: 'instant' }], ['local', 'reveal-done', 't9', '']]);
     expect(state).toMatchObject({ revealRowNext: '', mountRevealed: true });

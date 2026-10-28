@@ -1,8 +1,9 @@
 // The sidebar's chrome against T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3), read and run from the contracts:
 // sidebar/mainAppLocation.ts isSidebarUtilityPage (the footer under Usage), SidebarUpdateCapsule.tsx (the update
 // button stays inside the sidebar), ThreadStatusIndicators.tsx (a row's status label is no live region; Woke keeps
-// one), SidebarThreadRow.tsx and LegacySidebar.tsx (the ⌘1–⌘9 jump badges are `rounded-full h-5` pills), and
-// showThreadUndoNotice.ts (the undo notice is announced).
+// one), SidebarThreadRow.tsx and LegacySidebar.tsx (the ⌘1–⌘9 jump badges are `rounded-full h-5` pills), the drag
+// ghost's count (ThreadContextDragGhost.tsx `rounded-full`), SidebarThreadUndoNotice.tsx (a group: the notice is
+// announced, sidebar.test.ts), the rename field's `dir="auto"` and the Working shelf's grace timers (threadInbox.ts).
 import { describe, expect, test } from 'bun:test';
 import { contractComponent, value } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
@@ -62,6 +63,29 @@ test('the jump badges are pills, as `rounded-full` on their 1.25rem height', () 
   }
 });
 
-test('the undo notice is announced: it is a live region until the shell has an announcer', () => {
-  expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).toContain('role="status"');
+test('the undo notice is a group, not a live region: the shell\'s announcer speaks it', () => {
+  expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).toContain('role="group"');
+});
+
+test('the drag ghost\'s count is a pill', () => {
+  const count = line('sidebar-overlays.contract', 'text `+${count - 1}`');
+  expect(Number(/border-radius="([\d.]+)rem"/.exec(count)?.[1])).toBeGreaterThanOrEqual(Number(/line-height="([\d.]+)rem"/.exec(count)?.[1]) / 2);
+});
+
+test('the rename field hands each edit to the data module, which reads its direction', () => {
+  const field = contractComponent('sidebar-row.contract', 'SidebarRenameField'), state = field.state({ t: { title: 'Fix the build' } }), calls: unknown[][] = [];
+  field.call('edit', state, { t: { id: 'a', title: 'Fix the build' }, releaseUndoClaim: () => { calls.push(['release']); }, local: (...args: unknown[]) => { calls.push(args); } }, ['مرحبا']);
+  expect(calls).toEqual([['release'], ['rename-input', 'a', 'مرحبا']]);
+  expect(state.title).toBe('مرحبا');
+});
+
+test('the Working shelf\'s grace runs on two root timers, with the sidebar open or not', () => {
+  const app = appText('app.contract').split('\n');
+  const task = (name: string) => { const at = app.findIndex(text => text.trim().startsWith(`task ${name} `)); return [app[at]?.trim(), app[at + 1]?.trim()]; };
+  // An owed stamp reads the window's clock at once; the soonest grace ends 2 s after it started.
+  expect(task('workingGraceOwed')).toEqual(['task workingGraceOwed when data.sidebar.graceOwed > 0 key=data.sidebar.graceOwed', 'after(1, workingGraceClock)']);
+  expect(task('workingGraceEnds')).toEqual(['task workingGraceEnds when data.sidebar.graceUntil > 0 key=data.sidebar.graceUntil', 'after(2000, workingGraceClock)']);
+  const root = contractComponent('app.contract', 'T3Code'), sent: unknown[][] = [];
+  root.call('workingGraceClock', {}, { wallTime: { epochAtZero: 1_790_000_000_000 }, performanceNow: () => 2_500, command: (...args: unknown[]) => { sent.push(args); } }, []);
+  expect(sent).toEqual([['sidebarlocal:working-grace', '', '1790000002500', 0]]);
 });
