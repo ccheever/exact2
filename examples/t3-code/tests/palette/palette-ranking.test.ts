@@ -6,9 +6,10 @@ import { describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Files } from '../../src/client/protocol';
-import { commandView, type CommandContext } from '../../src/palette/palette';
+import { commandView, settingTarget, type CommandContext } from '../../src/palette/palette';
 import { paletteCommand } from '../../src/palette/palette-commands';
-import { paletteView } from '../../src/palette/palette-view';
+import { CATALOG } from '../../src/settings/settings-catalog';
+import { searchSettings, settingsNavigation } from '../../src/settings/settings-search';
 
 const NOW = Date.parse('2026-10-27T12:00:00.000Z');
 const at = (hoursAgo: number) => new Date(NOW - hoursAgo * 3_600_000).toISOString();
@@ -25,11 +26,9 @@ const view = (c: T3Client, query: string, page = '', extra: Partial<CommandConte
   commandView(c, { page, query, now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false, ...extra });
 const group = (rows: ReturnType<typeof view>['rows'], value: string) => rows.filter(entry => entry.key.startsWith(`${value}:`));
 const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('none'); }, async atomicWriteFile() {} } };
-/** The palette drawn for `query` at NOW, then its row for `id` picked: the command a thread row runs, with the root search's query. */
-async function pick(c: T3Client, id: string, query: string) {
-  await paletteView(c, null, [true, 'command', '', query, '', false, NOW, 'dark']);
-  return paletteCommand(c, null, files, 'thread', id, query);
-}
+/** A thread row picked at `moment`: the command it runs, with its moment and the root search's query. */
+const pick = (c: T3Client, id: string, query: string, moment = NOW) => paletteCommand(c, null, files, 'thread', id, `${moment} ${query}`);
+const recents = (c: T3Client) => group(view(c, '').rows, 'recent-threads').map(entry => entry.arg);
 
 describe('threads', () => {
   test('subagent threads are left out, of the results and of the recents', () => {
@@ -51,15 +50,23 @@ describe('threads', () => {
     expect(group(view(c, '').rows, 'recent-threads').map(entry => entry.arg)).toEqual(['old', 'new', 'old-too']);
     expect(group(view(c, 'old').rows, 'threads-search').map(entry => entry.arg)).toEqual(['old', 'old-too']);
   });
+  test('a pick counts at its own moment: picked ten seconds after a message elsewhere, it leads Recent Threads', async () => {
+    const c = client([{ id: 'a', title: 'A', updatedAt: '2026-10-27T12:00:40.000Z', latestUserMessageAt: '2026-10-27T12:00:40.000Z' },
+      { id: 'old', title: 'Old', updatedAt: at(48), latestUserMessageAt: at(48) }], 'moment-env');
+    await pick(c, 'old', 'old', Date.parse('2026-10-27T12:00:50.000Z'));
+    expect(recents(c)).toEqual(['old', 'a']);
+  });
   test('no use is recorded for a pick without a query, from a ">" filter, or of the open thread', async () => {
     const c = client([{ id: 'old', title: 'Old', updatedAt: at(48), latestUserMessageAt: at(48) }, { id: 'new', title: 'New', updatedAt: at(1), latestUserMessageAt: at(1) },
       { id: 'open', title: 'Old open', updatedAt: at(72), latestUserMessageAt: at(72) }], 'unpicked-env');
     c.threadId = 'open';
-    // The contract passes "" for a pick outside the root page, as upstream searches threads only there.
+    // The query is "" for a submenu's row and a pull request's linked thread (palette-members.contract). Upstream's thread
+    // view also records an open for every thread it shows (ChatView.tsx's visit, threadVisits.ts), which counts these
+    // too; the clone's visit tracker records no opens yet, so this is today's behaviour.
     for (const [id, query] of [['old', ''], ['old', '  '], ['old', '>old'], ['open', 'old']] as const) expect(await pick(c, id, query)).toMatchObject({ close: true, thread: id });
-    expect(group(view(c, '').rows, 'recent-threads').map(entry => entry.arg)).toEqual(['new', 'old']);
+    expect(recents(c)).toEqual(['new', 'old']);
     c.threadId = '';
-    expect(group(view(c, '').rows, 'recent-threads').map(entry => entry.arg)).toEqual(['new', 'old', 'open']);
+    expect(recents(c)).toEqual(['new', 'old', 'open']);
   });
   test('a match outside the title says which field matched, with the project beside the title', () => {
     const c = client([{ id: 'a', title: 'Weekly notes', updatedAt: at(1), branch: 't3/cleanup-payloads' }]);
@@ -94,21 +101,32 @@ describe('commands and settings', () => {
     for (const query of ['merge requests', 'mrs', 'pull requests', 'gitcafe']) expect(view(c, query).rows.some(entry => entry.op === 'pull-requests'), query).toBe(true);
     expect(view(c, 'gitea').rows.some(entry => entry.arg === 'add-project'), 'gitea').toBe(true);
   });
-  test('every Settings result names the element its page opens at: targetId ?? id, a command\'s own row', () => {
+  test('a Settings result opens where the Settings search opens it; a keybinding command at its row, else at Keybindings', () => {
     const c = client([]);
-    c.config.keybindings = [{ command: 'sidebar.toggle', key: 'mod+b' }];
+    c.config.keybindings = [{ command: 'sidebar.toggle', key: 'mod+b' }, { command: 'thread.stop', key: 'mod+.' }];
     const result = (query: string, id: string) => view(c, query).rows.find(entry => entry.key === `settings-search:setting:${id}`);
-    // A page drawn from settings-core gives a row's control `setting-<id>`.
+    // A core settings page gives a row's control `setting-<targetId ?? id>`; elsewhere the rule maps six rows' elements.
     expect(result('send shortcut', 'send-shortcut')).toMatchObject({ op: 'settings', arg: 'chat', arg2: 'setting-send-shortcut', description: 'Settings · Chat' });
-    // Pages outside settings-core take the same name; until their rows carry it, they open at their top.
-    expect(result('git fetch interval', 'git-fetch-interval')).toMatchObject({ arg: 'source-control', arg2: 'setting-git-fetch-interval' });
-    expect(result('browser profiles', 'browser-profiles')).toMatchObject({ arg: 'browser', arg2: 'setting-browser' });
-    // A target the page focuses another element for, from its own row and from the rows aimed at it.
     expect(result('keybindings', 'keybindings')).toMatchObject({ arg: 'keybindings', arg2: 'keybindings-filter' });
-    expect(result('network access', 'network-access')).toMatchObject({ arg: 'connections', arg2: 'manage-connection' });
-    expect(result('keep worktrees with local changes', 'storage-worktree-keep-when')).toMatchObject({ arg: 'worktrees', arg2: 'storage-toggle-worktreeOnDelete' });
-    // A keybinding command opens at its own row (keybindingSearchAnchorId).
+    // The rest open at their page's top: rows whose page carries no ids yet, and rows aimed at another one (This machine's
+    // section, Worktree cleanup).
+    expect(result('git fetch interval', 'git-fetch-interval')).toMatchObject({ arg: 'source-control', arg2: '' });
+    expect(result('network access', 'network-access')).toMatchObject({ arg: 'connections', arg2: '' });
+    expect(result('keep worktrees with local changes', 'storage-worktree-keep-when')).toMatchObject({ arg: 'worktrees', arg2: '' });
+    // A command with a default key opens at its row (keybindingSearchAnchorId); one without, at the Keybindings page.
     expect(result('sidebar toggle', 'keybinding-sidebar.toggle')).toMatchObject({ arg: 'keybindings', arg2: 'keybinding-sidebar.toggle' });
+    expect(result('thread stop', 'keybinding-thread.stop')).toMatchObject({ arg: 'keybindings', arg2: 'keybindings' });
+  });
+  test('⌘K opens every setting at the element the Settings search opens it at', () => {
+    const context = { connected: true, autoSettle: true, scopeKind: 'all', keybindings: [], localBackend: true, localEnvironment: true };
+    let compared = 0;
+    for (const [id, title] of CATALOG) {
+      const searched = settingsNavigation(title, context).items.find(item => item.id === `search-result-${id}`);
+      if (!searched) continue; // not on this platform
+      expect([id, settingTarget(searchSettings(title, context).find(item => item.id === id)!)]).toEqual([id, searched.target]);
+      compared++;
+    }
+    expect(compared).toBeGreaterThan(100);
   });
 });
 

@@ -11,7 +11,8 @@ import { terminalProcessCount } from '../sidebar/sidebar-view';
 import { searchPullRequest } from '../sidebar/search-pull-request';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { projectIdentity } from '../client/presentation';
-import { searchSettings, searchContext, breadcrumbLabel } from '../settings/settings-search';
+import { searchSettings, searchContext, breadcrumbLabel, CORE_ROUTES, NATIVE_TARGETS } from '../settings/settings-search';
+import { keybindingDefaults } from '../settings/keybinding-settings';
 import { themeCards } from '../appearance/settings-appearance';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { chordWinners, type DispatchContext } from '../shell/keyboard-dispatch';
@@ -414,17 +415,16 @@ function appearanceItems(client: T3Client): Item[] {
   return [['system', 'System', 'monitor'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']].map(([value, label, icon]) => ({ terms: [label!, 'appearance', 'mode'],
     row: row({ key: `appearance:${value}`, op: 'device', arg: 'appearanceMode', arg2: value!, icon: icon!, title: label!, trailing: mode === value ? 'Current' : '' }) }));
 }
-// Targets whose page focuses another element in their place (settings-search.ts NATIVE_TARGETS).
-const FOCUSED_INSTEAD: Readonly<Record<string, string>> = { archive: 'refresh-archive', 'storage-worktrees': 'storage-toggle-worktreeOnDelete',
-  'storage-artifacts': 'storage-toggle-browserArtifactsAfterDays', 'remote-environments': 'manage-connection', 'connections-environment': 'manage-connection',
-  keybindings: 'keybindings-filter' };
 /**
- * The element a Settings result opens its page at (CommandPalette.tsx `hash: item.targetId ?? item.id`): a command's
- * `keybinding-<command>`, else `setting-<targetId ?? id>`, the id the pages drawn from settings-core give a row's
- * control. A page that has no element with that id opens at its top.
+ * The element a Settings result opens its page at, by the Settings search's own rule (settings-search.ts
+ * settingsNavigation): the element mapped for its id, else a core page's `setting-<targetId ?? id>`, else none, and the
+ * page opens at its top. A keybinding command, which that rule gives none, takes upstream's (settingsSearch.ts
+ * KEYBINDING_SEARCH_ITEMS): its row, or with no default key the Keybindings page.
  */
-export function settingTarget(item: { id: string; target: string }): string {
-  return item.id.startsWith('keybinding-') ? item.id : FOCUSED_INSTEAD[item.target] ?? `setting-${item.target}`;
+export function settingTarget(item: { id: string; route: string; target: string }): string {
+  const command = item.id.startsWith('keybinding-') ? item.id.slice('keybinding-'.length) : '';
+  if (command) return keybindingDefaults.some(binding => binding.command === command) ? item.id : 'keybindings';
+  return NATIVE_TARGETS[item.id] ?? (CORE_ROUTES.has(item.route) && !item.id.startsWith('storage-') ? `setting-${item.target}` : '');
 }
 /** The settings a query can find, ranked by the palette's own matcher. */
 export function settingsItems(client: T3Client, query: string): Item[] {

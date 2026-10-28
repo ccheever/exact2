@@ -8,7 +8,6 @@ import { contentSearchView, filePickerView } from './palette-files';
 import { linkPullRequestView, resetLinkDialog } from './palette-linkpr';
 import { linkedThreadItems, threadPickerView } from '../pull-requests/pages-pr-links';
 import { messageSearchTokens } from './palette-search';
-import { noteNow } from '../composer/composer-controls';
 
 /** THREAD_SEARCH_QUERY_MAX_LENGTH: a pasted wall of text searches by its start rather than failing the request. */
 const THREAD_SEARCH_QUERY_MAX_LENGTH = 200;
@@ -47,7 +46,6 @@ export async function paletteView(client: T3Client, native: Native | null | unde
 async function paletteViewOf(client: T3Client, native: Native | null | undefined, args: unknown[]): Promise<PaletteView> {
   const open = args[0] === true, mode = String(args[1] || 'command'), page = String(args[2] || ''), query = String(args[3] ?? '');
   const flags = String(args[4] || ''), highlighted = args[5] === true, now = Number(args[6]) || 0, scheme = args[7] === 'dark' ? 'dark' : 'light';
-  noteNow(client, now); // a thread picked from these rows counts as opened at this moment (palette-commands.ts)
   if (page === 'link-pr' && open) return linkPullRequestView(client, query);
   resetLinkDialog(client);
   if (!open) return closedView;
