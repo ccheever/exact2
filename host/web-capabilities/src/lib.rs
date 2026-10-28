@@ -27,7 +27,6 @@ pub mod inspection;
 pub mod markdown;
 pub mod materials;
 pub mod motion;
-pub mod notifications;
 pub mod picker;
 pub mod router;
 pub mod segments;
@@ -76,6 +75,5 @@ pub const ALL: exact_web::Linked = linked!(
     geometry,
     segments,
     dataset,
-    tabs,
-    notifications
+    tabs
 );

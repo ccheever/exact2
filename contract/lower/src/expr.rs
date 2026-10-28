@@ -70,12 +70,10 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
         return vec![positional.next(), positional.next(), named("at")];
     }
-    // The Web Share API's members, the Notification API's title and
-    // options, and `stopSounds`' group, in a fixed order, `none` where the
-    // author gave none.
+    // The Web Share API's members and `stopSounds`' group, in a fixed
+    // order, `none` where the author gave none.
     let order: &[&str] = match name {
         "share" => &["title", "text", "url", "files"],
-        "showNotification" => &["title", "body", "tag", "showTrigger", "navigate"],
         "stopSounds" => &["group"],
         _ => return args.iter().map(Some).collect(),
     };

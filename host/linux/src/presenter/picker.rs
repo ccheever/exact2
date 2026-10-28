@@ -104,20 +104,6 @@ impl<D: DataSource> Presenter<D> {
         self.dirty = true;
     }
 
-    /// `showNotification(…)` and `closeNotification(tag)`: the runner's rule,
-    /// with no notification centre (refused, or listed for the agent).
-    pub(crate) fn notify(&mut self, name: &str, args: &[exact_plan::Value]) {
-        use exact_runner::notify::{arm, close, Arm, Notice};
-        let runner = self.host.runner_mut();
-        if name == "closeNotification" {
-            let tag = args.first().and_then(exact_plan::Value::as_str);
-            close(runner, tag.unwrap_or_default(), self.agent);
-        } else if let Arm::Refused(reason) = arm(runner, Notice::from_args(args), self.agent, false)
-        {
-            self.not_carried("showNotification", &reason);
-        }
-    }
-
     /// The agent's answer to a held export: copy the `app:/` file (or write
     /// the `text=`) to the driver's path and fire `change` with its name,
     /// or `cancel`.

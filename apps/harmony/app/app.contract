@@ -7,6 +7,7 @@
 // stand in for accounts and the You tab switches between them.
 use Badge, EmptyState from "exact:content"
 use registerPeriodicSync, unregisterPeriodicSync, backgroundSyncStatus, periodicSyncTags, sync, periodicsync, BackgroundSyncStatus, SyncEvent, SyncRegistration from "@exact/background"
+use showNotification, requestNotificationPermission, NotificationStatus from "@exact/notifications"
 use startCall, reportCallState, endCall, calls, callhangup, callhold, Call, CallEvent from "@exact/calls"
 use getUserMedia, stopTrack, MediaStream, MediaStreamTrack from "@exact/media-capture"
 use startMediaRecorder, stopMediaRecorder, pauseMediaRecorder, resumeMediaRecorder, MediaRecorderInfo, RecordedMedia from "@exact/recording"
@@ -247,6 +248,8 @@ component Harmony
   derive notifying = catchUps.filter(r => r.tag == "catch-up").length > 0
   mutation flushed as shape Flushed refreshes world
   mutation caught as shape Caught then notifyMention
+  // Asked when the switch turns on, in the press, so a catch-up's post finds the answer given.
+  mutation notifyAsked as shape NotificationStatus
   derive writing = pending(sent) or pending(edited) or pending(removed) or pending(reacted) or pending(pinToggled) or pending(typed) or pending(readMarked) or pending(channelCreated) or pending(dmOpened) or pending(profileSaved) or pending(emojiCreated) or pending(emojiRemoved)
 
   // Changes arrive through `live`; the clock still moves every ten seconds,
@@ -571,6 +574,7 @@ component Harmony
         sampledAt = sampledAt
   action setMentions(on: bool)
     if on
+      send notifyAsked = requestNotificationPermission()
       registerPeriodicSync(tag="catch-up", minInterval=1800000)
     else
       unregisterPeriodicSync(tag="catch-up")

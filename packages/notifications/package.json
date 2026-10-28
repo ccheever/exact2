@@ -1,0 +1,11 @@
+{
+  "name": "@exact/notifications",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local notifications, their click, the app badge and the permission, with the web's names (LLP 1133.004).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

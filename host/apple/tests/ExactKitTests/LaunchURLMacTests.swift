@@ -294,8 +294,8 @@ final class LaunchURLMacTests: XCTestCase {
         NotificationPresenter.shared.app = ExactApp.shared
         var activations = 0
         NotificationPresenter.shared.activate = { if $0 === session { activations += 1 } }
-        let info: [AnyHashable: Any] = ["navigate": "/thread/42", "session": session.label,
-                                        "owner": session.notificationOwnerID, "process": ExactApp.shared.notificationProcessID]
+        let info: [AnyHashable: Any] = ["exact": ["navigate": "/thread/42", "session": session.label,
+                                        "owner": session.notificationOwnerID, "process": ExactApp.shared.notificationProcessID]]
         let date = Date()
         func texts() throws -> [String] {
             let data = try XCTUnwrap(session.agent("{\"op\":\"tree\"}").data(using: .utf8))
@@ -312,8 +312,8 @@ final class LaunchURLMacTests: XCTestCase {
         NotificationPresenter.shared.deliver(id: "thread-42", date: date, info: info)
         XCTAssertEqual(try texts(), cold)
         XCTAssertEqual(activations, 1)
-        NotificationPresenter.shared.deliver(id: "thread-43", date: date, info: ["navigate": "/thread/43", "session": session.label,
-                                                                           "owner": session.notificationOwnerID])
+        NotificationPresenter.shared.deliver(id: "thread-43", date: date, info: ["exact": ["navigate": "/thread/43", "session": session.label,
+                                                                           "owner": session.notificationOwnerID]])
         XCTAssertTrue(try texts().contains("/thread/43"))
         XCTAssertEqual(activations, 2)
     }
@@ -331,8 +331,8 @@ final class LaunchURLMacTests: XCTestCase {
         presenter.app = ExactApp.shared
         let received = expectation(description: "notification delegate completion")
         respond(action: UNNotificationDefaultActionIdentifier, id: UUID().uuidString,
-                date: Date(), info: ["navigate": "/thread/42", "session": session.label,
-                                     "owner": session.notificationOwnerID]) {
+                date: Date(), info: ["exact": ["navigate": "/thread/42", "session": session.label,
+                                     "owner": session.notificationOwnerID]]) {
             received.fulfill()
         }
         XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 390, height: 844)).error)
@@ -359,8 +359,8 @@ final class LaunchURLMacTests: XCTestCase {
         presenter.activate = { _ in activations += 1 }
         let received = expectation(description: "notification dismissal completion")
         respond(action: UNNotificationDismissActionIdentifier, id: UUID().uuidString,
-                date: Date(), info: ["navigate": "/thread/42", "session": session.label,
-                                     "owner": session.notificationOwnerID]) {
+                date: Date(), info: ["exact": ["navigate": "/thread/42", "session": session.label,
+                                     "owner": session.notificationOwnerID]]) {
             received.fulfill()
         }
         wait(for: [received], timeout: 2)
@@ -378,8 +378,8 @@ final class LaunchURLMacTests: XCTestCase {
         XCTAssertEqual(b.label, c.label, "the label collision this click must survive")
         let presenter = NotificationPresenter.shared
         presenter.app = app
-        let info: [AnyHashable: Any] = ["navigate": "/thread/42", "session": c.label,
-                                        "owner": c.notificationOwnerID, "process": app.notificationProcessID]
+        let info: [AnyHashable: Any] = ["exact": ["navigate": "/thread/42", "session": c.label,
+                                        "owner": c.notificationOwnerID, "process": app.notificationProcessID]]
         presenter.deliver(id: UUID().uuidString, date: Date(), info: info)
         XCTAssertNil(b.launchLocation)
         XCTAssertEqual(c.launchLocation, "/thread/42")
@@ -397,8 +397,8 @@ final class LaunchURLMacTests: XCTestCase {
         defer { session.destroy(); NotificationPresenter.shared.app = nil; NotificationPresenter.shared.activate = nil }
         let presenter = NotificationPresenter.shared
         presenter.app = app
-        presenter.deliver(id: UUID().uuidString, date: Date(), info: ["navigate": "/thread/42", "session": session.label,
-                                                                 "owner": UUID().uuidString, "process": UUID().uuidString])
+        presenter.deliver(id: UUID().uuidString, date: Date(), info: ["exact": ["navigate": "/thread/42", "session": session.label,
+                                                                 "owner": UUID().uuidString, "process": UUID().uuidString]])
         XCTAssertEqual(session.launchLocation, "/thread/42")
     }
 
@@ -412,8 +412,8 @@ final class LaunchURLMacTests: XCTestCase {
         for (id, location) in [("first", " \tthread/./42#reply "), ("second", "app://thread/../thread/43?view=full#reply")] {
             let received = expectation(description: "notification delegate completion \(id)")
             respond(action: UNNotificationDefaultActionIdentifier, id: UUID().uuidString, date: Date(),
-                    info: ["navigate": location, "session": session.label,
-                           "owner": oldOwner, "process": oldProcess]) { received.fulfill() }
+                    info: ["exact": ["navigate": location, "session": session.label,
+                           "owner": oldOwner, "process": oldProcess]]) { received.fulfill() }
             wait(for: [received], timeout: 2)
             let data = try XCTUnwrap(session.agent("{\"op\":\"tree\"}").data(using: .utf8))
             let tree = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -430,8 +430,8 @@ final class LaunchURLMacTests: XCTestCase {
         defer { first.destroy(); second.destroy(); NotificationPresenter.shared.app = nil }
         NotificationPresenter.shared.app = app
         NotificationPresenter.shared.deliver(id: UUID().uuidString, date: Date(),
-                                             info: ["navigate": "/thread/42", "session": "old-main",
-                                                    "owner": UUID().uuidString, "process": UUID().uuidString])
+                                             info: ["exact": ["navigate": "/thread/42", "session": "old-main",
+                                                    "owner": UUID().uuidString, "process": UUID().uuidString]])
         XCTAssertEqual(first.launchLocation, "/thread/42")
         XCTAssertNil(second.launchLocation)
     }

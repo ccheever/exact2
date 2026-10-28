@@ -831,7 +831,15 @@ impl<D: DataSource> Runner<D> {
         let Some(event) = tap["event"].as_str() else {
             return Ok(json!({ "ref": reference, "delivery": "substituted" }).to_string());
         };
-        let args = entry_args(&tap, entry);
+        // An entry posted with no key carries "" for it, as the web's
+        // untagged notification's `tag` is.
+        let mut entry = entry.clone();
+        if let Some(key) = self.substitute(row)["list"]["key"].as_str() {
+            if entry.is_object() && entry.get(key).is_none_or(Json::is_null) {
+                entry[key] = json!("");
+            }
+        }
+        let args = entry_args(&tap, &entry);
         let extension = self.plan.str(row.extension).to_owned();
         self.raise_module_event(
             &extension,

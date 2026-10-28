@@ -34,6 +34,7 @@
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
         "@exact/nfc": "workspace:*",
+        "@exact/notifications": "workspace:*",
         "@exact/passkeys": "workspace:*",
         "@exact/pedometer": "workspace:*",
         "@exact/photos": "workspace:*",
@@ -207,6 +208,10 @@
       "name": "@exact/nfc",
       "version": "1.0.0",
     },
+    "packages/notifications": {
+      "name": "@exact/notifications",
+      "version": "1.0.0",
+    },
     "packages/passkeys": {
       "name": "@exact/passkeys",
       "version": "1.0.0",
@@ -356,6 +361,8 @@
     "@exact/motion": ["@exact/motion@workspace:packages/motion"],
 
     "@exact/nfc": ["@exact/nfc@workspace:packages/nfc"],
+
+    "@exact/notifications": ["@exact/notifications@workspace:packages/notifications"],
 
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
 

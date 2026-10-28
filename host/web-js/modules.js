@@ -691,7 +691,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     const tap = row.sub.list.tap ?? {}, location = tap.navigate ? entry[tap.navigate] : null;
     if (typeof location === "string") { navigateRoot(locationOf(location)); return { ref, navigate: location, delivery: "substituted" }; }
     if (!tap.event) return { ref, delivery: "substituted" };
-    raise(`${extensionOf(row)}.${tap.event}`, entryArgs(tap, entry), "app");
+    // An entry posted with no key carries "" for it, as an untagged notification's `tag` is.
+    const key = row.sub.list.key;
+    raise(`${extensionOf(row)}.${tap.event}`, entryArgs(tap, key && entry[key] == null ? { ...entry, [key]: "" } : entry), "app");
     return { ref, event: tap.event, delivery: "substituted" };
   };
   // The handlers a handle's work may call back (LLP 1133.016 D15 item 1): those its call's `handlers` path lists

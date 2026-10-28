@@ -34,6 +34,7 @@
     "@exact/media-capture": "workspace:*",
     "@exact/nfc": "workspace:*",
     "@exact/motion": "workspace:*",
+    "@exact/notifications": "workspace:*",
     "@exact/recording": "workspace:*",
     "@exact/speech-recognition": "workspace:*",
     "@exact/speech-synthesis": "workspace:*",

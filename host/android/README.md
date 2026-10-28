@@ -417,8 +417,9 @@ where it is asked (`Presenter::request`, which wakes the reader); with an answer
 row above. What layout needs while it runs (a field's metrics, D8) is not a request: a queue taken after the frame is
 too late for it.
 
-**Not on it yet:** notifications and the file pickers (`showNotification`, `showPicker`, `saveFile`, the document
-pickers) are still refused, and the journal then says the channel does not carry them yet. Accessibility events
+**Not on it yet:** the file pickers (`showPicker`, `saveFile`, the document pickers) are still refused, and the journal
+then says the channel does not carry them yet. `@exact/notifications` has no Android implementation until LLP 1133.004
+stage 3. Accessibility events
 (D13) will take it too.
 
 `x_log_requests=1` at launch (exact2's `EXACT_LOG_REQUESTS`) logs each request as exact2 queues it and as the reader

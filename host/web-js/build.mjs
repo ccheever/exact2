@@ -221,8 +221,6 @@ if (moduleFlag.extensions.length) {
 const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name) && !moduleFlag.sources.includes(name));
 // A file input, `saveFile` or `share` (files.js), registered before any press.
 const files = existsSync(resolve(gen, 'files.flag'));
-// `showNotification` or `closeNotification` (notify.js), linked by use.
-const notifies = existsSync(resolve(gen, 'notify.flag'));
 // A declared sound or a sound command (sounds.js, LLP 1096 D5): the flag is the plan's table.
 const soundTable = existsSync(resolve(gen, 'sounds.flag')) ? readFileSync(resolve(gen, 'sounds.flag'), 'utf8') : null;
 // `wakelock` on any element (wakelock.js, LLP 1125 D11).
@@ -400,7 +398,6 @@ writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
   ...(devReload ? ["import { prepareDev } from './checkpoint.js';", "const finishDev = prepareDev();"] : []),
   ...(files ? ["import './files.js';"] : []),
-  ...(notifies ? ["import './notify.js';"] : []),
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   ...(wakelock ? ["import { install as wakelock } from './wakelock.js'; wakelock();"] : []),
   ...(orientationlock ? ["import { install as orientationlock } from './orientationlock.js'; orientationlock();"] : []),
@@ -505,7 +502,6 @@ cpSync(resolve(here, 'ts-body-from.js'), resolve(gen, 'ts-body-from.js'));
 cpSync(resolve(here, 'ts-stream.js'), resolve(gen, 'ts-stream.js'));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
 cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
-cpSync(resolve(here, 'notify.js'), resolve(gen, 'notify.js'));
 cpSync(resolve(here, 'sounds.js'), resolve(gen, 'sounds.js'));
 cpSync(resolve(here, 'wakelock.js'), resolve(gen, 'wakelock.js'));
 cpSync(resolve(here, 'orientationlock.js'), resolve(gen, 'orientationlock.js'));
