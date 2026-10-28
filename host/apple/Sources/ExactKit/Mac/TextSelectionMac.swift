@@ -995,7 +995,7 @@ extension NodeView: NSServicesMenuRequestor {
     package override func menu(for event: NSEvent) -> NSMenu? {
         guard isParagraph, let selection = presenter?.selection, !contextMenuAuthored,
               inlineContextTarget(at: local(event.locationInWindow)) == nil else { return super.menu(for: event) }
-        if event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+        if !Self.keyboardMenuRequest, event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
            !selection.secondaryClick(self, event: event, answered: {
                // The reader's worker placed the click: its menu opens on the
                // next turn, once the reader has taken the answer in.
@@ -1008,6 +1008,11 @@ extension NodeView: NSServicesMenuRequestor {
         }
         return textMenu(event) ?? super.menu(for: event)
     }
+    /// A request from the keyboard is asking `menu(for:)` (the ContextMenu
+    /// key, VoiceOver's show menu: `Presenter.keyboardMenu`): no pointer
+    /// landed, so selectable text keeps its selection and a list's row
+    /// hears nothing.
+    static var keyboardMenuRequest = false
     /// AppKit's menu for the selection, with the Services that take its text.
     private func textMenu(_ event: NSEvent) -> NSMenu? {
         guard let menu = presenter?.selection.systemMenu(for: self, event: event) else { return nil }

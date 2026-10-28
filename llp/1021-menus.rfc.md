@@ -1080,8 +1080,14 @@ on a preview as the commit, as QUEUE's reaction-picker note found, so
 the Signal message menu's reaction bar is not a preview, and stays
 authored (a reaction bar beside the menu is its own work). A preview for a node that does not name a
 popover. macOS's preview (none exists). Linux's popover presentation. The
-keyboard route to a context menu (Shift+F10, the context-menu key; QUEUE's
-"Keyboard access to a message's context menu"). Compile-time checks: a
+keyboard route to a context menu outside Apple hosts (Shift+F10, the
+context-menu key; QUEUE's "Keyboard access to a message's context menu").
+On macOS the key and VoiceOver's show menu take the authored path (#314,
+#486), and a request no node answers goes on as an unanswered secondary click
+at the same point (2026-10-28): the menu of the view drawn there, else the
+responders past the session's view, as Chrome's own menu follows a
+`contextmenu` nothing prevented. Show menu is offered where an authored node
+or that view's menu answers. Compile-time checks: a
 literal `contextPopover` naming no popover, or two `contextPreview` rows,
 is not refused by the compiler. iOS logs both at the press, macOS logs a
 missing popover, and the web logs neither.

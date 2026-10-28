@@ -85,7 +85,9 @@ final class ContextMenuMacTests: XCTestCase {
         p.menus.reset()
 
         p.apply(wireBatch([["op": "props", "id": 1, "set": ["inert": "true"]]]))
-        XCTAssertFalse(p.routeKey(contextKey(window), focused: true))
+        // The inert node is no focus: the key lands at (1,1), which nothing
+        // answers, and goes on as an unanswered secondary click there.
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertFalse(source.accessibilityPerformShowMenu())
         XCTAssertEqual(heard, [1, 1, 1, 1], "inert still suppresses the menu")
     }
@@ -643,6 +645,89 @@ final class ContextMenuMacTests: XCTestCase {
     }
 
     private final class NativeKeySink: NSView { override var acceptsFirstResponder: Bool { true } }
+    /// A responder after the session's view, as an embedder's or an app's is.
+    private final class SecondaryClickSink: NSResponder {
+        var clicks: [NSPoint] = []
+        override func rightMouseDown(with event: NSEvent) { clicks.append(event.locationInWindow) }
+    }
+    /// A view whose `menu(for:)` answers, as selectable text's does.
+    private final class MenuView: NSView {
+        var asked: [Bool] = []
+        override func menu(for event: NSEvent) -> NSMenu? {
+            asked.append(NodeView.keyboardMenuRequest)
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Look Up", action: nil, keyEquivalent: "")
+            return menu
+        }
+    }
+
+    /// The ContextMenu key and show menu on a node that nothing in the tree
+    /// answers go on as an unanswered secondary click at its drawn middle
+    /// (K1), as Chrome lets its own menu follow: past the session's view to
+    /// the next responder, once, with no `pointerdown` and no node event.
+    /// Show menu is not offered there, since that responder cannot be asked
+    /// ahead. A node whose `contextmenu` answers is unchanged.
+    func testAnUnansweredKeyboardRequestGoesOnAsASecondaryClick() throws {
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        p.apply(wireBatch([["op": "create", "id": 7, "kind": "button", "handlers": ["press"], "props": ["tabindex": "0"]],
+                           ["op": "frame", "id": 7, "x": 180, "y": 20, "w": 100, "h": 30], ["op": "children", "id": 9, "ids": [1, 2, 7]]]))
+        source.props.removeValue(forKey: "contextPopover")
+        let plain = try XCTUnwrap(p.views[7]), sink = SecondaryClickSink()
+        sink.nextResponder = p.viewport.nextResponder
+        p.viewport.nextResponder = sink
+        defer { p.viewport.nextResponder = sink.nextResponder }
+        var heard: [String] = []
+        p.onClipboard = { id, kind, _ in heard.append("\(id):\(kind)") }
+        p.onPress = { heard.append("press \($0)") }
+        let middle = plain.convert(NSPoint(x: plain.bounds.midX, y: plain.bounds.midY), to: nil)
+        XCTAssertTrue(window.makeFirstResponder(plain))
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        turn()
+        XCTAssertEqual(sink.clicks, [middle])
+        XCTAssertEqual(try offered(plain), ["AXPress"])
+        XCTAssertTrue(plain.accessibilityPerformShowMenu())
+        turn()
+        XCTAssertEqual(sink.clicks, [middle, middle])
+        XCTAssertEqual(heard, [], "no node hears it")
+        XCTAssertTrue(window.makeFirstResponder(source))
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertTrue(source.accessibilityPerformShowMenu())
+        turn()
+        XCTAssertEqual(heard, ["1:10", "1:10"])
+        XCTAssertEqual(sink.clicks.count, 2, "a node that answers keeps the request")
+    }
+
+    /// Where the view drawn at the node's middle has a menu (selectable
+    /// text's), the unanswered request asks its `menu(for:)` as a request
+    /// from the keyboard, opens that menu, and goes no further; show menu
+    /// is offered there.
+    func testAnUnansweredKeyboardRequestOpensTheMenuOfTheViewDrawnThere() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "AppKit's tracking would hold the agent")
+        let p = presenter(), window = try XCTUnwrap(windows.last)
+        p.apply(wireBatch([["op": "create", "id": 7, "kind": "button", "handlers": ["press"], "props": ["tabindex": "0"]],
+                           ["op": "frame", "id": 7, "x": 180, "y": 20, "w": 100, "h": 30], ["op": "children", "id": 9, "ids": [1, 2, 7]]]))
+        let plain = try XCTUnwrap(p.views[7]), sink = SecondaryClickSink(), drawn = MenuView(frame: plain.bounds)
+        plain.addSubview(drawn)
+        sink.nextResponder = p.viewport.nextResponder
+        p.viewport.nextResponder = sink
+        defer { p.viewport.nextResponder = sink.nextResponder }
+        window.orderFrontRegardless()
+        var tracked: [[String]] = []
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            tracked.append(menu.items.map(\.title))
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTrackingWithoutAnimation() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        XCTAssertEqual(try offered(plain), ["AXPress", "AXShowMenu"])
+        XCTAssertTrue(window.makeFirstResponder(plain))
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        turn()
+        XCTAssertEqual(tracked, [["Look Up"]])
+        XCTAssertEqual(drawn.asked.suffix(1), [true], "asked as a request from the keyboard")
+        XCTAssertFalse(NodeView.keyboardMenuRequest)
+        XCTAssertEqual(sink.clicks, [], "the view's menu answered it")
+    }
     func testContextMenuDoesNotTakeAnEmbeddedViewsKeys() throws {
         let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
         let embedded = NativeKeySink(frame: source.bounds)
@@ -694,7 +779,7 @@ final class ContextMenuMacTests: XCTestCase {
             XCTAssertEqual(kind, 10)
             heard.append(id); samples.append(line.components(separatedBy: ","))
         }
-        XCTAssertFalse(plain.accessibilityPerformShowMenu())
+        XCTAssertTrue(plain.accessibilityPerformShowMenu(), "it goes on as an unanswered secondary click")
         XCTAssertTrue(source.accessibilityPerformShowMenu())
         // AppKit's server performs only an action it offers: a run's
         // element is no view, and its base show menu raises.
@@ -761,7 +846,7 @@ final class ContextMenuMacTests: XCTestCase {
             XCTAssertEqual(kind, 10)
             heard.append(id); samples.append(line.components(separatedBy: ","))
         }
-        XCTAssertFalse(plain.accessibilityPerformShowMenu())
+        XCTAssertTrue(plain.accessibilityPerformShowMenu(), "it goes on as an unanswered secondary click")
         XCTAssertTrue(button.accessibilityPerformShowMenu())
         if try offered(list).contains("AXShowMenu") { XCTAssertTrue(list.accessibilityPerformShowMenu()) }
         if try offered(docs).contains("AXShowMenu") { XCTAssertTrue(docs.accessibilityPerformShowMenu()) }
@@ -823,7 +908,7 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertTrue(button.isAccessibilityElement())
         XCTAssertEqual(try offered(button), ["AXPress", "AXShowMenu"])
         XCTAssertEqual(try offered(plain), ["AXPress"], "nothing answers it")
-        XCTAssertFalse(plain.accessibilityPerformShowMenu())
+        XCTAssertTrue(plain.accessibilityPerformShowMenu(), "it goes on as an unanswered secondary click")
         window.orderFrontRegardless()
         var heard: [String] = []
         p.onClipboard = { id, _, _ in heard.append("context \(id)") }
@@ -1120,7 +1205,9 @@ final class ContextMenuMacTests: XCTestCase {
             var heard = 0
             p.onClipboard = { _, _, _ in heard += 1 }
             p.apply(wireBatch([change]))
-            XCTAssertFalse(p.routeKey(contextKey(window), focused: true), name)
+            // The source is no focus now: the key lands at (1,1), which
+            // nothing answers, and goes on as an unanswered secondary click.
+            XCTAssertTrue(p.routeKey(contextKey(window), focused: true), name)
             XCTAssertEqual(heard, 0, name)
         }
     }
