@@ -1486,9 +1486,11 @@ export function popoverCommand(method, id, source, say) {
   try { pop[method](method === "hidePopover" || !anchor ? undefined : { source: anchor }); }
   catch (e) { say(`${method} "${id}" refused: ${e.name}`); }
 }
+/** LLP 1021 D2: a popover whose author wrote `left` or `top` opens at that point, not at its invoker. Its insets are left on it as `--exact-inset-x`, `-y` while it is open (`auto` for an axis with none), for the page's sheet to place it by and to flip it the other way from the point where it does not fit, as a context menu at the pointer (neutral.css). Only where that sheet's `inset: auto` holds its other sides is a `left` or `top` the author's: the user agent's `inset: 0` writes all four. */
+function insetAt(p) { const { left, top, right, bottom } = getComputedStyle(p); if (right !== "auto" || bottom !== "auto" || left === "auto" && top === "auto") { p.style.removeProperty("--exact-inset-x"); p.style.removeProperty("--exact-inset-y"); return; } p.style.setProperty("--exact-inset-x", left); p.style.setProperty("--exact-inset-y", top); p.exactInset ??= (p.addEventListener("toggle", t => { if (t.newState === "closed") for (const axis of "xy") p.style.removeProperty(`--exact-inset-${axis}`); }), true); }
 const popoverSources = new WeakMap(); /** What opened popover `pop` last (its `beforetoggle`'s source): a menu's invoker, for menu-rows.js. */ export const popoverSource = pop => popoverSources.get(pop) ?? null;
 globalThis.document?.addEventListener?.("beforetoggle", e => {
-  if (e.target.hasAttribute("popover") && e.newState === "open") { popoverSources.set(e.target, e.source ?? null); e.target.toggleAttribute("data-exact-chooser", !!e.source?.checkVisibility() && e.target.getAttribute("role") === "alertdialog" && !e.target.querySelector(":scope > [data-exact-text], input")); } // a chooser (LLP 1021) its invoker opened, the invoker still shown: neutral.css draws it there, as a menu
+  if (e.target.hasAttribute("popover") && e.newState === "open") { popoverSources.set(e.target, e.source ?? null); e.target.toggleAttribute("data-exact-chooser", !!e.source?.checkVisibility() && e.target.getAttribute("role") === "alertdialog" && !e.target.querySelector(":scope > [data-exact-text], input")); insetAt(e.target); } // a chooser (LLP 1021) its invoker opened, the invoker still shown: neutral.css draws it there, as a menu
 }, true);
 function popoverObservation(root) {
   const pop = [...root.querySelectorAll("[popover]:popover-open")].at(-1), source = pop && popoverSources.get(pop);
