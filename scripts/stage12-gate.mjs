@@ -616,7 +616,7 @@ const compiled = (r, plan) => {
 
 /** The library's components with a slot (library-gate.test.mjs checks each
  * of their cells holds its marker). */
-export const SLOTTED = ['PostCard', 'ProfileHeader', 'ComposeFrame', 'BarItem', 'PersonRow'];
+export const SLOTTED = ['PostCard', 'ProfileHeader', 'ComposeFrame', 'BarItem', 'PersonRow', 'MenuGroup'];
 /** The ids of library-gate's slotted cells (each a marker). */
 export const markerIds = () => placements(readFileSync(join(LIBRARY_GATE, 'app.contract'), 'utf8'), SLOTTED).map(p => p.id);
 

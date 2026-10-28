@@ -657,6 +657,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "pinch" NUMBER [ "at" NUMBER NUMBER ]
+                  | "wheel" [ "-" ] NUMBER [ "-" ] NUMBER
                   | "into" STRING
                   | "modifiers" STRING | "mediasession" STRING [ NUMBER ] ] NL
               | "tap" STRING "drag" ( "to" STRING [ "at" NUMBER NUMBER ]
@@ -878,6 +879,11 @@ virtual clock by those milliseconds (a game's ticks), except under
 `--timing platform`, where the platform's own clock owns the gesture.
 `tap "id" pinch <scale> [at x y]` is the driver's pinch: `scale` greater than 0,
 about the node's middle or about `at` in its box.
+`tap "id" wheel <dx> <dy>` is the driver's wheel (the agent's `tap <t> wheel
+dx dy`) at the node's middle, in points (CSS pixels on the web): a positive `dy`
+scrolls on toward the content's end, so its offset grows, and a negative one back
+toward its start; a positive `dx` scrolls right. It lands at once, with no
+momentum, so a Mac's scroll can be tested where a drag selects text instead.
 `tap "id" dblclick` and `contextmenu` are the driver's forms of the same names
 (no Linux carrier double-clicks). `tap "list" into "key"` brings a virtualized
 list's row into view by its key, so a row outside the rendered window can be

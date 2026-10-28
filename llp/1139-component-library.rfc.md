@@ -566,6 +566,14 @@ Owners as they free up (the lead's order).
    size (500 small, 600 tiny), since there is no weight token kind for an app to restyle it; its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
    beside Bluesky's paths. Library-gate places it once per compiler-marked variant value (following, tone, size,
    shape) with each icon pattern and each tone and size following as samples.
+   **Stage 15 B batch 2 (2026-10-27)** adds `@exact/cards`' **EmptyState** and `@exact/lists`' **MenuItem** and
+   **MenuGroup**, with Bluesky's sizes as the packages' tokens (`cards.empty-*`, `lists.menu-*`), their colours
+   params defaulting to platform roles except EmptyState's button, which is the brand primary (`cards.empty-button`,
+   Bluesky's blue, and fixed white `cards.empty-button-ink`), so the platform accent doesn't recolour it; every text
+   is the app's. The menu is drawn, not the platform's list cell
+   or menu, because Bluesky's native menu is a sheet of drawn items. MenuItem's `first` prop stands in for a slot
+   index, which would let MenuGroup draw the hairlines between its children. `apps/library-gate` holds MenuGroup in
+   a box named for its cell (it has no `id` prop), its slot marked, with MenuItem's cells inside.
 
 **The gate** (`~/x2theme/stage12-gate-run.txt`), each line with its oracle. **The required hosts**, for every line
 that runs per host: the web (the JS target and wasm), iOS, macOS, Linux, Android's reader and the terminal. A

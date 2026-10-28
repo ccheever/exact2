@@ -1,10 +1,27 @@
 // The design of @exact/lists (LLP 1139 D1): the tokens its components'
 // params default to. A row is the platform's list cell, so it has no
 // spacing of its own; its symbol's tint is the accent, as a UIKit cell
-// tints its image, and its switch the platform's on colour. An app sets
-// them by full name (the clone sets them to its palette's).
+// tints its image, and its switch the platform's on colour. A menu's items
+// are drawn (Bluesky's Menu), so they have their spacing and type here, and
+// their colours are the platform's roles. An app sets them by full name (the
+// clone sets them to its palette's).
 tamber lists
 
 theme
   lists.symbol-tint = AccentColor
   lists.switch-on = -exact-system-green
+  // A menu's items and group (MenuItem, MenuGroup), Bluesky's sizes.
+  lists.menu-surface = -exact-secondary-background
+  lists.menu-label = -exact-label
+  lists.menu-icon = -exact-secondary-label
+  lists.menu-destructive = -exact-system-red
+  lists.menu-divider = -exact-separator
+  lists.menu-frame = -exact-separator
+  lists.menu-hairline: length = -exact-hairline
+  lists.menu-corner: length = 16px
+  lists.menu-gap: length = space.sm
+  lists.menu-pad-inline: length = 12px
+  lists.menu-pad-block: length = 10px
+  lists.menu-height: length = 44px
+  lists.menu-label-size: length = 1rem
+  lists.menu-icon-size: length = 24px

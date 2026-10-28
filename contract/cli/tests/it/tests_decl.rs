@@ -271,6 +271,39 @@ fn a_test_pinches_holds_a_key_and_indexes_state() {
 }
 
 #[test]
+fn a_test_wheels_back_toward_the_start() {
+    // Excord on macOS: a drag selects text there, so its scroll is the agent's wheel.
+    let src =
+        "test \"scroll\"\n  tap \"transcript\" wheel 0 -2500\n  tap \"strip\" wheel -4.5 30\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(matches!(
+        &t.steps[0],
+        Step::Tap { form: TapForm::Wheel { dx, dy }, .. } if *dx == 0.0 && *dy == -2500.0
+    ));
+    assert!(matches!(
+        &t.steps[1],
+        Step::Tap { form: TapForm::Wheel { dx, dy }, .. } if *dx == -4.5 && *dy == 30.0
+    ));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"tap\",\"target\":\"transcript\",\"form\":\"wheel\",\"wheel\":[0,-2500],\"line\":2}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"form\":\"wheel\",\"wheel\":[-4.5,30]"),
+        "{json}"
+    );
+    // Both deltas are required, and nothing follows them.
+    let e = contract::tests("test \"t\"\n  tap \"a\" wheel 0\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  tap \"a\" wheel 0 10 fling\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-newline");
+}
+
+#[test]
 fn a_file_and_a_test_carry_their_launch_facts() {
     // habits F7, calendar F13: the date, zone, locale, seed and viewport a
     // test needs are written in the file, not remembered as driver flags.
