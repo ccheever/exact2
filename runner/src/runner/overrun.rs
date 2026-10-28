@@ -104,6 +104,7 @@ impl<D: DataSource> Runner<D> {
             source,
             args,
             continuation: None,
+            fetch: None,
             keepable: None,
             stream: None,
             grant: None,

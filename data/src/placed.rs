@@ -79,6 +79,29 @@ impl OwnerQueue {
     }
 }
 
+/// The host's wake for an abort heard on the owner ([`DataSource::abort_wake`]).
+type AbortWake = Arc<dyn Fn() + Send + Sync>;
+
+/// Hand the aborts an owner's turn heard to the host and wake it: the turn's
+/// reply may be discarded (a forgotten one's), and a let-go has none.
+fn publish_aborts(
+    found: Vec<u64>,
+    aborted: &std::sync::Mutex<Vec<u64>>,
+    wake: &std::sync::Mutex<Option<AbortWake>>,
+) {
+    if found.is_empty() {
+        return;
+    }
+    aborted
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .extend(found);
+    let wake = wake.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(wake) = wake {
+        wake();
+    }
+}
+
 fn encode_args(args: &[Value]) -> Vec<Vec<u8>> {
     args.iter().map(Value::to_bytes).collect()
 }
@@ -177,6 +200,12 @@ pub struct Placed<D> {
     next: u64,
     validation: bool,
     logs: Vec<String>,
+    /// The fetches the app aborted on the owner, as its turns hand them over:
+    /// shared, so a turn whose reply is discarded still delivers them.
+    aborted: Arc<std::sync::Mutex<Vec<u64>>>,
+    /// The host's wake, which the owner calls when it hands an abort over
+    /// with no reply to bring the host (a let-go's).
+    abort_wake: Arc<std::sync::Mutex<Option<AbortWake>>>,
     storage_changed: Arc<std::sync::atomic::AtomicBool>,
     /// The sources the journal said don't overlay on the owner thread.
     told_overlay: std::collections::BTreeSet<String>,
@@ -222,6 +251,8 @@ impl<D: DataSource + 'static> Placed<D> {
             next: 0,
             validation: false,
             logs: Vec::new(),
+            aborted: Default::default(),
+            abort_wake: Default::default(),
             told_overlay: Default::default(),
         }
     }
@@ -345,6 +376,8 @@ impl<D: DataSource + 'static> Placed<D> {
         let (jobs, rx) = channel::<Job>();
         let grants = self.grants.clone();
         let storage_changed = self.storage_changed.clone();
+        let aborted = self.aborted.clone();
+        let abort_wake = self.abort_wake.clone();
         std::thread::Builder::new()
             .name("exact-owner".into())
             .spawn(move || {
@@ -357,6 +390,9 @@ impl<D: DataSource + 'static> Placed<D> {
                                 (&mut source, retirement)
                             {
                                 forget(source, &Store::new(&grants, snapshot), &in_flight);
+                                // A let-go call's continuations run here, and
+                                // may abort another call's fetch.
+                                publish_aborts(source.take_aborted(), &aborted, &abort_wake);
                             }
                             continue;
                         }
@@ -390,6 +426,9 @@ impl<D: DataSource + 'static> Placed<D> {
                         storage_changed.store(true, std::sync::atomic::Ordering::Release);
                     }
                     let logs = source.as_mut().map(|s| s.take_logs()).unwrap_or_default();
+                    if let Ok(source) = source.as_mut() {
+                        publish_aborts(source.take_aborted(), &aborted, &abort_wake);
+                    }
                     reply.send(envelope::encode(result, &mut local, logs));
                 }
                 // Retired on its owner, after its last turn.
@@ -512,6 +551,22 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             }
         }
         std::mem::take(&mut self.logs)
+    }
+
+    fn abort_wake(&mut self, wake: Arc<dyn Fn() + Send + Sync>) {
+        if let Some(source) = &mut self.inner {
+            DataSource::abort_wake(source, wake.clone());
+        }
+        *self.abort_wake.lock().unwrap_or_else(|e| e.into_inner()) = Some(wake);
+    }
+
+    fn take_aborted(&mut self) -> Vec<u64> {
+        if self.owner.is_none() {
+            if let Some(source) = &mut self.inner {
+                return DataSource::take_aborted(source);
+            }
+        }
+        std::mem::take(&mut *self.aborted.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     fn placement(&self) -> Placement {
@@ -982,6 +1037,85 @@ mod tests {
             tx.send(outcome).unwrap();
         }));
         rx
+    }
+
+    /// A source whose `abort` turn aborts the fetch Mutation(0) awaits (its
+    /// module's ticket 7).
+    #[derive(Default)]
+    struct Aborting {
+        aborted: Vec<u64>,
+    }
+    impl DataSource for Aborting {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::Number(0.0))
+        }
+        fn app_id(&self) -> &str {
+            "com.exact.test"
+        }
+        fn grants(&self) -> &str {
+            ""
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            if source == "abort" {
+                self.aborted.push(7);
+            }
+            Ok(Answer::Now(Value::Number(0.0)))
+        }
+        fn take_aborted(&mut self) -> Vec<u64> {
+            std::mem::take(&mut self.aborted)
+        }
+        /// A let-go call's `finally` aborts another call's fetch (its 9).
+        fn forgotten(&mut self, _: &Store, _: &[InFlight<'_>]) {
+            self.aborted.push(9);
+        }
+    }
+
+    #[test]
+    fn an_abort_made_on_the_owner_is_handed_over_even_when_its_turns_reply_is_discarded() {
+        let mut placed = Placed::new(Aborting::default(), Placement::Worker);
+        placed.activate().unwrap();
+        let mut store = Store::new("", []);
+        let token = match placed.answer(&mut store, "abort", &[]).unwrap() {
+            Answer::Later(request) => request.continuation.unwrap(),
+            _ => panic!("a worker answer"),
+        };
+        // The turn runs on the owner; its reply is never applied, as a
+        // superseded answer's is not.
+        let (woke, wakes) = channel();
+        let woke = Mutex::new(woke);
+        placed.abort_wake(Arc::new(move || {
+            let _ = woke.lock().unwrap().send(());
+        }));
+        let reply = send(placed.dispatch(token, &store));
+        reply.recv_timeout(Duration::from_secs(5)).unwrap();
+        // The host is woken too, as a discarded reply brings it nothing.
+        wakes
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the host was woken");
+        assert_eq!(placed.take_aborted(), [7]);
+        assert!(placed.take_aborted().is_empty(), "taken once");
+    }
+
+    #[test]
+    fn an_abort_made_in_a_let_go_on_the_owner_wakes_the_host() {
+        let mut placed = Placed::new(Aborting::default(), Placement::Worker);
+        placed.activate().unwrap();
+        let (woke, wakes) = channel();
+        let woke = Mutex::new(woke);
+        placed.abort_wake(Arc::new(move || {
+            let _ = woke.lock().unwrap().send(());
+        }));
+        // No reply follows a let-go: only the wake tells the host to collect.
+        placed.forgotten(&Store::new("", []), &[]);
+        wakes
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the host was woken");
+        assert_eq!(placed.take_aborted(), [9]);
     }
 
     #[test]

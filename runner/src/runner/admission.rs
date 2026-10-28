@@ -98,6 +98,119 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// Hear the fetches the app aborted (after each module turn the runner
+    /// makes, and when a host collects them, [`Runner::collect_aborts`]), and
+    /// match each to the request it names.
+    pub(super) fn hear_aborted(&mut self) {
+        for fetch in self.data.take_aborted() {
+            self.heard_aborts.push((fetch, 0));
+        }
+        self.match_aborts();
+    }
+
+    /// Each heard abort, by the request it names: the pending one whose
+    /// fetch is that module ticket, so a later reply or re-ask of the same
+    /// target is another request; else one let go that may still run. One
+    /// that names neither yet waits for its request to be enqueued.
+    pub(super) fn match_aborts(&mut self) {
+        let pending = &self.pending;
+        let module_aborts = &mut self.module_aborts;
+        let retired = &mut self.retired_fetches;
+        self.heard_aborts.retain(|&(fetch, _)| {
+            let named = pending
+                .iter()
+                .find(|p| p.fetch == Some(fetch) && p.continuation.is_none() && p.stream.is_none());
+            // A request a newer send replaced still runs (a write is let
+            // run), so the host cancels it. Whether an answer is owed is the
+            // pump's to say (`take_aborted_answer`), from what is pending
+            // then: a refused commit may have put it back.
+            let ticket = match named {
+                Some(p) => p.ticket,
+                None => match retired.iter().position(|r| r.0 == fetch) {
+                    Some(pos) => retired.remove(pos).1,
+                    None => return true,
+                },
+            };
+            if !module_aborts.contains(&ticket) {
+                module_aborts.push(ticket);
+            }
+            false
+        });
+    }
+
+    /// Collect the module's aborted fetches now: a host calls this after the
+    /// turns it ran itself (a dispatched continuation, released work, a
+    /// let-go), then wakes a pump while [`Runner::has_module_aborts`]. A heard
+    /// abort whose request never comes is let go after 64 collections, and at
+    /// most 64 wait.
+    pub fn collect_aborts(&mut self) {
+        self.hear_aborted();
+        for heard in &mut self.heard_aborts {
+            heard.1 += 1;
+        }
+        self.heard_aborts.retain(|heard| heard.1 <= 64);
+        let over = self.heard_aborts.len().saturating_sub(64);
+        self.heard_aborts.drain(..over);
+    }
+
+    /// A request let go while it may still run (a newer send replaced it),
+    /// kept so the app's abort still cancels it, until its reply comes: at
+    /// most 256, the oldest let go first. Once each: a refused commit puts
+    /// the request back without undoing this, and may retire it again. (A
+    /// native host drops a let-go request's reply, so its record waits for
+    /// the cap; there the app's abort can only come in the turn that
+    /// replaced it, as the prelude settles a let-go call's fetches.)
+    pub(super) fn note_retired(&mut self, p: &super::PendingReq) {
+        let Some(fetch) = p.fetch else { return };
+        if self.retired_fetches.iter().any(|r| r.1 == p.ticket) {
+            return;
+        }
+        if self.retired_fetches.len() == 256 {
+            self.retired_fetches.remove(0);
+        }
+        self.retired_fetches.push((fetch, p.ticket));
+    }
+
+    /// [`Runner::collect_aborts`], then whether a pump is owed for them.
+    pub fn collected_aborts(&mut self) -> bool {
+        self.collect_aborts();
+        self.has_module_aborts()
+    }
+
+    /// Whether an aborted fetch's answer waits for the host's next pump.
+    pub fn has_module_aborts(&self) -> bool {
+        !self.module_aborts.is_empty()
+    }
+
+    /// The tickets answered aborted since the last take: the host cancels
+    /// each request, whatever its method (a running one's transport is
+    /// aborted, a queued one is dropped unsent), as a browser does.
+    pub fn take_explicit_aborts(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.explicit_aborts)
+    }
+
+    /// An aborted fetch's answer: its request, answered aborted now (a host
+    /// with no pump takes it directly, as the web's does). One no longer in
+    /// flight (answered, replaced or let go) has no answer to give, but its
+    /// request is still cancelled: a write the runner let go still runs.
+    pub fn take_aborted_answer(&mut self) -> Option<(u64, Outcome)> {
+        while !self.module_aborts.is_empty() {
+            let ticket = self.module_aborts.remove(0);
+            self.explicit_aborts.push(ticket);
+            if !self.pending.iter().any(|p| p.ticket == ticket) {
+                continue;
+            }
+            return Some((
+                ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Aborted,
+                    message: "the app aborted the fetch".into(),
+                },
+            ));
+        }
+        None
+    }
+
     /// Take one refusal for ordinary transactional parsing/settlement. A
     /// source that shapes the failure settles it like any reply. A failure
     /// it cannot take ends the request without automatically asking again:
@@ -107,6 +220,9 @@ impl<D: DataSource> Runner<D> {
         // reported by the host, rides the same path.
         if let Some(settled) = crate::auth::take_any_settled(self) {
             return Some(settled);
+        }
+        if let Some(aborted) = self.take_aborted_answer() {
+            return Some(aborted);
         }
         if let Some((ticket, reason)) = self.module_work_refusal(allow_ordered) {
             return Some((
@@ -231,7 +347,8 @@ impl<D: DataSource> Runner<D> {
 
     /// More refused admissions need a future host pump.
     pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
-        self.auth.has_settled_for(|t| self.holds(t))
+        !self.module_aborts.is_empty()
+            || self.auth.has_settled_for(|t| self.holds(t))
             || self.has_module_work_refusal(allow_ordered)
             || self.has_tool_refusal(allow_ordered)
             || self.background_refusal(allow_ordered).is_some()

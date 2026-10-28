@@ -406,6 +406,17 @@ impl<D: DataSource> DataSource for Swappable<D> {
             .map(DataSource::take_logs)
             .unwrap_or_default()
     }
+    fn take_aborted(&mut self) -> Vec<u64> {
+        self.embedded
+            .as_mut()
+            .map(DataSource::take_aborted)
+            .unwrap_or_default()
+    }
+    fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.abort_wake(wake);
+        }
+    }
     fn bind(&mut self, plan: &Plan) {
         if let Some(embedded) = &mut self.embedded {
             embedded.bind(plan);

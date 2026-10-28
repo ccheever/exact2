@@ -12,7 +12,8 @@
   "use strict";
   // (op, a, b) -> string | undefined, js/src/door.rs's ops: 1 a request, 2-4 and 18-20 the store, 5 storage,
   // 6 native, 7 pure, 8 secure randomness drawn, 9/10 canvas, 11 the agent's random bytes, 12 auth, 13 a journal line,
-  // 21 the runner's clock as the call began.
+  // 16 a request withdrawn unsent, 21 the runner's clock as the call began, 22 module work's state (binary.js), 23 a handed-out
+  // request the app aborted.
   var host = global.__exact_host;
   delete global.__exact_host;
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
@@ -556,6 +557,22 @@
   // A resource's two-way socket (LLP 1016.000 D7) and a listener's connections (LLP 1133.005 D6): their handles (binary.js `sockets`).
   var sockets = binary.sockets({ host: host, copyBytes: copyBytes, current: function () { return currentCall; }, mapping: function () { return mapping; }, inMapper: function () { return inMapper; }, conflict: SOCKET_AND_FETCH });
   var socketOwner = sockets.socketOwner, listenOwner = sockets.listenOwner, handSocketOps = sockets.hand;
+  // An aborted fetch's request, as a browser cancels one: a request its answer
+  // awaits (handed out, `claimed`) is cancelled by the host, which resumes the
+  // answer at once (door 23); one not yet handed out is withdrawn unsent (16).
+  // A stream runs until the runner lets its ticket go, as before. A host that
+  // knows neither door leaves the request running, the old behaviour.
+  function abortRequest(ticket, p) {
+    if (p.stream) return;
+    try {
+      if (p.claimed) host(23, String(ticket), "");
+      else {
+        var at = p.call.tickets.indexOf(ticket);
+        if (at >= 0) p.call.tickets.splice(at, 1);
+        host(16, String(ticket), "");
+      }
+    } catch (e) { /* an older host's door: the request runs, its reply dropped */ }
+  }
   // A refused mutation's fetches, withdrawn before any was handed out.
   function withdrawFetches(call) {
     for (var i = 0; i < call.tickets.length; i++) { settled(call.tickets[i]); host(16, String(call.tickets[i]), ""); }
@@ -649,8 +666,8 @@
     catch (e) { return Promise.reject(e); }
     if (redirect !== undefined && redirect !== "follow" && redirect !== "manual" && redirect !== "error")
       return Promise.reject(new TypeError("redirect must be follow, manual or error"));
-    // The web's `signal`: an aborted fetch rejects with its reason at once.
-    // The host's request still runs; its reply is dropped (`__exact_fulfill`).
+    // The web's `signal`: an aborted fetch rejects with its reason at once,
+    // and the host cancels its request (`abortRequest`).
     var signal = init ? init.signal : undefined;
     if (signal != null && abortHooks) {
       try { abortHooks.subscribe(signal, function () {})(); }
@@ -676,7 +693,7 @@
       pending.set(ticket, p);
       // The caller's abort also makes its socket handle stale (D7); the
       // stream itself runs until the runner lets its ticket go.
-      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; if (settled(ticket)) { if (p.module) work.landed(); reject(signal.reason); } }); // an adopted fetch aborted is retired here; its reply finds nothing
+      if (signal) p.release = watchAbort(signal, function () { if (owner) owner.state = 3; var was = settled(ticket); if (was) { if (p.module) work.landed(); reject(signal.reason); abortRequest(ticket, was); } }); // an adopted fetch aborted is retired here
     });
   }
   // A local listener (LLP 1133.005 D1): a resource's answer, as `fetch(url, {exactStream})` is, whose events

@@ -562,6 +562,16 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         Mixed::take_logs(self)
     }
 
+    fn take_aborted(&mut self) -> Vec<u64> {
+        let mut aborted = DataSource::take_aborted(&mut self.javascript);
+        aborted.extend(DataSource::take_aborted(&mut self.rust));
+        aborted
+    }
+    fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        DataSource::abort_wake(&mut self.javascript, wake.clone());
+        DataSource::abort_wake(&mut self.rust, wake);
+    }
+
     fn placement(&self) -> Placement {
         if self.sets.is_empty() {
             Placement::Main

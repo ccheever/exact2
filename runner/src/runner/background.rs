@@ -128,6 +128,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The module's journal lines (LLP 1097 D8), into the journal.
     pub(super) fn take_data_logs(&mut self) {
+        self.hear_aborted();
         for line in self.data.take_logs() {
             self.log(line);
         }
