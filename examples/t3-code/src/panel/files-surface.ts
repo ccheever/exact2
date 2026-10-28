@@ -44,7 +44,7 @@ import { availableEditorIds } from '../shared/context-menus';
 import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath } from '../media/media-source';
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
 import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath, splitPosition } from '../timeline/workspace-file-lookup'; // the file a chat link means
-import { mediaFrameSource } from '../media/media-frame'; // a PDF's or a rendered page's frame source
+import { mediaFrameSource } from '../media/media-frame'; // a rendered page's frame source
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; loading: boolean; guides: { id: string; left: number }[] };
 /** A crumb: `navigable` moves the browser to its folder (FolderBreadcrumb), `descendant` is below the current one (kept
@@ -81,6 +81,10 @@ export type FilesView = {
   url: string; media: MediaView;
   /** A Mermaid file the reference will not lay out names why (MermaidViewer); `diagrams` holds the file's diagram otherwise. */
   mermaidNote: string;
+  /** Bumped when a change from outside replaced the editor's text. */
+  editorRevision: number;
+  /** The file shown, by environment, thread and path, as FilePreviewPanel keys its audio player. */
+  fileKey: string;
 };
 export type MarkdownSource = { id: string; kind: string; title: string; body: string };
 type Entry = { path: string; kind: 'file' | 'directory'; ignored: boolean };
@@ -101,6 +105,8 @@ type FilesState = {
   /** The workspace mutation each path was last read under (revisionedQuery's readRevisions): a file shown after a change
    *  reads again, the open tab's and every other tab's. */
   readRevisions: Map<string, string | null>;
+  /** Counts the times a change from outside replaced the editor's text (files-surface.contract keys the editor on it). */
+  editorRevision: number;
   /** Audio URLs whose player reported an error (WorkspaceAudioPreview's failedUrl). */
   audioFailed: Set<string>;
 };
@@ -118,7 +124,7 @@ export function filesState(client: T3Client): FilesState {
   const { cwd } = workspaceOf(client), key = `${client.environmentId}|${cwd}`;
   let state = states.get(client);
   if (!state || state.key !== key) {
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), audioFailed: new Set() };
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), editorRevision: 0, audioFailed: new Set() };
     states.set(client, state);
   }
   return state;
@@ -192,8 +198,14 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
     // A missing t3.json is not a failed read (getProjectFileQueryAtom's allowMissing); it reads as absent.
     const result = await client.restAccess(native).request('projects.readFile', { cwd, relativePath: path, ...(path === 't3.json' ? { allowMissing: true } : {}) });
     if (filesState(client) !== state) return;
+    // An edit made while this read was out is saved next, and its text is what the file holds then.
+    if (pendingPaths(client).has(path)) return;
     if (result.exists === false) { state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: `'${path}' does not exist.`, notFile: false, attempted: '', errorCwd: '' }); return; }
-    state.reads.set(path, { contents: str(result.contents), byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false, attempted: '', errorCwd: '' });
+    const previous = state.reads.get(path), contents = str(result.contents);
+    state.reads.set(path, { contents, byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false, attempted: '', errorCwd: '' });
+    // EditableFileSurface: contents changed from outside (the agent's edit) replace the editor's text, whose edits are
+    // all saved; the editor mounts again on them.
+    if (state.editing === path && previous && !previous.error && previous.contents !== contents) { state.editorText = contents; state.editorRevision++; }
   } catch (error) {
     if (filesState(client) !== state || letGo(error)) return;
     // projectFilesQueryState: the decoded ProjectReadFileError (its failure, and the path it tried), else the message.
@@ -684,7 +696,7 @@ export const emptyFiles = (): FilesView => ({
   explorer: true, showExplorer: true, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
   markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
-  mermaidNote: '',
+  mermaidNote: '', editorRevision: 0, fileKey: '',
 });
 
 /** FileBrowserPanel's `useState("")`: each file tab mounts its own explorer, so its search starts empty and ends with it. */
@@ -707,12 +719,12 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const mutation = workspaceMutationId(client), changed = state.mutation !== undefined && mutation !== state.mutation;
   state.mutation = mutation;
   if (changed) await readAfterMutation(client, native, active);
-  const path = placeOf(client, state, active).path;
+  const shownPlace = placeOf(client, state, active), path = shownPlace.path;
   if (crumbsMounting(client, client.threadId)) settleMounted(state, path);
   const cold = settleCrumbs(state, path); // where the crumbs settle
   if (path && !state.reads.has(path)) await ensureFile(client, native, path, true);
   else if (path && revealStale(state, path, now)) await ensureFile(client, native, path, true); // a reveal whose answer was abandoned asks again
-  else if (path && readStale(client, state, path, mutation)) await readFile(client, native, path);
+  else if (path && readStale(client, state, path, mutation, shownPlace.folder)) await readFile(client, native, path);
   noteReveal(client, !!path && missingFolders(state, path).length > 0);
   const read = path ? state.reads.get(path) : undefined;
   const { folder, hostFolder, crumbPath, trail } = placeOf(client, state, active);
@@ -729,15 +741,16 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   // The explorer the crumbs walked up to opens the workspace folder in an editor.
   const absolute = path ? (isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : crumbPath === '' ? cwd : '';
   // A rendered page waits for its signed URL, not for the read. Its URL carries the workspace revision, so a change
-  // reloads it (WorkspaceBrowserPreview's revisionSuffix and documentKey); a PDF is fetched again.
+  // reloads it (WorkspaceBrowserPreview's revisionSuffix and documentKey).
   const revision = mutation ?? '';
   const minted = frame ? await htmlPage(client, native, cwd, absolute, revision, now) : { url: '', error: '' };
-  // The frame's source: a PDF is first written to app:/cache (media-frame.ts).
-  const source = frame && minted.url ? await mediaFrameSource(pdf ? 'pdf' : 'html', minted.url) : null;
+  // A PDF is framed at its URL: WebKit's PDF view reads it, and a revision loads it again inside the frame.
+  const source = frame && minted.url ? (pdf ? { src: minted.url, error: '' } : await mediaFrameSource('html', minted.url)) : null;
   const page = { url: source?.src ?? '', error: minted.error || source?.error || '' };
   // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo). An image's
-  // URL carries the revision, so a change loads it again (WorkspaceImagePreview's revisionSuffix); a video keeps its URL,
-  // since its player has no way yet to take a changed file only once playback pauses (MediaVideoPlayer).
+  // URL carries the workspace revision, so a change loads it again (WorkspaceImagePreview's revisionSuffix). A video's
+  // carries none: the reference's follows the file's own revision (MediaVideoPlayer, `fileRevision`), which the shell
+  // task's media-views.ts would pass; the workspace's would reload it after every command.
   const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, isWorkspaceImagePreviewPath(previewPath) ? revision : '', now) : NO_MEDIA;
   // WorkspaceAudioPreview: an audio file plays from its `media-file` URL; a refused URL or the player's error is a failure.
   const audio = !!previewPath && !media.kind && !isWorkspaceVideoPreviewPath(previewPath) && isWorkspaceAudioPreviewPath(previewPath);
@@ -786,10 +799,10 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
     ...editors, absolutePath: absolute,
     ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], diagrams: diagram?.diagrams ?? [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), table: parsedTable?.rows ?? [],
-    editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editPress: editPresses.get(client) ?? '',
+    editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editPress: editPresses.get(client) ?? '', editorRevision: state.editorRevision,
     crumbMenu: crumbPath !== null && trail !== null ? crumbMenu(state, projectName, crumbPath, trail) : closedCrumbs(), crumbsMask: crumbPath !== null ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
-    url: frame ? page.url : sound?.url ?? '', media, mermaidNote: diagram?.note ?? '',
+    url: frame ? page.url : sound?.url ?? '', media, mermaidNote: diagram?.note ?? '', fileKey: previewPath ? `${panelKey(client)}:${absolute}` : '',
   };
 }
 
@@ -806,13 +819,12 @@ async function readAfterMutation(client: T3Client, native: Native, active: Surfa
 
 /**
  * Whether the path shown was read before the latest workspace change (revisionedQuery's `stale`), so it reads again: a
- * file in any tab, and a folder, so it notices if the path becomes a file. A file whose edits are not yet saved, or that
- * is being edited, keeps its text; media and PDFs never show their text and reload by their URL's revision instead.
+ * file in any tab, one open in the editor included, and a folder, so it notices if the path becomes a file. A file with
+ * a save pending keeps its text (`selectedFilePending`); media and PDFs never show their text.
  */
-function readStale(client: T3Client, state: FilesState, path: string, mutation: string | null): boolean {
-  if (!state.readRevisions.has(path) || state.readRevisions.get(path) === mutation) return false;
-  if (state.editing === path || pendingPaths(client).has(path)) return false;
-  return !isWorkspaceImagePreviewPath(path) && !isWorkspaceVideoPreviewPath(path) && !isWorkspaceAudioPreviewPath(path) && !isPdfPath(path);
+function readStale(client: T3Client, state: FilesState, path: string, mutation: string | null, folder: boolean): boolean {
+  if (!state.readRevisions.has(path) || state.readRevisions.get(path) === mutation || pendingPaths(client).has(path)) return false;
+  return folder || (!isWorkspaceImagePreviewPath(path) && !isWorkspaceVideoPreviewPath(path) && !isWorkspaceAudioPreviewPath(path) && !isPdfPath(path));
 }
 
 /** A host folder's rows: its tree, or while searching the loaded entries that match, each named by its host path. */

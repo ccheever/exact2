@@ -8,10 +8,12 @@
 // file outside the workspace, `draft-workspace-file` for a draft's workspace), suffixed with the workspace revision
 // (ChatView's workspaceMutationId), so a workspace change reloads it. A renewed signature keeps the URL the page opened
 // with until that revision changes, so a page's form input and scroll survive it (BrowserDocumentFrame's
-// `documentKey`). An audio file plays from a `media-file` URL that is signed again for each revision, as
-// WorkspaceAudioPreview's revisioned asset URL is: a signature lives an hour. The page is shown by the app module's
-// sandboxed WebKit body (T3MediaPreview.swift, as the attachment's HTML preview; siblings load only from the token
-// directory), never in the app's own session.
+// `documentKey`). The page is shown by the app module's sandboxed WebKit body (T3MediaPreview.swift, as the attachment's
+// HTML preview; siblings load only from the token directory), never in the app's own session. A PDF is framed at its
+// URL too, unsandboxed, and WebKit's PDF view shows it (LLP 1020.002 D10), so a revision loads it again inside the
+// frame, with no copy on disk, as the reference's BrowserDocumentFrame does. An audio file plays from a `media-file`
+// URL signed again for each workspace change (WorkspaceAudioPreview's revisioned asset URL); it keeps its URL while the
+// server reports the same `fileRevision`, so a command that leaves the file alone does not reload it.
 import type { T3Client } from '../client/client';
 import { obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -41,11 +43,14 @@ export function workspaceAssetResource(kind: 'workspace-file' | 'media-file', th
 /** A page or a PDF: its `workspace-file`, or the `media-file` of one outside the workspace. */
 export const htmlResource = (threadId: string, cwd: string, absolutePath: string) => workspaceAssetResource('workspace-file', threadId, cwd, absolutePath);
 
-/** The page URL with its revision (WorkspaceBrowserPreview's `revisionSuffix`). */
-export const revisedUrl = (url: string, revision: string) => (url && revision ? `${url}${url.includes('?') ? '&' : '?'}workspace-revision=${encodeURIComponent(revision)}` : url);
+/** The page URL with its revision (WorkspaceBrowserPreview's `revisionSuffix`; an audio file's may be `file-revision`). */
+export const revisedUrl = (url: string, revision: string, name = 'workspace-revision') => (url && revision ? `${url}${url.includes('?') ? '&' : '?'}${name}=${encodeURIComponent(revision)}` : url);
 
-/** One asset's signature: `signedFor` the revision it was signed for, `shown` the URL the preview shows for a revision. */
-type Minted = { key: string; url: string; at: number; error: string; signedFor: string; shown?: { revision: string; url: string } };
+/**
+ * One asset's signature: `signedFor` the workspace revision it was signed for, `fileRevision` the file's own revision
+ * the server reported with it, and `shown` the URL the preview shows for a revision.
+ */
+type Minted = { key: string; url: string; at: number; error: string; signedFor: string; fileRevision: string; shown?: { revision: string; url: string } };
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
 const STALE_URL_MS = 5 * 60_000; // signed URLs live an hour; re-mint after five minutes, as the attachment does
 
@@ -67,16 +72,18 @@ async function filesAsset(client: T3Client, native: Native | null | undefined, k
     try {
       const result = obj(await client.rpc(native, 'assets.createUrl', { resource: workspaceAssetResource(kind, client.threadId, cwd, absolutePath) }));
       const url = assetUrl(client.origin, str(result.relativeUrl));
-      entry = { key, url, at: now, error: url ? '' : failure, signedFor: revision };
+      entry = { key, url, at: now, error: url ? '' : failure, signedFor: revision, fileRevision: perRevision ? str(result.fileRevision) : '' };
     } catch (error) {
       if (letGo(error)) throw error;
-      entry = { key, url: '', at: now, error: failure, signedFor: revision };
+      entry = { key, url: '', at: now, error: failure, signedFor: revision, fileRevision: '' };
     }
     if (previous?.shown) entry.shown = previous.shown;
     map.set(key, entry);
   }
   if (!entry || entry.error) return { url: '', error: entry?.error ?? '' };
-  if (entry.shown?.revision !== revision) entry.shown = { revision, url: revisedUrl(entry.url, revision) };
+  // WorkspaceAudioPreview: `fileRevision ?? workspaceMutationId`, and the URL names which one it carries.
+  const shownRevision = entry.fileRevision ? `file:${entry.fileRevision}` : revision;
+  if (entry.shown?.revision !== shownRevision) entry.shown = { revision: shownRevision, url: entry.fileRevision ? revisedUrl(entry.url, entry.fileRevision, 'file-revision') : revisedUrl(entry.url, revision) };
   return { url: entry.shown.url, error: '' };
 }
 const assetKey = (client: T3Client, kind: string, cwd: string, absolutePath: string) => `${client.environmentId}|${client.threadId}|${cwd}|${absolutePath}|${kind}`;
@@ -86,8 +93,8 @@ export function htmlPage(client: T3Client, native: Native | null | undefined, cw
   return filesAsset(client, native, 'workspace-file', cwd, absolutePath, revision, now, 'Unable to load file preview.');
 }
 /**
- * WorkspaceAudioPreview's `media-file` URL for workspace revision `revision`, signed again when the revision changes; a
- * refused one is "Unable to load audio.".
+ * WorkspaceAudioPreview's `media-file` URL for workspace revision `revision`, signed again when that revision changes;
+ * the URL changes only with the file's revision when the server reports one. A refused one is "Unable to load audio.".
  */
 export function audioPage(client: T3Client, native: Native | null | undefined, cwd: string, absolutePath: string, revision: string, now = 0): Promise<HtmlPage> {
   return filesAsset(client, native, 'media-file', cwd, absolutePath, revision, now, 'Unable to load audio.', true);

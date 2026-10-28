@@ -75,12 +75,27 @@ async function readFont(url: string, sizeBytes: number): Promise<Uint8Array> {
   return new Uint8Array(await response.arrayBuffer());
 }
 
-type SpecimenFiles = { mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>; writeFile(path: string, bytes: Uint8Array): Promise<unknown>; rm?(path: string): Promise<unknown> };
+type SpecimenFiles = {
+  mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>; writeFile(path: string, bytes: Uint8Array): Promise<unknown>;
+  readdir?(path: string): Promise<unknown>; rm?(path: string): Promise<unknown>;
+};
 const files = (): SpecimenFiles => appFiles().fs as unknown as SpecimenFiles;
 
 /** The specimens written, by preview, the most recently shown last. */
 const kept = new Map<string, Promise<FontPage>>();
 let serial = 0;
+/** A specimen page's name. The serial starts again with the app, so the pages an earlier run left go first. */
+const FONT_PAGE = /^font-\d+\.html$/;
+let swept: Promise<void> | null = null;
+/** Deletes the specimen pages an earlier run left, once, before the first page of this run is written. */
+function sweepPages(): Promise<void> {
+  swept ??= (async () => {
+    const names = await files().readdir?.(MEDIA_CACHE);
+    if (!Array.isArray(names)) return;
+    await Promise.all(names.filter((name): name is string => typeof name === 'string' && FONT_PAGE.test(name)).map(name => files().rm?.(`${MEDIA_CACHE}/${name}`).catch(() => undefined)));
+  })().catch(() => undefined);
+  return swept;
+}
 /** Specimens kept at once: each holds its font, so the least recently shown one's file goes when another arrives. */
 const KEPT = 4;
 
@@ -97,6 +112,7 @@ export function fontPage(key: string, url: string, sizeBytes: number): Promise<F
     try {
       const bytes = await readFont(url, sizeBytes);
       await files().mkdir(MEDIA_CACHE, { recursive: true }).catch(() => undefined);
+      await sweepPages();
       const page = `${MEDIA_CACHE}/font-${++serial}.html`;
       // The native host writes bytes only: a string is refused.
       await files().writeFile(page, new TextEncoder().encode(fontSpecimen(`data:application/octet-stream;base64,${base64(bytes)}`)));
@@ -119,14 +135,14 @@ const removePage = (made: Promise<FontPage>) => void made.then(result => { if (r
 
 /** Whether preview `key`'s specimen is kept: one that is not reads the font again when it is next shown. */
 export function fontPageKept(key: string): boolean { return kept.has(key); }
-/** Forgets preview `key`'s specimen and deletes its page (Try again, a draft's preview closed). */
+/** Forgets preview `key`'s specimen and deletes its page (a retry, a draft's preview closed). */
 export function forgetFontPage(key: string): void {
   const gone = kept.get(key);
   kept.delete(key);
   if (gone) removePage(gone);
 }
-/** Forgets every specimen and deletes their pages (tests). */
+/** Forgets every specimen and deletes their pages, and the sweep made (tests). */
 export function forgetFontPages(): void {
   for (const gone of kept.values()) removePage(gone);
-  kept.clear();
+  kept.clear(); swept = null;
 }

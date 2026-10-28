@@ -163,6 +163,8 @@ shape FilesView
   table: RenderedTableRow[]
   editing: bool
   editorText: string
+  // Bumped when a change from outside replaced the editor's text; the editor mounts again on it.
+  editorRevision: number
   // The last press that began editing, as FilePreview numbered it (its mark counts until the module has heard it).
   editPress: string
   crumbMenu: FilesCrumbMenu
@@ -174,6 +176,8 @@ shape FilesView
   media: MediaView
   // A Mermaid file the reference will not lay out names why; `diagrams` holds its diagram otherwise.
   mermaidNote: string
+  // The file shown, by environment, thread and path: the audio player is one per file.
+  fileKey: string
 shape FilesCrumbEntry
   id: string
   path: string

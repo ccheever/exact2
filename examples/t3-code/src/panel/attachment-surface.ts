@@ -63,7 +63,7 @@ export type AttachmentView = {
   noPreviewAlert: boolean;
 };
 type State = { url: string; urlAt: number; urlError: string; content: Content | null; contentError: string; rendered: boolean; saving: boolean; copiedAt: number; mediaError: string;
-  /** Why the font has no specimen: its read failed, or its frame's FontFace did not load it; kept until Try again. */
+  /** Why the font has no specimen: its read failed, or its frame's FontFace did not load it; kept while it is shown. */
   fontError: string };
 const states = new WeakMap<T3Client, Map<string, State>>();
 const STALE_URL_MS = 5 * 60_000; // AttachmentFilePreview: signed URLs live an hour; re-mint after five minutes
@@ -216,6 +216,14 @@ export const attachmentToken = (name: string) => fileIconToken(name);
 
 /** Drops a preview's state (a draft's preview opens afresh, as its dialog mounts a new AttachmentFilePreview). */
 export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); forgetFontPage(key); }
+/**
+ * A sent file's preview shown again after another surface: the reference mounts only the active surface, so its
+ * failures (a refused URL, a read, the media's or the font's) end with the preview that had them, and it tries again.
+ */
+export function previewShownAgain(client: T3Client, key: string): void {
+  const state = states.get(client)?.get(key);
+  if (state) { state.urlError = ''; state.contentError = ''; state.mediaError = ''; state.fontError = ''; }
+}
 
 /** `surface-linked-att-*`: the header's controls. */
 export async function attachmentLocal(client: T3Client, native: Native, op: string, id: string, now: number): Promise<string> {
