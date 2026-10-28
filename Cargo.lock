@@ -1552,6 +1552,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "naga 30.0.1",
+ "tiny-skia",
  "web-time",
  "wgpu 30.0.1",
 ]
@@ -1653,6 +1654,7 @@ dependencies = [
  "exact-color",
  "exact-data",
  "exact-grants",
+ "exact-ink",
  "exact-kernel",
  "exact-linux",
  "exact-listen",

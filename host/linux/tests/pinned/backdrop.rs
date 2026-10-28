@@ -22,16 +22,19 @@ const CASES: [&str; 11] = [
 
 #[test]
 fn every_backdrop_case_matches_chrome() {
-    let mut choices = vec![PainterChoice::Cpu];
-    if exact_linux::gpu::Gpu::new().is_ok() {
-        choices.push(PainterChoice::Gpu);
-    }
+    let choices = crate::paint::painters();
     let mut failures = Vec::new();
     for choice in choices {
         let name = format!("{choice:?}");
         let mut p = boot(choice, "backdrop.contract");
         p.resize(390.0, 840.0);
-        failures.extend(held_to_chrome(&mut p, "backdrop.web.png", &name, &CASES));
+        // C3: only the identity and unfiltered crops are geometry checks.
+        let cases: &[&str] = if choice == PainterChoice::Ink {
+            &["none", "identity"]
+        } else {
+            &CASES
+        };
+        failures.extend(held_to_chrome(&mut p, "backdrop.web.png", &name, cases));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

@@ -27,20 +27,7 @@ const CASES: [&str; 10] = [
 ];
 
 fn painters() -> Vec<PainterChoice> {
-    let mut choices = vec![PainterChoice::Cpu];
-    match exact_linux::gpu::Gpu::new() {
-        Ok(_) => choices.push(PainterChoice::Gpu),
-        Err(error) => {
-            // A missing GPU fails under EXACT_REQUIRED=1, which the async lane sets (scripts/coverage.mjs).
-            assert_ne!(
-                std::env::var("EXACT_REQUIRED").as_deref(),
-                Ok("1"),
-                "missing gpu: {error}"
-            );
-            eprintln!("GPU painter unavailable: {error}");
-        }
-    }
-    choices
+    crate::paint::painters()
 }
 
 #[test]
@@ -49,11 +36,17 @@ fn every_corner_and_mask_case_matches_chrome_light_then_dark() {
     for choice in painters() {
         let name = format!("{choice:?}");
         let mut p = boot(choice, "visual.contract");
-        failures.extend(held_to_chrome(&mut p, "visual.web.png", &name, &CASES));
+        // C3: the last four crops exercise mask-image.
+        let cases = if choice == PainterChoice::Ink {
+            &CASES[..6]
+        } else {
+            &CASES[..]
+        };
+        failures.extend(held_to_chrome(&mut p, "visual.web.png", &name, cases));
         let id = view(&p, "dark");
         p.tap(id).unwrap();
         p.run_commands(<()>::default);
-        failures.extend(held_to_chrome(&mut p, "visual.web-dark.png", &name, &CASES));
+        failures.extend(held_to_chrome(&mut p, "visual.web-dark.png", &name, cases));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -220,6 +213,10 @@ fn inline_shadows_and_strokes_follow_each_runs_computed_style() {
     ];
     let mut failures = Vec::new();
     for choice in painters() {
+        // C3: these assertions require glyph ink.
+        if choice == PainterChoice::Ink {
+            continue;
+        }
         let mut p = boot(choice, "span-paint.contract");
         assert!(p.resize(390.0, 520.0).is_none());
         for reference in ["span-paint.web.png", "span-paint.web-dark.png"] {
@@ -273,6 +270,10 @@ fn inline_shadows_and_strokes_follow_each_runs_computed_style() {
 #[test]
 fn a_text_shadow_paints_its_colour_under_the_glyphs_and_none_paints_none() {
     for choice in painters() {
+        // C3: these assertions require glyph ink.
+        if choice == PainterChoice::Ink {
+            continue;
+        }
         let mut p = boot(choice, "text-shadow.contract");
         let red = [0xe5, 0x39, 0x35];
         assert!(
@@ -343,21 +344,17 @@ fn every_layer_case_matches_chrome_light_then_dark() {
     for choice in painters() {
         let name = format!("{choice:?}");
         let mut p = boot(choice, "layers.contract");
-        failures.extend(held_to_chrome(
-            &mut p,
-            "layers.web.png",
-            &name,
-            &LAYER_CASES,
-        ));
+        // C3: mask-image is separate from gradient geometry.
+        let cases: Vec<_> = LAYER_CASES
+            .iter()
+            .copied()
+            .filter(|case| choice != PainterChoice::Ink || *case != "masked")
+            .collect();
+        failures.extend(held_to_chrome(&mut p, "layers.web.png", &name, &cases));
         let id = view(&p, "dark");
         p.tap(id).unwrap();
         p.run_commands(<()>::default);
-        failures.extend(held_to_chrome(
-            &mut p,
-            "layers.web-dark.png",
-            &name,
-            &LAYER_CASES,
-        ));
+        failures.extend(held_to_chrome(&mut p, "layers.web-dark.png", &name, &cases));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -372,6 +369,10 @@ fn background_clip_and_text_stroke_paint_where_css_paints_them() {
         let name = format!("{choice:?}");
         let mut p = boot(choice, "text-paint.contract");
         failures.extend(held_to_chrome(&mut p, "text-paint.web.png", &name, &boxes));
+        // C3: the remaining assertions require glyph ink and text masks.
+        if choice == PainterChoice::Ink {
+            continue;
+        }
         // Gradient text: red at its left, blue at its right, nothing white
         // between glyphs that a box background would have filled.
         let red = |[r, g, b]: [u8; 3]| r > 180 && g < 120 && b < 120;
@@ -459,6 +460,10 @@ component Order
         text "B" text-shadow="-60px 0 0 #ff0000"
 "##;
     for choice in painters() {
+        // C3: these assertions require glyph ink.
+        if choice == PainterChoice::Ink {
+            continue;
+        }
         crate::pin_font();
         let plan = contract::compile(PAGE).unwrap();
         let assets =
