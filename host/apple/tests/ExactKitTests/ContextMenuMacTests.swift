@@ -789,8 +789,8 @@ final class ContextMenuMacTests: XCTestCase {
         }
         XCTAssertTrue(plain.accessibilityPerformShowMenu(), "it goes on as an unanswered secondary click")
         XCTAssertTrue(source.accessibilityPerformShowMenu())
-        // AppKit's server performs only an action it offers: a run's
-        // element is no view, and its base show menu raises.
+        // A run's element is no view, and `NSAccessibilityElement`'s base show
+        // menu raises, so it is asked only where it offers show menu.
         if try offered(links[0]).contains("AXShowMenu") { XCTAssertTrue(links[0].accessibilityPerformShowMenu()) }
         XCTAssertEqual(heard, [1, 82])
         XCTAssertEqual(samples.first?.prefix(4).compactMap(Double.init), [60, 15, 0, 0], "the node's middle, no button held")
@@ -1198,6 +1198,69 @@ final class ContextMenuMacTests: XCTestCase {
         let shown = Date(timeIntervalSinceNow: 5)
         while heard.isEmpty && Date() < shown { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         XCTAssertEqual(heard, ["menu Pin"], "show menu on the run's element")
+    }
+
+    /// A `select`'s options are its own menu, which its `NSPopUpButton`
+    /// gives a right press, not a context menu: show menu and the key at a
+    /// `select` with nothing authored above it go on past the session's view
+    /// as a secondary click, and no options menu opens.
+    func testAnUnansweredKeyboardRequestAtASelectOpensNoOptionsMenu() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        let p = presenter(inSession: true), window = try XCTUnwrap(windows.last)
+        p.selectOptions = { _ in SelectMenu(options: [.init(value: "a", label: "Alpha", disabled: false), .init(value: "b", label: "Beta", disabled: false)], chosen: 0) }
+        p.apply(wireBatch([
+            ["op": "create", "id": 35, "kind": "control", "props": ["type": "select"], "handlers": ["input", "change"], "style": [:]],
+            ["op": "frame", "id": 35, "x": 270, "y": 20, "w": 90, "h": 24],
+            ["op": "children", "id": 9, "ids": [1, 2, 35]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let select = try XCTUnwrap(p.views[35]), popUp = try XCTUnwrap(p.controls.controls[35] as? NSPopUpButton)
+        let sink = SecondaryClickSink()
+        sink.nextResponder = p.viewport.nextResponder
+        p.viewport.nextResponder = sink
+        defer { p.viewport.nextResponder = sink.nextResponder }
+        window.orderFrontRegardless()
+        var tracked: [String] = []
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            tracked.append(menu.items.first?.title ?? "")
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTrackingWithoutAnimation() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        XCTAssertFalse(try offered(select).contains("AXShowMenu"))
+        XCTAssertTrue(select.accessibilityPerformShowMenu())
+        turn()
+        XCTAssertEqual(sink.clicks, [try XCTUnwrap(p.contextPoint(select))])
+        if window.makeFirstResponder(popUp) {
+            XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+            turn()
+            XCTAssertEqual(sink.clicks.count, 2)
+        }
+        XCTAssertEqual(tracked, [], "no options menu")
+    }
+
+    /// A selection scrolled out of view gives the key no place: it lands at
+    /// (1,1), as with nothing selected.
+    func testTheKeyWithASelectionOutOfViewLandsAtTheCorner() throws {
+        let p = presenter(inSession: true), window = try XCTUnwrap(windows.last)
+        p.apply(wireBatch([
+            ["op": "create", "id": 8, "kind": "text", "props": ["text": "Write to the list or the team"], "style": ["font_size": 18.0]],
+            ["op": "frame", "id": 8, "x": 20, "y": 1000, "w": 400, "h": 28],
+            ["op": "children", "id": 9, "ids": [1, 2, 8]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let text = try XCTUnwrap(p.views[8]), sink = SecondaryClickSink()
+        sink.nextResponder = p.viewport.nextResponder
+        p.viewport.nextResponder = sink
+        defer { p.viewport.nextResponder = sink.nextResponder }
+        p.selection.set(text, FieldSelection(start: 9, end: 17))
+        XCTAssertEqual(p.selection.range(text), NSRange(location: 9, length: 8))
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertNil(p.selection.keyboardMenuPoint(in: window))
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        turn()
+        let clip = p.viewport.contentView
+        XCTAssertEqual(sink.clicks, [clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)])
     }
 
     /// With nothing focused and text selected, the key lands at the left

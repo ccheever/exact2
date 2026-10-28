@@ -220,13 +220,23 @@ package final class TextSelection {
 
     /// Where the ContextMenu key opens with nothing focused while text is
     /// selected in `window`, as Blink's `ShowNonLocatedContextMenu` places
-    /// it: at the left edge of the selection's first line, halfway down it,
-    /// in the window; with the paragraph that holds that line.
+    /// it: at the caret where the selection starts, halfway down its line;
+    /// the line's left edge, or its right edge in a right-to-left paragraph,
+    /// in the window; with the paragraph that holds it. Of the selected
+    /// lines, the first one part of which is drawn counts, clipped as
+    /// `Presenter.contextPoint` clips; nil when none is, and the key lands
+    /// at (1,1) as it does with nothing selected.
     func keyboardMenuPoint(in window: NSWindow) -> (NodeView, NSPoint)? {
+        guard let presenter else { return nil }
         for node in paragraphs where node.window === window {
-            guard let range = range(node), range.length > 0 else { continue }
-            guard let first = rectangles(node, range: range, inWindow: true)?.first else { return nil }
-            return (node, NSPoint(x: first.minX, y: first.midY))
+            guard let range = range(node), range.length > 0, let rects = rectangles(node, range: range, inWindow: true) else { continue }
+            let rtl = node.userInterfaceLayoutDirection == .rightToLeft
+            for rect in rects {
+                let shown = presenter.visiblePart(of: rect, in: node)
+                guard !shown.isEmpty else { continue }
+                // The right edge itself is outside the line (`NSPointInRect`).
+                return (node, NSPoint(x: rtl ? max(shown.minX, shown.maxX - 1) : shown.minX, y: shown.midY))
+            }
         }
         return nil
     }

@@ -87,10 +87,11 @@ extension Presenter {
     /// Whether a request from the keyboard at `point` would get a menu,
     /// judged without building one, since VoiceOver asks on every query:
     /// the view drawn there or one above it holds selected text or has a
-    /// `menu`. A responder past the session's view is not counted.
+    /// `menu`, below any native control (`keyboardMenu`). A responder past
+    /// the session's view is not counted.
     func offersKeyboardMenu(at point: NSPoint, in window: NSWindow) -> Bool {
         var next = hit(point, in: window)
-        while let view = next, view !== session?.view {
+        while let view = next, view !== session?.view, !(view is NSControl) {
             if let node = view as? NodeView, node.isParagraph, !ExactEnv.agentMode, (selection.range(node)?.length ?? 0) > 0 { return true }
             if view.menu != nil { return true }
             next = view.superview
@@ -111,12 +112,14 @@ extension Presenter {
     /// The first view from the one drawn at `event`'s point up to the
     /// session's view whose `menu(for:)` gives a request from the keyboard
     /// a menu, as AppKit asks a right-click's view and then its superviews;
-    /// nil when none does.
+    /// nil when none does. The walk stops at a native control: its own menu
+    /// (a `select`'s options, which its `NSPopUpButton` gives) is no context
+    /// menu, and Chrome shows its page menu over a `select` too.
     private func keyboardMenu(for event: NSEvent, in window: NSWindow) -> (NSView, NSMenu)? {
         NodeView.keyboardMenuRequest = true
         defer { NodeView.keyboardMenuRequest = false }
         var next = hit(event.locationInWindow, in: window)
-        while let view = next, view !== session?.view {
+        while let view = next, view !== session?.view, !(view is NSControl) {
             if let menu = view.menu(for: event) { return (view, menu) }
             next = view.superview
         }
@@ -158,9 +161,15 @@ extension Presenter {
     func contextPoint(_ node: NodeView, rect: NSRect? = nil) -> NSPoint? {
         guard !node.formDisabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
               !dialogs.blocks(node), node.field == nil, node.textArea == nil else { return nil }
-        // AppKit's visibleRect clips the untransformed frame. Clip the
-        // drawn anchor instead, including a frame translated into view.
-        var drawn = node.drawnRect(rect ?? menus.anchor(node, in: node))
+        let drawn = visiblePart(of: node.drawnRect(rect ?? menus.anchor(node, in: node)), in: node)
+        return drawn.isEmpty ? nil : NSPoint(x: drawn.midX, y: drawn.midY)
+    }
+
+    /// `drawn`, a rect of `node` as drawn in its window, clipped by what
+    /// clips `node`. AppKit's visibleRect clips the untransformed frame; this
+    /// clips the drawn rect, including a frame translated into view.
+    func visiblePart(of drawn: NSRect, in node: NodeView) -> NSRect {
+        var drawn = drawn
         var ancestor = node.superview
         while let view = ancestor {
             if let node = view as? NodeView, node.overflowClips {
@@ -173,7 +182,7 @@ extension Presenter {
             }
             ancestor = view.superview
         }
-        return drawn.isEmpty ? nil : NSPoint(x: drawn.midX, y: drawn.midY)
+        return drawn
     }
 
     /// `node`'s `contextmenu` and `contextPopover` at `point` in the source's
