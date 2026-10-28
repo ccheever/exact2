@@ -1,6 +1,6 @@
 #if os(iOS)
 // Source: examples/t3-code/modules/apple/T3Protocol.swift at 887b2491b182f851b11253655f6aa84fe2a26708.
-// Mobile adaptations: LLP 1130.003, native identity and lifecycle. Shared source is unchanged.
+// Mobile adaptations: LLP 1130.003, native identity, lifecycle and direct HTTP pairing.
 // App-local Effect RPC wire and retained inbox. No Exact transport is extended.
 import Foundation
 import Network
@@ -210,11 +210,7 @@ enum T3Endpoint {
         guard var url = URLComponents(string: input.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme),
               let host = url.host, !host.isEmpty, url.user == nil, url.password == nil else {
-            throw T3Failure(kind: "Address", message: "Enter an http://localhost or https:// server address.")
-        }
-        // Pairing secrets must not travel over unencrypted remote HTTP.
-        guard scheme == "https" || ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host.lowercased()) else {
-            throw T3Failure(kind: "Address", message: "A remote server requires HTTPS.")
+            throw T3Failure(kind: "Address", message: "Enter an http:// or https:// server address.")
         }
         url.scheme = scheme; url.host = host.lowercased(); url.path = ""; url.query = nil; url.fragment = nil
         guard let result = url.url else { throw T3Failure(kind: "Address", message: "The server address is invalid.") }

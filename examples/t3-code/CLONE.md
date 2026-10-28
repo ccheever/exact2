@@ -72,11 +72,21 @@ The IPA SHA-256 is `399275d9e98c0bf0d72db6b8387b592949426f8e6111fcebda587078c181
 The POC TestFlight checkpoint is delivered. Full phone, iPad and desktop parity
 remain incomplete and need their own acceptance evidence.
 
-Direct pairing accepts HTTPS, with HTTP limited to loopback. The LAN HTTP drive
-shows that restriction through the real form. This Mac's T3 Connect tunnel is
-healthy, but its relay login is separate from direct pairing and remains unproved
-in the clone. The functional POC above used the simulator's authorized loopback
-connection; it does not prove pairing from a physical phone.
+The phone parity drive found and corrected a direct-pairing difference: the pinned
+native reference accepts the Mac's LAN HTTP address while the clone rejected it.
+Mobile now accepts that origin and leaves iOS App Transport Security in force.
+The normal clone pairs over LAN, saves that address, restarts, restores the
+conversation, and receives a fresh real provider reply. Independent source review
+found no introduced defect. A replacement POC TestFlight build is next; the build
+above predates this correction. Physical-phone pairing remains unproved.
+
+Terminal verification opens a real project shell, runs `pwd`, selects one output
+line, attaches it to the composer, sends it, and receives the requested provider
+reply. Remaining observed phone gaps include stale environment-detail selection
+after changing its URL and a paired learned route retaining its learned marker.
+Reopening after the URL edit preserves the environment and conversation.
+T3 Connect relay login remains unconfigured in the clone; direct pairing is the
+verified connection path.
 
 All six root repository checks pass at the mobile checkpoint. On the integrated
 PR, build, tests, Clippy, formatting, boot and workspace checks pass. Caps finds

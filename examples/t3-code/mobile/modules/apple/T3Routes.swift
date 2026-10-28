@@ -12,8 +12,7 @@
 // Port changes: the Effect services become one object the transport drives on its
 // own serial queue, with native timers (issue X19: data sources have no clock).
 // An SSH route's origin is its tunnel's loopback address, so its kind comes from the
-// stored `kind`. A route this client's address policy refuses (plain HTTP to a
-// non-loopback host, T3Endpoint) counts as silent: no credential ever reaches it.
+// stored `kind`. A route the platform's transport policy refuses counts as silent.
 // T3_ROUTE_CHECK_INTERVAL_MS (agent seam, like T3_SSH_COMMAND) shortens the 60 s check.
 import Foundation
 
