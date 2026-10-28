@@ -78,16 +78,35 @@ test('Arrange decoding rejects malformed destinations without allocating identif
   expect(parseHomeArrangeAction(homeArrangeActionValue('v', 'active', '', 'after'))).toEqual({ version: 'v', destination: { section: 'active', targetId: null, placement: 'after' } });
 });
 
-test('Arrange projection contains full parked sections, source accessibility destinations and a stable order version', () => {
+test('Arrange projection contains full parked sections and a stable order version', () => {
   const f = fixture(); f.client.shell.threads.push(thread('settled', { settledOverride: 'settled' }), thread('sleep', { snoozedUntil: '2026-10-08T12:00:00Z' }),
     thread('subagent', { lineage: { relationshipToParent: 'subagent' } }), thread('archived', { archivedAt: 'date' }));
   const first = arrange(f);
   expect(first.active.map(row => row.key)).toEqual(['one:a', 'two:b', 'one:c']); expect(first.settled.map(row => row.key)).toEqual(['one:settled']);
-  expect(first.snoozed.map(row => row.key)).toEqual(['one:sleep']); expect(first.settled[0]).toMatchObject({ canPin: true, canActivate: true, canSettle: false });
+  expect(first.snoozed.map(row => row.key)).toEqual(['one:sleep']); expect(first.settled[0]).toMatchObject({ canSettle: false });
   f.client.shell.threads[0]!.title = 'Changed title'; expect(arrange(f).version).toBe(first.version);
   f.client.shell.threads[0]!.activeOrderKey = 'c'; expect(arrange(f).version).not.toBe(first.version);
   mobileHomeOrder(f.client, mobileHomeSources(f.client, f.background), now, { workingEnabled: true });
-  expect(arrange(f).settled[0]?.canActivate).toBe(false); expect(arrange(f).settled[0]?.canPin).toBe(true);
+  expect(arrange(f).workingEnabled).toBe(true);
+});
+
+test('Arrange projection reads the prepared catalogue in linear work', () => {
+  for (const count of [64, 1256]) {
+    const sources = [source('one', Array.from({ length: count }, (_, index) => thread(`t-${index}`, { settledOverride: 'settled' })))];
+    const client = {}, order = mobileHomeOrder(client, sources, now);
+    let identityReads = 0;
+    order.threads = order.threads.map(row => new Proxy(row, {
+      get(target, property, receiver) {
+        if (property === 'id') identityReads++;
+        return Reflect.get(target, property, receiver);
+      },
+    }));
+    const view = homeArrangeSnapshot(client, sources, now, order);
+    expect(view.settled.map(row => row.key)).toEqual(Array.from({ length: count }, (_, index) => `one:t-${index}`));
+    expect(view.settled.every(row => !row.canSettle)).toBe(true);
+    expect(view.active).toEqual([]); expect(view.pinned).toEqual([]); expect(view.snoozed).toEqual([]);
+    expect(identityReads).toBeLessThanOrEqual(6 * count);
+  }
 });
 
 test('same-section arbitrary drop uses canonical pending owner and ignores display filtering', async () => {

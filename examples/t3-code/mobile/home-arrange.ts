@@ -2,11 +2,11 @@
 // Pinned ThreadArrangementSheet.tsx and threadOrder.ts. Pure projection over the existing order owner.
 import { obj, str, type Obj } from './shared/domain';
 import { capabilities, effectiveSnoozed, sortByReturn } from './shared/sidebar-model';
-import { homeApplyPending, homeMovePlan, homeOrderKey, mobileHomeOrder, type HomeDropDestination, type HomeOrderSnapshot, type HomeOrderSource } from './home-order';
+import { homeApplyPending, homeOrderKey, mobileHomeOrder, type HomeDropDestination, type HomeOrderSnapshot, type HomeOrderSource } from './home-order';
 
 export interface HomeArrangementRow {
   key: string; environmentId: string; threadId: string; title: string; disabled: boolean;
-  canMoveUp: boolean; canMoveDown: boolean; canPin: boolean; canActivate: boolean; canSettle: boolean;
+  canMoveUp: boolean; canMoveDown: boolean; canSettle: boolean;
 }
 export interface HomeArrangementSnapshot {
   version: string; blocked: boolean; workingEnabled: boolean;
@@ -46,16 +46,9 @@ export function homeArrangeSnapshot(client: object, sources: HomeOrderSource[], 
   const sourceCaps = new Map(sources.map(source => [source.environmentId, capabilities(source.config)]));
   const project = (section: keyof typeof sections) => sections[section].map(thread => {
     const key = homeOrderKey(thread), caps = sourceCaps.get(str(thread.environmentId))!, available = order.availability.get(key);
-    const destinationAllowed = (destination: 'pinned' | 'active') => {
-      if (section === destination || destination === 'active' && order.workingEnabled || order.blocked) return false;
-      if ((destination === 'pinned' || thread.pinnedAt != null) && !caps.pinning) return false;
-      if (destination === 'active' && (section === 'settled' && !caps.settlement || section === 'snoozed' && !caps.snooze)) return false;
-      return homeMovePlan({ ordered: order.sections[destination], allThreads: order.threads, section: destination,
-        reorderableEnvironmentIds: order.reorderable[destination] }, key, { section: destination, targetId: null, placement: 'before' }) !== null;
-    };
     return { key, environmentId: str(thread.environmentId), threadId: str(thread.id), title: str(thread.title),
       disabled: order.blocked || !(caps.pinReorder || caps.activeReorder), canMoveUp: available?.canMoveUp === true,
-      canMoveDown: available?.canMoveDown === true, canPin: destinationAllowed('pinned'), canActivate: destinationAllowed('active'),
+      canMoveDown: available?.canMoveDown === true,
       canSettle: !order.blocked && section !== 'settled' && caps.settlement };
   });
   return { version: homeArrangeVersion(order), blocked: order.blocked, workingEnabled: order.workingEnabled,

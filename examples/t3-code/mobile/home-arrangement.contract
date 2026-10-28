@@ -9,8 +9,6 @@ shape HomeArrangeRow
   disabled: bool
   canMoveUp: bool
   canMoveDown: bool
-  canPin: bool
-  canActivate: bool
   canSettle: bool
 shape HomeArrangementData
   version: string
