@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and % change since open; green when up, red when down, with disclosure chevrons."},
+      {"n": 2, "status": "pass", "note": "Prices tick every second and rows update in place. With the Change sort, rows reorder live, including while scrolling."},
+      {"n": 3, "status": "pass", "note": "Native pull-down menu offers Symbol, Price or Change plus a Descending toggle; the active sort is shown in the list header. The bottom search bar filters by symbol or company ('ember' gives 5 results)."},
+      {"n": 4, "status": "pass", "note": "Star buttons on rows and on the detail screen work; the All / My List segmented control filters correctly. The empty My List has a ContentUnavailable-style state with a 'Browse All Tickers' button."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, change since open, open, volume and a live 60-sample line chart with low/high labels, in an inset-grouped layout. Samples counted up live (35 → 46)."},
+      {"n": 6, "status": "pass", "note": "Starred tickers, the sort and the chosen scope all survived relaunch. On one relaunch the search text was also restored."}
+    ],
+    "bugs": [
+      "The segmented control's accessibility state goes stale: after switching back to All, the tree still reports 'My List' as selected while All is shown on screen and 260 rows are listed.",
+      "On one relaunch the search query ('ember') came back and silently filtered the list; a later relaunch did not keep it, so restore is inconsistent."
+    ],
+    "tells": [
+      "The segmented control sits in its own list cell with hairline separators above and below it, which looks like a table row rather than a nav-bar accessory.",
+      "Inline title instead of a large title on the root list screen.",
+      "At the largest text size each row stacks the star on its own line above the symbol, which wastes a lot of height (still readable, nothing clipped).",
+      "No swipe actions on rows (a swipe did nothing)."
+    ],
+    "scroll": "A full-height native list: slow drags track the finger, flings decelerate naturally, and the pull past the top bounces. The section header pins and content blurs under the bars. Live reordering under the Change sort never caused blank rows or jumps.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 listed with symbol, name, $price and a tinted % change pill, green or red."},
+      {"n": 2, "status": "pass", "note": "Prices tick every second and update in place; the gainers/decliners summary updates too, and rows reorder live under the Change sort."},
+      {"n": 3, "status": "pass", "note": "A native menu offers Symbol/Price/Change with context-aware direction labels (A to Z, High to low). The bottom search bar filters by symbol or name."},
+      {"n": 4, "status": "pass", "note": "Row stars and the detail star work; the segmented control shows a 'My List (n)' count, and My List has an empty state."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, change, open, volume, dollar change and 60-sample range, plus a live area-line chart with a 'Collecting history n/60' label."},
+      {"n": 6, "status": "pass", "note": "My List and the sort (Change ↓, Price) survived relaunch. The scope resets to All, which the spec does not require it to keep."}
+    ],
+    "bugs": [
+      "The accessibility tree contains hundreds of stale, invisible symbol and name text elements stacked at one point [0,379], which VoiceOver and UI tests could hit.",
+      "The search field is not reachable by its label in the accessibility tree until it is activated (it had to be tapped by its coordinates)."
+    ],
+    "tells": [
+      "The list is a fixed ~380pt window under a header that never scrolls: the large title, the 'market at a glance' card, the segmented control and the sort row stay pinned, so only about 4.5 rows are visible. Rows clip hard at the window's top and bottom edges, and the large title never collapses.",
+      "A custom cream/forest-green palette replaces system backgrounds, and dark mode uses a custom charcoal rather than system black. This is branded, not a stock iOS look.",
+      "A 'LIVE' pill and a 'SIMULATED PRICES · UPDATES EVERY SECOND' caption floating above the search bar feel web/dashboard-like.",
+      "On the detail screen the '60-sample range' value wraps onto two lines.",
+      "No swipe actions observed on rows."
+    ],
+    "scroll": "Scrolling itself is smooth native table physics with no blank rows or pop-in, but it happens inside a cramped inner viewport below a fixed header. Flings cover little ground visually, and rows are cut off mid-cell at both edges, which does not feel like a full-screen iPhone list.",
+    "scores": {"features": 9, "platform": 5, "polish": 7, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both meet all six requirements with live updates, sorting, search, My List, live charts and persistence. A looks like a stock iOS list app: full-height list, system colours, inset-grouped detail and a native empty state. B's polished but branded dashboard pins a large header and squeezes the 260-row list into a ~4-row window that clips rows, which hurts everyday use and does not read as a hand-built iPhone app."
+}

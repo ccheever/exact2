@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list sectioned by month, newest first; each row shows name, date (no year), exercise count and volume (e.g. 6,767.5 lb), all correct."},
+      {"n": 2, "status": "pass", "note": "Detail shows a summary (date, exercises, sets, total volume), then one section per exercise with Set n / weight × reps and a per-exercise volume footer. Exercise rows push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Name field, Add Exercise sheet with system search bar and a muscle pop-up menu (works with search), one exercise per trip. Add Set sheet uses number pads, is pre-filled with the previous set and checks input ('Weight is a number of pounds from 0 to 2,000', Save disabled). Tapping a set edits it, swipe left deletes it. Finish asks for confirmation and the workout appears at the top of History with the correct volume (135.5×12 = 1,626 lb). Discard asks for confirmation."},
+      {"n": 4, "status": "pass", "note": "Library tab with a large title, grouped by muscle with section headers, rows push to the exercise screen. No search on this screen (not required)."},
+      {"n": 5, "status": "pass", "note": "Shows the best set (135.5 lb × 12, with workout and date), muscle, equipment and 'Workouts (2)' listing each with its top weight; rows push to the workout."},
+      {"n": 6, "status": "pass", "note": "A workout in progress (name, exercise, sets, after editing and deleting a set) was restored exactly after relaunch; a finished workout stayed in History after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The Add/Edit Set sheet has a hand-drawn header instead of a navigation bar: a blue X and a grey check circle, a title in a larger font than system sheet titles, and no grabber.",
+      "At the largest text size that custom header grows to two lines and covers the 'Exercise · Set 1' subtitle beneath it.",
+      "Only one exercise can be added per trip into the picker; the sheet closes after each pick.",
+      "The muscle filter is a pop-up menu in a form row rather than a scope bar; it is native, but slower to switch than a segmented or scope control.",
+      "Dates in History omit the year (fine within this year, but older entries depend on the section header)."
+    ],
+    "scroll": "History (8 pages) and Library scroll and fling smoothly with sticky month and muscle headers. No blank rows or pop-in, the large title collapses correctly, and scroll position is kept after pushing a workout and coming back.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list sectioned by month, newest first; rows show name, full date with year, and SF Symbol icons with exercise count and volume, all correct."},
+      {"n": 2, "status": "pass", "note": "Summary section (long-form date, exercises, sets, total volume), then per-exercise sections with numbered sets showing weight × reps and per-set volume, plus a volume footer. Exercise rows push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "A start screen asks for the name. The Add Exercises sheet has a system search field, horizontally scrolling muscle chips, multi-select with check circles and an 'Add (2)' button. Each added exercise shows its previous best. The Add Set sheet uses a native navigation bar with grabber, number pads plus steppers (reps ±1, weight ±2.5), is pre-filled from the last logged set, and shows a live volume. Tapping a set opens Edit Set, which has a Delete Set button; swipe-to-delete also works. Finish shows a popover confirmation that warns exercises without sets will be left out, and the workout appears in History (25×10 = 250 lb)."},
+      {"n": 4, "status": "pass", "note": "Library tab grouped by muscle, with headers like 'Arms (20)', a search field, and each row's workout count."},
+      {"n": 5, "status": "pass", "note": "Shows muscle, equipment, the best set with a trophy (heaviest weight, tappable to its workout) and 'Workouts (2)' with sets and top set for each."},
+      {"n": 6, "status": "pass", "note": "A workout in progress (name, exercises, edited and deleted sets) was restored after relaunch, and the app reopens on the Workout tab; finished workouts persist in History."}
+    ],
+    "bugs": [
+      "On the 'Ready to train?' start screen, the keyboard covers the in-list 'Start Workout' button and the list does not scroll to reveal it; a tap there lands on the keyboard. The 'Start' button in the navigation bar still works."
+    ],
+    "tells": [
+      "The muscle filter chips are a hand-drawn row of capsule buttons rather than a system scope bar or segmented control.",
+      "The exercise screen opens with the workout you came from shown as selected (a grey highlight that stays), which looks like a stuck selection.",
+      "The Library tab uses a small inline title while History and Workout use large titles.",
+      "Starting a workout takes an extra step (a 'Ready to train?' screen with its own Start button) before you can add exercises."
+    ],
+    "scroll": "History (about 10 pages) and the 120-row Library scroll and fling smoothly with no blank or popping rows, and the large title collapses normally. Scroll position is kept after a push and back, and pulling past the top bounces normally.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps are clean, native-looking and meet every requirement. B goes further where it matters while logging: a multi-select exercise picker, steppers with pre-filled values and live volume in a proper system sheet, previous bests shown in the workout, and library search with workout counts. A's custom set-entry header is its most visible tell and overlaps text at large sizes, while B's flaws (a stuck row highlight and a start button hidden by the keyboard) are smaller."
+}

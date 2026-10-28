@@ -1,0 +1,41 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Every section is present in an inset-grouped list with a large title. The Account row shows name and email; Sign Out asks to confirm in an alert and switches to a 'Not signed in / Sign In' state. Reading has a slider, a five-font list, a segmented control and a preview card. Theme offers System/Light/Dark/Sepia. Library has sort, show-finished and cellular. Turning off the notifications master toggle hides the reminder time and three toggles. Storage shows Used Space and Cache, and Clear Cache confirms, then empties the cache and disables itself. About shows the version, pushes Privacy and Terms screens, and Rate opens the App Store. Name and email cannot be edited."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push checkmark lists the way the iOS Settings app does (they stay open after a choice; edge-swipe back works). Daily reminder uses the compact system time picker with a wheel popover."},
+      {"n": 3, "status": "pass", "note": "The preview changes font, size and spacing live, and a caption below it reads e.g. 'Charter, 28 pt, relaxed spacing'. Sepia tints the preview card."},
+      {"n": 4, "status": "pass", "note": "Font, size, spacing, theme, sort, the cellular toggle, notification toggles and reminder time all survived a relaunch."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings sits in its own group at the bottom with a footer. It confirms in an alert and restores every default, which still holds after a relaunch."}
+    ],
+    "bugs": [
+      "Hidden leftover elements stay in the accessibility tree: the Appearance 'Light' row also holds a hidden 'Recently Read' label, and after Sign Out the Sign In row still holds the avatar image and the email. VoiceOver may read these; they do not show on screen."
+    ],
+    "tells": [
+      "The Font Size slider has no 'Font Size' label and no visible value, only A/A end glyphs. The size appears only in the caption under the preview.",
+      "Name and email are fixed text, not editable fields.",
+      "At the largest text size the email address breaks inside the word ('alex.morgan@e / xample.com').",
+      "Rate the App leaves the app for the App Store instead of showing the in-app review prompt (on the simulator this is a blank screen)."
+    ],
+    "scroll": "Scrolling feels native: slow drags track the finger, flings decelerate and rubber-band, the large title collapses into an inline title over a blurred bar, and nothing pops in or jumps.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Every section is present. The Account card has initials that update as you type, plus editable Name and Email fields (Return moves to the next field, and there is a Done key). Sign Out confirms in an iOS 26-style popover anchored to the row and leads to a 'Not Signed In' state with Sign In. Reading has a labelled 'Font Size 18 pt' slider with step ticks, five fonts, a segmented control and a preview. Theme rows have swatches. Library and Notifications match the spec, with the master toggle revealing a time and three toggles and a footer that states the reminder time. Storage shows Used, Downloaded Books and Cache; Clear Cache confirms with the amount ('Clear 214.3 MB'), then shows None and disables itself. About shows the version, Privacy and Terms screens with real content, and Rate uses the system in-app review prompt."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push checkmark lists that return automatically after a choice; edge-swipe back works. The reminder uses the compact system time picker."},
+      {"n": 3, "status": "pass", "note": "The preview updates live for font, size and spacing, and its accessibility label describes the current settings. Sepia tints both the preview and the app's accent colour."},
+      {"n": 4, "status": "pass", "note": "Name, font, size, spacing, theme, sort, toggles and reminder time all survived a relaunch."},
+      {"n": 5, "status": "pass", "note": "A centred Reset All Settings button at the bottom confirms in a popover and restores the defaults, which persist after a relaunch. As its footer says, the account name is kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The preview is a bordered inner box inside a grouped cell, which looks slightly card-in-card.",
+      "At the largest text size the email address breaks inside the word ('alex.morgan@e / xample.com') in the header card.",
+      "The tick marks under the slider are a custom addition rather than a stock UISlider look (minor)."
+    ],
+    "scroll": "Scrolling feels native: smooth tracking, proper fling deceleration and rubber-banding, and the large title collapses with the blurred bar. The very tall preview at 31 pt scrolls without trouble.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both are convincing native inset-grouped settings screens that meet every requirement and persist and reset correctly. B goes further: account fields are editable, the slider is labelled with its point size, confirmations are anchored popovers that name what will happen, Rate uses the system review prompt, and Sepia tints the whole screen. A hides the font-size value, keeps name and email read-only, and leaves hidden leftover elements in its accessibility tree."
+}

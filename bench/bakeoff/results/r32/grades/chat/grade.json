@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Blue right / grey left bubbles, oldest first, opens at newest. Headings appear where the day changes, but they read like timestamps ('Jul 3, 2026 at 4:20 PM') rather than day headings."},
+      {"n": 2, "status": "pass", "note": "Send appends, stays at bottom, clears composer; send disabled for empty and whitespace-only text."},
+      {"n": 3, "status": "pass", "note": "Composer rides the keyboard; newest messages remain visible above it."},
+      {"n": 4, "status": "pass", "note": "'Sam is typing…' grey bubble, then a canned reply ('Sure thing') ~2 s later."},
+      {"n": 5, "status": "pass", "note": "Long-press opens system context menu with lifted preview: Copy (pastes correctly) and Delete (persists across relaunch)."},
+      {"n": 6, "status": "pass", "note": "Reaches message 1 smoothly; a 'Newest messages' chevron button appears when scrolled up and returns to bottom."},
+      {"n": 7, "status": "pass", "note": "Sent messages and Sam's replies survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Composer is a two-line-tall box when empty with the placeholder pinned top-left rather than a single-line capsule with vertically centred placeholder",
+      "Day headings include a clock time ('Jul 1, 2026 at 3:20 AM') – reads as a timestamp, not a Messages-style day separator",
+      "Typing indicator is plain 'Sam is typing…' text in a bubble, no animated dots",
+      "Jump-to-newest button is a small 35pt chevron that sits on top of bubbles; at largest text it overlaps message text",
+      "Bubbles have no tails"
+    ],
+    "scroll": "Scrolls smoothly from newest to the first message with flings and slow drags; no blank rows, jumps or pop-in observed, scroll indicator behaves natively.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Right/left bubbles, oldest first, opens at newest; Messages-style bold day headings ('Wed, Jul 1', 'Today')."},
+      {"n": 2, "status": "pass", "note": "Send appends, stays at bottom, clears composer; send disabled for empty/whitespace."},
+      {"n": 3, "status": "pass", "note": "Composer stays above keyboard; newest messages visible."},
+      {"n": 4, "status": "pass", "note": "Animated three-dot bubble with 'Sam is typing…' caption, then canned reply ('On it!') ~2 s later."},
+      {"n": 5, "status": "pass", "note": "System context menu with lifted bubble: Copy (pastes correctly), Delete (persists across relaunch)."},
+      {"n": 6, "status": "pass", "note": "Reaches message 1 smoothly; a 58pt glass 'Jump to newest message' button appears once scrolled up and works."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Send button is a separate grey circle outside the text field instead of inside the field like Messages",
+      "Avatar/name header does not scale with Dynamic Type (acceptable for a nav title, but the composer's send button also stays small at largest size)",
+      "Jump-to-newest button overlaps bubbles at largest text size"
+    ],
+    "scroll": "Smooth through all 520 messages to the first; flings and slow drags feel native with no blank rows or jumps.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement with native context menus, keyboard handling, persistence and smooth scrolling. B looks more like Messages: bold day separators, an animated typing-dots bubble, an avatar header and a single-line composer. A's composer is an oversized two-line box, its day headings read as timestamps, and its typing indicator is plain text."
+}

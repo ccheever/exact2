@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first list of 420 with show, title, date · length and a Played/Unplayed label; large title with count subtitle and a search field."},
+      {"n": 2, "status": "pass", "note": "Toolbar filter button switches to unplayed only (subtitle changes to '295 unplayed episodes'); the button looks the same whether the filter is on or off."},
+      {"n": 3, "status": "pass", "note": "Inset-grouped Shows list shows all 12 with episode and unplayed counts, and the counts update; tapping one pushes that show's episodes."},
+      {"n": 4, "status": "pass", "note": "Detail shows show, title, full date · length, status and summary. Play turns into Pause, status reads 'Now Playing' and the episode is marked played. The playing state disappears once you leave the screen (no mini player)."},
+      {"n": 5, "status": "pass", "note": "Each row's ⋯ opens a native menu with Mark as Played/Unplayed and Add to Up Next. There are no swipe actions."},
+      {"n": 6, "status": "pass", "note": "Add from the row menu or the detail screen. Up Next reorders with Earlier/Later buttons and a drag grip, and Remove deletes. The drag only moved an item one slot when dragged two."},
+      {"n": 7, "status": "pass", "note": "After relaunch, played changes, queue order and removals were all kept."}
+    ],
+    "bugs": [
+      "Dragging the Up Next grip from row 3 to row 1 moved the item only one slot (it landed at row 2).",
+      "A horizontal swipe on a list row opens the episode as if tapped, both in Episodes and in Up Next."
+    ],
+    "tells": [
+      "No swipe actions on episode rows or Up Next rows (no swipe-to-delete); a swipe is treated as a tap.",
+      "Up Next has hand-made 'Earlier / Later / Remove' text buttons in every row instead of an Edit mode with native reorder handles and delete controls.",
+      "The filter toolbar button gives no visual on/off state, so you can't tell from the icon whether the filter is active.",
+      "Episode rows are exposed as web-style 'Link' elements rather than cells, and the ⋯ hit area is a tall 50×101 strip.",
+      "Plain, generic look: the detail title is regular weight and there is no artwork. The show detail list has no large title or summary header.",
+      "No Now Playing / mini player anywhere once you leave the episode screen."
+    ],
+    "scroll": "Slow drags and flings over the 420 rows are smooth with no blank or popping rows, the nav bar collapses properly, and scroll position is kept when you push and pop. Pulling past the top rubber-bands normally.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first list of 420 rows, each with show artwork tile, show name, title, date · length and a Played (check) / Unplayed (dot) indicator. Has a search field and a 'Latest episodes 420' section header."},
+      {"n": 2, "status": "pass", "note": "Native segmented control (All episodes / Unplayed) updates the count to 295; at accessibility sizes it becomes an 'Unplayed only' switch. The filter choice persists."},
+      {"n": 3, "status": "partial", "note": "Shows grid lists all 12 with episode and unplayed counts, and tapping one opens a show page with a header and its own filter. But tapping an episode on that page does not open it: the episode screen gets pushed underneath the show page and only appears after tapping Back."},
+      {"n": 4, "status": "pass", "note": "Rich detail with artwork, show, title, date · length and summary. 'Play episode' becomes Pause, marks the episode played and shows 'Now playing · Preview only, no audio'; a Now Playing mini bar appears in Up Next. Playing state is not kept across relaunch (fine)."},
+      {"n": 5, "status": "pass", "note": "Native swipe actions both ways (leading 'Mark played', trailing 'Add to Up Next', full swipe works) plus a ⋯ menu on each row."},
+      {"n": 6, "status": "pass", "note": "Add via swipe, menu or detail, with a badge on the tab. Up Next has a native Edit mode with reorder handles and minus/Remove, and swipe-to-remove; drag reorder worked first try."},
+      {"n": 7, "status": "pass", "note": "After relaunch, played state, queue contents and reordered queue were all kept."}
+    ],
+    "bugs": [
+      "Inside a show's episode list, tapping an episode doesn't navigate: the episode screen is inserted below the show screen in the navigation stack, so the back button reads 'Episode' and tapping Back reveals the episode instead of returning to Shows (reproduced on two shows)."
+    ],
+    "tells": [
+      "Heavily themed (cream background, rust accent, letter-spaced caption headers, initials artwork tiles). It's tasteful but more a branded look than stock iOS.",
+      "Large empty gap between the filter control and the 'LATEST EPISODES' header on the main and show screens.",
+      "The ⋯ button sits top-right in each row beside a disclosure chevron, so one row has two trailing affordances.",
+      "At the largest text size the Shows cards have uneven widths and are not aligned to each other, and the row ⋯ crowds the right screen edge.",
+      "The Up Next header has an instructional line ('Tap Edit to reorder your queue.') where iOS would let the control speak for itself."
+    ],
+    "scroll": "Smooth through 420 rows on drag and fling with no blank or popping cells. The section header pins under the collapsed nav bar, scroll position is kept, and the pull past the top rubber-bands and restores the large title and search field.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "B",
+  "why": "B feels like a real iPhone app: native swipe actions in both directions, a true Edit mode for reordering and deleting Up Next, a segmented filter that becomes a switch at large sizes, a mini player, and a richer, consistent design in light and dark. Its one real bug is that episodes opened from a show's page get pushed beneath it. A works correctly almost everywhere but feels generic and hand-built: no swipe actions, Earlier/Later buttons for reordering, a filter button that never shows its state, and web-like link rows."
+}

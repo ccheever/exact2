@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, with an initials avatar, sender, subject, two-line preview and date ('Oct 24', or the time for today). Unread is marked only by a tiny green dot on the avatar; the subject is not bolded, so unread rows are hard to spot."},
+      {"n": 2, "status": "pass", "note": "Swipe left shows Flag and Archive, and a full swipe archives. Swipe right toggles Read/Unread. Archived mail appears on an Archive tab, where swiping offers 'Inbox' to move it back."},
+      {"n": 3, "status": "pass", "note": "Flag from the swipe or from the reader toolbar; a flag icon appears under the avatar. A segmented All/Unread/Flagged filter works (23 flagged, 109 unread)."},
+      {"n": 4, "status": "pass", "note": "Tapping pushes a reader with subject, sender, full date and body; the unread count drops. The reader toolbar has archive, flag and mark-unread."},
+      {"n": 5, "status": "pass", "note": "Pulling down adds two new unread messages at the top with the current time. It also works from the options menu (Refresh Inbox)."},
+      {"n": 6, "status": "pass", "note": "'320 messages · 109 unread' sits under the filter, and the Inbox tab shows a badge with the count."},
+      {"n": 7, "status": "pass", "note": "After a relaunch the read, unread, flagged and archived states were kept, and so were the refreshed messages."}
+    ],
+    "bugs": [
+      "After a pull to refresh, the list stays scrolled with the large title collapsed into a small 'Inbox' instead of springing back to the top.",
+      "Accessibility tree carries dozens of stale off-screen text elements stacked at one point, which VoiceOver could read out."
+    ],
+    "tells": [
+      "The floating tab bar (Inbox/Archive with badge) is drawn by hand: its items have no accessibility labels, so they can only be tapped by position.",
+      "The segmented filter is a custom green pill control, not the system segmented control look.",
+      "Unread is shown by a tiny green dot on the avatar instead of Mail's blue dot and bold text.",
+      "The green accent colour throughout makes it look like a brand app rather than system blue.",
+      "The search field stays pinned and floats over the list with blur after scrolling, instead of tucking under the navigation bar.",
+      "Swipe actions are circular buttons with captions underneath, not full-height swipe-action panels.",
+      "The reader toolbar is three separate circular buttons; at large text the body is cut off hard under them.",
+      "Rows are tall (about 119pt) with lots of spacing, so few messages fit on a screen compared with Mail."
+    ],
+    "scroll": "A slow drag tracks the finger; flings decelerate naturally and flinging back reaches the top with the large title restored. I saw no blank or popping rows. The scroll position after returning from a message shifted by about 50pt.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first with sender, subject, two-line preview and a Mail-style date (time today, then weekday, then M/D/YY). Unread rows have a blue dot and a bold subject, as in Mail."},
+      {"n": 2, "status": "pass", "note": "Swipe left shows Flag and Archive, and a full swipe archives. Swipe right shows Unread/Read. An Archive screen, opened from a navigation-bar button, lists archived mail with an 'Inbox' swipe to move it back."},
+      {"n": 3, "status": "pass", "note": "Flag from the swipe or from the reader's navigation bar; an orange flag shows at the row's trailing edge. A filter pull-down menu offers All Messages, Unread and Flagged, and the section header shows the count ('Flagged · 23')."},
+      {"n": 4, "status": "pass", "note": "Tapping pushes a reader with subject, sender, 'To: me', date and body, plus a 'Mark as Unread' button; opening marks the message read (the count drops)."},
+      {"n": 5, "status": "pass", "note": "Pulling down adds two new unread messages at the top ('Alex Morgan', 'Maya Chen'). Refresh is also in the filter menu."},
+      {"n": 6, "status": "pass", "note": "'109 unread' appears as a subtitle under the large title, and in the inline title once scrolled."},
+      {"n": 7, "status": "pass", "note": "After a relaunch the read, flagged and archived states and the new messages were kept."}
+    ],
+    "bugs": [
+      "The push into a message feels slow: it was still mid-slide about 0.5 s after the tap and only just settled by about 0.9 s.",
+      "Accessibility labels on the rows leave out the unread and flagged state, so VoiceOver gives no unread information."
+    ],
+    "tells": [
+      "Every mail row has a disclosure chevron, which Mail does not show.",
+      "At the largest text size, the sender name is squeezed beside the date and wraps to three lines ('Alex / Mor- / gan') instead of the row stacking.",
+      "The swipe actions are circular buttons with captions, and the swiped row is drawn as a grey rounded card rather than system full-height actions.",
+      "There is no search in the inbox.",
+      "The 'Mark as Unread' control in the reader is an inline link-style button in the body rather than in a toolbar."
+    ],
+    "scroll": "Slow drags track well, and flings decelerate and run smoothly with a sticky section header and an inline title that blurs content beneath it. I saw no blank rows or popping. Flinging back reaches the top with the large title, and the scroll position after returning from a message was kept within about 10pt.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement, and their swipe actions and persistence behave almost the same. B reads more like Apple Mail: blue unread dots with bold subjects, a filter pull-down in the navigation bar, Mail-style relative dates and trailing flag marks. A has a hand-drawn floating tab bar and green pill control, and its unread marker is weak. A does have search and a better large-text row layout, but B is the one I would rather use and ship."
+}

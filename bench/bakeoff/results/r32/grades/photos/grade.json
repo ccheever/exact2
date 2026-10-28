@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "1,500 photos, four across with ~2pt gaps, square centre crops, oldest (Feb 19, 2026) at top, opens scrolled to the newest at the bottom, day headings ('Saturday, Oct 24, 2026'). Status-bar tap scrolls to the top; large 'Library' title appears there."},
+      {"n": 2, "status": "pass", "note": "Opens full screen at the photo's aspect ratio with a date/time title and an 'n of 1,500' counter. Swiping left and right both page correctly, it stops at the last photo, and swipe down closes. The image sits a little below centre."},
+      {"n": 3, "status": "pass", "note": "Heart button toggles Favorite/Unfavorite (fills black). A white heart shows on the grid thumbnail straight away."},
+      {"n": 4, "status": "pass", "note": "Albums tab has a 'My Albums' two-column grid of eight albums with rounded covers, names and counts that add up to 1,500. Counts and covers update after deletes. An album opens a day-grouped grid with a back button and Select."},
+      {"n": 5, "status": "pass", "note": "Select turns into Cancel, shows checkmark badges, dims selected photos and counts them ('3 Photos Selected'). Bulk favorite works. Bulk delete asks 'Delete 3 photos?' in an alert, then removes them (1,497)."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions were both still there after relaunch."}
+    ],
+    "bugs": [
+      "None that break the spec. Hour-of-day labels differ from the other app by 7 hours (e.g. 7:35 PM vs 12:35 PM for the same photo); the day grouping is the same."
+    ],
+    "tells": [
+      "Grid cells are announced as Switches (toggle semantics), not as images or buttons: a non-native accessibility tree.",
+      "In Select mode the tab bar stays visible. A custom heart / count / trash strip floats above it, and the grid is cut off with a hard edge above that strip. Photos hides the tab bar and uses a toolbar.",
+      "At the largest text size the nav bar breaks: the 'Library' title shrinks to the left corner while the '1,497 Photos' subtitle becomes huge. The grid's favorite heart also grows to cover most of a thumbnail.",
+      "Delete confirmation is a centred alert, not the action sheet or popover iOS uses for destructive confirmations.",
+      "Viewer image is not vertically centred (it sits lower than the space between the bars).",
+      "During fast flings a day heading sometimes showed with blank space under it for a frame before its row filled in."
+    ],
+    "scroll": "Smooth and momentum-correct over 1,500 photos with no jumps, and the status-bar tap reaches the top. A fast fling sometimes showed a briefly empty row under a heading.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "1,500 photos, four across with thin gaps, square centre crops, oldest at top, opens at the newest. Day headings ('Sunday, October 25') with no year. Native collection view; status-bar tap scrolls to the top."},
+      {"n": 2, "status": "partial", "note": "Opens full screen at the right aspect ratio, swipe left pages forward, swipe down closes. But an ordinary-speed swipe right (1000 pt/s or slower, from mid-screen) closes the viewer back to the grid instead of going to the previous photo. Only a very fast flick (2,500 pt/s) pages backwards. There is no position counter."},
+      {"n": 3, "status": "pass", "note": "Heart toggles Favorite/Unfavorite. A heart.fill badge appears on the grid cell."},
+      {"n": 4, "status": "pass", "note": "Albums is a large-title inset-grouped list: eight rows with a 64pt cover, name, count and chevron. Counts update after deletes. A row pushes a day-grouped album grid with Back and Select."},
+      {"n": 5, "status": "pass", "note": "Select puts '3 Photos Selected' in the title, adds checkmark badges and native selected state. The tab bar gives way to a bottom toolbar with Favorite and Delete. Delete confirms in a native popover ('Delete 3 Photos'). Both actions work."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions were both still there after relaunch."}
+    ],
+    "bugs": [
+      "Full-screen viewer: an ordinary swipe right dismisses the viewer instead of showing the previous photo (the interactive dismiss/pop gesture steals the horizontal pan), so going backwards through photos is nearly impossible.",
+      "Hour-of-day labels differ from the other app by 7 hours (e.g. 12:35 PM, 1:44 AM). Many photos show small-hours times; the day grouping is the same."
+    ],
+    "tells": [
+      "No large title on the Library grid at the top (Photos and the Albums tab both use one).",
+      "Day headings are a little cramped (8pt leading inset, compared with the 16pt margins elsewhere).",
+      "At the largest text size, album covers stay 64pt next to very large names and counts, which looks unbalanced (nothing truncates)."
+    ],
+    "scroll": "Native UICollectionView feel: smooth drags, real momentum, rubber-banding, no blank rows or pop-in seen during fast flings, and the status-bar tap reaches the top.",
+    "scores": {"features": 7, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "B feels more native: a real collection view and inset list, a toolbar that replaces the tab bar in Select mode, a popover delete confirmation, and solid large-text behaviour. But its photo viewer closes when you swipe right at normal speed, which breaks moving backwards between photos, a core part of requirement 2. A meets every requirement cleanly. Its flaws are cosmetic (Switch accessibility, tab bar kept in Select mode, a broken nav bar at the largest text size), so A is the one I would rather ship."
+}

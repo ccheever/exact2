@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, newest first; title, a one-line preview (the body's first line) and a relative/short date (6:24 AM, Thursday, 10/21/26)."},
+      {"n": 2, "status": "pass", "note": "Filters as you type on title and body; result count shows in the toolbar ('0 Results'); empty state with a magnifying glass icon and 'No Results'."},
+      {"n": 3, "status": "pass", "note": "Editable title and body with a Done button and a More menu; no Save. An edited note jumps to the top of its section and shows 'Today at …'."},
+      {"n": 4, "status": "pass", "note": "The compose button opens a new note with the keyboard up. Leaving it empty discards it (count unchanged); Return in the title moves to the body."},
+      {"n": 5, "status": "pass", "note": "Leading swipe pins/unpins (full swipe works), trailing swipe deletes (full swipe works), long-press context menu has Pin/Unpin and Delete; the editor's More menu offers the same."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' centred in the bottom toolbar, as in Apple Notes; it updates on create and delete."},
+      {"n": 7, "status": "pass", "note": "Pin, unpin, delete, new notes and edits all survived relaunch, including an edit made just before Home and a kill."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The search field stays docked under the collapsed nav bar while scrolling, and rows show blurred through and around it; at the largest text size it is a ~120pt bar that covers a big part of the list.",
+      "The '90 Notes' toolbar label and the inline nav title don't grow with Dynamic Type (in line with the system, but tiny next to largest-size rows)."
+    ],
+    "scroll": "A smooth UIKit-style table: slow drags track the finger, flings decelerate naturally, and the scroll position is kept when coming back from a note. No blank or popping rows seen; the only oddity is the docked search bar with content visible through it.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, newest first; title, a preview (whole body joined onto one truncated line) and a relative/short date."},
+      {"n": 2, "status": "pass", "note": "Bottom search field (iOS 26 placement) filters title and body as you type; 'No Results for “…”' empty state."},
+      {"n": 3, "status": "pass", "note": "Title field plus body editor; autosaves, and the edited note moves to the top with 'Today at …'. No Done button or menu in the editor."},
+      {"n": 4, "status": "pass", "note": "The compose button opens a new note with the keyboard up; an empty note is discarded on back, and a filled one appears at the top of Notes."},
+      {"n": 5, "status": "partial", "note": "Trailing swipe deletes (full swipe works); pin/unpin only through the long-press context menu. There is no leading pin swipe: dragging a row right opens the note instead."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' shown as a small subtitle under the large title and in the inline title when scrolled; it updates."},
+      {"n": 7, "status": "pass", "note": "Pins, deletes, new notes and edits all survived relaunch, including an edit made before Home and a kill."}
+    ],
+    "bugs": [
+      "Dragging a row to the right (the usual pin gesture) opens the note instead of showing a pin action."
+    ],
+    "tells": [
+      "No leading swipe action for pin; pinning is hidden behind a long press.",
+      "The editor's title is a single-line text field, so at the largest text size a long title is cut off ('Podcast rec…') instead of wrapping.",
+      "No Done button and no More/actions menu in the editor; the back button is a bare chevron.",
+      "At the largest text size the date and preview share one line and are cut to a word or two ('9/27/26 May…'); the bottom search field and compose button don't scale.",
+      "The note count is a very small caption under the large title."
+    ],
+    "scroll": "Smooth: flings and slow drags feel native, rows don't go blank or pop in, and the scroll position is kept on returning from a note. The large title collapses to an inline title with the count subtitle.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet nearly the whole spec and persist reliably, but A offers the full set of iPhone gestures (leading pin swipe, trailing delete, context menu, and an editor More menu and Done button) and its rows and title wrap well at the largest text size. B hides pinning behind a long press, opens the note when you swipe right, and cuts off the editor title at large text. A's only notable flaw is the search bar that stays docked over the list while scrolling."
+}

@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Three rounded HSL tiles per row with 16pt margins and 8pt gutters, filling the width; newest first ('Newest first' label); 600 tiles."},
+      {"n": 2, "status": "pass", "note": "'All boards' pill opens a system menu with All plus ten boards, checkmark on the current one; Coast filters to 64 with the count updated. Filter resets to All on relaunch."},
+      {"n": 3, "status": "pass", "note": "Push to a large rounded tile with board caption, serif title, date and a description; paging horizontal collection, swipe left/right moves to neighbours, '1 of 600' position, prev/next buttons (prev disabled at first)."},
+      {"n": 4, "status": "pass", "note": "Big 'Like tile' / 'Liked' button in the detail view toggles; Liked tab shows liked tiles in the same grid with heart badges, its own filter and count."},
+      {"n": 5, "status": "pass", "note": "Select → circles on tiles, red border + check on selected, 'Select all', a bottom bar with 'N selected', Like and Delete; Delete asks via alert 'Delete 2 tiles?'. Both bulk actions work and leave select mode."},
+      {"n": 6, "status": "pass", "note": "Bulk likes, single unlike and deletions (600→598) all survived relaunch; Liked count consistent."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Editorial custom theme instead of system look: cream background, serif display headings, letter-spaced monospace captions ('A LITTLE INSPIRATION, EVERY DAY', '1 of 600' in mono), brand red tint everywhere.",
+      "Marketing-style hero header ('Find your mood.' / 'Good taste. All yours.') takes roughly a third of the screen in place of a large navigation title; the title is inline-only.",
+      "At the largest text size the hero header, tagline and filter pill fill the whole first screen, so you can't see a single tile without scrolling; '598 tiles' sits oddly indented and 'Newest first' falls behind the tab bar.",
+      "Decorative glyph in the leading nav-bar slot (grid / heart icon in a circle) that looks like a button but does nothing.",
+      "Select mode uses a custom tinted bottom panel with two large capsule buttons instead of a system toolbar.",
+      "At the largest text size the detail's title and date start hidden under the fixed bottom like bar and need scrolling to reach."
+    ],
+    "scroll": "Smooth and native: slow drag, hard flings and fling-back show no blank or late-popping tiles, tapping the status bar scrolls to the top, and scroll position is kept on returning from detail. A tap during momentum stops the scroll as on iOS.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Edge-to-edge Photos-style grid, three square tiles per row with hairline gaps, newest first, '600 tiles' count."},
+      {"n": 2, "status": "pass", "note": "Filter button under the large title opens a system menu titled 'Boards' with All Boards plus ten, checkmarked; Coast filters to 64. The filter is kept across relaunch."},
+      {"n": 3, "status": "pass", "note": "Push to a full-width square tile with title, board (blue) and 'Added October 26, 2026'; swiping the tile left/right moves through neighbours within the current filter ('1 of 64'), plus prev/next buttons."},
+      {"n": 4, "status": "pass", "note": "Heart button in the detail nav bar toggles Like/Unlike; Liked tab shows liked tiles in the same grid with heart badges, filter and count."},
+      {"n": 5, "status": "pass", "note": "Select → circle checkboxes, 'N selected' and 'Select All' row, heart and trash buttons in the nav bar; Delete confirms with an alert. Bulk like shows a '3 tiles liked' notice; both actions work."},
+      {"n": 6, "status": "pass", "note": "Likes, unlike and deletions (64→62→61 in Coast, 597 overall) survived relaunch."}
+    ],
+    "bugs": [
+      "Entering select mode inserts a 'N selected / Select All' row above the grid, pushing every tile down about 51pt, so the tile under your finger moves."
+    ],
+    "tells": [
+      "The bulk-like confirmation is an inline '3 tiles liked' text row put into the scroll content, which shifts the grid, not a system-style transient indicator.",
+      "Grid tiles are exposed to accessibility as switches ('Switch … value=0') instead of buttons/images.",
+      "At the largest text size the detail's position row and prev/next buttons sit under the floating tab bar until you scroll.",
+      "Board name on the detail screen is drawn in link blue but is just a label."
+    ],
+    "scroll": "Feels like a native iPhone grid: no blank tiles or pop-in during slow drags or hard flings, the large title collapses into the inline bar with a glass blur, the status-bar tap scrolls to the top, and pulling past the top bounces. Scroll position is mostly kept on returning from detail (shifts ~35pt as the title bar re-settles).",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps do all six requirements and kept likes and deletions across relaunch. B looks and behaves more like a stock iOS app: large collapsing titles, an edge-to-edge Photos-style grid, and nav-bar actions in select mode. A is attractive but heavily custom-themed, and its big hero header crowds out the grid, badly so at large text. B's flaws are smaller: the grid jumps when entering select mode, and the bulk-like notice is shown inline."
+}
