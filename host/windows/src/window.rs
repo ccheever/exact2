@@ -476,6 +476,10 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
         let mut frame = if migrated {
             None
+        } else if self.preparing.is_some() {
+            // The startup CPU painter must not give this HWND to a game's
+            // swap chain while the UI's composition device is still opening.
+            Some(p.frame())
         } else {
             p.window_frame(owned.clone())?
         };
