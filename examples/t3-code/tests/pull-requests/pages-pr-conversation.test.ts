@@ -104,7 +104,7 @@ describe('the Summary tab (PullRequestSummaryTab)', () => {
   });
   test('reviewers wear their last verdict; a verdict older than the newest commit is stale', () => {
     const fresh = presentSummary({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW, listEntry: null });
-    expect(fresh.reviewers.map(entry => [entry.login, entry.outcome, entry.stale, entry.tooltip])).toEqual([['primary', 'changes-requested', false, 'primary — Changes requested']]);
+    expect(fresh.reviewers.map(entry => [entry.login, entry.outcome, entry.stale, entry.tooltip])).toEqual([['primary', 'changes-requested', false, 'primary: Changes requested']]);
     const later = conversation();
     (later.commits as Obj[]).push({ oid: 'ccccccc3', messageHeadline: 'Handle empty input', committedDate: at(30) });
     const stale = presentSummary({ detail: detail(), activity: later, activityPending: false, activityError: '', now: NOW, listEntry: null });
@@ -136,10 +136,10 @@ describe('the Timeline tab (PullRequestTimelineTab)', () => {
     expect(view.oldest.map(row => row.kind)).toEqual(['opened', 'commit', 'comments', 'verdict', 'comments', 'thread', 'comments', 'thread', 'comments', 'commit', 'verdict']);
     expect([view.comments, view.commentsAria, view.commits, view.commitsAria, view.approvals]).toEqual(['22', '22 comments', '2', '2 commits', 0]);
   });
-  test('says "…" while the activity reads and "—" when it failed', () => {
+  test('says "…" while the activity reads and "-" when it failed', () => {
     expect(presentTimeline({ detail: detail(), activity: null, activityPending: true, activityError: '', now: NOW }).comments).toBe('…');
     const failed = presentTimeline({ detail: detail(), activity: null, activityPending: false, activityError: 'GitHub rate limit', now: NOW });
-    expect([failed.comments, failed.commentsAria, failed.commits, failed.commitsAria]).toEqual(['—', 'Comments unavailable', '—', 'Commits unavailable']);
+    expect([failed.comments, failed.commentsAria, failed.commits, failed.commitsAria]).toEqual(['-', 'Comments unavailable', '-', 'Commits unavailable']);
   });
   test('counts approvals that stand, and none from a conversation read only in part', () => {
     const approved = { ...conversation(), comments: [remark('ok', 10, { kind: 'review', reviewState: 'APPROVED', author: person('second') })] };
@@ -275,7 +275,7 @@ describe('the panel reads (PullRequestDetailPanel queries)', () => {
     let fail = true;
     const { client, calls, settle, ask, wakes } = fixture({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => { if (fail) throw new ClientError('GitHub CLI command failed: HTTP 502', 'PullRequestOperationError'); return conversation(); } });
     const failed = await settle();
-    expect([failed.activityError, failed.summary.activityError, failed.summary.empty, failed.timeline.comments]).toEqual(['GitHub CLI command failed: HTTP 502', 'GitHub CLI command failed: HTTP 502', true, '—']);
+    expect([failed.activityError, failed.summary.activityError, failed.summary.empty, failed.timeline.comments]).toEqual(['GitHub CLI command failed: HTTP 502', 'GitHub CLI command failed: HTTP 502', true, '-']);
     const reads = calls.filter(method => method === 'pullRequests.activity').length;
     fail = false;
     expect(await prCommand(client, { available: true } as Native, 'activity-retry', selected, 'timeline')).toBe('');

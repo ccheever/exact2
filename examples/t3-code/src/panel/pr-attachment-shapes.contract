@@ -51,6 +51,10 @@ shape DetailsPrRowList
   moreLabel: string
   expanded: bool
   merge: MergeAsk
+  // The row's checks timer (usePullRequestChecksRefresh): "pending" (45 s), "settled" (60 s) or "" (off), and the pull
+  // request it runs for.
+  checksPoll: string
+  checksKey: string
 shape PrSurface
   selected: string
   number: number

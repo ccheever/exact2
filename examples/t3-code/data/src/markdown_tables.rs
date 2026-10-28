@@ -182,7 +182,7 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
             Value::Bool(capped),
             Value::Bool(header),
             Value::Number(width.min(CELL_CAP)),
-            Value::str(align.get(column).copied().unwrap_or("left")),
+            Value::str(align.get(column).copied().unwrap_or("start")),
         ]));
     }
     let row_values = rows
@@ -271,6 +271,26 @@ fn image_chip_links(text: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(out)
 }
 
+/// The destinations of the image references image_chip_links rewrites into links: an `img` has no words, so
+/// block_directions leaves their alt text out.
+fn context_image_hrefs(text: &str) -> Vec<String> {
+    let mut hrefs = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("![") {
+        let after = &rest[at + 2..];
+        let target = after
+            .find(']')
+            .filter(|&close| !after[..close].contains('\n'))
+            .and_then(|close| after[close..].strip_prefix("]("))
+            .filter(|target| target.starts_with("t3-context://"));
+        if let Some(end) = target.and_then(|target| target.find(')').map(|end| &target[..end])) {
+            hrefs.push(end.to_string());
+        }
+        rest = after;
+    }
+    hrefs
+}
+
 /// A line of pipes is a table row only beside the `| --- |` rule that makes
 /// it a table; any other is prose and keeps its line break.
 fn table_lines(lines: &[&str]) -> Vec<bool> {
@@ -299,4 +319,76 @@ fn table_lines(lines: &[&str]) -> Vec<bool> {
         }
     }
     table
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    #[test]
+    fn tables_are_one_block_with_sizing_columns_and_copy_text() {
+        let Value::Record(doc) = document(
+            Value::str("t"),
+            &line_breaks(
+                "Intro\n\n| Name | Note |\n|:-|:-|\n| **a** | x, \"y\" |\n| `b` | a long one |\n\n| not | a table\nafter ![shot.png](t3-context://v1/image/image_1)",
+            ),
+        ) else {
+            panic!("document")
+        };
+        let Value::List(blocks) = &doc[1] else {
+            panic!("blocks")
+        };
+        let kinds: Vec<String> = blocks
+            .iter()
+            .map(|block| {
+                let Value::Record(fields) = block else {
+                    panic!("block")
+                };
+                assert_eq!(fields.len(), 20);
+                fields[1].as_str().unwrap_or("").to_string()
+            })
+            .collect();
+        assert_eq!(kinds, vec!["paragraph", "table", "paragraph", "paragraph"]);
+        let Value::Record(table) = &blocks[1] else {
+            panic!("table")
+        };
+        let Value::List(rows) = &table[11] else {
+            panic!("rows")
+        };
+        assert_eq!(rows.len(), 3);
+        let Value::List(columns) = &table[12] else {
+            panic!("columns")
+        };
+        assert_eq!(columns.len(), 2);
+        assert_eq!(
+            table[13].as_str(),
+            Some("| Name | Note |\n| --- | --- |\n| **a** | x, \"y\" |\n| `b` | a long one |")
+        );
+        assert_eq!(
+            table[14].as_str(),
+            Some("Name,Note\na,\"x, \"\"y\"\"\"\nb,a long one")
+        );
+        // The pipe line that is no table keeps its break; the image reference is a chip.
+        let Value::Record(last) = &blocks[3] else {
+            panic!("line")
+        };
+        let Value::List(runs) = &last[7] else {
+            panic!("runs")
+        };
+        let chip = runs.iter().find_map(|run| {
+            let Value::Record(fields) = run else {
+                return None;
+            };
+            (fields[6].as_str() == Some("context-image")).then(|| {
+                (
+                    fields[1].as_str().unwrap_or("").to_string(),
+                    fields[5].as_str().unwrap_or("").to_string(),
+                )
+            })
+        });
+        assert_eq!(
+            chip,
+            Some(("shot.png".into(), "t3-context://v1/image/image_1".into()))
+        );
+    }
 }

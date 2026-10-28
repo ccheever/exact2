@@ -155,6 +155,11 @@ describe('T3 pull request tools (18b2132)', () => {
     const running = work(item('w', 'dynamic_tool', 1, { status: 'running', toolName: 'mcp__t3-code__watch_pull_request', input: { url: 'https://github.com/a/b/pull/12' }, output: null }));
     const value = live([user('u', 0, 'go'), running.item]);
     expect(rows(value).find(row => row.kind === 'live')).toMatchObject({ title: 'Watching PR #12', icon: 'pull-request' });
+    // A linked change request is named in its host's term (#23999).
+    const link = (url: string) => t3ToolPresentation(t3ToolDefinition('t3-code.link_pull_request'), 'completed', { arguments: { url } })?.displayName;
+    expect(link('https://github.com/acme/web/pull/7')).toMatch(/ PR #7$/);
+    expect(link('https://gitlab.com/acme/web/-/merge_requests/7')).toMatch(/ MR #7$/);
+    expect(t3ToolPresentation(t3ToolDefinition('t3-code.link_pull_request'), 'completed', { arguments: { number: 7 } })?.displayName).toMatch(/ PR #7$/);
     const failed = work(item('f', 'dynamic_tool', 1, { toolName: 'mcp__t3-code__unwatch_pull_request', input: { number: 7 }, output: { isError: true } }));
     expect(rows(client([user('u', 0, 'go'), failed.item, answer('a', 2, 'ok')])).length).toBeGreaterThan(0);
     const entries = [1, 2].map(n => work(item(`w${n}`, 'dynamic_tool', n, { toolName: 'mcp__t3-code__watch_pull_request', input: { number: n }, output: '{"ok":true}' })));

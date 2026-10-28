@@ -7,6 +7,7 @@ use Icon from "../shared/icons.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use TipBubble from "../shell/shell-tip.contract"
 use SentVideoTile from "../media/sent-video.contract"
+use AudioChip from "./timeline-audio.contract"
 use ExpandedVideo from "../media/sent-video.contract"
 use MediaActions, MediaVideoFailure, MediaView from "../media/media-actions.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
@@ -43,6 +44,8 @@ component MessageAttachments
     messageId: string
     images: MessageImage[]
     files: MessageFile[]
+    // Sounds, each an audio chip (timeline-audio.contract) between the images and the files.
+    audio: MessageFile[]
     urls: AttachmentUrl[]
     local: action
   view
@@ -62,6 +65,10 @@ component MessageAttachments
                 AttachmentTile(image=image, messageId=messageId, urls=urls, width=208, height=112, local=local)
               else
                 AttachmentTile(image=image, messageId=messageId, urls=urls, width=101, height=75.75, local=local)
+      if audio.length > 0
+        column max-width="100%" margin-bottom="0.5rem" gap="0.25rem" align-items="flex-start"
+          for sound in audio key=sound.id
+            AudioChip(name=sound.name, src=urls.filter((entry) => entry.id == sound.id).map((entry) => entry.url).join(""), failed=(urls.filter((entry) => entry.id == `failed:${sound.id}`).length > 0), open=local("surface-linked-attachment", sound.id, ""), id=sound.id)
       if files.length > 0
         column margin-bottom="0.5rem" gap="0.25rem"
           for file in files key=file.id

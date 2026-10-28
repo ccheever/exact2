@@ -17,7 +17,16 @@ members T3Code
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
-  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible", lineageWorkflows, lineagePhasesOpen, lineagePhasesClosed) as shape ShellDetails
+  // The card's pull request row reads its checks on a timer of its own (usePullRequestChecksRefresh): every 45 s while runs
+  // are pending and 60 s once they settle (details.prRows.checksPoll), again from the start for another pull request.
+  state prRowChecksNow = 0
+  action prRowChecksTick
+    prRowChecksNow = performanceNow()
+  task prRowChecksPending when details.prRows.checksPoll == "pending" key=details.prRows.checksKey
+    every(45000, prRowChecksTick)
+  task prRowChecksSettled when details.prRows.checksPoll == "settled" key=details.prRows.checksKey
+    every(60000, prRowChecksTick)
+  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + max(shellClock, prRowChecksNow), floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible", lineageWorkflows, lineagePhasesOpen, lineagePhasesClosed, page.visibilityState == "visible") as shape ShellDetails
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value

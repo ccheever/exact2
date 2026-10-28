@@ -224,11 +224,16 @@ component ScrollToEnd
     inset: number
     // The composer overlay's clearance above the transcript's foot (composer-overlay.ts).
     lift: number
+    // What waits at the timeline's end, out of view while this shows ("Subagent waiting · 2 queued"; "" for nothing).
+    summary: string
   view
-    row position="absolute" left=`calc(50% - ${64 + inset / 2}px)` width="8rem" bottom=(0.375 * rem + lift) justify-content="center"
-      button press=jump aria-label="Scroll to end" testId="scroll-to-end" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" background-color="light-dark(#fcfcfccc, #000000cc)" box-shadow="0 1px 3px #0000001a, 0 1px 2px -1px #0000001a" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
+    row position="absolute" left=0 right=inset bottom=(0.375 * rem + lift) justify-content="center" pointer-events="none"
+      button press=jump testId="scroll-to-end" pointer-events="auto" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" background-color="light-dark(#fcfcfccc, #000000cc)" box-shadow="0 1px 3px #0000001a, 0 1px 2px -1px #0000001a" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
         Icon(name="chevron", size=14, color="light-dark(#18181b, #f5f5f5)")
-        text "Scroll to end" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
+        text "Scroll to end" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
+        if summary != ""
+          text "·" aria-hidden=true font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+          text summary font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
 
 // TimelineHistoryControl: a full-width quiet text button above the timeline.
 component LoadEarlier

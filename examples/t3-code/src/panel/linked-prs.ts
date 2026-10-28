@@ -1,13 +1,12 @@
-// The Linked pull requests surface (MIT reference, see LICENSE-T3:
+// The Linked pull requests surface (MIT reference, see LICENSE-T3, T3 Code 7c3b3b3605ef:
 // components/pullRequest/ThreadPullRequestsPanel.tsx, pullRequestListLines.ts,
-// PullRequestListRow.tsx, packages/shared/src/threadPullRequests.ts at 74541bab17, upstream
-// 9c161462c9 "watch for changes"): the thread's visible links as stacked rows, the
+// PullRequestListRow.tsx, packages/shared/src/threadPullRequests.ts): the thread's visible links as stacked rows, the
 // row menu (Copy link, Open, Watch for changes / Stop watching, Unlink) and the
 // footer. Watch and unlink are orchestration commands (thread.pull-request.watch,
 // thread.pull-request.unlink); nothing here writes to the code host.
 import { quickRow, queueQuickAction } from '../pull-requests/pages-pr-quick';
 import { insertContext } from '../composer/composer-editor';
-import { providerOfUrl } from './pr-surface';
+import { changeRequestHostKind, hostLabelForUrl, terminologyOf } from '../details/git-logic';
 import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
@@ -17,6 +16,7 @@ import { visiblePullRequests } from './shell-pr';
 import { relativeLabel } from '../pull-requests/pages-prs';
 import { letGo } from '../client/let-go';
 import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, type BreakdownTarget, type PrBreakdown } from '../pull-requests/pr-change-breakdown';
+import { formatDiffCount } from '../details/diff-count';
 
 export type LinkedRow = {
   key: string; index: number; number: number; title: string; url: string; host: string; repository: string; depth: number;
@@ -24,10 +24,13 @@ export type LinkedRow = {
   checks: string; checksLabel: string; review: string; reviewLabel: string; additions: string; deletions: string; breakdown: PrBreakdown;
   author: string; avatar: string; initial: string; head: string; base: string; age: string; stackSize: number; stackLabel: string;
   sourceLabel: string; unlinkLabel: string; canWatch: boolean; context: string;
-  speed: ReturnType<typeof quickRow>['speed']; speedPending: boolean;
+  speed: ReturnType<typeof quickRow>['speed']; speedPending: boolean; quickLabel: string;
 };
 export type PrsView = { supported: boolean; rows: LinkedRow[]; footer: string; canWatch: boolean };
 
+/** findByChangeRequestUrl(url) ?? UNKNOWN_SOURCE_CONTROL_CLIENT (ThreadPullRequestsPanel): a link no host claims has no
+ *  quick actions. */
+const linkHost = (url: string) => changeRequestHostKind(url) || 'unknown';
 const SOURCE_LABELS: Record<string, string> = { manual: 'Linked by you', created: 'Created from this thread', agent: 'Linked by the agent', stack: 'Found in the stack', 'stack-dismissed': 'Dismissed' };
 const STATE_LABELS: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
 const CHECKS_LABELS: Record<string, string> = { passing: 'Checks passing', failing: 'Checks failing', pending: 'Checks running', none: 'No checks' };
@@ -129,13 +132,15 @@ export function prsView(client: T3Client, now: number): PrsView {
       conflict: open && snapshot?.mergeability === 'conflicting' && snapshot.isDraft !== true ? `Conflicts with ${str(snapshot.baseBranch, 'the base branch')}` : '',
       open, watching: link.watch != null, checks: open ? str(snapshot?.checksState) : '', checksLabel: CHECKS_LABELS[str(snapshot?.checksState)] ?? '',
       review: open ? str(snapshot?.reviewDecision) : '', reviewLabel: REVIEW_LABELS[str(snapshot?.reviewDecision)] ?? '',
-      additions: measured ? `+${additions.toLocaleString('en-US')}` : '', deletions: measured ? `-${deletions.toLocaleString('en-US')}` : '',
+      additions: measured ? `+${formatDiffCount(additions)}` : '', deletions: measured ? `-${formatDiffCount(deletions)}` : '',
       // A thread without a project keeps the bare +/- (no reference to read the split through).
       breakdown: projectId ? presentChangeBreakdown(client, linkBreakdown(projectId, link)) : emptyBreakdown(),
       author: snapshot?.author ? login : '', avatar: str(author.avatarUrl), initial: login.slice(0, 1).toUpperCase(), head: str(snapshot?.headBranch), base: str(snapshot?.baseBranch),
       age: snapshot ? relativeLabel(snapshot.updatedAt, now) : '', stackSize: stack?.size ?? 0,
-      stackLabel: stack ? (stack.kind === 'native' ? `GitHub stack of ${stack.size}: merging a layer lands the ones below it.` : `${stack.size} pull requests chained by base branch.`) : '',
-      ...((row) => ({ speed: row.speed, speedPending: row.speedPending }))(quickRow(client, { ...snapshot, projectId: str(thread(client)?.projectId), host: str(link.host), repository: str(link.repository), number: num(link.number), provider: providerOfUrl(str(link.url)), stack: link.stack })),
+      // The link's host by its URL; one no host claims says "change requests" (UNKNOWN_SOURCE_CONTROL_CLIENT).
+      stackLabel: stack ? (stack.kind === 'native' ? `${hostLabelForUrl(str(link.url))} stack of ${stack.size}: merging a layer lands the ones below it.`
+        : `${stack.size} ${terminologyOf(linkHost(str(link.url))).plural} chained by base branch.`) : '',
+      ...((row) => ({ speed: row.speed, speedPending: row.speedPending, quickLabel: row.quickLabel }))(quickRow(client, { ...snapshot, projectId: str(thread(client)?.projectId), host: str(link.host), repository: str(link.repository), number: num(link.number), provider: linkHost(str(link.url)), stack: link.stack })),
       context: JSON.stringify({ number: num(link.number), title: str(snapshot?.title), url: str(link.url), headBranch: str(snapshot?.headBranch), baseBranch: str(snapshot?.baseBranch), state: str(snapshot?.state, 'open'), isDraft: snapshot?.isDraft === true }),
       sourceLabel: `${SOURCE_LABELS[str(link.source)] ?? 'Linked'} · ${relativeLabel(link.linkedAt, now)}`,
       unlinkLabel: link.source === 'stack' ? 'Dismiss from thread' : 'Unlink from thread', canWatch: canWatch && open,
@@ -170,7 +175,7 @@ export async function prsLocal(client: T3Client, native: Native, op: string, id:
   if (op === 'quick') return queueQuickAction(client, native, _value, ref => {
     const requested = obj(JSON.parse(ref));
     const link = visiblePullRequests(thread(client)?.pullRequests).find(entry => str(entry.host) === str(requested.host) && str(entry.repository) === str(requested.repository) && num(entry.number) === num(requested.number));
-    return link ? { ...obj(link.snapshot), ...requested, provider: providerOfUrl(str(link.url)), stack: link.stack } : null;
+    return link ? { ...obj(link.snapshot), ...requested, provider: linkHost(str(link.url)), stack: link.stack } : null;
   }, () => { client.revision++; });
   if (op === 'copy') {
     const link = linkOf(client, id);

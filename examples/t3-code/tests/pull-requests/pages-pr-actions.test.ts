@@ -416,7 +416,7 @@ describe('the actions, their confirmations and their toasts', () => {
     await prCommand(silent.client, native, 'action', selected, 'update-branch:rebase');
     expect(toasts(silent.client).at(-1)).toMatchObject({ title: 'Could not update this branch', description: 'The host refused it. A rebase stops at the first commit that does not apply cleanly; updating with a merge commit may still work.' });
     await prCommand(silent.client, native, 'action', selected, 'update-branch:merge');
-    expect(toasts(silent.client).at(-1)?.description).toBe('The host refused it. Check that you have write access to the branch — one from a fork also needs its author to allow edits from maintainers — and that it does not conflict with the base.');
+    expect(toasts(silent.client).at(-1)?.description).toBe('The host refused it. Check that you have write access to the branch (a fork branch also needs its author to allow edits from maintainers), and that it does not conflict with the base.');
     await prCommand(silent.client, native, 'action', selected, 'enable-auto-merge:merge');
     expect(toasts(silent.client).at(-1)).toMatchObject({ title: 'Could not turn on auto-merge', description: 'The host refused it. Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.' });
   });

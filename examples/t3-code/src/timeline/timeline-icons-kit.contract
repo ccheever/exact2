@@ -26,8 +26,8 @@ component TimelineIcon
 
 // T3 Code ToolActivityImageIcon (TimelineToolActivityIcon.tsx, 74541bab17; MIT, LICENSE-T3): the
 // fallback glyph (the slot) until the theme's logo loads, and again when it fails (on Apple an SVG
-// the host's parser refuses fails, LLP 1011.001). A muted image (every work-log row but a live row's highlight) is `opacity-70`
-// and, in the light scheme, `light:brightness-60`.
+// the host's parser refuses fails, LLP 1011.001). A muted image (every work-log row but a live row's highlight) is
+// `dark:opacity-70` and, in the light scheme, `light:brightness-70`, which keeps a logo's detail on the light canvas.
 component ToolActivityIcon
   inject
     scheme: string
@@ -49,4 +49,4 @@ component ToolActivityIcon
       if src == "" or loaded != src
         children
       if src != "" and failed != src
-        image src width="1rem" height="1rem" object-fit="contain" aria-hidden=true load=didLoad error=didFail opacity=(muted ? 0.7 : 1) filter=(muted and scheme != "dark" ? "brightness(0.6)" : "none") position="absolute" left=0 top=0 visibility=(loaded == src ? "visible" : "hidden")
+        image src width="1rem" height="1rem" object-fit="contain" aria-hidden=true load=didLoad error=didFail opacity=(muted and scheme == "dark" ? 0.7 : 1) filter=(muted and scheme != "dark" ? "brightness(0.7)" : "none") position="absolute" left=0 top=0 visibility=(loaded == src ? "visible" : "hidden")

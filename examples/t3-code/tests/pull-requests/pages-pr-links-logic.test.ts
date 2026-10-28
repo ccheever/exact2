@@ -4,9 +4,9 @@
 // (changeRequestRepositoryUrl, pullRequestCandidateUrlFromReferenceAutolink, matchesLinkedPullRequestUrl) and
 // packages/client-runtime/src/threadPullRequestCompatibility.test.ts ("thread pull request capability negotiation").
 //
-// The reference has no tests of remarkPullRequestAutolinks itself; the "pull request autolinks" cases
-// below are this clone's, written from its rules (pullRequestMarkdown.logic.ts:150-192), including the
-// task's acceptance fixture. Not ported: "keeps hover previews fresh after edits and turns"
+// The "pull request autolinks" cases are this clone's, written from the reference's rules (pullRequestMarkdown.logic.ts
+// remarkPullRequestAutolinks over source-control-github referenceAutolinks.ts), and its referenceAutolinks.test.ts cases
+// run through the Markdown scan. Not ported: "keeps hover previews fresh after edits and turns"
 // (client-runtime state/pullRequests.test.ts) tests the reference's preview atom over an AtomRegistry
 // and the subscribeRefreshes stream; the clone has no atoms, and its preview read is a resource that
 // re-reads on the same announcements as the detail (pages-pr-refresh.ts).
@@ -24,20 +24,37 @@ const links = (markdown: string) => autolinkPullRequestMarkdown(markdown, REPO);
 const sha = '0123456789abcdef0123456789abcdef01234567';
 
 describe('pull request autolinks', () => {
-  test('links only #N and a commit hash, never code or a word-attached reference (acceptance fixture)', () => {
-    const result = links(`See #101 and ${sha}, not \`#2\` and not a#3`);
+  test('links #N and a commit hash, never in code (acceptance fixture)', () => {
+    const result = links(`See #101 and ${sha}, not \`#2\``);
     expect(result.links).toEqual([
       { href: `${REPO}/issues/101`, text: '#101', kind: 'reference' },
       { href: `${REPO}/commit/${sha}`, text: '0123456', kind: 'commit' },
     ]);
-    expect(result.text).toBe(`See [#101](${REPO}/issues/101) and [0123456](${REPO}/commit/${sha}), not \`#2\` and not a#3`);
+    expect(result.text).toBe(`See [#101](${REPO}/issues/101) and [0123456](${REPO}/commit/${sha}), not \`#2\``);
   });
-  test('needs a non-word character before #N and none after either', () => {
-    expect(links('x#1 #2a #3_ (#4) #5.').links.map(link => link.text)).toEqual(['#4', '#5']);
+  test('links references, cross-repository references, commits and mentions (gitHubReferenceAutolinks)', () => {
+    const result = autolinkPullRequestMarkdown('Closes #123, fixes other/project#9; other#4 @julius @team/mobile abc1234 other/project@abcdef1', 'https://github.com/team/repo');
+    expect(result.links.map(({ text, href, kind }) => [text, href, kind])).toEqual([
+      ['#123', 'https://github.com/team/repo/issues/123', 'reference'],
+      ['other/project#9', 'https://github.com/other/project/issues/9', 'reference'],
+      ['other#4', 'https://github.com/other/repo/issues/4', 'reference'],
+      ['@julius', 'https://github.com/julius', 'mention'],
+      ['@team/mobile', 'https://github.com/orgs/team/teams/mobile', 'mention'],
+      ['abc1234', 'https://github.com/team/repo/commit/abc1234', 'commit'],
+      ['other/project@abcdef1', 'https://github.com/other/project/commit/abcdef1', 'commit'],
+    ]);
+    expect(autolinkPullRequestMarkdown('See #5', 'https://ghe.example.com/acme/web').links.map(link => link.href)).toEqual(['https://ghe.example.com/acme/web/issues/5']);
+  });
+  test('leaves URLs, emails, words and plain numbers alone', () => {
+    expect(links('https://example.com/#123 user@example.com 1234567 issue#x a#1b').links).toEqual([]);
+  });
+  test('needs no word character, slash or backslash before a reference and none after it', () => {
+    expect(links('x/#1 #2a #3_ (#4) #5. x#6').links.map(link => link.text)).toEqual(['#4', '#5', 'x#6']);
     expect(links('#0 #07').links).toEqual([]);
   });
-  test('needs a start, a space or an opening bracket before a hash', () => {
-    expect(links(`(${sha}) [${sha}] {${sha}} x${sha} -${sha}`).links.map(link => link.kind)).toEqual(['commit']);
+  test('a hash after a word stays text; a 41st hex digit makes none of it a hash', () => {
+    expect(links(`x${sha}`).links).toEqual([]);
+    expect(links(`(${sha}) -${sha}`).text).toBe(`([0123456](${REPO}/commit/${sha})) -[0123456](${REPO}/commit/${sha})`);
     expect(links(`a ${sha}0`).links).toEqual([]);
     expect(links(`${sha.toUpperCase()}`).links.map(link => link.href)).toEqual([`${REPO}/commit/${sha.toUpperCase()}`]);
   });
@@ -61,7 +78,9 @@ describe('pull request autolinks', () => {
     expect(links('Text <!-- #16 --> #17').links.map(link => link.text)).toEqual(['#17']);
   });
   test('reads a text node edge at an emphasis delimiter as no neighbour', () => {
-    expect(links('**#1** _#2_ ~~#3~~ snake_case#4').links.map(link => link.text)).toEqual(['#1', '#2', '#3']);
+    expect(links('**#1** _#2_ ~~#3~~ _@julius_').links.map(link => link.text)).toEqual(['#1', '#2', '#3', '@julius']);
+    // An underscore inside a word is text, so the word qualifies the reference.
+    expect(links('snake_case#4').links.map(link => link.href)).toEqual(['https://github.com/snake_case/web/issues/4']);
     expect(links(`**${sha}**`).links.map(link => link.kind)).toEqual(['commit']);
   });
   test('links each reference once in the list, every occurrence in the text', () => {
