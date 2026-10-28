@@ -189,7 +189,6 @@ export class EnvironmentFleet {
     }
     if (status.generation !== entry.generation) {
       entry.generation = status.generation; entry.synchronized = -1; entry.lastEvent = 0; entry.subscriptions = {}; entry.terminalMetadata = null; entry.terminalAttempted = false;
-      entry.scopes = []; entry.legacyPermissions = false; // this connection's grants are read again
       entry.deviceState = null; entry.deviceAttempted = false;
       this.retries.delete(entry);
     }
@@ -221,8 +220,10 @@ export class EnvironmentFleet {
 
   private async bootstrap(remote: Native, entry: FleetEntry): Promise<void> {
     const generation = entry.generation;
-    // The grants come in on their own (readSession files them under `session-state`, read again from 6 s up to 60 s
-    // on a timeout), as the reference's per-environment session atom reads them: the config and the shell do not wait.
+    // The grants come in on their own (readSession files them under `session-state`: a first 6 s wait, then 12, 24, 48
+    // and 60 s on a timeout), as the reference's per-environment session atom reads them: the config and the shell do not
+    // wait. A new connection keeps the last grants until its own land (the atom's stale-while-revalidate), so a
+    // reconnect does not leave the environment read-only meanwhile.
     entry.subscriptions[SESSION_STATE_KEY] = str((await this.call(remote, entry, { op: 'readSession' })).id);
     entry.config = await this.call(remote, entry, { op: 'request', method: 'server.getConfig', payload: {} });
     entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // hub sources, as the focused client asks

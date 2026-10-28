@@ -9,7 +9,7 @@ import { obj, initialShell, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { sidebarLocal, sidebarOpened, sidebarSelecting } from '../../src/sidebar/sidebar-commands';
-import { findForMessageMatch, runThreadSearch } from '../../src/sidebar/sidebar-search';
+import { findForMessageMatch, runThreadSearch, searchMatch } from '../../src/sidebar/sidebar-search';
 import { setRuntimeClock } from '../../src/sidebar/sidebar-state';
 import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
 import { threadFindState, threadFindTick, threadFindView } from '../../src/timeline/thread-find-runtime';
@@ -149,19 +149,28 @@ describe('message matches from every environment', () => {
     expect(view(client).threads).toEqual([]);
   });
 
-  test('a query without a word of three letters asks no server; a pasted wall of text asks by its start; a replaced query\'s answer is dropped', async () => {
+  test('a query without a word of three letters asks no server; a pasted wall of text asks by its start', async () => {
     fleet.entries.set(KEY, background(theirs));
-    const { client, native, asked, release } = focused(threads(), here, there, true);
+    const { client, native, asked } = focused(threads(), here, there);
     await runThreadSearch(client, native, 'de');
     expect(asked).toEqual([]);
+    await runThreadSearch(client, native, 'x'.repeat(250));
+    expect(asked.map(entry => `${String(entry.environmentId)}:${String(entry.query).length}`)).toEqual(['env-search-a:200', 'env-search-b:200']);
+  });
+
+  test('a replaced query\'s answers neither repaint the list nor show; the current query\'s each repaint it', async () => {
+    fleet.entries.set(KEY, background(theirs));
+    const { client, native, release } = focused(threads(), here, there, true);
+    const replaced = landing(), current = landing();
     type(client, 'deploy');
-    const first = runThreadSearch(client, native, 'deploy');
-    type(client, 'x'.repeat(250));
-    const second = runThreadSearch(client, native, 'x'.repeat(250));
+    const first = runThreadSearch(client, native, 'deploy', replaced.landed);
+    type(client, 'fridays');
+    const second = runThreadSearch(client, native, 'fridays', current.landed);
     release(); await Promise.all([first, second]);
-    expect(asked.map(entry => `${String(entry.environmentId)}:${String(entry.query).length}`).sort()).toEqual(['env-search-a:200', 'env-search-a:6', 'env-search-b:200', 'env-search-b:6']);
+    expect(replaced.count()).toBe(0);
+    expect(current.count()).toBe(2);
     type(client, 'deploy');
-    expect(ids(client)).toEqual(['title']);
+    expect(ids(client)).toEqual(['title']); // only the title: nothing was found for "deploy" itself
   });
 });
 
@@ -246,6 +255,21 @@ describe('opening a message row finds its match', () => {
     Object.assign(client, { threadId: 'mine' });
     sidebarOpened(client, native);
     expect(threadFindView(client).open).toBe(false);
+  });
+});
+
+describe('the excerpt (ThreadSearchMatchExcerpt)', () => {
+  test('"You:" in the info ink for the user, "Agent:" in the success ink for the agent; every hit of the query in semibold', () => {
+    expect(searchMatch({ source: 'user', snippet: 'fork here too' }, 'fork')).toMatchObject({ matchLabel: 'You:', matchUser: true });
+    const agent = searchMatch({ source: 'assistant', snippet: '# Fixture complete\n\nThe GENUINE backend, genuine output.' }, 'genuine');
+    expect(agent).toMatchObject({ matchLabel: 'Agent:', matchUser: false });
+    expect(agent.matchParts.map(part => [part.text, part.hit])).toEqual([
+      ['# Fixture complete The ', false], ['GENUINE', true], [' backend, ', false], ['genuine', true], [' output.', false]]);
+  });
+
+  test('no match, or one without a snippet, shows no excerpt', () => {
+    expect(searchMatch(undefined, 'needle').matchLabel).toBe('');
+    expect(searchMatch({ source: 'user', snippet: '  ' }, 'needle').matchLabel).toBe('');
   });
 });
 

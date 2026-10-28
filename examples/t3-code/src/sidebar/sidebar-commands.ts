@@ -371,8 +371,9 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
 
 // ── Visits (createThreadVisitTracker): showing a thread is its open, whether or not its shell has arrived. This client
 // records the open at once (claimThreadOpen, which recent threads and search ranking read), and the open rides on the
-// first visit the server hears, however late the shell arrives. A ⌘K pick already sent its open with its query
-// (palette-commands.ts), so its claim here is refused. Then the watermark, deduped per updatedAt, throttled 10s mid-turn.
+// first visit the server hears, however late the shell arrives. A ⌘K query pick claims its open first
+// (palette-commands.ts claimPick), so the claim here is refused: sending that open, with the pick's query, is the
+// palette's. Then the watermark, deduped per updatedAt, throttled 10s mid-turn.
 // The effect runs whenever the open thread's shell changes, so it is asked after every refresh too: a thread
 // opened on a background environment arrives by the reconnect to that environment, not by openSelected, and
 // a turn completing on the open thread lands as a shell event.
@@ -385,7 +386,9 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
 const visits = new WeakMap<T3Client, { key: string; thread: string; at: number }>();
 const shownThreads = new WeakMap<T3Client, { route: string; openPending: boolean }>();
 export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
-  if (!client.threadId) return;
+  // A view with no thread (a draft, ⌘N) ends the last thread's: showing it again is a new open, as the reference's
+  // tracker unmounts and mounts again.
+  if (!client.threadId) { shownThreads.delete(client); return; }
   // routeThreadKey: the same thread id on another environment is another thread.
   const route = `${client.environmentId}:${client.threadId}`;
   let shown = shownThreads.get(client);

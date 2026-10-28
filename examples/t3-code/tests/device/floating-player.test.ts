@@ -69,6 +69,21 @@ describe('a background environment\'s devices', () => {
     await threadDevices(client, null, false, source);
     expect(miniDeviceOf(client, 'bt1')).toMatchObject({ deviceId: 'IPHONE' });
   });
+
+  test('its ended session closes the device floating over its thread, and leaves another environment\'s alone', async () => {
+    resetLaunch();
+    const client = thread('t1', 'env'), source = new EnvironmentFleet();
+    const background = { environmentId: 'env-b', phase: 'connected', generation: 1, synchronized: 1, shell: { projects: [], threads: [{ id: 'bt1' }] }, deviceState: state([open('bt1')]) };
+    source.entries.set('https://box.example.com\nenv-b', background as never);
+    floatMiniDevice(client, 'bt1', { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' });
+    floatMiniDevice(client, 't1', { hostId: 'nucbox', deviceId: 'emulator-5580', platform: 'android', name: 'Pixel' }); // the focused environment's
+    await threadDevices(client, null, false, source);
+    expect(miniDeviceOf(client, 'bt1')).toMatchObject({ deviceId: 'IPHONE' }); // its session is live
+    background.deviceState = state([]);
+    await threadDevices(client, null, false, source);
+    expect(miniDeviceOf(client, 'bt1')).toBeUndefined();
+    expect(miniDeviceOf(client, 't1')).toMatchObject({ deviceId: 'emulator-5580' });
+  });
 });
 
 // agentOpenedPreviews.test.ts at 7c3b3b3605ef "applyDeviceSnapshot", its 6 tests under their own names.

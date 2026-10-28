@@ -101,4 +101,24 @@ describe('a background environment\'s grants (sessionStateAtom)', () => {
     await source.sync(native, focus);
     expect(entry.scopes).toContain('orchestration:read');
   });
+  test('a new connection keeps the last grants until its own read lands (stale-while-revalidate)', async () => {
+    const native = new FleetNative(), source = new EnvironmentFleet();
+    native.saved = [{ origin: 'https://box.example.com', environmentId: 'env-b', enabled: true }];
+    native.answerSession();
+    await source.sync(native, focus); await source.sync(native, focus); await source.sync(native, focus);
+    const entry = source.entries.get(key)!;
+    expect(entry.scopes).toContain('orchestration:operate');
+    native.generation = 4;
+    await source.sync(native, focus);
+    // Synchronized on the new connection, its read asked and not answered: the last grants still stand.
+    expect(entry).toMatchObject({ synchronized: 4 });
+    expect(native.calls.filter(call => call.op === 'readSession')).toHaveLength(2);
+    expect(entry.scopes).toContain('orchestration:operate');
+    native.scopes = ['orchestration:read'];
+    native.answerSession();
+    await source.sync(native, focus);
+    expect(entry.scopes).toContain('orchestration:read');
+    expect(entry.scopes).not.toContain('orchestration:operate');
+  });
 });
+

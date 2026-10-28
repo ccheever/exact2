@@ -195,6 +195,7 @@ test('Stop ends visible PR watches even when a thread has never run', async () =
   ] } }, restAccess: () => ({ ids: async () => [`command-${++ids}`], dispatch: async (_storage: Files, payload: unknown) => { commands.push(payload); } }) } as unknown as T3Client;
   await composerCommand(client, {} as Native, {} as Files, 'stop-background', '', '');
   expect(commands).toEqual([{ type: 'thread.pull-request.watch', commandId: 'command-1', threadId: 'thread', host: 'github.com', repository: 'org/repo', number: 12, watching: false }]);
+  // The server marks a pull request's watch awaited (pullRequestWatchTasks).
   expect(presentBackgroundWork([{ kind: 'monitor', description: 'Watching pull request #12', awaited: true }])?.title).toBe('Watching pull request #12');
 });
 

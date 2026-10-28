@@ -108,7 +108,7 @@ describe('sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/t
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'running', blockedOnThreadWait: true }))).toBe('waiting');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'running', blockedOnThreadWait: false }))).toBe('working');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'running', blockedOnThreadWait: true, pendingRuntimeRequest: { kind: 'command_approval' } }))).toBe('approval');
-    expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'completed', pendingBackgroundTasks: [{ id: 'x', kind: 'background_task' }] }))).toBe('waiting');
+    expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'completed', pendingBackgroundTasks: [{ id: 'x' }] }))).toBe('waiting');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'failed', lastErrorClass: 'usage_limit' }))).toBe('limited');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'failed' }))).toBe('failed');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'completed' }))).toBe('ready');
