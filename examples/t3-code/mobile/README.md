@@ -1,5 +1,7 @@
 # T3 Code for iOS
 
+See [the clone handoff](../CLONE.md) for the current project state and next steps.
+
 The mobile app uses the shared T3 client with a separate Contract entry and app-local UIKit modules. It requires a running T3 server. The implementation is still in development; route and visual parity are incomplete.
 
 Use the Bun version pinned by the repository. Install the root dependencies, then the pinned browser/device viewer dependency:
