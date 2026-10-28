@@ -1351,7 +1351,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if let outer = v as? ScrollView, !(outer is Viewport) { nested = outer.scrollsY }
             up = v.superview
         }
-        sv.alwaysBounceVertical = sv.scrollsY && !nested && (!fits || !carousel)
+        sv.alwaysBounceVertical = sv.scrollsY && !nested && (handlers.contains("refresh") || !fits || !carousel)
     }
 
     package override func layoutSubviews() {

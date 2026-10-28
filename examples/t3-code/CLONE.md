@@ -21,8 +21,8 @@ These implementation checkpoints are pushed to GitHub:
 branch. Integrate the checkpoints into the working branch as concrete dependencies
 require them.
 
-- The desktop app extraction is unfinished. The complete proposed Root is
-  2,059 lines against the repository's 1,500-line rule. Current Contract keeps
+- The desktop app extraction is unfinished. Current `app.contract` is
+  2,994 lines against the repository's 1,500-line rule. Current Contract keeps
   ordinary resources, mutations and tasks at Root. No fitting replacement was
   selected.
 - Focused compiler, chat and command tests passed. Whole-app behavior, visual
@@ -108,6 +108,14 @@ highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
 Read failures show an error and Try again instead of an empty body. All 3,706
 mobile tests and strict app TypeScript pass. These phone fixes are not in the POC build.
+The Apple host preserves pull-to-refresh for a short file that also scrolls
+horizontally. Its new regression assertions pass, and the native short-file drive
+and tvOS compile complete. Root build, tests, clippy, formatting, boot and workspace
+checks pass; caps still reports only the desktop Contract above. The full UIKit
+run reports 2,134 passes, 17 failures and four skips. Failures include keyboard
+availability, native row alignment, HDR metadata and popover rendering. Source
+review finds that the failing fixtures omit refresh handlers or bypass the changed
+method. No clean baseline run establishes these failures as pre-existing.
 A paired learned route still retains its learned marker.
 T3 Connect relay login remains unconfigured in the clone; direct pairing is the
 verified connection path.

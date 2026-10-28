@@ -73,8 +73,9 @@ final class ScrollChainIOSTests: XCTestCase {
     /// take it.
     func testAShortPageBouncesThroughAStrayPointOfWidthAndACarouselDoesNot() {
         let p = Presenter()
-        func scroller(content: CGSize, row: Bool = false, rowChild: Bool = false) -> ScrollView {
+        func scroller(content: CGSize, row: Bool = false, rowChild: Bool = false, refresh: Bool = false) -> ScrollView {
             let node = NodeView(id: 1, kind: "scroll", presenter: p)
+            if refresh { node.handlers.insert("refresh") }
             if row { node.style["display"] = .string("flex") }
             node.frame = CGRect(x: 0, y: 0, width: 300, height: 600)
             let sv = ScrollView(frame: node.bounds)
@@ -101,6 +102,8 @@ final class ScrollChainIOSTests: XCTestCase {
         XCTAssertFalse(scroller(content: CGSize(width: 360, height: 180), row: true).alwaysBounceVertical, "a short flex-row strip")
         XCTAssertFalse(scroller(content: CGSize(width: 360, height: 180), rowChild: true).alwaysBounceVertical, "a block port around a flex-row strip")
         XCTAssertTrue(scroller(content: CGSize(width: 301.5, height: 600)).alwaysBounceVertical, "a page that fills its port, a point too wide")
+        XCTAssertTrue(scroller(content: CGSize(width: 900, height: 180), refresh: true).alwaysBounceVertical, "short wide content still pulls to refresh")
+        XCTAssertTrue(scroller(content: CGSize(width: 360, height: 180), row: true, refresh: true).alwaysBounceVertical, "a refreshing strip keeps its vertical drag")
     }
 
     func testNothingAroundToTakeItKeepsTheBand() {
