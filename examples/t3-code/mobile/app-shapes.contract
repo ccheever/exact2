@@ -94,8 +94,8 @@ shape Notice
   choice: string
 shape SnapshotRead
   serial: number
-  catalogLoaded: bool
 shape Snapshot
+  catalogLoaded: bool
   faviconRevision: number
   nativeAvailable: bool
   revision: number

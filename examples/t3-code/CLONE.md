@@ -151,10 +151,17 @@ saved environment, conversation and photo reply after restart. Actual delivery
 still compares complete server configurations. No phone parity or new TestFlight
 checkpoint is claimed.
 The catalog reader distinguishes unread from successfully loaded empty state and
-retains readiness through later failures. Home consumes that explicit fact. A
-normal first-frame capture shows Loading environments; later launches still
-briefly show No environments connected before the saved threads appear. Startup
-presentation parity therefore remains open.
+retains readiness through later failures. A native launch trace found restored
+reader readiness from the previous session reaching a cold JavaScript client.
+Home therefore briefly reported No environments connected. Readiness now travels
+with the current rendering snapshot; the reader exposes only its invalidation
+serial. The regression evaluates the production Home expression with a restored
+reader and fails the former code. Failed, malformed, superseded and successful
+empty reads remain covered. Two normal retained-cache restarts show Loading
+environments followed by saved threads, and the interrupted conversation reopens.
+All 3,727 mobile tests, strict app TypeScript, boot and the normal build pass.
+Source review finds no introduced blocker. Temporary probes are removed. This
+correction is outside maintenance build `20261028202307`.
 Ordinary Send now captures only its policy fields before validation and copying.
 Workspace skills, commands and snapshots do not enter that capture. It retains
 upload limits, selected model availability and toggle settings, driver fallback,

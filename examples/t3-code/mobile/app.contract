@@ -1310,7 +1310,7 @@ component App
   state settledCount = 10
   resource shelves = homePreferences() as shape HomePreferences
   resource homeLook = homeColors(appearance.scheme, appearance.themeId) as shape HomeColors
-  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "compact", snapshotRead.catalogLoaded) as shape HomeView
+  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "compact", data.catalogLoaded) as shape HomeView
   resource arrangement = homeArrangeView(top(nav).name == "homeArrange", data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), shelves.workingEnabled) as shape HomeArrangementData
   mutation shelfChanged as shape Change refreshes shelves
   task clock mount

@@ -219,7 +219,7 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
       const [status, catalog, preferences] = await Promise.all([
         metadata('status'), metadata('environments'), metadata('connectionPreferences'),
       ]);
-      if (reading !== snapshotReadStarted) return { serial: snapshotReadPublished, catalogLoaded: snapshotMetadata.catalogLoaded };
+      if (reading !== snapshotReadStarted) return { serial: snapshotReadPublished };
       if (status?.ok) {
         const value = obj(status.value);
         focusedStatus = { homeOrigin: str(value.homeOrigin), failureKind: str(value.failureKind), traceId: str(value.traceId), activeRouteId: str(value.activeRouteId) };
@@ -239,12 +239,12 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
       focusedOrigin, focusedEnvironmentId, preferencesText, routingReady };
     snapshotReadPublished++;
   }
-  return { serial: snapshotReadPublished, catalogLoaded: snapshotMetadata.catalogLoaded };
+  return { serial: snapshotReadPublished };
 }
 /** Pure rendering projection; never issues native IO or retains a prior graph. */
 export function mobileSnapshotProjection(now = 0) {
   mobileGitFeedbackObserve(mobileClient, now);
-  const { nativeAvailable, preferencesText, routingReady } = snapshotMetadata;
+  const { catalogLoaded, nativeAvailable, preferencesText, routingReady } = snapshotMetadata;
   const savedCatalog = fleet.saved;
   const sources = mobileConnectionSources();
   const environments = sources.map(source => {
@@ -260,7 +260,7 @@ export function mobileSnapshotProjection(now = 0) {
     };
   });
   return {
-    nativeAvailable, revision: mobileClient.revision, faviconRevision: mobileFaviconQueries.version,
+    catalogLoaded, nativeAvailable, revision: mobileClient.revision, faviconRevision: mobileFaviconQueries.version,
     connection: mobileClient.connection, statusMessage: mobileClient.statusMessage, error: mobileClient.error,
     ready: mobileClient.ready, writable: mobileClient.writable, busy: mobileClient.busy,
     environmentId: mobileClient.environmentId, environmentLabel: str(obj(mobileClient.config.environment).label),

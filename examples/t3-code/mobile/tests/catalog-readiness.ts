@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { answer } from '../app';
+import { value } from '../../tests/support/contract-action-fixture';
 import { mobileSnapshotRead as read } from '../client';
 import { obj } from '../shared/domain';
 import type { Files, Native } from '../shared/protocol';
@@ -9,9 +12,24 @@ const storage: Files = { fs: {
   async readFile() { throw new Error('Unexpected storage call'); },
   async atomicWriteFile() { throw new Error('Unexpected storage call'); },
 } };
+const expression = /^  resource home = (.*) as shape HomeView$/m.exec(readFileSync(new URL('../app.contract', import.meta.url), 'utf8'))?.[1] ?? assert.fail('The Home resource is missing.');
+function expectCatalog(loaded: boolean) {
+  const data = answer('snapshot', ['light', 't3-code', 98, 1000], undefined, undefined);
+  const home = obj(value(expression, {
+    data, snapshotRead: { serial: 98, catalogLoaded: true }, wallTime: { epochAtZero: 0 }, elapsed: 1000,
+    performanceNow: () => 1000, max: Math.max, homeQuery: '', settledCount: 10,
+    shelves: { loaded: false, workingEnabled: false, workingExpanded: false, snoozedExpanded: false, settledExpanded: false },
+    chrome: { environmentId: '', projectKey: '' }, appearance: { groupingMode: 'repository' }, nav: [],
+    top: () => ({ id: 'startup', name: 'home' }), workspace: { usesSplitView: false, sidebarVisible: false },
+    homeView: (...args: unknown[]) => answer('homeView', args, undefined, undefined),
+  }));
+  assert.equal(home.emptyTitle, loaded ? 'No environments connected' : 'Loading environments');
+  assert.equal(home.loading, !loaded);
+}
+expectCatalog(false);
 const bake = await read(undefined, storage);
 assert.ok(bake.serial > 0);
-assert.equal(bake.catalogLoaded, false);
+expectCatalog(false);
 let mode: 'failed' | 'held' | 'malformed' | 'loaded' = 'failed', cancelPreferences = false;
 const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
 const failure = { ok: false, generation: 0, error: { kind: 'test', message: 'Unavailable for this read.' } };
@@ -27,22 +45,22 @@ const native: Native = { available: true, watch() {}, async later(input) {
   return mode === 'loaded' ? { ok: true, generation: 0, value: { saved: [] } } : failure;
 } };
 try {
-  assert.equal((await read(native, storage)).catalogLoaded, false);
+  await read(native, storage); expectCatalog(false);
   mode = 'malformed';
-  assert.equal((await read(native, storage)).catalogLoaded, false);
+  await read(native, storage); expectCatalog(false);
   mode = 'held';
   const stale = read(native, storage); await entered.promise;
   mode = 'failed';
   const latest = await read(native, storage); release.resolve();
   assert.deepEqual(await stale, latest);
-  assert.equal(latest.catalogLoaded, false);
+  expectCatalog(false);
   mode = 'loaded';
-  assert.equal((await read(native, storage)).catalogLoaded, true);
+  await read(native, storage); expectCatalog(true);
   assert.deepEqual(fleet.saved, []);
   mode = 'failed';
-  assert.equal((await read(native, storage)).catalogLoaded, true);
-  assert.equal((await read(undefined, storage)).catalogLoaded, true);
+  await read(native, storage); expectCatalog(true);
+  await read(undefined, storage); expectCatalog(true);
   cancelPreferences = true;
-  await assert.rejects(read(native, storage), error => obj(error).kind === 'superseded');
+  await assert.rejects(read(native, storage), (error: unknown) => obj(error).kind === 'superseded');
 } finally { release.resolve(); }
 console.log('Catalog readiness verified.');
