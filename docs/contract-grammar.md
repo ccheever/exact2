@@ -1552,6 +1552,15 @@ after mounting the list with `scrollIntoView("feed", key, offset=within)`.
 port that many pixels into the keyed row wrapper, overriding that list's
 `block`/`inline` alignment and scroll-padding, clamped to the scroll range.
 
+A virtualized list mounts the rows near its port and unmounts the rest.
+`keep-mounted=` names rows that stay mounted wherever the window is: a list of
+up to 64 keys as the `for`'s `key=` gives them, each possibly an `option`
+(`none` names no row), computed or literal. A screen reader moves only through
+mounted rows, so a transcript keeps its first and last message,
+`keep-mounted=[first(ids), ids.at(-1)]`; a row playing audio keeps its player.
+A key the list does not hold is passed over; another value keeps none and
+says so in the journal (LLP 1010 §6.11).
+
 `scroll-padding` (or its four physical sides) insets any scroll container’s
 alignment port. `scroll-margin` expands the target element’s border box for
 `scrollIntoView`; its signed lengths change neither layout nor scroll range.

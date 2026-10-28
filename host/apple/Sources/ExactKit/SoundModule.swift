@@ -329,8 +329,8 @@ final class SoundOutput {
     }
 
     #if os(iOS) || os(tvOS)
-    private var observing = false
-    /// An interruption pauses the engine. When it ends with `shouldResume`
+    /// The session's events, which the owner observes (LLP 1133.009 D7). An
+    /// interruption pauses the engine. When it ends with `shouldResume`
     /// the session is activated and the engine started again, and a failure
     /// fails the output as a first open's does. Without it (the person
     /// started other audio), the next voice does that. An end that never
@@ -340,20 +340,12 @@ final class SoundOutput {
     /// invalidates the engine: it is disposed of, and the next voice opens a
     /// new one (Apple QA1749).
     private func observe() {
-        guard !observing else { return }
-        observing = true
-        let center = NotificationCenter.default
-        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
-            guard let self, let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
-            let options = AVAudioSession.InterruptionOptions(rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
-            self.interruption(began: type == .began, resume: options.contains(.shouldResume))
-        }
-        center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.becameActive(othersPlaying: AVAudioSession.sharedInstance().secondaryAudioShouldBeSilencedHint)
-        }
-        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.mediaServicesWereReset()
+        AudioSession.listen(ObjectIdentifier(self)) { [weak self] event in
+            switch event {
+            case let .interruption(began, resume): self?.interruption(began: began, resume: resume)
+            case let .appActive(othersPlaying): self?.becameActive(othersPlaying: othersPlaying)
+            case .reset: self?.mediaServicesWereReset()
+            }
         }
     }
 

@@ -10,7 +10,8 @@
 // (`.record` would silence it); the category changes when the first claim
 // comes and when the last goes, and nowhere else while one is held. Each claim
 // hears the owner's interruptions, their ends, media-services resets and
-// route changes, observed once for the process on the main queue.
+// route changes, observed once for the process on the main queue; so does
+// each holder of sound that listens (the sound arm).
 //
 // Speech claims too (LLP 1133.012 D4): a queue that speaks holds one, of a
 // spoken type, and the process's speech configuration is the strongest held
@@ -36,6 +37,7 @@
 #if os(iOS) || os(tvOS)
 import AVFoundation
 import Foundation
+import UIKit
 
 package enum AudioSession {
     /// `app.json`'s `audio_session`, baked into the Info.plist as
@@ -340,6 +342,7 @@ package enum AudioSession {
         speeches.removeAll()
         spoken = nil
         idlers.removeAll()
+        listeners.removeAll()
         nextHoldFailure = nil
         try? AVAudioSession.sharedInstance().setCategory(.ambient)
     }
@@ -363,23 +366,73 @@ package enum AudioSession {
         for claim in Array(speeches.values) { claim.events(event) }
     }
 
-    /// The process's observers, on the main queue. An interruption's end
-    /// takes the session back only with `shouldResume`: without it the
-    /// person started other audio, and the next want activates the session
-    /// instead; a capture's tracks hear the end either way, and its recorders
-    /// stay paused for the app (D8). A media-services reset restores a
-    /// capture's configuration without activating it (D7).
+    /// What a holder of sound hears of the session (D7): the owner observes
+    /// once for the process and tells each, before the claims.
+    package enum Heard {
+        /// An interruption began, or ended with or without the system's recommendation to resume.
+        case interruption(began: Bool, resume: Bool)
+        /// The app became active, and whether another app's primary audio plays.
+        case appActive(othersPlaying: Bool)
+        /// The media services were reset.
+        case reset
+    }
+    nonisolated(unsafe) private static var listeners: [ObjectIdentifier: (Heard) -> Void] = [:]
+
+    /// `holder` hears the session's events, through `hear`, from now on.
+    package static func listen(_ holder: ObjectIdentifier, _ hear: @escaping (Heard) -> Void) {
+        observe()
+        listeners[holder] = hear
+    }
+
+    private static func heard(_ event: Heard) { for hear in Array(listeners.values) { hear(event) } }
+
+    /// An interruption began (the session was deactivated by the system).
+    private static func interrupted() {
+        heard(.interruption(began: true, resume: false))
+        tell(1)
+    }
+
+    /// An interruption ended. The session is taken back only with
+    /// `shouldResume`: without it the person started other audio, and the
+    /// next want activates the session instead; a capture's tracks hear the
+    /// end either way, and its recorders stay paused for the app (D8).
+    private static func resumable(_ resume: Bool) {
+        if resume { try? reconcile() }
+        heard(.interruption(began: false, resume: resume))
+        tell(2)
+    }
+
+    /// The process's observers, on the main queue. From iOS 27 an
+    /// interruption is the session's life cycle: `didBecomeInactive` from
+    /// the system and the `resumptionRecommendation` that follows, which
+    /// replace the interruption notification
+    /// ([AVAudioSession](https://developer.apple.com/documentation/avfaudio/avaudiosession)).
+    /// A media-services reset restores a capture's configuration without
+    /// activating it (D7).
     private static func observe() {
         guard !observing else { return }
         observing = true
         let center = NotificationCenter.default
-        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
-            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
-            if type == .began { tell(1); return }
-            let resume = AVAudioSession.InterruptionOptions(rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0).contains(.shouldResume)
-            if resume { try? reconcile() }
-            tell(2)
+        if #available(iOS 27, tvOS 27, *) {
+            center.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main) { note in
+                // The app's own deactivation is not an interruption.
+                let context = note.userInfo?[AVAudioSession.deactivationContextKey] as? AVAudioSession.DeactivationContext
+                if context?.source == .system { interrupted() }
+            }
+            center.addObserver(forName: AVAudioSession.resumptionRecommendationNotification, object: nil, queue: .main) { note in
+                let context = note.userInfo?[AVAudioSession.resumptionContextKey] as? AVAudioSession.ResumptionContext
+                resumable(context?.recommendation == .shouldResume)
+            }
+        } else {
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
+                guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+                if type == .began { return interrupted() }
+                resumable(AVAudioSession.InterruptionOptions(rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0).contains(.shouldResume))
+            }
+        }
+        center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            heard(.appActive(othersPlaying: AVAudioSession.sharedInstance().secondaryAudioShouldBeSilencedHint))
         }
         center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { _ in
             if let claim = configuring { try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: claim.mode, options: claim.options) }
@@ -387,6 +440,7 @@ package enum AudioSession {
                 let (mode, options) = speechConfiguration(type)
                 try? AVAudioSession.sharedInstance().setCategory(.playback, mode: mode, options: options)
             }
+            heard(.reset)
             tell(3)
         }
         center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { _ in tell(4) }
