@@ -28,6 +28,7 @@
     "@exact/alarms": "workspace:*",
     "@exact/language-model": "workspace:*",
     "@exact/local-auth": "workspace:*",
+    "@exact/local-network": "workspace:*",
     "@exact/camera": "workspace:*",
     "@exact/photos": "workspace:*",
     "@exact/media-capture": "workspace:*",

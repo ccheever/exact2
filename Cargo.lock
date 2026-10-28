@@ -3175,6 +3175,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "lights-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
+name = "lights-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "lights-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "lights-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

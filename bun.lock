@@ -27,6 +27,7 @@
         "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
+        "@exact/local-network": "workspace:*",
         "@exact/maps": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
@@ -165,6 +166,10 @@
     },
     "packages/local-auth": {
       "name": "@exact/local-auth",
+      "version": "1.0.0",
+    },
+    "packages/local-network": {
+      "name": "@exact/local-network",
       "version": "1.0.0",
     },
     "packages/login-item": {
@@ -314,6 +319,8 @@
     "@exact/lists": ["@exact/lists@workspace:packages/lists"],
 
     "@exact/local-auth": ["@exact/local-auth@workspace:packages/local-auth"],
+
+    "@exact/local-network": ["@exact/local-network@workspace:packages/local-network"],
 
     "@exact/login-item": ["@exact/login-item@workspace:packages/login-item"],
 
