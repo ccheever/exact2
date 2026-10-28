@@ -35,7 +35,7 @@ describe('a Settings page owns its scroller', () => {
       'settings-content-scroll': { x: 0, y: 60, width: 600, height: 600 },
     };
     const state: Env = { settingsOpen: true, settingsRoute: 'appearance', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
-      settingsFocusTarget: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '' };
+      settingsFocusTarget: '', settingsJumpOpened: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '' };
     const available = { available: true };
     // settingsCore answers for one jump target: its fold's reveal stop and the scope notice, if any.
     let core = { ready: true, route: 'appearance', sections: [{}], jumpTarget: '', jumpStop: '', notice: '' };
@@ -82,23 +82,43 @@ describe('a Settings page owns its scroller', () => {
     core = { ...core, notice: 'Send shortcut is not available for the selected target.' };
     expect(scope().settingsJumpReady).toBe(false);
     core = { ...core, notice: '' };
-    // A row under a closed Advanced fold is not drawn yet: the jump lands on the fold's reveal stop, which opens it.
+    // A row under a closed Advanced fold is not drawn yet. The first pass focuses the fold's reveal stop, which opens it,
+    // and keeps the target; the pass after the open fold's layout (the task's key names the opened fold) scrolls to the
+    // row and focuses it, as AdvancedSettings opens the fold before the row mounts (AdvancedSettings.tsx:23). Here the
+    // fold ends a short page, so the stop sits below the window's edge and the row lower still.
     run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
     core = { ...core, jumpTarget: 'skills-in-slash-menu', jumpStop: 'settings-advanced-composer-reveal' };
     reveals = ['settings-advanced-composer-reveal'];
-    frames['settings-advanced-composer-reveal'] = { x: 0, y: 700, width: 0, height: 0 };
+    frames['settings-advanced-composer-reveal'] = { x: 0, y: 1200, width: 1, height: 1 };
     focused.length = 0;
+    const scrolled = state.settingsScrollTop;
     run('focusSettingsTarget');
     expect(focused).toEqual(['settings-advanced-composer-reveal']);
-    expect(scope().settingsPageScrollTop).toBe(700 - 100 - 300);
-    // The fold already open: its stop is focused first (opening is idempotent), then the row.
-    run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
-    frames['skills-in-slash-menu'] = { x: 0, y: 760, width: 600, height: 40 };
-    focused.length = 0;
+    expect(state.settingsFocusTarget).toBe('skills-in-slash-menu');
+    expect(state.settingsScrollTop).toBe(scrolled); // nothing scrolls to the stop
+    expect(state.settingsJumpOpened).toBe(`skills-in-slash-menu|${scope().settingsPage}`);
+    frames['skills-in-slash-menu'] = { x: 0, y: 1260, width: 600, height: 40 }; // the open fold's row
     run('focusSettingsTarget');
     expect(focused).toEqual(['settings-advanced-composer-reveal', 'skills-in-slash-menu']);
+    expect(Math.floor(scope().settingsPageScrollTop as number)).toBe(1260 - 100 + 20 - 300); // the row's centre, not the stop's
+    expect([state.settingsFocusTarget, state.settingsJumpOpened]).toEqual(['', '']);
+    // The fold already open: the same two passes, opening again is idempotent.
+    run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
+    focused.length = 0;
+    run('focusSettingsTarget');
+    run('focusSettingsTarget');
+    expect(focused).toEqual(['settings-advanced-composer-reveal', 'skills-in-slash-menu']);
+    // A fold that opens without drawing the row: the second pass lands on the stop and the jump ends there.
+    run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
+    delete frames['skills-in-slash-menu'];
+    focused.length = 0;
+    run('focusSettingsTarget');
+    run('focusSettingsTarget');
+    expect(focused).toEqual(['settings-advanced-composer-reveal', 'settings-advanced-composer-reveal']);
+    expect(state.settingsFocusTarget).toBe('');
     // A fold this page does not draw leaves the target as it is.
     run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
+    frames['skills-in-slash-menu'] = { x: 0, y: 1260, width: 600, height: 40 };
     reveals = [];
     focused.length = 0;
     run('focusSettingsTarget');
@@ -120,7 +140,7 @@ describe('a Settings page owns its scroller', () => {
       'send-shortcut': box(900, 60),
     };
     const state: Env = { settingsOpen: true, settingsRoute: 'general', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
-      settingsFocusTarget: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '', keybindingQuery: '' };
+      settingsFocusTarget: '', settingsJumpOpened: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '', keybindingQuery: '' };
     const available = { available: true };
     let core = { ready: true, route: 'general', sections: [{}], jumpTarget: '', jumpStop: '', notice: '' };
     const scope = (): Env => {
@@ -174,7 +194,8 @@ describe('a Settings page owns its scroller', () => {
 
   test('the jump runs once its page is ready, not only on the one-second poll', async () => {
     const root = await source('app.contract');
-    expect(root).toContain('  task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}`\n    after(1, focusSettingsTarget)\n');
+    // Again once a fold the jump opened is laid out (settingsJumpOpened), so the row it draws takes the jump.
+    expect(root).toContain('  task settingsJump when settingsJumpReady key=`${settingsFocusTarget}|${settingsPage}|${settingsJumpOpened}`\n    after(1, focusSettingsTarget)\n');
     expect(lines(root, 'settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage')).toHaveLength(1);
     // Nothing but the jump and the page-left task writes the jump's page.
     expect(root.split('\n').filter(candidate => /^ {4,}settingsScrollPage = /.test(candidate))).toHaveLength(2);
