@@ -134,6 +134,8 @@ component MobileRouteContent
     reviewData: ReviewSnapshot
     filesData: FileTreeSnapshot
     fileData: FileSnapshot
+    fileRequestFailed: bool
+    fileRequestPending: bool
     audioData: AttachmentAudioStatus
     mediaViewerData: MediaPreviewSnapshot
     documentData: AttachmentDocumentSnapshot
@@ -438,7 +440,7 @@ component MobileRouteContent
           input value=filesQuery input=editFilesQuery placeholder="Search files" margin=14 aria-label="Search files"
           MobileFileTree(listId="workspace-files", data=filesData, colors=reviewLook, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
         else if routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.fileReady)
-          MobileFileView(data=fileData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, preview=filePreview, refresh=refreshFile, action=fileMenuAction)
+          MobileFileView(data=fileData, requestFailed=fileRequestFailed, requestPending=fileRequestPending, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, preview=filePreview, refresh=refreshFile, action=fileMenuAction)
         else if routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
           if focused
             if mediaData.ready

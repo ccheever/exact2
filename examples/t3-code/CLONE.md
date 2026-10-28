@@ -93,10 +93,13 @@ screens, retaining iPad Files chat when its inspector is supported. The native
 app opens the real tree and README source on first entry, then switches to
 Markdown preview. Source rows use authored presentation without native cell
 separators. File title, subtitle and actions now share the native navigation bar
-with the reference editor style. Source uses the regular platform monospace
-font and reference gutter geometry, checked wrapped and unwrapped on the same
-file. The header hairline, shared horizontal scrolling and Markdown code styling
-still differ from the reference. These later phone fixes are not in the POC build.
+with the reference editor style. Unwrapped source uses the regular platform
+monospace font and reference gutter geometry. Wrapped typography, the header
+hairline, shared horizontal scrolling and Markdown code styling still differ
+from the reference. A 6,175-line file reaches the cache, but its
+display projection exceeds the 100 ms turn budget. A failed file request now
+shows an error and Try again instead of an empty body. Reducing that projection
+is the current source-view blocker. These phone fixes are not in the POC build.
 A paired learned route still retains its learned marker.
 T3 Connect relay login remains unconfigured in the clone; direct pairing is the
 verified connection path.
