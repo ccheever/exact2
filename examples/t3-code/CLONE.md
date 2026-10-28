@@ -280,6 +280,11 @@ code-card panning remains independent. System appearance and 16-point text are
 restored. Independent review and fifteen projection probes find no introduced issue. Complex
 soft breaks, tables, images and heading spacing remain parity gaps. These
 changes are outside maintenance build `20261028202307`.
+A later ordinary restart once leaves the conversation open after its first
+enabled Files tap; the second tap opens Files. Three instrumented and three
+normal cold launches then open Files on the first tap. Their successful traces
+do not establish the original cause. No admission policy changed, and the
+temporary native probe is removed. Keep this intermittent symptom open.
 Unclosed/nested fences and reference links across preview chunks remain open.
 The draft file route shares this projection but has no new native acceptance.
 Files rows now align their labels beside the icons without
