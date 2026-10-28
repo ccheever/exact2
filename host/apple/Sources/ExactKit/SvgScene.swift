@@ -135,8 +135,7 @@ enum CssAnimations {
     static func lowered(_ spec: [String: Any]) -> (values: [Any], keyTimes: [NSNumber], timing: [CAMediaTimingFunction]?) {
         let key = spec["k"] as? String ?? ""
         let colors = key == "fillColor" || key == "strokeColor" || key == "backgroundColor"
-        // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6), as written: a dimmed control's
-        // face greys what it paints, not what an animation shows, running or held (TintDimmingIOS.swift).
+        // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6).
         // A `path` track's values are paths, as a scene's `p` (LLP 1115.003 D4).
         let values: [Any] = colors
             ? (spec["v"] as? [Any] ?? []).compactMap { color($0, dark: false) }
@@ -613,6 +612,9 @@ final class SvgHost {
     private var boxInstalled: [UInt32: [String: Int]] = [:]
     private var hiddenBoxes: Set<UInt32> = []
     private var seeked: Double?
+    /// How a box's background tracks grey now, by its id: on a dimmed control's face, as its fill
+    /// does (TintDimmingIOS.swift); nil where they keep their colours. Set by the presenter.
+    var boxGrey: ((UInt32) -> ((CGColor) -> CGColor)?)?
 
     /// A scene's root layer's name, by which its node re-asks its range (LLP 1100 D8).
     static let rootName = "exact-svg"
@@ -659,7 +661,16 @@ final class SvgHost {
     }
 
     private func visibleBoxSpecs(_ id: UInt32, _ specs: [CssAnimation]) -> [CssAnimation] {
-        hiddenBoxes.contains(id) ? specs.filter { $0.key != "backgroundColor" } : specs
+        let shown = hiddenBoxes.contains(id) ? specs.filter { $0.key != "backgroundColor" } : specs
+        guard let grey = boxGrey?(id) else { return shown }
+        return shown.map { $0.key == "backgroundColor" ? $0.greyed(grey) : $0 }
+    }
+
+    /// `id`'s box greys with the tint or takes its colours back: its background tracks are
+    /// installed again so, keeping their timing (`CssAnimations.make` sets their begin time)
+    func boxTintChanged(_ id: UInt32, clock: Double?) {
+        guard let entry = boxSpecs[id] else { return }
+        CssAnimations.apply(visibleBoxSpecs(id, entry.specs), to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]])
     }
 
     func boxVisibility(_ id: UInt32, hidden: Bool, clock: Double?) {

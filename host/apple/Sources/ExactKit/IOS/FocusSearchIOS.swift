@@ -59,26 +59,19 @@ final class Viewport: ScrollView {
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
     /// Its tint undimmed, for the nodes mounted here (`RestsTint`)
-    var restingTint: UIColor? { tintAdjustmentMode == .dimmed ? undimmedTint : tintColor }
-    private var undimmedTint: UIColor?
-    override func tintColorDidChange() {
-        super.tintColorDidChange()
-        if tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
-    }
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil, tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
-    }
-    #if os(iOS)
-    // The page's own scroller takes the keyboard down with a drag that
-    // reaches it, as a scroller's unsaid `keyboardDismissMode` does
-    // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
+    var restingTint: UIColor { probe.tintColor }
+    private let probe = TintProbe()
     override init(frame: CGRect) {
         super.init(frame: frame)
+        addSubview(probe)
+        #if os(iOS)
+        // The page's own scroller takes the keyboard down with a drag that
+        // reaches it, as a scroller's unsaid `keyboardDismissMode` does
+        // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
         keyboardDismissMode = .interactive
+        #endif
     }
     required init?(coder: NSCoder) { nil }
-    #endif
     /// A scroll indicator is an accessibility element ("Horizontal scroll
     /// bar, 1 page"), which a page that does not scroll on that axis has
     /// none of, as a hand-built view controller's root has none: a route

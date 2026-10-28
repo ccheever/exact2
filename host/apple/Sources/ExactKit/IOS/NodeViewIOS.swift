@@ -1248,7 +1248,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
         Self.textGeometry &+= 1
-        paintOrderMoved()
+        paintOrderMoved(); repaintFacesWhileDimmed() // as a move into or out of a control changes its face (TintDimmingIOS.swift)
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { redrawFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }

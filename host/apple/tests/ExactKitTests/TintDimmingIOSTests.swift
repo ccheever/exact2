@@ -427,6 +427,92 @@ final class TintDimmingIOSTests: XCTestCase {
         window.tintAdjustmentMode = .automatic
     }
 
+    /// Text in the tint outside a control takes its embedder's tint as it is now while dimmed: one
+    /// changed while dimmed, and one the session joined while already dimmed
+    func testAStatusFollowsItsEmbeddersTintWhileDimmed() throws {
+        let ops: [[String: Any]] = [
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ]
+        let p = presenter(ops)
+        let embedder = UIView(frame: window.bounds)
+        embedder.tintColor = color(red)
+        window.addSubview(embedder)
+        embedder.addSubview(p.viewport)
+        let status = try XCTUnwrap(p.views[1])
+        assertChannels(try runChannels(status), red, "the embedder's tint")
+        embedder.tintAdjustmentMode = .dimmed
+        embedder.tintColor = color(green)
+        window.layoutIfNeeded()
+        assertChannels(try runChannels(status), green, "the embedder's tint changed while dimmed")
+        // A second session joins the embedder while it is dimmed
+        let later = Presenter()
+        later.viewport.frame = embedder.bounds
+        later.apply(wireBatch(ops))
+        embedder.addSubview(later.viewport)
+        window.layoutIfNeeded()
+        assertChannels(try runChannels(XCTUnwrap(later.views[1])), green, "a session joining the dimmed embedder")
+        embedder.tintAdjustmentMode = .automatic
+    }
+
+    /// A node that becomes a control while dimmed greys the nodes beneath it, and they take their
+    /// colours back as it stops being one; so does a node moved into a control and out again
+    func testANodeBecomingAControlWhileDimmedGreysItsFace() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Lock"], "style": ["text_color": red, "written": ["text_color"]]],
+            ["op": "create", "id": 3, "kind": "view", "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 50.0, "w": 200.0, "h": 44.0],
+            ["op": "roots", "ids": [1, 3]],
+        ])
+        let text = try XCTUnwrap(p.views[2])
+        dim(p, true)
+        assertChannels(try runChannels(text), red, "outside a control while dimmed")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityRole": "button"]]]))
+        assertChannels(try runChannels(text), uikitGrey(red), "its box became a button while dimmed")
+        p.apply(wireBatch([["op": "props", "id": 1, "clear": ["accessibilityRole"]]]))
+        assertChannels(try runChannels(text), red, "its box stopped being one while dimmed")
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": []], ["op": "children", "id": 3, "ids": [2]]]))
+        assertChannels(try runChannels(text), uikitGrey(red), "moved into a control while dimmed")
+        p.apply(wireBatch([["op": "children", "id": 3, "ids": []], ["op": "children", "id": 1, "ids": [2]]]))
+        assertChannels(try runChannels(text), red, "moved out of it while dimmed")
+        dim(p, false)
+    }
+
+    /// A keyframed background on a control's face greys while dimmed, at the point in its timeline
+    /// it had reached, and takes its colours back when the dimming ends
+    func testAKeyframedBackgroundOnAFaceGreysAndComesBack() throws {
+        let spec: [String: Any] = ["id": "pulse", "k": "backgroundColor", "s": 0.0, "dl": 0.0, "d": 1.0, "n": -1.0,
+                                   "t": [0.0, 1.0], "v": [red, blue], "c": [], "fill": 3.0]
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": red, "written": ["background_color"]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "roots", "ids": [1]],
+            ["op": "animations", "id": 1, "specs": [spec]],
+        ])
+        let layer = try XCTUnwrap(p.views[1]).layer
+        func track() throws -> (colors: [[Double]], begin: CFTimeInterval) {
+            let animation = try XCTUnwrap(layer.animation(forKey: "pulse") as? CAKeyframeAnimation, "the background track is installed")
+            let colors = try (animation.values ?? []).map { try components($0 as! CGColor) }
+            return (colors, animation.beginTime)
+        }
+        let before = try track()
+        assertChannels(before.colors[0], red, "the track's first colour")
+        dim(p, true)
+        let dimmed = try track()
+        assertChannels(dimmed.colors[0], uikitGrey(red), "the first colour while dimmed")
+        assertChannels(dimmed.colors[1], uikitGrey(blue), "the second colour while dimmed")
+        XCTAssertEqual(dimmed.begin, before.begin, accuracy: 1e-6, "at the same point in its timeline")
+        dim(p, false)
+        let after = try track()
+        assertChannels(after.colors[0], red, "the first colour once the dimming ends")
+        XCTAssertEqual(after.begin, before.begin, accuracy: 1e-6, "still at the same point")
+    }
+
     /// A symbol in a custom control greys with it, and its colour comes back
     func testASymbolInAControlGreysWithIt() throws {
         let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]]
@@ -444,7 +530,8 @@ final class TintDimmingIOSTests: XCTestCase {
     }
 
     /// A link in the tint in a paragraph outside a control greys, as a `UITextView`'s link does,
-    /// while the paragraph's other text keeps its colour; a link in a fixed colour keeps it
+    /// while the paragraph's other text keeps its colour; a link in a fixed colour keeps it, beside
+    /// one in the tint too
     func testALinkInTheTintDims() throws {
         let p = presenter([
             ["op": "create", "id": 1, "kind": "text"],
@@ -460,6 +547,7 @@ final class TintDimmingIOSTests: XCTestCase {
         p.applyParagraph(1, [
             InlineText(id: 2, parent: 1, props: ["text": "Read the "], style: plain, handlers: [], paints: true),
             InlineText(id: 3, parent: 1, props: ["text": "terms", "href": "https://example.com/terms"], style: tinted, handlers: [], paints: true),
+            InlineText(id: 6, parent: 1, props: ["text": " and the policy", "href": "https://example.com/policy"], style: fixed, handlers: [], paints: true),
         ])
         p.applyParagraph(4, [InlineText(id: 5, parent: 4, props: ["text": "privacy", "href": "https://example.com/privacy"], style: fixed, handlers: [], paints: true)])
         let paragraph = try XCTUnwrap(p.views[1]), other = try XCTUnwrap(p.views[4])
@@ -470,6 +558,7 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try runChannels(paragraph, 0), red, "the paragraph's own text")
         assertChannels(try runChannels(paragraph, 1), uikitGrey(blue, uikitAlpha: true), "the link, as UIKit dims it")
         assertChannels(try runChannels(other), green, "the fixed-colour link")
+        assertChannels(try runChannels(paragraph, 2), green, "a fixed-colour link beside one in the tint")
         dim(p, false)
         assertChannels(try runChannels(paragraph, 1), blue, "the link once the dimming ends")
     }

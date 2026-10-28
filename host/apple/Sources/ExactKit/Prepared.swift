@@ -57,6 +57,20 @@ struct CssAnimation {
         held = (spec["h"] as? NSNumber)?.doubleValue
     }
 
+    private init(_ base: CssAnimation, track: LoweredTrack, signature: Int) {
+        (id, key, self.signature, self.track) = (base.id, base.key, signature, track)
+        (duration, repeatCount, fill, start, delay, held) = (base.duration, base.repeatCount, base.fill, base.start, base.delay, base.held)
+    }
+
+    /// This spec with its colours as `grey` makes them, as a dimmed control's face plays its
+    /// background (TintDimmingIOS.swift); a different spec to `CssAnimations.apply`
+    func greyed(_ grey: (CGColor) -> CGColor) -> CssAnimation {
+        let values = track.values.map { value -> Any in CFGetTypeID(value as CFTypeRef) == CGColor.typeID ? grey(value as! CGColor) : value }
+        var h = Hasher()
+        h.combine(signature); h.combine("greyed")
+        return CssAnimation(self, track: LoweredTrack(values: NSArray(array: values), keyTimes: keyTimes, timing: timing), signature: h.finalize())
+    }
+
     /// A list as an op or an element carries it: read, or dictionaries.
     static func list(_ value: Any?) -> [CssAnimation] {
         value as? [CssAnimation] ?? (value as? [[String: Any]] ?? []).compactMap(CssAnimation.init)
@@ -74,6 +88,11 @@ final class LoweredTrack {
     private init(_ spec: [String: Any]) {
         let (values, keyTimes, timing) = CssAnimations.lowered(spec)
         (self.values, self.keyTimes, self.timing) = (NSArray(array: values), keyTimes, timing)
+    }
+
+    /// A track of its own, not shared: a greyed copy of one (`CssAnimation.greyed`)
+    init(values: NSArray, keyTimes: [NSNumber], timing: [CAMediaTimingFunction]?) {
+        (self.values, self.keyTimes, self.timing) = (values, keyTimes, timing)
     }
 
     /// What lowering reads: the key path, values, key times and curves.

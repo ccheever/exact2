@@ -6,8 +6,8 @@ import UIKit
 /// sheet or an alert is up), as UIKit greys a tint of that colour. UIKit greys only a control's
 /// tint-coloured parts, but such a face paints most of its colours itself (a badge's circle, a
 /// tile's fill), so the face dims as one; neutral colours (label text) stay, as UIKit leaves them.
-/// A control UIKit draws dims as UIKit dims it. Outside controls only links dim, as UIKit's do: a
-/// status's symbol keeps its colour beside its words.
+/// A control UIKit draws dims as UIKit dims it. Outside controls only links in the tint dim, by
+/// UIKit's dimmed tint, as a text view's do: a status's symbol keeps its colour beside its words.
 @MainActor
 enum TintDimming {
     private static let probe = UIView()
@@ -16,12 +16,11 @@ enum TintDimming {
     static let tints: Set<String> = ["accent_color", "caret_color"]
 
     /// The grey UIKit gives a tint of this colour while it dims tints, in 0...255 sRGB channels, at
-    /// the colour's own alpha (as a native button's dimmed symbol keeps its alpha), or at UIKit's
-    /// (`uikitAlpha`, as a text view's link has it, neutral or not). Otherwise a colour whose channels
-    /// lie within 24 of each other counts as neutral and stays. A colour in its own space
+    /// the colour's own alpha (as a native button's dimmed symbol keeps its alpha). A colour whose
+    /// channels lie within 24 of each other counts as neutral and stays. A colour in its own space
     /// (`textChannels`' nine numbers) greys from its sRGB channels.
-    static func grey(_ c: [Double], uikitAlpha: Bool = false) -> [Double] {
-        guard c.count >= 4, uikitAlpha || (c[0...2].max() ?? 0) - (c[0...2].min() ?? 0) > 24 else { return c }
+    static func grey(_ c: [Double]) -> [Double] {
+        guard c.count >= 4, (c[0...2].max() ?? 0) - (c[0...2].min() ?? 0) > 24 else { return c }
         let key = c[0...3].map { Int($0.rounded()) }
         let dimmed = greys[key] ?? {
             probe.tintColor = UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
@@ -35,36 +34,47 @@ enum TintDimming {
             return out
         }()
         guard let dimmed else { return c }
-        return uikitAlpha ? dimmed : Array(dimmed[0...2]) + [c[3]]
+        return Array(dimmed[0...2]) + [c[3]]
+    }
+
+    /// `grey` of a colour in any space; a neutral one exactly as it came, in its own space and range
+    /// (an HDR white)
+    static func grey(_ c: CGColor) -> CGColor {
+        guard let rgb = c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil),
+              let parts = rgb.components, parts.count == 4 else { return c }
+        let channels = parts.map { Double($0) * 255 }, grey = grey(channels)
+        return grey == channels ? c : SRGBColors.color(grey[0], grey[1], grey[2], grey[3])
     }
 }
 
 /// A view a session's nodes are mounted in: the viewport, the `DocumentMount` native navigation
 /// holds the document fixed in, a route's or a modal's `PresentationMount`, a dialog sheet's view,
-/// or a `PopoverLayer`. It keeps its tint
-/// undimmed, its embedder's or its window's, which a
-/// status outside a control keeps while UIKit dims tints (`NodeView.restingTint`): the one it last
-/// had, while it is dimmed. It takes one as it joins a window and whenever its tint changes undimmed.
-/// An embedder's tint changed while the session is dimmed shows once the dimming ends, and a session
-/// first attached under an already dimmed embedder has none and takes the window's.
+/// or a `PopoverLayer`. Its tint undimmed, its embedder's or its window's, is what a status outside
+/// a control keeps while UIKit dims tints (`NodeView.restingTint`), as it is now: an embedder's tint
+/// changed while dimmed, or one the mount joined while already dimmed, included.
 protocol RestsTint: UIView {
-    var restingTint: UIColor? { get }
+    var restingTint: UIColor { get }
 }
 
 extension Viewport: RestsTint {}
 
-/// A view nodes are mounted in that keeps its tint undimmed (`RestsTint`), as the viewport does
+/// A hidden view UIKit leaves undimmed (`tintAdjustmentMode = .normal`): its `tintColor` is the tint
+/// its superview inherits, undimmed, whatever dims it, as UIKit resolves a view's tint from the
+/// nearest one set and its own adjustment
+final class TintProbe: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true; isUserInteractionEnabled = false; tintAdjustmentMode = .normal
+    }
+    required init?(coder: NSCoder) { nil }
+}
+
+/// A view nodes are mounted in whose tint undimmed a `TintProbe` reads (`RestsTint`)
 package class RestingTintView: UIView, RestsTint {
-    private var undimmedTint: UIColor?
-    var restingTint: UIColor? { tintAdjustmentMode == .dimmed ? undimmedTint : tintColor }
-    package override func tintColorDidChange() {
-        super.tintColorDidChange()
-        if tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
-    }
-    package override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil, tintAdjustmentMode != .dimmed { undimmedTint = tintColor }
-    }
+    private let probe = TintProbe()
+    var restingTint: UIColor { probe.tintColor }
+    package override init(frame: CGRect) { super.init(frame: frame); addSubview(probe) }
+    package required init?(coder: NSCoder) { nil }
 }
 
 extension NodeView {
@@ -80,10 +90,7 @@ extension NodeView {
 
     /// Whether this node's colours grey now: UIKit dims tints and the node is on the face of a
     /// control Exact draws. A control UIKit draws is left to UIKit: a native control (`appearance`
-    /// other than `none`) and a native field or text area (`isNativeTextControl`). A node that becomes
-    /// or stops being a control while UIKit dims tints, by its role or by moving into or out of one,
-    /// does not repaint the nodes beneath it, which keep their earlier paint until another update
-    /// recomputes it.
+    /// other than `none`) and a native field or text area (`isNativeTextControl`).
     var dimsItsPaint: Bool {
         tintAdjustmentMode == .dimmed && !(kind == "control" && style["appearance"]?.string != "none") && !isNativeTextControl && insideControl
     }
@@ -96,7 +103,7 @@ extension NodeView {
 
     /// The tint as it rests, since UIKit's `tintColor` is dimmed here, from the sources it comes
     /// from: the nearest authored `accent-color` (`applyAccentTint`), else the theme's `AccentColor`
-    /// (`applyThemeTint`), else what the nearest view the node is mounted in last had undimmed (`RestsTint`)
+    /// (`applyThemeTint`), else the undimmed tint of the nearest view the node is mounted in (`RestsTint`)
     var restingTint: UIColor {
         var current: UIView? = self, port: (any RestsTint)?
         while let view = current {
@@ -106,7 +113,7 @@ extension NodeView {
                     node?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
                 }
             }
-            if port == nil, let mount = view as? RestsTint, mount.restingTint != nil { port = mount }
+            if port == nil { port = view as? RestsTint }
             current = view.superview
         }
         return ThemeRoles.color("AccentColor", in: self) ?? port?.restingTint ?? window?.tintColor ?? tintColor
@@ -134,12 +141,7 @@ extension NodeView {
     }
 
     func dimmedWithTint(_ c: CGColor, key: String) -> CGColor {
-        guard !TintDimming.tints.contains(key), dimsItsPaint,
-              let rgb = c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil),
-              let parts = rgb.components, parts.count == 4 else { return c }
-        let channels = parts.map { Double($0) * 255 }, grey = TintDimming.grey(channels)
-        // Keep a neutral colour as written, in its own space and range (an HDR white)
-        return grey == channels ? c : SRGBColors.color(grey[0], grey[1], grey[2], grey[3])
+        TintDimming.tints.contains(key) || !dimsItsPaint ? c : TintDimming.grey(c)
     }
 
     /// The colour of row `key` as written, never greyed: what Exact bakes into an image UIKit draws
@@ -170,31 +172,65 @@ extension NodeView {
     /// The tint this node inherits, undimmed: what a face UIKit draws takes (`symbolConfiguration`)
     var undimmedInheritedTint: UIColor { tintAdjustmentMode == .dimmed ? restingTint : tintColor }
 
-    /// The paragraph's runs as it paints them now: every run greyed while it dims its paint, and
-    /// outside a control a link's where the paragraph names the tint (`tinted`), as UIKit greys a
-    /// link in the tint. A link is a run with an `href`, or in a paragraph of inline runs one at or
-    /// beneath a run with an `href` or a press (`activationTarget(from:)`). A run keeps no record of where its
-    /// colour came from, so a link in a fixed colour greys too when another run in its paragraph
-    /// names the tint.
-    func dimmedRuns(_ runs: inout [Run], strut: inout Run, tinted: Bool) {
+    /// The paragraph's runs as it paints them now: every run greyed while it dims its paint
+    func dimmedRuns(_ runs: inout [Run], strut: inout Run) {
+        guard dimsItsPaint else { return }
+        for i in runs.indices { runs[i].greyColors() }
+        strut.greyColors()
+    }
+
+    /// The tint a link's run resolves `@tint` by while UIKit dims tints outside a control: UIKit's own,
+    /// dimmed, as a text view's link in the tint dims, where the paragraph's runs resolve the tint as
+    /// it rests (`tint`, nil where nothing in the paragraph names it). A colour that does not name the
+    /// tint does not change. Nil where no link's run differs from the paragraph's.
+    func linkTint(_ tint: PlatformColor?) -> PlatformColor? {
+        tint != nil && tintAdjustmentMode == .dimmed && !dimsItsPaint ? tintColor : nil
+    }
+
+    /// Paints this node again as a tint change paints it: its rows that name the tint, its colours
+    /// on a control's face, its flat boxes, the filtered pictures above it and its background tracks
+    func repaintWithTint() {
+        paragraphOwner.invalidateText(); paragraphOwner.setNeedsDisplay()
+        applyStyle(style)
+        presenter?.flats.tintChanged(id)
+        presenter?.boxFilters.changed(self)
+        if presenter?.svg.animatesBox(id) == true { presenter?.svg.boxTintChanged(id, clock: presenter?.session?.clock) }
+    }
+
+    /// Paints this node and the nodes beneath it again while UIKit dims tints, after what makes them
+    /// a control's face changed with no tint change for UIKit to report: a role or a link of a node
+    /// at or above them (`controlMayHaveChanged`), or a move into or out of a control
+    func repaintFacesWhileDimmed() {
         guard tintAdjustmentMode == .dimmed else { return }
-        let all = dimsItsPaint
-        // The inline runs `paragraphSpec` made `runs` from, one each
-        let painted = props["text"] == nil ? inlineText.filter(\.paints) : []
-        for i in runs.indices {
-            if all { runs[i].greyColors() } else if tinted, !runs[i].href.isEmpty || (i < painted.count && activationTarget(from: painted[i]) != nil) {
-                runs[i].greyColors(uikitAlpha: true)
-            }
+        func walk(_ view: UIView) {
+            (view as? NodeView)?.repaintWithTint()
+            for child in view.subviews { walk(child) }
         }
-        if all { strut.greyColors() }
+        walk(self)
+    }
+
+    /// Notes whether this node is a control now (`isControl`), as its props changed, and paints the
+    /// nodes beneath it again while UIKit dims tints where that changed
+    func controlMayHaveChanged() {
+        guard let presenter else { return }
+        let now = isControl
+        guard presenter.controlNodes.contains(id) != now else { return }
+        if now { presenter.controlNodes.insert(id) } else { presenter.controlNodes.remove(id) }
+        repaintFacesWhileDimmed()
+    }
+
+    /// A box's background track's colour as this node paints it now: greyed while it dims its paint
+    var boxTrackGrey: ((CGColor) -> CGColor)? {
+        guard dimsItsPaint else { return nil }
+        return { (color: CGColor) in TintDimming.grey(color) }
     }
 }
 
 extension Run {
     /// Each colour the run paints, greyed (`TintDimming.grey`): its ink, background, lines, shadow
     /// (after its offset and blur) and stroke (after its width)
-    @MainActor mutating func greyColors(uikitAlpha: Bool = false) {
-        let grey = { (c: [Double]) in TintDimming.grey(c, uikitAlpha: uikitAlpha) }
+    @MainActor mutating func greyColors() {
+        let grey = { (c: [Double]) in TintDimming.grey(c) }
         color = color.map(grey)
         background = background.map(grey)
         underlineColor = underlineColor.map(grey)
