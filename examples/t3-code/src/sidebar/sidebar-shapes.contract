@@ -66,6 +66,12 @@ shape SearchPart
   text: string
   hit: bool
 shape Thread
+  // The title's direction ("ltr", "rtl": textDirection's majority), and the rename field's (its first strong letter).
+  titleDir: string
+  renameDir: string
+  // The branch split for middle truncation (middle-truncate.ts): its head and the tail it keeps, "" for no split.
+  branchHead: string
+  branchTail: string
   terminalCount: number
   terminalLabel: string
   id: string
@@ -165,8 +171,11 @@ shape SidebarDraft
   menu: SidebarMenuRow[]
 shape SidebarView
   drafts: SidebarDraft[]
-  // A row shows Working (the root's one-second clock runs); the texts its tooltips are placed by (project-scripts.contract).
+  // A row shows Working, or a Working grace waits (the root's one-second clock runs); the texts its tooltips are placed
+  // by (project-scripts.contract).
   ticking: bool
+  // The soonest Working grace's end in window time, 0 for none (thread-inbox.ts).
+  graceUntil: number
   probes: TextProbe[]
   searching: bool
   searchPending: bool
@@ -201,6 +210,8 @@ shape SidebarView
   undoText: string
   undoLabel: string
   undoUntil: number
+  // The shelf whose header the notice sits above ("working", "snoozed", "settled"); "" puts it in the footer.
+  undoHost: string
   dialog: string
   dialogTitle: string
   dialogDescription: string
@@ -220,5 +231,11 @@ shape SidebarView
   pillTitle: string
   pillDescription: string
   pillDismissible: bool
+  // A timed provider pill's end in window time (its countdown bar runs to it), 0 for one that stays.
+  pillUntil: number
   // Upstream 1826fb55cc: a released row-action sweep bumps it, ending the section's sweep.
   sweepEpoch: number
+  // The open row while it is listed (each mount of the sidebar scrolls to it), and again while a route change owes its
+  // scroll (route-reveal.ts).
+  revealRow: string
+  revealPending: string

@@ -512,8 +512,20 @@ describe('sidebar navigation, drafts and the hover card', () => {
     Object.assign(client.config, { environment: { label: 'Studio Mac', platform: { machine: 'laptop' }, capabilities: ALL_CAPS },
       providers: [{ instanceId: 'codex', driver: 'codex', displayName: 'Codex', models: [{ slug: 'm', name: 'GPT-6-Astra' }] }, { instanceId: 'claude', driver: 'claudeAgent', displayName: 'Claude' }] });
     const row = sidebarSnapshot(client, NOW, { ...helpers, providerBadge: () => ({ providerBadge: 'CO', providerBadgeColor: '' }) }).threads[0]!;
-    expect(row).toMatchObject({ hoverEnvironment: 'Studio Mac', hoverMachine: 'laptop', hoverModel: 'GPT-6-Astra · Codex',
+    // The model is the name it is said by: Codex's own GPT family drops its prefix.
+    expect(row).toMatchObject({ hoverEnvironment: 'Studio Mac', hoverMachine: 'laptop', hoverModel: '6 Astra · Codex',
       hoverHandoff: 'Handed off from Claude', hoverError: 'Usage limit reached', hoverErrorWarning: true });
+  });
+
+  test('a Claude thread\'s hover card says the model\'s spoken name; a server short name wins; an unknown slug stays', () => {
+    const claude = (models: Obj[]) => [{ instanceId: 'claude', driver: 'claudeAgent', displayName: 'Claude', models }];
+    const { client } = fake([shell('a', { modelSelection: { instanceId: 'claude', model: 'claude-opus-5-5' } })]);
+    Object.assign(client.config, { providers: claude([{ slug: 'claude-opus-5-5', name: 'Claude Opus 5.5' }]) });
+    expect(sidebarSnapshot(client, NOW, helpers).threads[0]!.hoverModel).toBe('Opus 5.5');
+    Object.assign(client.config, { providers: claude([{ slug: 'claude-opus-5-5', name: 'Claude Opus 5.5', shortName: 'Opus' }]) });
+    expect(sidebarSnapshot(client, NOW, helpers).threads[0]!.hoverModel).toBe('Opus');
+    Object.assign(client.config, { providers: claude([]) });
+    expect(sidebarSnapshot(client, NOW, helpers).threads[0]!.hoverModel).toBe('claude-opus-5-5');
   });
 
   test('custom snooze keeps the dialog open with its error, then snoozes every selected thread', async () => {

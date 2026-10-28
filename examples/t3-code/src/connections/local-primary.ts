@@ -8,11 +8,11 @@
 //
 // It connects through the transport's focused session or a background one with `primary: true`:
 // the bearer is the embedded server's, in memory, never in the catalog; it is never saved, has no row
-// under Environments, and leads Load balancing and GitHub sharing. Its port can change every
+// under Environments, and leads Load balancing and Pull request sharing. Its port can change every
 // launch, so its origin is never remembered: the transport keeps the focus token `primary` beside
 // `t3.server.origin`. A saved entry with the primary's environment id (the same T3 home, paired
-// before) is a duplicate: as the reference's `installPlatformRegistration` (registry.ts), its GitHub
-// sharing trust is forgotten, then the entry and its credential are removed without a word, and a
+// before) is a duplicate: as the reference's `installPlatformRegistration` (registry.ts), its pull
+// request sharing trust is forgotten, then the entry and its credential are removed without a word, and a
 // window focused on it moves to the primary (the reference replaces the entry in place). Pairing this
 // machine's own server saves nothing (`register` is a no-op for a platform id).
 import { obj, str, type Obj } from '../client/domain';
@@ -186,7 +186,7 @@ export async function forgetGitHubRouting(native: Native, environmentId: string)
 
 /**
  * As the reference's `installPlatformRegistration`: a saved environment with
- * the primary's id is the same machine paired before. Its GitHub sharing trust goes first (a failure
+ * the primary's id is the same machine paired before. Its pull request sharing trust goes first (a failure
  * keeps the entry), then the entry and every route's Keychain item (`forgetEnvironment`, which leaves
  * the primary connected), without a word. `focusDropped`: the window was focused on it, so the
  * primary takes the focus (client.ts, relaunch-reconnect.ts `primaryTakesFocus`).

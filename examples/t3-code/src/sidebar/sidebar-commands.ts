@@ -12,7 +12,8 @@ import { bulkMenuState, canArchive, threadMenuState } from './sidebar-menu';
 import { wall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
-import { partition, projectScopes, renderedRows, searchRows } from './sidebar-view';
+import { partition, projectScopes, renderedRows, scopedRowKey, searchRows, workingInbox } from './sidebar-view';
+import { completeRouteReveal } from './route-reveal';
 import { snoozePresets } from './sidebar-presentation';
 import { sidebarDrop } from './sidebar-drop';
 import { dismissProviderPill, scheduleProviderPill } from './sidebar-provider-pill';
@@ -435,6 +436,10 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
   if (op.startsWith('legacy-')) return legacyLocal(client, op.slice(7), id, value);
   const prefs = sidebarPrefs(client), session = sidebarSession(client);
   if (op === 'pill-dismiss') { dismissProviderPill(client, value); return ''; }
+  // The window's clock passed a Working grace (sidebar.contract graceDue): it ends, and the thread heads the inbox.
+  if (op === 'working-grace') { workingInbox(client).expire(Number(value)); return ''; }
+  // The open row scrolled into view (sidebar.contract revealDue): the route's reveal is done.
+  if (op === 'reveal-done') { completeRouteReveal(session.reveal, scopedRowKey(client, id)); return ''; }
   if (op === 'shelf') {
     if (id === 'settled') prefs.settledExpanded = !prefs.settledExpanded;
     else if (id === 'snoozed') prefs.snoozedExpanded = !prefs.snoozedExpanded;
