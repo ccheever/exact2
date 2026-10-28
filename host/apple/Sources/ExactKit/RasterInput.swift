@@ -101,13 +101,18 @@ final class RasterInput: @unchecked Sendable {
     /// spooled input, or why not, on the download's queue (or at once, for
     /// a response already stored). Many download at a time over the
     /// process's shared connections, as a browser's images do.
-    static func fetch(_ url: URL, cancellation: RasterCancellation, done: @escaping (Result<RasterInput, Error>) -> Void) {
+    /// An `urgent` one (a picture that fills the screen) goes first, with the
+    /// longer whole-load bound (`RasterRetry`).
+    static func fetch(_ url: URL, urgent: Bool = false, cancellation: RasterCancellation, done: @escaping (Result<RasterInput, Error>) -> Void) {
         do {
-            try RasterDownload(url: url).start(cancellation) { result in
+            try RasterDownload(url: url, urgent: urgent).start(cancellation) { result in
                 done(result.map { RasterInput(url: $0.0, encodedBytes: $0.1, temporary: true) })
             }
         } catch { done(.failure(error)) }
     }
+    /// Every download of `url` under way now fills the screen: it goes first,
+    /// with the longer whole-load bound from its ask.
+    static func promote(_ url: URL) { RasterDownloads.shared.promote(url) }
     /// A `data:` URL's bytes: base64 after `;base64`, else percent-decoded;
     /// whitespace and percent escapes in base64 forgiven, as browsers do.
     static func dataURL(_ name: String) -> Data? {
@@ -160,8 +165,10 @@ final class RasterInput: @unchecked Sendable {
 }
 
 /// A response that is not 2xx: its status is the image's `error` (LLP 1011 §4).
+/// `retryAfter`: not asked again before this, a 429's or 503's `Retry-After`.
 struct RasterHTTPStatus: Error, CustomStringConvertible {
     let code: Int
+    var retryAfter: Date? = nil
     var description: String { "HTTP \(code)" }
 }
 
@@ -175,7 +182,7 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
         ["memoryBytes": responseCache.currentMemoryUsage, "memoryCapacity": responseCache.memoryCapacity,
          "diskBytes": responseCache.currentDiskUsage, "diskCapacity": responseCache.diskCapacity]
     }
-    private let url: URL
+    fileprivate let url: URL
     private let destination: URL
     private let file: FileHandle
     private var count = 0
@@ -183,9 +190,16 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
     private var cancellation: RasterCancellation?
     private var done: ((Result<(URL, Int), Error>) -> Void)?
     private let policy: URLRequest.CachePolicy
-    init(url: URL, policy: URLRequest.CachePolicy = .useProtocolCachePolicy) throws {
+    /// A picture that fills the screen: its task goes first and its whole
+    /// load has the longer bound, from when it was asked for (`promote`).
+    private var urgent: Bool
+    private var asked = Date()
+    private var task: URLSessionDataTask?
+    private var bound: DispatchSourceTimer?
+    init(url: URL, policy: URLRequest.CachePolicy = .useProtocolCachePolicy, urgent: Bool = false) throws {
         self.url = url
         self.policy = policy
+        self.urgent = urgent
         destination = try RasterSpool.file()
         guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw RasterFailure.decode }
         file = try FileHandle(forWritingTo: destination)
@@ -214,18 +228,54 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
             Self.revalidate(url)
             return done(.success((destination, count)))
         }
+        // A server that said when to ask again is not asked sooner, by any
+        // source of the URL (LLP 1011 §4).
+        if let cooling = RasterDownloads.shared.cooling(url) {
+            try? file.close(); try? FileManager.default.removeItem(at: destination)
+            return done(.failure(cooling))
+        }
         self.done = done; self.cancellation = cancellation
-        let task = RasterDownloads.shared.task(url, policy: policy, for: self)
+        urgent = urgent || RasterDownloads.shared.urged(url)
+        let task = RasterDownloads.shared.task(url, policy: policy, urgent: urgent, for: self)
+        self.task = task
         cancellation.install { task.cancel() }
-        requested = Date()
+        requested = Date(); asked = Date()
+        RasterDownloads.shared.queue.addOperation { [self] in arm() }
         task.resume()
+    }
+    /// The whole load's bound, from when it was asked for: past it the task
+    /// fails as timed out. On the sessions' queue.
+    private func arm() {
+        bound?.cancel(); bound = nil
+        guard done != nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        let at = asked.addingTimeInterval(urgent ? RasterRetry.urgentWhole : RasterRetry.whole)
+        timer.schedule(deadline: .now() + max(0, at.timeIntervalSinceNow))
+        timer.setEventHandler { [weak self] in
+            RasterDownloads.shared.queue.addOperation {
+                guard let self, self.done != nil else { return }
+                self.failure = self.failure ?? URLError(.timedOut); self.task?.cancel()
+            }
+        }
+        bound = timer; timer.resume()
+    }
+    /// Its picture now fills the screen: its task goes first, and its whole
+    /// load has the longer bound from when it was asked for. On the sessions' queue.
+    fileprivate func promote() {
+        guard !urgent, done != nil else { return }
+        urgent = true; task?.priority = URLSessionTask.highPriority; arm()
     }
     private func finish() {
         cancellation?.clear()
+        bound?.cancel(); bound = nil
+        _ = RasterDownloads.shared.urged(url, ended: true)
         try? file.close()
         let answer = done; done = nil
-        if let failure { try? FileManager.default.removeItem(at: destination); answer?(.failure(failure)); return }
-        guard count > 0 else { try? FileManager.default.removeItem(at: destination); answer?(.failure(RasterFailure.decode)); return }
+        if let failure {
+            if let status = failure as? RasterHTTPStatus, let at = status.retryAfter { RasterDownloads.shared.cool(url, until: at, status) }
+            try? FileManager.default.removeItem(at: destination); answer?(.failure(failure)); return
+        }
+        guard count > 0 else { try? FileManager.default.removeItem(at: destination); answer?(.failure(RasterEmptyResponse())); return }
         answer?(.success((destination, count)))
     }
     /// The stored body for `url` when it is stale but may still be shown:
@@ -281,7 +331,14 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            failure = RasterHTTPStatus(code: (response as? HTTPURLResponse)?.statusCode ?? 0); completionHandler(.cancel); return
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            // Discord's CDN, and the person's own account: a 429's or 503's
+            // wait is kept, an unreadable one an hour (`RasterRetry`).
+            let after = [429, 503].contains(code) ? (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After") : nil
+            failure = RasterHTTPStatus(code: code, retryAfter: after.map {
+                Date().addingTimeInterval(RasterRetry.retryAfter($0, now: Date()) ?? RasterRetry.unreadable)
+            })
+            completionHandler(.cancel); return
         }
         guard response.expectedContentLength <= RasterMetadata.encodedLimit else {
             failure = RasterFailure.encodedLimit; completionHandler(.cancel); return
@@ -334,14 +391,47 @@ private final class RasterDownloads: NSObject, URLSessionDataDelegate, @unchecke
     private var downloads: [ObjectIdentifier: RasterDownload] = [:]
     /// Callbacks for every download run one at a time, so each download's
     /// state is touched by one thread.
-    private let queue: OperationQueue = { let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1; return queue }()
-    func task(_ url: URL, policy: URLRequest.CachePolicy, for download: RasterDownload) -> URLSessionDataTask {
+    fileprivate let queue: OperationQueue = { let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1; return queue }()
+    /// URLs whose server said when to ask again (`Retry-After`), until then,
+    /// with its answer: at most 256, the others ending soonest first to go.
+    private var coolingURLs: [URL: (until: Date, status: RasterHTTPStatus)] = [:]
+    func task(_ url: URL, policy: URLRequest.CachePolicy, urgent: Bool, for download: RasterDownload) -> URLSessionDataTask {
         lock.lock(); defer { lock.unlock() }
         let session = sessions[policy.rawValue] ?? URLSession(configuration: Self.configuration(policy), delegate: self, delegateQueue: queue)
         sessions[policy.rawValue] = session
         let task = session.dataTask(with: url)
+        // A hint: URLSession serves the others as well.
+        if urgent { task.priority = URLSessionTask.highPriority }
         downloads[ObjectIdentifier(task)] = download
         return task
+    }
+    /// Every download of `url` under way now fills the screen (`RasterDownload.promote`),
+    /// and one about to start does too (`urged`), until a download of it ends.
+    func promote(_ url: URL) {
+        lock.lock()
+        urgedURLs.insert(url)
+        let matching = downloads.values.filter { $0.url == url }
+        lock.unlock()
+        queue.addOperation { matching.forEach { $0.promote() } }
+    }
+    func urged(_ url: URL, ended: Bool = false) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return ended ? urgedURLs.remove(url) != nil : urgedURLs.contains(url)
+    }
+    private var urgedURLs = Set<URL>()
+    func cooling(_ url: URL) -> RasterHTTPStatus? {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = coolingURLs[url], entry.until > Date() else { return nil }
+        return entry.status
+    }
+    func cool(_ url: URL, until: Date, _ status: RasterHTTPStatus) {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date()
+        coolingURLs = coolingURLs.filter { $0.value.until > now }
+        coolingURLs[url] = (until, status)
+        while coolingURLs.count > 256, let soonest = coolingURLs.filter({ $0.key != url || until <= now }).min(by: { $0.value.until < $1.value.until }) {
+            coolingURLs.removeValue(forKey: soonest.key)
+        }
     }
     private func download(_ task: URLSessionTask, finished: Bool = false) -> RasterDownload? {
         lock.lock(); defer { lock.unlock() }
@@ -353,7 +443,9 @@ private final class RasterDownloads: NSObject, URLSessionDataDelegate, @unchecke
         // Switching cache policy must not add ambient cookies or credentials.
         configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
         configuration.urlCredentialStorage = nil
-        configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 30
+        // Each download's whole load has its own bound, from its ask
+        // (`RasterRetry.whole`, longer for a picture that fills the screen).
+        configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 130
         return configuration
     }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
