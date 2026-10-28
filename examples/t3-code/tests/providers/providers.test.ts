@@ -182,7 +182,11 @@ test('Add provider leads with first-class providers and warns before a second Co
   const wizard = providerWizard(server, true, 1, 'codex', false, '', false, '');
   expect(wizard.drivers.map(driver => [driver.id, driver.badge])).toEqual([['codex', ''], ['claudeAgent', ''], ['cursor', ''], ['grok', ''], ['opencode', ''],
     ['antigravity', ''], ['muse', ''], ['pi', '']]);
-  expect(wizard.moreDrivers).toEqual([]);
+  // packages/provider-fx's client is not featured: fx is listed under Show more, with the ACP Registry.
+  expect(wizard.moreDrivers.map(driver => [driver.id, driver.label, driver.badge])).toEqual([['fx', 'fx', '']]);
+  expect(providerWizard(server, true, 1, 'fx', false, '', false, '')).toMatchObject({ label: 'fx', instanceId: 'fx' });
+  expect(providerWizard(server, true, 1, 'fx', false, '', false, '').fields.map(field => [field.key, field.label, field.description, field.placeholder])).toEqual([
+    ['binaryPath', 'Binary path', 'Path to the fx binary. All fx instances on this machine share its fx login.', 'fx']]);
   // MultipleAccountsNote: Codex is signed in here (exact_fixture), so choosing Codex and Add ChatGPT account say so; Claude is not.
   expect([wizard.accountsNote, wizard.chatgptAccountsNote]).toEqual(['Codex', 'Codex']);
   expect(providerWizard(server, true, 1, 'claudeAgent', false, '', false, '').accountsNote).toBe('');
@@ -243,6 +247,29 @@ test('editor writes change only the selected instance and skip no-op commits', a
   await expect(op('provider-field', 'exact_fixture', 'secretKey', 'x')).rejects.toThrow('not available');
   await expect(op('provider-remove', 'codex', '', '')).rejects.toThrow('Built-in provider slots can be reset');
   expect(obj(server.settings.providers).codex).toEqual(legacy().codex);
+});
+
+// ClaudeSettings `idleCompaction`, after Auto-compact after: Use default leaves the key out (ProviderSettingsSelect's first
+// option), as a select field's first option does everywhere.
+test("a Claude instance's own idle compaction: a select after Auto-compact after, Use default saved as no key", async () => {
+  const server = new FakeServer();
+  server.settings.providerInstances = { ...obj(server.settings.providerInstances), claude_work: { driver: 'claudeAgent', enabled: true, config: { binaryPath: 'claude' } } };
+  server.config = server.snapshot();
+  const field = () => providerPage(server, 'claude_work', 0).editors[0]!.fields.find(entry => entry.key === 'idleCompaction')!;
+  expect(providerPage(server, 'claude_work', 0).editors[0]!.fields.map(entry => entry.key)).toEqual(['binaryPath', 'homePath', 'autoCompactWindow', 'idleCompaction', 'launchArgs']);
+  expect([field().label, field().control, field().description]).toEqual(['Compact idle threads', 'select',
+    'When to compact an idle thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Overrides the default in Providers > Advanced.']);
+  expect(field().options.map(option => [option.label, option.selected])).toEqual([['Use default', true], ['When you return', false], ['Before the cache expires (beta)', false], ['Never', false]]);
+  const op = (value: string) => runProviderOp(server, native, 'provider-field', 'claude_work', JSON.stringify({ key: 'idleCompaction', value }));
+  await op('off');
+  server.config = server.snapshot();
+  expect(obj(obj(obj(server.settings.providerInstances).claude_work).config).idleCompaction).toBe('off');
+  expect(field().options.find(option => option.selected)?.label).toBe('Never');
+  await op('default');
+  expect('idleCompaction' in obj(obj(obj(server.settings.providerInstances).claude_work).config)).toBe(false);
+  const count = writes(server).length;
+  await op('default');
+  expect(writes(server)).toHaveLength(count);
 });
 
 test('default-slot upsert resets the legacy mirror; reset removes the explicit slot', async () => {

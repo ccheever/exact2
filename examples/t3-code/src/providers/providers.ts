@@ -86,6 +86,8 @@ function rowStatus(row: Row, provider: Obj | undefined) {
   return { enabled, statusKey, summary, needsAttention, inlineDetail, authenticated, authEmail: str(auth.email).trim(), authLabel: authenticated ? str(auth.label) || str(auth.type) : '' };
 }
 
+/** A field's text to save: ProviderSettingsSelect saves its first option, the field's default, by leaving the key out. */
+const fieldText = (field: DriverField, value: unknown) => { const text = str(value).trim(); return field.control === 'select' && text === field.options?.[0]?.value ? '' : text; };
 const fieldRow = (instanceId: string, field: DriverField, value: string, extra: { placeholder?: string; redacted?: boolean; clearable?: boolean } = {}, first = false) => ({
   rowKey: `${instanceId}:${field.key}:${field.control === 'password' ? String(value.length > 0) : value}`, key: field.key, first, label: field.label, description: field.description,
   placeholder: field.control === 'password' && value.length > 0 ? 'Configured' : extra.placeholder ?? field.placeholder, control: field.control as string,
@@ -543,7 +545,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     } else if (op === 'provider-field') {
       const field = meta?.fields.find(candidate => candidate.key === str(input.key));
       if (!field) throw new ClientError('That setting is not available for this provider.');
-      const text = str(input.value).trim();
+      const text = fieldText(field, input.value);
       if (text === str(config[field.key]).trim()) return '';
       next = { ...instance, config: text || field.persist || field.control === 'password' ? { ...config, [field.key]: text } : withKey(config, field.key, undefined) };
     } else if (op === 'provider-env-field') {
@@ -623,7 +625,7 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   if (op === 'provider-create' && !label) throw new ClientError('Provider name cannot be empty.');
   const values = op === 'provider-add' ? obj(input.fields) : { binaryPath: input.binaryPath, homePath: input.homePath };
   const config: Obj = {};
-  for (const field of meta.fields) { const text = str(values[field.key]).trim(); if (text) config[field.key] = text; }
+  for (const field of meta.fields) { const text = fieldText(field, values[field.key]); if (text) config[field.key] = text; }
   const prepared = driver === 'acpRegistry' && acpPrepared?.serial === wizardSerial ? acpPrepared.agent : null;
   if (prepared && !str(config.agentId)) {
     // handleAcpPrepared: only an icon on the official Registry CDN is saved (resolveOfficialAcpRegistryIconUrl).

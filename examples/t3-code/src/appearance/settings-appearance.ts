@@ -74,8 +74,8 @@ export function mix(a: string, weight: number, b: string): string {
 export const alpha = (color: string, amount: number) => { const [r, g, b, a] = parse(color); return hex([r, g, b, a * amount]); };
 
 /** The tokens this module paints, in the stock index.css vocabulary, per appearance. */
-type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted' | 'heading' | 'description'
-  | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
+type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted'
+  | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'optionHighlight' | 'optionSelected' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
   | 'border' | 'backdrop' | 'footer' | 'surface', string>;
 function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custom: CustomTheme[], glass = 80): Tokens {
   const stock = themeId === 't3-code' || !(themeId in THEMES || custom.some(theme => theme.id === themeId));
@@ -96,7 +96,7 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
   const input = stock ? (dark ? '#ffffff1c' : '#d4d4d8') : r.input;
   const card = stock ? (dark ? '#111111' : '#ffffff') : r.surface;
   return {
-    canvas, sidebar, text: ink(text, canvas), muted: ink(mutedText, canvas), heading: alpha(ink(text, canvas), 0.7), description: alpha(ink(mutedText, canvas), 0.8),
+    canvas, sidebar, text: ink(text, canvas), muted: ink(mutedText, canvas),
     sidebarBorder: edge(stock ? (dark ? '#ffffff14' : '#e4e4e7') : r.sidebarBorder, sidebarText), rowActive: stock ? (dark ? '#f1f1f112' : '#ffffff') : r.sidebarRowActive,
     sidebarText: ink(sidebarText, sidebar), sidebarMuted: alpha(ink(sidebarMuted, sidebar), 0.8), sidebarIcon: mix(ink(sidebarMuted, sidebar), 0.85, sidebar),
     card: alpha(card, 0.4), cardBorder: edge(alpha(border, 0.6), text), divider: edge(alpha(border, 0.5), text), input: edge(input, text),
@@ -107,6 +107,8 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
     // filter, so the glass mix is composited over the canvas it would mostly show.
     popover: mix(stock ? (dark ? '#111111' : '#ffffff') : r.surfaceOverlay, 0.18 + 0.82 * glass / 100, canvas),
     popoverBorder: dark ? '#ffffff1a' : alpha(text, 0.1), highlight: alpha(text, dark ? 0.06 : 0.08), kbd: alpha(ink(text, canvas), 0.07), // ui/kbd.tsx bg-foreground/[0.07]
+    // ui/combobox.tsx ComboboxItem: highlighted bg-foreground/[0.09], selected bg-foreground/[0.06].
+    optionHighlight: alpha(ink(text, canvas), 0.09), optionSelected: alpha(ink(text, canvas), 0.06),
     output: stock ? (dark ? '#ffffff08' : '#fafafa') : r.muted, line: '#7f7f7f40',
     rowHover: stock ? (dark ? '#ffffff0a' : '#fcfcfc') : mix(r.sidebarRowActive, 0.5, sidebar), sectionMuted: alpha(ink(sidebarMuted, sidebar), 0.75),
     tileActive: alpha(stock ? (dark ? '#ffffff0a' : '#f4f4f5') : r.accentSurface, 0.3),
@@ -194,9 +196,6 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, 
     row('glassOpacity', 'setting-glass-opacity', 'Glass opacity', 'Higher values make menus, dialogs, and the composer more solid.', 'slider', slider('glassOpacity', 40, 100, 5, '%')),
     ...(artworkVisible ? [row('environmentIdentificationMode', 'environment-identification', 'Environment identification', 'Choose how Dev and Nightly environments are identified.', 'select',
       select('environmentIdentificationMode', [['artwork', 'Artwork'], ['pill', 'Version pill'], ['none', 'None']]))] : []),
-    row('diffColorScheme', 'diff-color-scheme', 'Diff colors', 'Choose colors for additions and deletions, including change counts.', 'select',
-      { ...select('diffColorScheme', [['red-green', 'Red & green (default)'], ['blue-orange', 'Blue & orange']], prefs.diffColorScheme === 'blue-orange' ? 'Blue & orange' : 'Red & green'),
-        icon: prefs.diffColorScheme === 'blue-orange' ? 'dots-blue-orange' : 'dots-red-green' }),
     row('persistComposerContextStrip', 'composer-context', 'Composer context', 'Keep branch and worktree controls below the composer after a thread starts.', 'switch'),
     row('chatWidth', 'chat-width', 'Chat width', 'Set how wide messages and the composer can grow on large screens.', 'select',
       select('chatWidth', [['comfortable', 'Comfortable (default)'], ['wide', 'Wide'], ['full', 'Full']], { comfortable: 'Comfortable', wide: 'Wide', full: 'Full' }[prefs.chatWidth])),

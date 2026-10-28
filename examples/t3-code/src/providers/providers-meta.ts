@@ -30,6 +30,14 @@ export const ANTIGRAVITY_AUTH_METHODS = [
   { value: 'agent-platform', label: 'Agent Platform (Vertex AI)' },
 ];
 
+/** ClaudeSettings `idleCompaction` (INSTANCE_IDLE_COMPACTION_MODES): an instance's own mode, or the environment's. */
+export const INSTANCE_IDLE_COMPACTION_MODES = [
+  { value: 'default', label: 'Use default' },
+  { value: 'onReturn', label: 'When you return' },
+  { value: 'beforeCacheExpires', label: 'Before the cache expires (beta)' },
+  { value: 'off', label: 'Never' },
+];
+
 export const DRIVERS: Driver[] = [
   { id: 'codex', label: 'Codex', enabledByDefault: true, defaultSlot: true, color: 'light-dark(#000000, #ffffff)', modelPlaceholder: 'gpt-6.7-codex-ultra-preview',
     acpRegistryAgentIds: ['codex-acp'],
@@ -44,6 +52,8 @@ export const DRIVERS: Driver[] = [
     fields: [binary('Path to the Claude binary used by this instance.', 'claude'),
       field('homePath', 'CLAUDE_CONFIG_DIR path', 'Custom Claude home and config directory. Keeps .claude.json and .claude separate.', '~/.claude'),
       field('autoCompactWindow', 'Auto-compact after', "Compact after 100,000 to 1,000,000 tokens. Leave empty to use Claude's default.", 'e.g. 300000'),
+      field('idleCompaction', 'Compact idle threads', 'When to compact an idle thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Overrides the default in Providers > Advanced.', '',
+        { control: 'select', options: INSTANCE_IDLE_COMPACTION_MODES }),
       field('launchArgs', 'Launch arguments', 'Additional CLI arguments passed on session start.', 'e.g. --chrome')] },
   { id: 'cursor', label: 'Cursor', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#26251E, #EDECEC)', modelPlaceholder: 'claude-sonnet-4-6',
     acpRegistryAgentIds: ['cursor'],
@@ -52,6 +62,9 @@ export const DRIVERS: Driver[] = [
   { id: 'grok', label: 'Grok', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'model-slug',
     acpRegistryAgentIds: ['grok-build'],
     legacyDefault: { enabled: false, binaryPath: 'grok', customModels: [] }, env: [], fields: [binary('Path to the Grok CLI binary.', 'grok')] },
+  // packages/provider-fx: listed under Add provider's Show more.
+  { id: 'fx', label: 'fx', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'model-slug', featured: false,
+    legacyDefault: { enabled: false, binaryPath: 'fx', customModels: [] }, env: [], fields: [binary('Path to the fx binary. All fx instances on this machine share its fx login.', 'fx')] },
   { id: 'opencode', label: 'OpenCode', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#211E1E, #F1ECEC)', modelPlaceholder: 'openai/gpt-5',
     acpRegistryAgentIds: ['opencode', 'opencode-v2'],
     legacyDefault: { enabled: false, binaryPath: 'opencode', serverUrl: '', serverPassword: '', customModels: [] }, env: [],

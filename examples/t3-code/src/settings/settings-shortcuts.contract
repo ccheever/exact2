@@ -41,6 +41,11 @@ component ShortcutDispatch
     settings: action
     copy: action
     confirm: action
+  // ModelPickerContent onWindowKeyDown: a tab picked by its shortcut is announced, as the focus stays in the search field
+  // (composer-controls-commands.ts announcePickerShortcut).
+  action providerByKey(target: string)
+    selectProvider(target)
+    command("cclocal:picker-provider-key", target, "", 0)
   // A terminal's close asks first; the confirm takes the focus, as Base UI's AlertDialog does (its Cancel
   // gives it back to the terminal: app.contract confirmUi).
   action closeTerminal(target: string, extra: string, label: string)
@@ -80,7 +85,7 @@ component ShortcutDispatch
         if item.kind == "options"
           ShortcutButton(item=item, press=openOptions(item.target))
         if item.kind == "provider"
-          ShortcutButton(item=item, press=selectProvider(item.target))
+          ShortcutButton(item=item, press=providerByKey(item.target))
         if item.kind == "model"
           ShortcutButton(item=item, press=selectModel(item.target, item.extra, false))
         if item.kind == "back"

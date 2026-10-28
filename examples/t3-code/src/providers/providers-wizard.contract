@@ -9,6 +9,8 @@ use PvIcon from "./provider-icons.contract"
 use DriverMark from "./provider-icons-kit.contract"
 use AcpRegistryAgentIcon from "./provider-icons-kit.contract"
 use ProviderOption from "./providers.contract"
+use SettingsSelect from "../settings/settings-kit.contract"
+use SelectOption from "../settings/settings-kit.contract"
 use ProviderHub from "./providers.contract"
 use ProviderMark from "../shared/icons.contract"
 use ProviderWizardAuth, wizardCredentialStops from "./providers-setup.contract"
@@ -405,13 +407,13 @@ component WizardFieldRow
     field: WizardField
     value: string
     set: action
+  derive choices = field.options.map((option) => SelectOption(value=option.value, label=option.label, selected=option.selected))
+  derive chosen = field.options.filter((option) => value == "" ? option.selected : option.value == value).map((option) => option.label).join("")
   view
     WizardRow(title=(local and field.key == "commandPath" ? "Executable" : field.label), description=(local and field.key == "commandPath" ? "Executable name or path on this environment." : field.description), status="")
       if field.control == "select"
-        row gap="0.25rem" role="radiogroup" aria-label=field.label flex-wrap="wrap" justify-content="flex-end" max-width="20rem"
-          for option in field.options key=option.value
-            button press=set(field.index, option.value) role="radio" aria-checked=(value == option.value or (value == "" and option.selected)) class=PvOutline height="1.75rem" background-color=(value == option.value or (value == "" and option.selected) ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`new-provider-${field.key}-${option.value}`
-              text option.label font-size="0.8125rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+        // ProviderSettingsSelect, as on the instance's own editor.
+        SettingsSelect(selectId=`new-provider-${field.key}`, label=field.label, valueLabel=chosen, empty=false, value=value, width=224, disabled=false, options=choices, choose=set(field.index))
       else
         input value=value input=set(field.index) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width="14rem" testId=`new-provider-${field.key}` id=`field-new-provider-${field.key}` data-editable="yes" data-focus-stop="enabled"
 

@@ -21,6 +21,7 @@ import { acpRegistry, providerPage, providerSetupStreams, providerWizard, wizard
 import { providerUpkeepOp, withUpkeep, type UpkeepHost } from './providers-upkeep';
 import { providerSetupOp, watchProviderSetup } from './provider-setup';
 import { scopeRepresentative, settingsScopeOf } from '../settings/settings-core-view';
+import { idleCompactionRow, serverContext, type CoreRow } from '../settings/settings-core';
 
 const EMPTY = { auth: [] as string[], install: [] as string[] };
 /**
@@ -77,6 +78,20 @@ async function watchOn(owner: string, host: ProviderHost | null, native: Native,
 // provider opens from that page, and data sources have no Date.now().
 let pageNow = 0;
 
+const NO_PREVIEW = { path: '', status: '', additions: 0, deletions: 0, scheme: '', lines: [] };
+/**
+ * Providers › Advanced's settings-core rows (CompactIdleThreadsRow), read from and written to the scope's targets as
+ * the core pages' are; `writeScope` names that scope in their commands (settings-core.ts parseCoreTarget), with the
+ * environment the route resolved when none was chosen.
+ */
+function advancedRows(client: T3Client, active: boolean, args: unknown[]) {
+  const none = { advanced: [] as CoreRow[], writeScope: '', codePreview: NO_PREVIEW };
+  if (!active) return none;
+  const { machine, projectKey, checkout, scope } = settingsScopeOf(client, 'providers', String(args[4] ?? ''), String(args[5] ?? ''), String(args[6] ?? ''), String(args[7] ?? ''));
+  if (scope.kind === 'unavailable' || !scope.connected) return none;
+  return { advanced: [{ ...idleCompactionRow(serverContext(client, scope, new Map())), divider: true }], writeScope: `${machine}|${projectKey}|${checkout}`, codePreview: NO_PREVIEW };
+}
+
 /**
  * The providerPage answer. args: selection, active, revision, clock, then the settings scope (machine,
  * project, checkout, legacy project id). Closed, the page is the focused environment's, as before.
@@ -89,8 +104,8 @@ export async function scopedProviderPage(client: T3Client, native: Native | null
   const host = !active || chosen.environmentId ? providersHost(client, chosen.environmentId) : null;
   if (active && host && providerSettingsWritable(host) && native?.available) void migrateModelPreferences(host, routedNative(host, native)).catch(() => {});
   if (native?.available) await watchOn('page', host, native, active && host ? providerSetupStreams(host, selection) : EMPTY);
-  if (!host) return { ...withUpkeep(client, { ...providerPage(offline(client), '', now), message: chosen.message }), environment: NO_ENVIRONMENT };
-  return { ...withUpkeep(host, providerPage(host, selection, now, chosen.projectIds), client), environment: active ? chosen.environmentId : '' };
+  if (!host) return { ...withUpkeep(client, { ...providerPage(offline(client), '', now), message: chosen.message }), environment: NO_ENVIRONMENT, ...advancedRows(client, false, args) };
+  return { ...withUpkeep(host, providerPage(host, selection, now, chosen.projectIds), client), environment: active ? chosen.environmentId : '', ...advancedRows(client, active, args) };
 }
 
 /** The providerWizard answer on the page's environment (args[10]); the Reconnect ChatGPT picker reads its own target's streams. */

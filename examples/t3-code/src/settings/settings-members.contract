@@ -311,6 +311,8 @@ members T3Code
       send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
     else if (op.startsWith("setup:") or op.startsWith("upkeep:")) and apply
       send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment, providerPage.projectIds)
+    else if op == "settings-core" // Providers › Advanced's core rows (providers.contract coreChange)
+      settingsCommand(op, id, value)
     else if apply and not commandPending
       commandPending = true
       pendingModal = op == "acp-prepare" ? "provider-acp" : (op == "provider-hub-add" or op == "provider-hub-remove" or (op == "provider-chatgpt" and welcome.show) ? "provider-close" : "provider")
