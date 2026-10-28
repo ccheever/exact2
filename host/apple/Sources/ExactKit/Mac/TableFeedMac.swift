@@ -248,7 +248,7 @@ final class RunnerTableView: NSTableView {
     /// nothing above the table hears it again. With none in the row the
     /// table has no menu, and AppKit sends the click on up to the list.
     override func menu(for event: NSEvent) -> NSMenu? {
-        !NodeView.keyboardMenuRequest && feed?.contextClick(event) == true ? NSMenu() : super.menu(for: event)
+        feed?.contextClick(event) == true ? NSMenu() : super.menu(for: event)
     }
     /// A wheel or a two-finger scroll over a row goes to what is under the
     /// pointer first, as its clicks do not: a scroller inside the row (the
