@@ -72,10 +72,13 @@ component TimelineRow
     hoverPart: action
     // A user turn's box entering or leaving the transcript (ChatColumn turnSeen).
     seen: action
-  // The lane's width, which a wide table's fit follows (`@container/chat-lane`, markdown.contract MarkdownTable).
+  // The lane's width, which a wide table's fit follows (`@container/chat-lane`, markdown.contract MarkdownTable). Only a
+  // new width is written: a height change (a chip or table settling) commits nothing, so the row settles after one
+  // measure, as the reference's container query does.
   state laneWidth = 0
   action laneSized(width: number, height: number)
-    laneWidth = width
+    if width != laneWidth
+      laneWidth = width
   provide
     chatLaneWidth = laneWidth
   view

@@ -1312,14 +1312,17 @@ component TableCell
     clipped: action
   state cellWidth = 0
   state naturalWidth = 0
+  // A width that did not change writes nothing (a height change is not a cell's), so the cells settle after one measure.
   action cellSized(width: number, height: number)
-    cellWidth = width
-    if width > 0 and naturalWidth > 0
-      clipped(`${header ? "h:" : "b:"}${nodePrefix}`, cellClipped(naturalWidth, width))
+    if width != cellWidth
+      cellWidth = width
+      if width > 0 and naturalWidth > 0
+        clipped(`${header ? "h:" : "b:"}${nodePrefix}`, cellClipped(naturalWidth, width))
   action naturalSized(width: number, height: number)
-    naturalWidth = width
-    if cellWidth > 0 and width > 0
-      clipped(`${header ? "h:" : "b:"}${nodePrefix}`, cellClipped(width, cellWidth))
+    if width != naturalWidth
+      naturalWidth = width
+      if cellWidth > 0 and width > 0
+        clipped(`${header ? "h:" : "b:"}${nodePrefix}`, cellClipped(width, cellWidth))
   view
     column resize=cellSized position="relative" flex-grow=column.grow flex-shrink=(fitLane ? 1 : 0) min-width=(fitLane ? "auto" : 0) padding-left=((rtl ? last : first) ? "0px" : "0.75rem") padding-right=((rtl ? first : last) ? "0px" : "0.75rem") padding-top=(header ? "0.55rem" : "0.45rem") padding-bottom=(header ? "0.55rem" : "0.45rem") box-sizing="border-box" justify-content="flex-start" role=(header ? "columnheader" : "cell")
       // Measure the same runs without a cap so a short table has no expansion control.

@@ -29,3 +29,36 @@ describe('a right-to-left table', () => {
     expect(appText('markdown.contract').match(/direction=blockDirection\(block\.kind, block\.dir\)/g)?.length).toBe(3);
   });
 });
+
+// A long thread's rows kept re-rendering at their resize: each resize wrote the lane's width again, an equal write a
+// commit all the same, which re-laid the row out and resized it again. The reference's container query settles at once.
+describe('a row and a table cell settle after one measure', () => {
+  const counting = (initial: Record<string, unknown>) => {
+    const writes: string[] = [];
+    return { writes, state: new Proxy({ ...initial }, { set(target, key, value) { writes.push(String(key)); (target as Record<string, unknown>)[String(key)] = value; return true; } }) };
+  };
+  test('a row writes its lane width once; a height change, or the same width again, writes nothing', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const row = contractComponent('timeline.contract', 'TimelineRow');
+    const { writes, state } = counting(row.state());
+    row.call('laneSized', state, {}, [720, 400]);
+    row.call('laneSized', state, {}, [720, 412]);
+    row.call('laneSized', state, {}, [720, 400]);
+    expect(writes).toEqual(['laneWidth']);
+    row.call('laneSized', state, {}, [640, 400]);
+    expect(writes).toEqual(['laneWidth', 'laneWidth']);
+  });
+  test('a table cell reports its clipping once per width', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const tableCell = contractComponent('markdown.contract', 'TableCell');
+    const { writes, state } = counting(tableCell.state());
+    const reports: unknown[][] = [];
+    const scope = { header: false, nodePrefix: '0-0-0', clipped: (...args: unknown[]) => reports.push(args), cellClipped: (natural: number, width: number) => natural > width };
+    tableCell.call('naturalSized', state, scope, [300, 20]);
+    tableCell.call('cellSized', state, scope, [200, 20]);
+    tableCell.call('cellSized', state, scope, [200, 46]);
+    tableCell.call('naturalSized', state, scope, [300, 22]);
+    expect(writes).toEqual(['naturalWidth', 'cellWidth']);
+    expect(reports).toEqual([['b:0-0-0', true]]);
+  });
+});
