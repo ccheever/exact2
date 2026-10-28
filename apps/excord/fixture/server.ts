@@ -2,6 +2,7 @@
 // A Discord stand-in for tests and agent drives (llp/0001 §4.4): the user gateway (zlib-stream or
 // text) and the REST paths Excord uses, over the seeded world, plus `/control/*` to inject traffic.
 // `bun apps/excord/fixture/server.ts --world transcript --reset-on-identify`; app.ts's `origin` points here.
+// `--history-delay <ms>` holds each older page's answer that long (a phone network's round trip).
 // POST /control/clock {advance_ms} advances the selected clock for timestamps, nonce expiry,
 // rate limits and reaction batches, flushing due batches before returning. Reset clears the offset.
 // With passive capabilities, full guild events require subscribeAll, POST /control/subscribe
@@ -102,6 +103,9 @@ export interface FixtureOptions {
   reactionDebounceMs?: number; // Default: 500 ms from the first add in each message's batch.
   subscribeAll?: boolean; // Default: false; true subscribes every new session to all seeded guilds.
   rateLimits?: { default?: RateLimit; messages?: RateLimit; routes?: Record<string, RateLimit> };
+  // An older page's answer (a GET of a channel's messages with `before=`) waits this long, as a phone network's
+  // round trip does: nothing else does, not the newest page, the gateway or a send. Default: 0.
+  historyDelayMs?: number;
 }
 interface Bucket extends RateLimit { used: number; reset: number }
 interface ForcedLimit { route?: string; global: boolean; count: number; retry_after: number }
@@ -997,6 +1001,7 @@ export function startFixture(options: FixtureOptions = {}) {
         query.limit = limit;
       }
       if ([query.before, query.after, query.around].filter(Boolean).length > 1) throw new HttpError(400, 'Conflicting cursors');
+      if (query.before && options.historyDelayMs) await new Promise(resume => setTimeout(resume, options.historyDelayMs));
       return { status: 200, body: pageMessages(world.messages[channelId], query) };
     }
     if (!messageId && method === 'POST') {
@@ -1182,7 +1187,7 @@ if (import.meta.main) {
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--reset-on-identify') { options.resetOnIdentify = true; continue; }
-    if (!['--port', '--seed', '--world', '--clock', '--host'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
+    if (!['--port', '--seed', '--world', '--clock', '--host', '--history-delay'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
     if (args[i + 1] === undefined) throw new Error(`Missing value for ${flag}`);
     // The address it listens on and names itself by (READY's gateway, asset URLs): a phone's, this Mac's LAN address.
     if (flag === '--host') { options.hostname = args[++i]; continue; }
@@ -1191,6 +1196,7 @@ if (import.meta.main) {
       if (world !== 'default' && world !== 'transcript') throw new Error('world must be default or transcript');
       options.world = world; continue;
     }
+    if (flag === '--history-delay') { options.historyDelayMs = integer(args[++i], 0, 60000); continue; }
     if (flag === '--clock') {
       const clock = args[++i];
       if (clock !== 'fixed' && clock !== 'wall') throw new Error('clock must be fixed or wall');

@@ -137,6 +137,22 @@ for (const sockets of [false, true]) describe(sockets ? 'with sockets' : 'withou
     expect(await (await r.request(path, { content: 'first' })).json()).toEqual(first);
   });
 
+  test('--history-delay holds only an older page, which still lands whole', async () => {
+    const r = start({ historyDelayMs: 300 }), { fixture } = r;
+    const path = `/api/v9/channels/${fixture.world.generalChannelId}/messages`;
+    const timed = async (query: string) => {
+      const t0 = performance.now(), response = await r.request(`${path}?${query}`);
+      return { ms: performance.now() - t0, rows: await response.json() };
+    };
+    const newest = await timed('limit=50');
+    expect(newest.ms).toBeLessThan(250);
+    const older = await timed(`limit=50&before=${newest.rows.at(-1).id}`);
+    expect(older.ms).toBeGreaterThanOrEqual(290);
+    expect(older.rows).toHaveLength(50);
+    expect(compareIds(older.rows[0].id, newest.rows.at(-1).id)).toBeLessThan(0);
+    expect((await timed(`limit=50&around=${newest.rows[10].id}`)).ms).toBeLessThan(250);
+  });
+
   test('wall clock can override transcript default and fixed clock also works for the default world', async () => {
     const r = start({ clock: 'wall' });
     const before = Date.now(), state = await r.state(), after = Date.now();
