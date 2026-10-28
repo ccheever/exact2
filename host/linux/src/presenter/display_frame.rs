@@ -125,6 +125,19 @@ impl State {
         }
         true
     }
+    /// The node the acknowledged picture painted at `id`, if it painted one.
+    pub(super) fn painted_key(&self, id: ViewId) -> Option<NodeKey> {
+        self.witness().and_then(|a| a.nodes.get(&id)).map(|s| s.key)
+    }
+    /// Whether the acknowledged picture holds scroller `id`'s travel (always, with no display): a scroller
+    /// it doesn't (hidden, or not yet painted where it shows) has none to clamp to there.
+    pub(super) fn witnessed(&self, kernel: &Kernel, id: ViewId) -> bool {
+        !self.active
+            || self
+                .witness()
+                .filter(|_| self.allows(kernel, id))
+                .is_some_and(|a| a.nodes.get(&id).is_some_and(|s| s.scroll.is_some()))
+    }
     pub(super) fn bounds(&self, kernel: &Kernel, id: ViewId) -> Option<ScrollBounds> {
         if !self.active {
             return None;

@@ -61,6 +61,8 @@ pub(super) struct State {
     /// While set (by such a host, for the frame a scroll draws), passes wait
     /// for [`Presenter::refine_deferred`].
     pub(super) hold: bool,
+    /// Each scroller's node as the clamp last saw it shown ([`Presenter::hidden_scrollers`]).
+    pub(super) shown_keys: BTreeMap<ViewId, NodeKey>,
     /// Slices (LLP 1050.000 §6): a host that fills between frames builds at
     /// most this many rows past what shows per report, and sends one report
     /// per list per pass; the rest is the list's `pending`. `None` builds the

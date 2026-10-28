@@ -983,13 +983,13 @@ impl<D: DataSource> Presenter<D> {
 
     fn clamp_scroll(&mut self) -> bool {
         self.restore_scroll_anchors();
-        let collection_limits = self.collection_scroll_limits();
+        let (collection_limits, held) = (self.collection_scroll_limits(), self.hidden_scrollers());
         let kernel = self.host.kernel();
         let region = self.host.content_region();
         let mut gone = Vec::new();
         let mut clamped = Vec::new();
         let mut changed = false;
-        for (id, off) in self.scroll.iter_mut() {
+        for (id, off) in self.scroll.iter_mut().filter(|(id, _)| !held.contains(*id)) {
             match kernel.node(*id) {
                 Some(n) => {
                     let next = self

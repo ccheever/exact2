@@ -4,6 +4,7 @@
 //! glide; a list's own is no app scroll, so the reader is rebased by all of it, its revision
 //! stands and its fling goes on, as UIKit's does across its own content-offset adjustment.
 use super::*;
+use crate::paint::ScrollBounds;
 
 /// Whose a pending model position is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -165,5 +166,46 @@ impl<D: DataSource> Presenter<D> {
             cursor.model_offset(key, target, true, own.origin, &mut now.clone());
             self.dirty = true;
         }
+    }
+
+    /// A list shown again before its first frame, its picture bounded by its layout's travel
+    /// (`hidden_scrollers`): staged as the list's own clamp, so the first frame that shows it paints
+    /// in range and its input offset stays until that frame is acknowledged. A position staged while
+    /// it was hidden (an anchor kept as rows were removed above it) wins over the stale input: it is
+    /// kept if in range, else clamped, and the input is clamped only when there is none. A scroller
+    /// that is no collection keeps the cursor that stages it (`ordinary`). Without a display there is
+    /// no frame to wait for.
+    pub(in crate::presenter) fn stage_shown(
+        &mut self,
+        view: ViewId,
+        key: NodeKey,
+        bounds: ScrollBounds,
+    ) {
+        let input = self.scroll_of(view);
+        let staged = self
+            .pending_model_scroll(view)
+            .filter(|p| p.key == key)
+            .map(|p| (p.left.unwrap_or(input.0), p.top));
+        let from = staged.unwrap_or(input);
+        let to = bounds.clamp(from);
+        if to == from {
+            return;
+        }
+        if !self.display.attached() {
+            self.scroll.insert(view, to);
+            self.rebase_clamped_anchor(view, input, to);
+            return;
+        }
+        let cursor = self
+            .collection
+            .cursors
+            .entry(view)
+            .or_insert_with(|| Cursor {
+                ordinary: true,
+                ..Cursor::default()
+            });
+        cursor.bind(key, cursor.sequence);
+        cursor.model_offset(key, to, true, Origin::Clamp, &mut input.clone());
+        self.dirty = true;
     }
 }
