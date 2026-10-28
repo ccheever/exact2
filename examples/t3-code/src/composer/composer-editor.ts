@@ -37,6 +37,7 @@ import { composerSourceSession } from './composer-rich-state';
 import { composerHistoryComplete, composerHistoryRecall } from './composer-prompt-history';
 import { importDroppedThread } from './composer-thread-import';
 import { parseFleetThreadId } from '../connections/settings-b-fleet';
+import { checkMissingEditThreads } from './composer-controls-queue';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -227,6 +228,8 @@ export const localId = (): string => uuid();
 /** The `composerEditor` resource: the menu for the trigger at the caret, the prompt-length line, and where the drawers go. */
 export async function composerEditorView(client: T3Client, native: Native | null | undefined, now = 0): Promise<ComposerEditorView> {
   preserveCitationDraft(client);
+  // A queued edit whose thread left the active shell: archived or deleted (composer-controls-queue.ts).
+  if (native?.available) void checkMissingEditThreads(client, native, now).catch(() => undefined);
   const view = await editorView(client, native, now);
   return { ...view, foldLimit: client.ready ? foldLimit(client) : 0, drawer: { ...composerDrawer(layoutFrames(client)), hold: composerStackHold(holds(client), client.snapshotOwner, layoutFrames(client)) } }; // composer-editor-drawer.ts
 }
@@ -246,6 +249,15 @@ export async function refreshComposerWorkspace(client: T3Client, native: Native 
   const { wake } = composerWorkspaceView(client); // Recheck the current environment/provider before dispatch.
   if (!native?.available || !client.ready) return { key, retry: false, wake };
   return cache(client).discovery.refresh(key, (method, payload) => client.restAccess(native).request(method, payload, true));
+}
+// useComposerMenuItems' `now`: thread mentions rank by recency as of when the composer mounted, here the clock when
+// the draft's @ menu first listed threads.
+const mentionClocks = new WeakMap<T3Client, Map<string, number>>();
+function mentionClock(client: T3Client, now: number): number {
+  const clocks = mentionClocks.get(client) ?? new Map<string, number>();
+  mentionClocks.set(client, clocks);
+  if (!clocks.has(client.draftKey)) clocks.set(client.draftKey, now);
+  return clocks.get(client.draftKey)!;
 }
 async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer' | 'foldLimit'>> {
   const entry = cache(client);
@@ -302,7 +314,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     if (search === 'loading') loading = true;
     else { rows = pullRequestRows(search.entries, client.projectId, repository, trigger.query, search.providers ?? [], arr(obj(client.projection.thread).pullRequests ?? client.shell.threads.find(thread => thread.id === client.threadId)?.pullRequests)); prFailed = search.failed; }
   } else if (trigger.kind === 'path') {
-    const threads = threadRows(client.shell.threads, client.threadId, trigger.query);
+    const threads = threadRows(client.shell.threads, client.threadId, trigger.query, mentionClock(client, now), client.environmentId);
     const query = trigger.query.trim();
     let entries: Obj[] = [];
     if (query && cwd && native?.available) {

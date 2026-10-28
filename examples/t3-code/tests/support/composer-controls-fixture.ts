@@ -16,7 +16,7 @@ export const projection = (id: string, extra: Obj = {}): Obj => ({ thread: threa
   visibleTurnItems: [], updatedAt: at, ...extra });
 
 export class Fake implements Native {
-  available = true; branch = 'main'; extraRefs: Obj[] = []; copied: string[] = []; generation = 1; serial = 0; seq = 0; events: Obj[] = []; subs: Record<string, string> = {}; committed: Obj[] = [];
+  available = true; branch = 'main'; extraRefs: Obj[] = []; copied: string[] = []; generation = 1; serial = 0; seq = 0; events: Obj[] = []; subs: Record<string, string> = {}; committed: Obj[] = []; archived: Obj[] = [];
   scopes = ['orchestration:read', 'orchestration:operate'];
   shell: Obj = { snapshotSequence: 1, projects: [{ id: 'p1', title: 'Example', workspaceRoot: '/repo' }], threads: [thread('t1'), thread('t2')] };
   details: Record<string, Obj> = { t1: { snapshotSequence: 1, historyCursor: null, hasMoreHistory: false, latestLocalTurnOrdinal: 0, projection: projection('t1') },
@@ -51,6 +51,8 @@ export class Fake implements Native {
     if (op === 'ack') { this.events = this.events.filter(event => Number(event.seq) > Number(request.through)); return this.ok({ latest: this.seq }); }
     if (op === 'request') {
       if (request.method === 'server.getConfig') return this.ok(this.config);
+      // The archive's own shell (orchestration.getArchivedShellSnapshot): its threads are this.archived.
+      if (request.method === 'orchestration.getArchivedShellSnapshot') return this.ok({ snapshotSequence: 1, projects: obj(this.shell).projects ?? [], threads: this.archived });
       if (request.method === 'projects.readFile') return this.ok({ contents: '{}', truncated: false });
       if (request.method === 'vcs.refreshStatus') return this.ok({ isRepo: true, refName: this.branch });
       if (request.method === 'vcs.listRefs') return this.ok({ isRepo: true, hasPrimaryRemote: true, nextCursor: null, totalCount: 3,
