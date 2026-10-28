@@ -152,7 +152,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     const { projectId } = await currentScope(client, access, scope);
     const config = await access.request('server.getConfig');
     const capabilities = obj(obj(config.environment).capabilities);
-    if (capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
+    if (str(input.key) === 'worktreesDirectory' ? capabilities.worktreesDirectory !== true : capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
     const settings = await access.request('server.getSettings');
     const updated = await access.request('server.updateSettings', { patch: storagePatch(settings, projectId, str(input.key), str(input.value)) }, true);
     client.config = { ...client.config, settings: updated };

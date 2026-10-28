@@ -245,7 +245,7 @@ component ScopedSettingRow
             if row.kind == "model"
               // ProviderModelPicker: the window's picker under this trigger, while a provider can write.
               if row.checked and row.status == ""
-                SettingsModelTrigger(rowId=(row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), label=row.valueLabel, name=row.title, driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel((row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), scope))
+                SettingsModelTrigger(stop="enabled page", rowId=(row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), label=row.valueLabel, name=row.title, driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel((row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), scope))
                 if row.traitsLabel != ""
                   WriterTraitsPicker(row=row, disabled=(busy or row.disabled), restInput=restInput)
               SettingsPageSwitch(checked=row.checked, label=(row.key == "reviewGuideModelSelection" ? "Use a separate review guide model" : "Use a separate source control writer model"), disabled=(busy or row.disabled or (not row.checked and row.status != "")), switchId=`scoped-${row.key}-enabled`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "off" : "default"}`))
@@ -380,7 +380,7 @@ component DiscoveryItem
             if item.account
               text "as" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" aria-hidden=true
               // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
-              RedactedText(value=item.accountValue, placeholder=item.accountPlaceholder, label="Toggle source control account visibility", revealTip="Click to reveal account", hideTip="Click to hide account", testId=`reveal-account-${item.kind}`)
+              RedactedText(stop="enabled page", value=item.accountValue, placeholder=item.accountPlaceholder, label="Toggle source control account visibility", revealTip="Click to reveal account", hideTip="Click to hide account", testId=`reveal-account-${item.kind}`)
         row flex-shrink=0 align-items="center" gap="0.5rem"
           if item.details
             button press=toggleOpen aria-expanded=open aria-label=`Toggle ${item.label} details` testId=`discovery-details-${item.kind}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id=`discovery-details-${item.kind}` data-focus-stop="enabled page"

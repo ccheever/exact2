@@ -3,6 +3,7 @@ import { AUTH_STANDARD_CLIENT_SCOPES } from '../../src/connections/remote-scopes
 // reaches each selected connected environment through its own transport, a failure names
 // the environments that did not save, and disagreeing targets draw the mixed switch.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { appText } from '../support/app-files';
 import type { T3Client } from '../../src/client/client';
 import { applyShell, initialShell, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
@@ -129,11 +130,22 @@ describe('settings scope across environments', () => {
     // A machine without settled cleanup keeps only unchanged worktrees under Advanced.
     fleet.entries.set(key, { ...fleet.entries.get(key)!, config: { ...fleet.entries.get(key)!.config, environment: { environmentId: 'env-storage-groups', label: 'Server', capabilities: { ...capabilities, settledWorktreeCleanup: false } } } });
     expect((await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '')).worktreesAdvanced.map(rule => rule.key)).toEqual(['worktreeUnchanged']);
-    // Without storage cleanup the page draws no Worktree location row (settings-storage.contract), so Start from remote
-    // starts its card undivided.
-    fleet.entries.set(key, { ...fleet.entries.get(key)!, config: { ...fleet.entries.get(key)!.config, environment: { environmentId: 'env-storage-groups', label: 'Server', capabilities: { ...capabilities, storageCleanup: false } } } });
-    const older = await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '');
-    expect([older.available, older.directorySupported, older.creation.map(row => [row.id, row.divider])]).toEqual([false, true, [['start-from-origin', false]]]);
+    // Worktree location shows wherever every selected machine has a worktrees directory, storage cleanup or not
+    // (WorktreesDirectoryRow), with Start from remote divided under it; a machine without one starts the card at Start
+    // from remote, undivided.
+    const only = async (extra: Obj) => {
+      fleet.entries.set(key, { ...fleet.entries.get(key)!, config: { ...fleet.entries.get(key)!.config, environment: { environmentId: 'env-storage-groups', label: 'Server', capabilities: { ...capabilities, ...extra } } } });
+      const page = await storageSettings(as(client), nativeFor(), '', '', true, 'env-storage-groups', '', '');
+      return [page.available, page.directorySupported, page.creation.map(row => [row.id, row.divider])];
+    };
+    expect(await only({ storageCleanup: false })).toEqual([false, true, [['start-from-origin', true]]]);
+    // Its write asks for the directory alone, as useUpdateScopedSettings does.
+    const calls: Obj[] = [];
+    await restCommand(as(client), nativeFor(new Set(), calls), { read: async () => null, write: async () => {} }, 'storage', '', `scope=${encodeURIComponent('env-storage-groups||')}&key=worktreesDirectory&value=~/wt`);
+    expect(calls.at(-1)?.payload).toEqual({ patch: { worktreesDirectory: '~/wt' } });
+    expect(await only({ worktreesDirectory: false })).toEqual([true, false, [['start-from-origin', false]]]);
+    const storage = appText('settings-storage.contract');
+    expect(storage).toContain('          if data.directorySupported\n            column width="100%" id="storage-worktrees-location" tabindex=-1');
   });
   test('Storage keeps maintenance available on a supported machine while an older machine hides configuration', async () => {
     const client = focused();

@@ -247,7 +247,7 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
 
   test.each([
     ['git-publish.contract', 'PublishStep', 'git.contract', 'DialogFrame', 'git-publish-step-0', 'git-publish-dialog', { index: 0, current: 0 }, { index: 0, current: 2 }],
-    ['settings-rows.contract', 'CoreSelect', 'settings-a-dialogs.contract', 'SaDialog', 'setting-background-policy', 'background-activity-dialog', { rowId: 'background-policy', disabled: false }, { rowId: 'background-policy', disabled: true }],
+    ['settings-rows.contract', 'CoreSelect', 'settings-a-dialogs.contract', 'SaDialog', 'setting-background-policy', 'background-activity-dialog', { rowId: 'background-policy', disabled: false, stop: 'enabled' }, { rowId: 'background-policy', disabled: true, stop: 'enabled' }],
     ['pages-usage-prices.contract', 'UsageGhostIcon', 'pages-usage-dialogs.contract', 'UsageDialogShell', 'usage-prices-add', 'usage-prices-dialog', { elementId: 'usage-prices-add', disabled: false }, { elementId: 'usage-prices-add', disabled: true }],
   ] as const)('%s %s exposes its actual eligibility to the shared dialog guards', (file, component, frameFile, frameComponent, first, popup, on, off) => {
     const lines = source(file).split('\n'), body = block(lines, lines.indexOf(`component ${component}`));

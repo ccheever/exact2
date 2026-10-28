@@ -117,7 +117,7 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
     const traits = resolved ? traitsControl({ providers }, resolved.provider, resolved.model, resolved.options) : null;
     return row(settings, projectId, environmentLabel, key, { kind: 'model', title, checked: enabled, disabled: !writable,
       description, value: resolved ? `${str(resolved.provider.instanceId)}:${str(resolved.model?.slug)}` : '',
-      valueLabel: resolved?.model ? triggerModelName(resolved.model) : 'Choose model', driver: str(resolved?.provider.driver),
+      valueLabel: resolved?.model ? triggerModelName(resolved.model, str(resolved.provider.driver)) : 'Choose model', driver: str(resolved?.provider.driver),
       badge: badge.providerBadge, accent: badge.providerBadgeColor, traitsLabel: str(traits?.label2), traits: traits?.options2 ?? [],
       status: !available ? 'No text generation providers available.' : '' });
   };

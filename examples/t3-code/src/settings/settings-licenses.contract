@@ -63,7 +63,7 @@ component NoticesPanel
                         text entry.version font-family="monospace" font-size="0.75rem" line-height="1rem" flex-shrink=0 color="light-dark(#71717b, #a1a1a1)"
                     text `${entry.license} · ${entry.bundles}` font-size="0.75rem" line-height="1rem" max-width="42%" flex-shrink=0 line-clamp=1 color="light-dark(#71717b, #a1a1a1)"
                   if entry.sourceUrl != ""
-                    link cursor="pointer" href=entry.sourceUrl aria-label=`View project source for ${entry.name}` title="Project source" testId=`license-source-${entry.id}` width="1.25rem" height="1.25rem" margin-right="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 border-radius="0.25rem"
+                    link cursor="pointer" href=entry.sourceUrl aria-label=`View project source for ${entry.name}` title="Project source" id=`license-source-${entry.id}` testId=`license-source-${entry.id}` data-focus-stop="enabled page" width="1.25rem" height="1.25rem" margin-right="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 border-radius="0.25rem"
                       LucideExternalLink(size=12, color="light-dark(#71717b, #a1a1a1)")
                 if entry.expanded
                   text entry.noticeText font-family="monospace" font-size="0.75rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" max-width="45.625rem" padding-left="2.5rem" padding-right="2.5rem" padding-top="0.25rem" padding-bottom="1rem" color="light-dark(#18181bcc, #f5f5f5cc)" testId="license-notice-text"

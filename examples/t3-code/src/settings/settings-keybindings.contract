@@ -335,11 +335,11 @@ component CaptureField
       // outside it hears a chord (Settings' Back its Escape, the palette its ⌘K). It mounts modal and focused: the
       // idle field below hands it the focus that started recording.
       row class=KbCapture align-items="center" aria-modal=true focusin=entered testId=`keybinding-recording-${rowId}`
-        KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))
+        KeyRecorder(stop="enabled page", prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))
         DialogOpenFocus(target=`keybinding-recorder-${rowId}`)
     else
       row class=KbCapture align-items="center" focusin=entered testId=`keybinding-capture-${rowId}`
-        KeyRecorder(prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)
+        KeyRecorder(stop="enabled page", prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)
 
 // WarningTooltipIcon: the triangle, and its TooltipPopup (side top) with the whole sentence.
 component Warning

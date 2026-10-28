@@ -86,8 +86,9 @@ component ChatGptButton
     target: string
     testId: string
     press: action
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" elsewhere
   view
-    button press=press id=target disabled=disabled testId=testId class=PvPrimary opacity=(disabled ? 0.64 : 1) box-shadow="inset 0 1px 0 #ffffff29" data-focus-stop=(disabled ? "" : "enabled")
+    button press=press id=target disabled=disabled testId=testId class=PvPrimary opacity=(disabled ? 0.64 : 1) box-shadow="inset 0 1px 0 #ffffff29" data-focus-stop=(disabled ? "" : stop)
       ProviderMark(driver="codex", size=16, color="#ffffff")
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff" white-space="nowrap"
 
@@ -103,11 +104,12 @@ component CodexGhost
     testId: string
     press: action
     first: bool
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" elsewhere
   state over = false
   action hover(inside: bool)
     over = inside
   view
-    button data-focus-stop=(disabled ? "" : "enabled") press=press hover=hover id=target disabled=disabled autofocus=first testId=testId cursor="pointer" display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" flex-shrink=0 box-sizing="border-box" height=(small ? "1.5rem" : "1.75rem") padding-left=(small ? "0.4375rem" : "0.5625rem") padding-right=(small ? "0.4375rem" : "0.5625rem") border-radius="0.5rem" border-width=0 opacity=(disabled ? 0.64 : 1) background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+    button data-focus-stop=(disabled ? "" : stop) press=press hover=hover id=target disabled=disabled autofocus=first testId=testId cursor="pointer" display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" flex-shrink=0 box-sizing="border-box" height=(small ? "1.5rem" : "1.75rem") padding-left=(small ? "0.4375rem" : "0.5625rem") padding-right=(small ? "0.4375rem" : "0.5625rem") border-radius="0.5rem" border-width=0 opacity=(disabled ? 0.64 : 1) background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
       text label font-size=(small ? "0.75rem" : "0.875rem") line-height=(small ? "1rem" : "1.25rem") font-weight=500 white-space="nowrap" color=(muted and not over ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
       if icon != ""
         PvIcon(name=icon, size=14, color=(muted and not over ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)"))
@@ -120,7 +122,18 @@ component ChatGptUsageButton
     press: action
     first: bool
   view
-    CodexGhost(label="Manage usage", muted=true, small=small, disabled=false, icon="external", target="", testId=testId, press=press, first=first)
+    ChatGptUsageGhost(stop="enabled", small=small, testId=testId, press=press, first=first)
+
+// ChatGptUsageButton where the caller names its stop word: "enabled page" on the Providers page.
+component ChatGptUsageGhost
+  props
+    small: bool
+    testId: string
+    press: action
+    first: bool
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" elsewhere
+  view
+    CodexGhost(stop=stop, label="Manage usage", muted=true, small=small, disabled=false, icon="external", target=testId, testId=testId, press=press, first=first)
 
 // "Signed in as <email>." with the email behind RedactedText (CodexSetupSection.tsx :73-81, :590-598).
 component CodexSignedIn
@@ -128,10 +141,11 @@ component CodexSignedIn
     email: string
     placeholder: string
     instanceId: string
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" elsewhere
   view
     row min-width=0 gap="0.25rem" align-items="baseline" flex-wrap="wrap"
       text "Signed in as" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
-      RedactedText(value=email, placeholder=placeholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`codex-email-${instanceId}`)
+      RedactedText(stop=stop, value=email, placeholder=placeholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`codex-email-${instanceId}`)
       text "." font-size="0.75rem" line-height="1.21875rem" margin-left="-0.25rem" color="light-dark(#71717b, #a1a1a1)"
 
 // CodexSignInDescription with onToggle: the disclosure button; its chevron turns 90° (instant under reduced motion).
@@ -143,8 +157,9 @@ component CodexHelpToggle
     open: bool
     instanceId: string
     toggle: action
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" elsewhere
   view
-    button press=toggle aria-label="Having trouble signing in?" aria-expanded=open aria-controls=`codex-help-${instanceId}` testId=`codex-help-toggle-${instanceId}` cursor="pointer" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem" id=`codex-help-toggle-${instanceId}` data-focus-stop="enabled"
+    button press=toggle aria-label="Having trouble signing in?" aria-expanded=open aria-controls=`codex-help-${instanceId}` testId=`codex-help-toggle-${instanceId}` cursor="pointer" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem" id=`codex-help-toggle-${instanceId}` data-focus-stop=stop
       text label font-size="0.75rem" line-height="1.21875rem" text-align="left" color="light-dark(#71717b, #a1a1a1)"
       box display="flex" flex-shrink=0 rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") testId=`codex-help-chevron-${instanceId}`
         PgIcon(name="chevron-right", size=12, color="light-dark(#71717b, #a1a1a1)")
@@ -156,6 +171,7 @@ component CodexCallbackForm
     setup: CodexSetup
     busy: bool
     op: action
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" elsewhere
   state draft = ""
   action edit(value: string)
     draft = value
@@ -164,11 +180,11 @@ component CodexCallbackForm
     column width="100%" gap="0.75rem" id=`codex-help-${setup.instanceId}` testId=`codex-callback-${setup.instanceId}`
       text "If sign-in doesn't return to T3 Code, paste the URL from the final localhost page." font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
       row width="100%" gap="0.5rem" align-items="center"
-        input value=draft input=edit submit=op("setup:codex-callback", setup.target, setup.flowId, draft, not off and draft.trim() != "") type="password" autocomplete="off" maxlength=16384 placeholder="Paste the URL from the sign-in tab" aria-label="ChatGPT sign-in redirect URL" class=PvField flex=1 min-width=0 height="2rem" disabled=off testId=`codex-callback-url-${setup.instanceId}` autocorrect="off" id=`field-codex-callback-url-${setup.instanceId}` data-editable="yes" data-focus-stop=(off ? "" : "enabled")
-        button press=op("setup:codex-callback", setup.target, setup.flowId, draft, true) class=PvOutline height="2rem" disabled=(off or draft.trim() == "") opacity=(off or draft.trim() == "" ? 0.64 : 1) testId=`codex-callback-connect-${setup.instanceId}` id=`codex-callback-connect-${setup.instanceId}` data-focus-stop=(off or draft.trim() == "" ? "" : "enabled")
+        input value=draft input=edit submit=op("setup:codex-callback", setup.target, setup.flowId, draft, not off and draft.trim() != "") type="password" autocomplete="off" maxlength=16384 placeholder="Paste the URL from the sign-in tab" aria-label="ChatGPT sign-in redirect URL" class=PvField flex=1 min-width=0 height="2rem" disabled=off testId=`codex-callback-url-${setup.instanceId}` autocorrect="off" id=`field-codex-callback-url-${setup.instanceId}` data-editable="yes" data-focus-stop=(off ? "" : stop)
+        button press=op("setup:codex-callback", setup.target, setup.flowId, draft, true) class=PvOutline height="2rem" disabled=(off or draft.trim() == "") opacity=(off or draft.trim() == "" ? 0.64 : 1) testId=`codex-callback-connect-${setup.instanceId}` id=`codex-callback-connect-${setup.instanceId}` data-focus-stop=(off or draft.trim() == "" ? "" : stop)
           text "Connect" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
       row
-        CodexGhost(label="Try sign-in in your browser", muted=true, small=true, disabled=false, icon="external", target="", testId=`codex-try-browser-${setup.instanceId}`, press=op("setup:codex-browser", setup.target, setup.token, "", true), first=false)
+        CodexGhost(stop=stop, label="Try sign-in in your browser", muted=true, small=true, disabled=false, icon="external", target=`codex-try-browser-${setup.instanceId}`, testId=`codex-try-browser-${setup.instanceId}`, press=op("setup:codex-browser", setup.target, setup.token, "", true), first=false)
 
 // ManagedCodexSetup, presentation "settings": the "ChatGPT account" row, Manage usage, the
 // signed-out notice, "Having trouble signing in?" and the alert. `cancelled` is the Add ChatGPT
@@ -181,6 +197,7 @@ component CodexSetupRow
     op: action
     ui: action
     cancelled: action
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" in a dialog
   state helpOpen = false
   action toggleHelp
     helpOpen = not helpOpen
@@ -199,41 +216,41 @@ component CodexSetupRow
               text "Preparing sign-in." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" testId=`codex-description-${setup.instanceId}`
             else
               if setup.email != ""
-                CodexSignedIn(email=setup.email, placeholder=setup.emailPlaceholder, instanceId=setup.instanceId)
+                CodexSignedIn(stop=stop, email=setup.email, placeholder=setup.emailPlaceholder, instanceId=setup.instanceId)
               else
                 // SettingsRow's description, plain text in the reference (CodexSetupSection.tsx accountDescription): no live role.
                 text setup.description max-width="42rem" text-wrap="balance" font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #a1a1a1)" testId=`codex-description-${setup.instanceId}`
           if setup.kind == "managed"
             row flex-shrink=0 min-width=0 gap="0.5rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
               if setup.control == "waiting"
-                button press=op("setup:codex-open", setup.target, setup.token, "", true) class=PvOutline disabled=setup.controlDisabled opacity=(setup.controlDisabled ? 0.64 : 1) testId=`codex-open-${setup.instanceId}` id=`codex-open-${setup.instanceId}` data-focus-stop=(setup.controlDisabled ? "" : "enabled page")
+                button press=op("setup:codex-open", setup.target, setup.token, "", true) class=PvOutline disabled=setup.controlDisabled opacity=(setup.controlDisabled ? 0.64 : 1) testId=`codex-open-${setup.instanceId}` id=`codex-open-${setup.instanceId}` data-focus-stop=(setup.controlDisabled ? "" : stop)
                   text setup.controlLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
                 if setup.showCancel
-                  CodexGhost(label="Cancel", muted=false, small=false, disabled=setup.cancelDisabled, icon="", target="", testId=`codex-cancel-${setup.instanceId}`, press=cancel, first=false)
+                  CodexGhost(stop=stop, label="Cancel", muted=false, small=false, disabled=setup.cancelDisabled, icon="", target=`codex-cancel-${setup.instanceId}`, testId=`codex-cancel-${setup.instanceId}`, press=cancel, first=false)
               if setup.control == "install"
-                CodexGhost(label="Cancel", muted=false, small=false, disabled=setup.cancelDisabled, icon="", target="", testId=`codex-install-cancel-${setup.instanceId}`, press=op("setup:codex-install-cancel", setup.target, setup.token, "", true), first=false)
+                CodexGhost(stop=stop, label="Cancel", muted=false, small=false, disabled=setup.cancelDisabled, icon="", target=`codex-install-cancel-${setup.instanceId}`, testId=`codex-install-cancel-${setup.instanceId}`, press=op("setup:codex-install-cancel", setup.target, setup.token, "", true), first=false)
               if setup.control == "authenticated"
-                button press=ui("codex-picker", setup.target) id=`codex-account-${setup.instanceId}` class=PvOutline disabled=(setup.accountDisabled or pending) opacity=(setup.accountDisabled or pending ? 0.64 : 1) testId=`codex-change-account-${setup.instanceId}` data-focus-stop=(setup.accountDisabled or pending ? "" : "enabled page")
+                button press=ui("codex-picker", setup.target) id=`codex-account-${setup.instanceId}` class=PvOutline disabled=(setup.accountDisabled or pending) opacity=(setup.accountDisabled or pending ? 0.64 : 1) testId=`codex-change-account-${setup.instanceId}` data-focus-stop=(setup.accountDisabled or pending ? "" : stop)
                   text "Change account" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
-                CodexGhost(label="Disconnect", muted=false, small=false, disabled=(setup.accountDisabled or pending), icon="", target="", testId=`codex-disconnect-${setup.instanceId}`, press=op("setup:codex-logout", setup.target, setup.token, "", true), first=false)
+                CodexGhost(stop=stop, label="Disconnect", muted=false, small=false, disabled=(setup.accountDisabled or pending), icon="", target=`codex-disconnect-${setup.instanceId}`, testId=`codex-disconnect-${setup.instanceId}`, press=op("setup:codex-logout", setup.target, setup.token, "", true), first=false)
               if setup.control == "connect"
                 if setup.savedAccount
-                  ChatGptButton(label=setup.controlLabel, disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`codex-connect-${setup.instanceId}`, press=ui("codex-picker", setup.target))
-                  CodexGhost(label="Use a different account", muted=false, small=false, disabled=(setup.differentDisabled or pending), icon="", target="", testId=`codex-different-${setup.instanceId}`, press=op("setup:codex-different", setup.target, setup.token, "", true), first=false)
+                  ChatGptButton(stop=stop, label=setup.controlLabel, disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`codex-connect-${setup.instanceId}`, press=ui("codex-picker", setup.target))
+                  CodexGhost(stop=stop, label="Use a different account", muted=false, small=false, disabled=(setup.differentDisabled or pending), icon="", target=`codex-different-${setup.instanceId}`, testId=`codex-different-${setup.instanceId}`, press=op("setup:codex-different", setup.target, setup.token, "", true), first=false)
                 else
-                  ChatGptButton(label=(pending ? "Setting up..." : setup.controlLabel), disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`codex-connect-${setup.instanceId}`, press=op("setup:codex-setup", setup.target, setup.token, "", true))
+                  ChatGptButton(stop=stop, label=(pending ? "Setting up..." : setup.controlLabel), disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`codex-connect-${setup.instanceId}`, press=op("setup:codex-setup", setup.target, setup.token, "", true))
       if setup.usage
         row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)"
-          ChatGptUsageButton(small=false, testId=`codex-manage-usage-${setup.instanceId}`, press=op("setup:chatgpt-usage", setup.target, "", "", true), first=false)
+          ChatGptUsageGhost(stop=stop, small=false, testId=`codex-manage-usage-${setup.instanceId}`, press=op("setup:chatgpt-usage", setup.target, "", "", true), first=false)
       if setup.logoutWarning != ""
         text setup.logoutWarning padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)" color="light-dark(#71717b, #a1a1a1)" testId=`codex-logout-warning-${setup.instanceId}`
       if setup.callback
         column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)"
-          CodexHelpToggle(label="Having trouble signing in?", open=helpOpen, instanceId=setup.instanceId, toggle=toggleHelp)
+          CodexHelpToggle(stop=stop, label="Having trouble signing in?", open=helpOpen, instanceId=setup.instanceId, toggle=toggleHelp)
           if helpOpen
             column width="100%" padding-top="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e780, #ffffff0d)"
               for key in [setup.formKey] key=key
-                CodexCallbackForm(setup=setup, busy=busy, op=op)
+                CodexCallbackForm(stop=stop, setup=setup, busy=busy, op=op)
       if setup.error != ""
         text setup.error padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)" color="light-dark(#e7000b, #ff6467)" testId=`codex-error-${setup.instanceId}`
 
@@ -256,24 +273,24 @@ component CodexWelcomeCard
         column flex=1 min-width=0 gap="0.125rem"
           text setup.title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
           if setup.email != ""
-            CodexSignedIn(email=setup.email, placeholder=setup.emailPlaceholder, instanceId=setup.instanceId)
+            CodexSignedIn(stop="enabled", email=setup.email, placeholder=setup.emailPlaceholder, instanceId=setup.instanceId)
           else
             if setup.help == "toggle"
-              CodexHelpToggle(label="Complete sign-in in your browser.", open=helpOpen, instanceId=setup.instanceId, toggle=toggleHelp)
+              CodexHelpToggle(stop="enabled", label="Complete sign-in in your browser.", open=helpOpen, instanceId=setup.instanceId, toggle=toggleHelp)
             else
               // CodexWelcomeCard's description, plain text in the reference: no live role.
               text setup.description font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)" testId=`welcome-codex-description-${setup.instanceId}`
         row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end"
           if setup.kind == "preparing"
-            CodexGhost(label="Cancel", muted=true, small=false, disabled=true, icon="", target="", testId=`welcome-codex-cancel-${setup.instanceId}`, press=op("setup:codex-cancel-any", setup.target, setup.token, "", false), first=false)
+            CodexGhost(stop="enabled", label="Cancel", muted=true, small=false, disabled=true, icon="", target=`welcome-codex-cancel-${setup.instanceId}`, testId=`welcome-codex-cancel-${setup.instanceId}`, press=op("setup:codex-cancel-any", setup.target, setup.token, "", false), first=false)
             button class=PvOutline min-width="11rem" disabled=true opacity=0.64 testId=`welcome-codex-open-${setup.instanceId}` id=`welcome-codex-open-${setup.instanceId}` data-focus-stop=(true ? "" : "enabled")
               text "Open sign-in page" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
           if setup.secondary == "cancel"
-            CodexGhost(label="Cancel", muted=true, small=false, disabled=(setup.secondaryDisabled or pending), icon="", target="", testId=`welcome-codex-cancel-${setup.instanceId}`, press=op("setup:codex-cancel-any", setup.target, setup.token, "", true), first=false)
+            CodexGhost(stop="enabled", label="Cancel", muted=true, small=false, disabled=(setup.secondaryDisabled or pending), icon="", target=`welcome-codex-cancel-${setup.instanceId}`, testId=`welcome-codex-cancel-${setup.instanceId}`, press=op("setup:codex-cancel-any", setup.target, setup.token, "", true), first=false)
           if setup.secondary == "different"
-            CodexGhost(label="Use a different account", muted=true, small=false, disabled=(setup.secondaryDisabled or pending), icon="", target="", testId=`welcome-codex-different-${setup.instanceId}`, press=op("setup:codex-different", setup.target, setup.token, "", true), first=false)
+            CodexGhost(stop="enabled", label="Use a different account", muted=true, small=false, disabled=(setup.secondaryDisabled or pending), icon="", target=`welcome-codex-different-${setup.instanceId}`, testId=`welcome-codex-different-${setup.instanceId}`, press=op("setup:codex-different", setup.target, setup.token, "", true), first=false)
           if setup.secondary == "existing"
-            CodexGhost(label="Use existing CLI", muted=true, small=false, disabled=(setup.secondaryDisabled or pending), icon="", target="", testId=`welcome-codex-existing-${setup.instanceId}`, press=op("setup:codex-mode", setup.target, setup.token, "existing", true), first=false)
+            CodexGhost(stop="enabled", label="Use existing CLI", muted=true, small=false, disabled=(setup.secondaryDisabled or pending), icon="", target=`welcome-codex-existing-${setup.instanceId}`, testId=`welcome-codex-existing-${setup.instanceId}`, press=op("setup:codex-mode", setup.target, setup.token, "existing", true), first=false)
           if setup.control == "ready"
             row gap="0.375rem" align-items="center"
               PgIcon(name="check", size=14, color="light-dark(#007a55, #00d492)")
@@ -286,18 +303,18 @@ component CodexWelcomeCard
             button press=op("setup:codex-open", setup.target, setup.token, "", true) class=PvOutline min-width="11rem" disabled=setup.controlDisabled opacity=(setup.controlDisabled ? 0.64 : 1) testId=`welcome-codex-open-${setup.instanceId}` id=`welcome-codex-open-${setup.instanceId}` data-focus-stop=(setup.controlDisabled ? "" : "enabled")
               text setup.controlLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
           if setup.control == "connect" and setup.kind == "existing"
-            ChatGptButton(label="Continue with ChatGPT", disabled=(setup.controlDisabled or pending), target="", testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=op("setup:codex-mode", setup.target, setup.token, "managed", true))
+            ChatGptButton(stop="enabled", label="Continue with ChatGPT", disabled=(setup.controlDisabled or pending), target="", testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=op("setup:codex-mode", setup.target, setup.token, "managed", true))
           if setup.control == "connect" and setup.kind == "managed"
             if setup.savedAccount
-              ChatGptButton(label=setup.controlLabel, disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=ui("codex-picker", setup.target))
+              ChatGptButton(stop="enabled", label=setup.controlLabel, disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=ui("codex-picker", setup.target))
             else
-              ChatGptButton(label=(pending ? "Setting up..." : setup.controlLabel), disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=op("setup:codex-setup", setup.target, setup.token, "", true))
+              ChatGptButton(stop="enabled", label=(pending ? "Setting up..." : setup.controlLabel), disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=op("setup:codex-setup", setup.target, setup.token, "", true))
       if (setup.callback and helpOpen) or setup.error != ""
         column margin-left="2rem" margin-top="0.5rem" gap="0.5rem"
           if setup.callback and helpOpen
             column width="100%" padding-top="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e780, #ffffff0d)"
               for key in [setup.formKey] key=key
-                CodexCallbackForm(setup=setup, busy=busy, op=op)
+                CodexCallbackForm(stop="enabled", setup=setup, busy=busy, op=op)
           if setup.error != ""
             text setup.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`welcome-codex-error-${setup.instanceId}`
 
@@ -380,7 +397,7 @@ component ChatGptAccountPicker
         row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafab8, #ffffff06)"
           button press=dismiss aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 width=1 height=1 padding=0 border-width=0 opacity=0 overflow="hidden" testId="codex-picker-close" title=""
           box key=lastKeys tabindex=-1 display="flex"
-            ChatGptButton(label="Continue with ChatGPT", disabled=busy, target="codex-picker-connect-button", testId="codex-picker-connect", press=connect)
+            ChatGptButton(stop="enabled", label="Continue with ChatGPT", disabled=busy, target="codex-picker-connect-button", testId="codex-picker-connect", press=connect)
 
 component CodexPickerOption
   props
@@ -435,7 +452,7 @@ component ChatGptPlanDialog
           text notice.detail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="chatgpt-plan-detail"
         row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafab8, #ffffff06)"
           box key=firstKeys tabindex=-1 display="flex"
-            CodexGhost(label="Manage usage", muted=true, small=false, disabled=false, icon="external", target="chatgpt-plan-usage-button", testId="chatgpt-plan-usage", press=op("setup:chatgpt-usage", "", "", "", true), first=true)
+            CodexGhost(stop="enabled", label="Manage usage", muted=true, small=false, disabled=false, icon="external", target="chatgpt-plan-usage-button", testId="chatgpt-plan-usage", press=op("setup:chatgpt-usage", "", "", "", true), first=true)
           box key=lastKeys tabindex=-1 display="flex"
             button press=op("setup:chatgpt-plan-ack", "", "", notice.key, true) id="chatgpt-plan-continue-button" class=PvPrimary aria-keyshortcuts="Escape" disabled=busy testId="chatgpt-plan-continue" data-focus-stop=(busy ? "" : "enabled")
               text "Continue" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
@@ -457,4 +474,4 @@ component ChatGptAccountSetup
           text "Codex runtime" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
           text "Preparing managed setup." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
       for setup in created.setup key=setup.key
-        CodexSetupRow(setup=setup, wide=wide, busy=busy, op=op, ui=ui, cancelled=ui("close", ""))
+        CodexSetupRow(stop="enabled", setup=setup, wide=wide, busy=busy, op=op, ui=ui, cancelled=ui("close", ""))

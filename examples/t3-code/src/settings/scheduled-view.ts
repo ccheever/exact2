@@ -57,13 +57,13 @@ export function taskModelMarks(providers: Obj[], draftKey: string): TaskModelMar
     const badge = provider ? providerBadge(provider, providers) : { providerBadge: '', providerBadgeColor: '' };
     return { value, name, driver: str(provider?.driver), badge: badge.providerBadge, accent: badge.providerBadgeColor };
   };
-  const marks = providers.flatMap(provider => arr(provider.models).map(model => mark(provider, `${str(provider.instanceId)}:${str(model.slug)}`, triggerModelName(model) || str(model.slug))));
+  const marks = providers.flatMap(provider => arr(provider.models).map(model => mark(provider, `${str(provider.instanceId)}:${str(model.slug)}`, triggerModelName(model, str(provider.driver)) || str(model.slug))));
   if (draftKey && !marks.some(entry => entry.value === draftKey)) {
     const at = draftKey.indexOf(':');
     marks.push(mark(providers.find(provider => provider.instanceId === draftKey.slice(0, at)), draftKey, draftKey.slice(at + 1)));
   }
   const first = providers[0], firstModel = arr(first?.models)[0];
-  marks.push(mark(first, '', firstModel ? triggerModelName(firstModel) || str(firstModel.slug) : 'Choose model'));
+  marks.push(mark(first, '', firstModel ? triggerModelName(firstModel, str(first.driver)) || str(firstModel.slug) : 'Choose model'));
   return marks;
 }
 type BranchRef = { value: string; label: string; search: string; badge: string; remote: boolean };

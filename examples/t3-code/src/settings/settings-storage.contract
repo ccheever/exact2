@@ -137,7 +137,7 @@ component StoragePanel
             DatabaseRow(notice=notice, busy=busy, rest=rest)
       if view == "worktrees" and data.creation.length + data.creationAdvanced.length > 0
         SettingsSection(title="Creation", sectionId="worktree-creation")
-          if data.available and data.directorySupported
+          if data.directorySupported
             column width="100%" id="storage-worktrees-location" tabindex=-1
               SettingsRow(title="Worktree location", description="Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.", first=true, rowId="storage-directory-row")
                 for directory in [data.directory] key=`${data.writeScope}:${data.directoryMixed}:${directory}`

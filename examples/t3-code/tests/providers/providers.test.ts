@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { providerRows, providerPage, providerWizard, acpRegistry, refreshAcpRegistry, runProviderOp, providerFieldValues, healthInterval, type ProviderHost } from '../../src/providers/providers';
 import { withUpkeep, versionAdvisoryPresentation } from '../../src/providers/providers-upkeep';
-import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, validateInstanceId, providerInstanceInitials, driverModelFamilies } from '../../src/providers/providers-meta';
+import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, validateInstanceId, providerInstanceInitials } from '../../src/providers/providers-meta';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
@@ -190,9 +190,6 @@ test('Add provider leads with first-class providers and warns before a second Co
   server.config = server.snapshot();
   expect(providerWizard(server, true, 1, 'claudeAgent', false, '', false, '').accountsNote).toBe('Claude');
   expect(['grok', 'acpRegistry'].map(driver => providerWizard(server, true, 1, driver, false, '', false, '').accountsNote)).toEqual(['', '']);
-  // The model-name families each provider's own icon already shows (the composer's short names read them).
-  expect(['codex', 'claudeAgent', 'cursor', 'grok', 'opencode', 'antigravity', 'muse', 'pi', 'acpRegistry'].map(driverModelFamilies))
-    .toEqual([['GPT-', 'GPT '], ['Claude '], ['Grok '], ['Grok '], [], ['Gemini '], ['Muse '], [], []]);
 });
 
 test('the ACP Registry list leaves out first-class agents and keeps an answer for five minutes', async () => {

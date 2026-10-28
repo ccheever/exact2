@@ -14,7 +14,7 @@ import { letGo } from '../client/let-go';
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Could not load this section.';
 type NoticeRow = { id: string; name: string; version: string; license: string; bundles: string; sourceUrl: string; expanded: boolean; noticeText: string };
-type ArchiveGroup = { id: string; title: string; mark: string; ink: string; surface: string; threads: { id: string; scope: string; title: string; description: string; first: boolean }[] };
+type ArchiveGroup = { id: string; title: string; mark: string; ink: string; surface: string; first: boolean; threads: { id: string; scope: string; title: string; description: string; first: boolean }[] };
 const notices = new WeakMap<T3Client, { origin: string; generation: number; retry: number; entries: Obj[] }>();
 
 // The connected server owns this manifest. Do not substitute a fabricated list
@@ -104,7 +104,7 @@ export async function archivedSettings(client: T3Client, native: Native | null |
         let group = groups.get(id);
         if (!group) {
           const title = logical?.displayName ?? str(project.title), identity = projectIdentity(title);
-          groups.set(id, group = { id, title, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, threads: [], dated: [] });
+          groups.set(id, group = { id, title, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, first: false, threads: [], dated: [] });
         }
         for (const thread of shell.threads.filter(thread => thread.projectId === project.id)) {
           const at = str(thread.archivedAt || thread.createdAt), threadId = str(thread.id);
@@ -113,7 +113,7 @@ export async function archivedSettings(client: T3Client, native: Native | null |
         }
       }
     }
-    return { ...empty, available: true, error: failures.join(' · '), groups: [...groups.values()].filter(group => group.dated.length).map(({ dated, ...group }) => ({ ...group,
+    return { ...empty, available: true, error: failures.join(' · '), groups: [...groups.values()].filter(group => group.dated.length).map(({ dated, ...group }, index) => ({ ...group, first: index === 0,
       threads: dated.sort((a, b) => b.at.localeCompare(a.at) || b.row.id.localeCompare(a.row.id)).map((entry, index) => ({ ...entry.row, first: index === 0 })) })) };
   } catch (error) { return { ...empty, error: errorMessage(error) }; }
 }
@@ -177,8 +177,8 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     const supports = (key: string) => selected.length > 0 && selected.every(environment => obj(obj(environment.config.environment).capabilities)[key] === true);
     const directorySupported = !project && supports('worktreesDirectory');
     const configurable = supports('storageCleanup') && (!project || supports('projectWorktreeCleanup'));
-    // Start from remote is divided from Worktree location only where the page draws that row (settings-storage.contract).
-    const page = { ...empty, ...(await worktreeRows(client, native, scope, directorySupported && configurable)), diagnostics: diagnostics(scope.selected.length) };
+    // Start from remote is divided from Worktree location, which the page draws wherever the directory is supported.
+    const page = { ...empty, ...(await worktreeRows(client, native, scope, directorySupported)), diagnostics: diagnostics(scope.selected.length) };
     if (project && !configurable) return { ...page, project, notice: 'Update the selected environments to configure storage cleanup.' };
     const settings = representative.settings;
     const policy = (target: typeof representative) => obj(obj(obj(target.settings.projectSettingsOverrides)[target.projectId ?? '']).worktreeCleanup);

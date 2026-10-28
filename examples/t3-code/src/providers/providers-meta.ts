@@ -11,8 +11,6 @@ export type DriverField = {
 export type Driver = {
   id: string; label: string; enabledByDefault: boolean; defaultSlot: boolean;
   fields: DriverField[]; env: DriverField[]; legacyDefault: Obj | null; modelPlaceholder: string; color: string;
-  /** Model-name family prefixes the provider's own icon already shows, e.g. "Claude ". */
-  modelFamilies?: readonly string[];
   /** `false` lists the provider under Add provider's "Show more" instead of up front. */
   featured?: boolean;
   /** A badge beside the provider's name in Add provider. */
@@ -34,25 +32,25 @@ export const ANTIGRAVITY_AUTH_METHODS = [
 
 export const DRIVERS: Driver[] = [
   { id: 'codex', label: 'Codex', enabledByDefault: true, defaultSlot: true, color: 'light-dark(#000000, #ffffff)', modelPlaceholder: 'gpt-6.7-codex-ultra-preview',
-    modelFamilies: ['GPT-', 'GPT '], acpRegistryAgentIds: ['codex-acp'],
+    acpRegistryAgentIds: ['codex-acp'],
     legacyDefault: { enabled: true, binaryPath: 'codex', homePath: '', shadowHomePath: '', launchArgs: '', customModels: [] }, env: [],
     fields: [binary('Path to the Codex binary used by this instance.', 'codex'),
       field('homePath', 'CODEX_HOME path', 'Custom Codex home and config directory.', '~/.codex'),
       field('shadowHomePath', 'Shadow home path', 'Account-specific Codex home. Keeps auth.json separate while sharing state from CODEX_HOME.', '~/.codex-t3/personal'),
       field('launchArgs', 'Launch arguments', 'Additional CLI arguments passed to codex app-server on session start.')] },
   { id: 'claudeAgent', label: 'Claude', enabledByDefault: true, defaultSlot: true, color: '#d97757', modelPlaceholder: 'claude-sonnet-5',
-    modelFamilies: ['Claude '], acpRegistryAgentIds: ['claude-acp'],
+    acpRegistryAgentIds: ['claude-acp'],
     legacyDefault: { enabled: true, binaryPath: 'claude', homePath: '', customModels: [], launchArgs: '', autoCompactWindow: '' }, env: [],
     fields: [binary('Path to the Claude binary used by this instance.', 'claude'),
       field('homePath', 'CLAUDE_CONFIG_DIR path', 'Custom Claude home and config directory. Keeps .claude.json and .claude separate.', '~/.claude'),
       field('autoCompactWindow', 'Auto-compact after', "Compact after 100,000 to 1,000,000 tokens. Leave empty to use Claude's default.", 'e.g. 300000'),
       field('launchArgs', 'Launch arguments', 'Additional CLI arguments passed on session start.', 'e.g. --chrome')] },
   { id: 'cursor', label: 'Cursor', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#26251E, #EDECEC)', modelPlaceholder: 'claude-sonnet-4-6',
-    modelFamilies: ['Grok '], acpRegistryAgentIds: ['cursor'],
+    acpRegistryAgentIds: ['cursor'],
     legacyDefault: { enabled: false, customModels: [] }, fields: [],
     env: [field('CURSOR_API_KEY', 'Cursor API key', 'Optional. Overrides browser sign-in for this provider.', 'Paste API key', { control: 'password' })] },
   { id: 'grok', label: 'Grok', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'model-slug',
-    modelFamilies: ['Grok '], acpRegistryAgentIds: ['grok-build'],
+    acpRegistryAgentIds: ['grok-build'],
     legacyDefault: { enabled: false, binaryPath: 'grok', customModels: [] }, env: [], fields: [binary('Path to the Grok CLI binary.', 'grok')] },
   { id: 'opencode', label: 'OpenCode', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#211E1E, #F1ECEC)', modelPlaceholder: 'openai/gpt-5',
     acpRegistryAgentIds: ['opencode', 'opencode-v2'],
@@ -61,14 +59,14 @@ export const DRIVERS: Driver[] = [
       field('serverUrl', 'Server URL', 'Leave blank to let T3 Code spawn the server when needed.', 'http://127.0.0.1:4096'),
       field('serverPassword', 'Server password', 'Stored separately on the host.', 'Optional', { control: 'password' })] },
   { id: 'antigravity', label: 'Antigravity', enabledByDefault: false, defaultSlot: true, color: '#5b87bf', modelPlaceholder: 'model-slug',
-    modelFamilies: ['Gemini '], acpRegistryAgentIds: ['antigravity-acp'],
+    acpRegistryAgentIds: ['antigravity-acp'],
     legacyDefault: { enabled: false, authMethod: 'oauth-personal', apiKey: '', gcpProject: '', gcpLocation: '', binaryPath: '', customModels: [] }, env: [],
     fields: [field('authMethod', 'Sign-in method', 'Google accounts use your subscription; API keys and Agent Platform bill usage.', '', { control: 'select', options: ANTIGRAVITY_AUTH_METHODS }),
       field('apiKey', 'API key', 'Gemini or Vertex AI express key. Stored separately on the host.', 'Optional', { control: 'password' }),
       field('gcpProject', 'GCP project', 'Required for Gemini Enterprise. Agent Platform uses it when no API key is set.', 'my-project-id'),
       field('gcpLocation', 'GCP location', 'Region for Gemini Enterprise or Agent Platform.', 'us-central1'),
       field('binaryPath', 'Binary path', 'Custom ACP executable. Leave empty to select automatically.', 'Automatic', { persist: true })] },
-  { id: 'muse', label: 'Muse Code', enabledByDefault: false, defaultSlot: true, color: '#0081fb', modelPlaceholder: 'model-slug', modelFamilies: ['Muse '],
+  { id: 'muse', label: 'Muse Code', enabledByDefault: false, defaultSlot: true, color: '#0081fb', modelPlaceholder: 'model-slug',
     legacyDefault: { enabled: false, binaryPath: 'muse', customModels: [] }, env: [],
     fields: [binary('Path to the Muse Code binary on this environment. Sign in with muse login on that host.', 'muse')] },
   { id: 'pi', label: 'Pi', enabledByDefault: false, defaultSlot: true, color: 'light-dark(#0F0F0F, #F5F5F5)', modelPlaceholder: 'anthropic/claude-sonnet-5',
@@ -85,8 +83,6 @@ export const DRIVERS: Driver[] = [
 ];
 
 export const driverMeta = (id: string): Driver | undefined => DRIVERS.find(driver => driver.id === id);
-/** A driver's model-name family prefixes (`modelFamilies`); none for an unknown driver. */
-export const driverModelFamilies = (id: string): readonly string[] => driverMeta(id)?.modelFamilies ?? [];
 /** The ACP Registry agents T3 Code ships as first-class providers, which Add provider's registry list leaves out. */
 export const FIRST_CLASS_REGISTRY_AGENT_IDS: ReadonlySet<string> = new Set(DRIVERS.flatMap(driver => driver.acpRegistryAgentIds ?? []));
 

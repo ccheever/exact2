@@ -365,7 +365,7 @@ component CoreRowView
               // D15: a mixed switch turns the setting on for every selected target.
               ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.inert or row.disabled), faded=row.disabled, on=pal.accent, off=pal.switchOff, thumb=pal.thumb, thumbOff=pal.thumbOff, reduced=reduced, switchId=`setting-${row.id}`, press=change(row.id, row.target, row.mixed or not row.checked ? "true" : "false"))
             if row.kind == "select"
-              CoreSelect(rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
+              CoreSelect(stop="enabled page", rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
               if row.value2 == "configure"
                 button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-6-${row.id}`, paint="text", name="settings", size=16, color=pal.text)
@@ -407,7 +407,7 @@ component CoreRowView
             if row.kind == "font"
               FontFamilyPicker(rowId=row.id, label=`${row.title} family`, value=row.label, families=row.options, pal=pal, choose=change(row.id, row.target))
               // Neither control is disabled while the write runs (settings-a-fonts.contract says why).
-              CoreSelect(rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=false, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
+              CoreSelect(stop="enabled page", rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=false, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
       if row.info == "preview-prompt"
         PromptFontPreview(family=row.driver, size=row.previewSize, pal=pal)
       if row.info == "preview-code" or row.info == "preview-code-terminal"
@@ -432,6 +432,7 @@ component CoreSelect
     menu: string
     openMenu: action
     choose: action
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" in a dialog
   derive keyItems = options.filter((option) => not option.disabled).map((option) => KmItem(id=`setting-${rowId}-menu-${option.id}`, label=option.label))
   action triggerKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
@@ -444,7 +445,7 @@ component CoreSelect
           focus(target)
   view
     box position="relative" flex-shrink=0
-      button popovertarget=`select-${section}-${rowId}` key=triggerKey disabled=disabled role="combobox" aria-label=value id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000" data-focus-stop=(disabled ? "" : "enabled page")
+      button popovertarget=`select-${section}-${rowId}` key=triggerKey disabled=disabled role="combobox" aria-label=value id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000" data-focus-stop=(disabled ? "" : stop)
         SelectFace(rowId=rowId, value=value, icon=icon, width=width, pal=pal, dim=dim)
       CoreMenu(options=options, pal=pal, width=(menuWidth > 0 ? menuWidth : width), checks=(icon == "checks"), menuId=`select-${section}-${rowId}`, items=keyItems, keyed=0, choose=choose, testId=`setting-${rowId}-menu`)
 

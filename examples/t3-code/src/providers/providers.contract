@@ -336,10 +336,10 @@ component ProviderEditor
             if editor.setup.kind == "antigravity"
               ProviderAntigravitySetup(setup=editor.setup, instanceId=editor.id, scheme=scheme, wide=rowWide, busy=setupBusy, op=op, ui=ui)
             for codex in editor.setup.codex key=codex.key
-              CodexSetupRow(setup=codex, wide=rowWide, busy=setupBusy, op=op, ui=ui, cancelled=ui("none", ""))
+              CodexSetupRow(stop="enabled page", setup=codex, wide=rowWide, busy=setupBusy, op=op, ui=ui, cancelled=ui("none", ""))
             if editor.setup.kind == "account"
               for account in editor.setup.account key=account.key
-                ProviderAccountRow(account=account, scheme=scheme, wide=rowWide, divided=false, busy=setupBusy, op=op, askSignOut=ui("setup-logout", editor.id), idPrefix="")
+                ProviderAccountRow(stop="enabled page", account=account, scheme=scheme, wide=rowWide, divided=false, busy=setupBusy, op=op, askSignOut=ui("setup-logout", editor.id), idPrefix="")
             if editor.setup.cursorNote != ""
               PvRow(title="Cursor account", description=editor.setup.cursorNote, status="", policy="", wide=rowWide, divided=false)
             for field in editor.envFields key=field.rowKey
@@ -415,7 +415,7 @@ component ProviderNameRow
             box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(editor.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
           text editor.statusLead font-size="0.75rem" line-height="1rem" min-width=0 color="light-dark(#71717b, #a1a1a1)"
           if editor.statusEmail != ""
-            RedactedText(value=editor.statusEmail, placeholder=editor.statusEmailPlaceholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`provider-status-email-${editor.id}`)
+            RedactedText(stop="enabled page", value=editor.statusEmail, placeholder=editor.statusEmailPlaceholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`provider-status-email-${editor.id}`)
           if editor.statusLabel != ""
             text editor.statusLabel font-size="0.75rem" line-height="1rem" min-width=0 color="light-dark(#71717b, #a1a1a1)"
           if editor.statusDetail != ""

@@ -608,7 +608,7 @@ component ScheduledEditor
             column gap="0.375rem"
               text "Model" class=TkLabel
               row
-                SettingsModelTrigger(rowId="task-model", label=modelName, name=modelName, driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=markField(data.marks, modelKey, "accent"), disabled=(busy or not data.available), press=pickModel("task-model", `${encodeURIComponent(draft.environmentId)}|${encodeURIComponent(modelKey)}`))
+                SettingsModelTrigger(stop="enabled", rowId="task-model", label=modelName, name=modelName, driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=markField(data.marks, modelKey, "accent"), disabled=(busy or not data.available), press=pickModel("task-model", `${encodeURIComponent(draft.environmentId)}|${encodeURIComponent(modelKey)}`))
             column gap="0.75rem"
               if draft.legacyInterval
                 text "This task uses a legacy interval below one minute. Saving updates it to at least one minute." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" role="status"
