@@ -31,6 +31,7 @@ impl<D: DataSource> Runner<D> {
             if self.route(row) == Route::Agent {
                 entry["agent"] = json!(true);
             }
+            self.devices_json(&extension, entry);
             // Each permission by name; `permission` too where it has one.
             let sub = self.substitute(row);
             let by = sub["permissionBy"].as_object().into_iter().flatten();
@@ -289,6 +290,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             self.note_track(key, value);
+            self.devices_preferred(key);
             self.log(format!("prefer extension {key}"));
             self.announce(key);
             // An agent word is its extension's: any of its names stands for it.

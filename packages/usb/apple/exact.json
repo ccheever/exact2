@@ -1,0 +1,14 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/usb@^1.0",
+  "platform": "apple",
+  "targets": ["macos"],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "swift": ["USB.swift"] },
+  "artifacts": [],
+  "class": "USBModule"
+}

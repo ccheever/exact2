@@ -315,6 +315,10 @@ shape Session
 shape Ack
   ok: bool
   error: string
+// What the mention light was set to (LLP 1133.037 §12.1).
+shape Lit
+  lit: bool
+  error: string
 
 // An explicit edit lookup names one missing page, or the newest own message.
 shape EditTarget

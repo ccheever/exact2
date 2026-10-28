@@ -365,7 +365,12 @@ impl<D: DataSource> Runner<D> {
     /// Whether the substitute polls `row` itself: a sampled source, or a
     /// count (`counts`).
     pub(in crate::runner) fn substitute_polls(&self, row: &ModulesRow) -> bool {
-        self.samples_of(row).is_some() || self.substitute(row)["counts"].is_object()
+        self.samples_of(row).is_some()
+            || self.substitute(row)["counts"].is_object()
+            || matches!(
+                self.substitute(row)["device"]["role"].as_str(),
+                Some("stream" | "reports")
+            )
     }
 
     /// The substitute's answer to a reader of a count (`counts`, LLP
@@ -533,9 +538,13 @@ impl<D: DataSource> Runner<D> {
             samples.grids.retain(|(k, g), _| {
                 *k != key || groups.contains(g) || data.contains_key(&format!("{k} {g}"))
             });
+            // A device's stream or reports are data code's, with no Contract
+            // reader: polled while a connection reads (`devices.rs`).
             if readers.is_empty() {
                 self.extensions.readers.remove(&key);
-                self.extensions.polls.remove(&key);
+                if !self.device_polled(&key) {
+                    self.extensions.polls.remove(&key);
+                }
             }
         }
         // A reader's cursor goes with it; another source's readers keep theirs.

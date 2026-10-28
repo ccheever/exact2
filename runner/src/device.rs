@@ -84,6 +84,11 @@ pub struct Device {
     /// D2): a kind's `<service>` is declared with every type its rows give
     /// it, so a later row adds a type to a kind (LLP 1133.032 D11 item 3).
     pub android_services: &'static [&'static str],
+    /// Android hardware features the row declares, each written
+    /// `<uses-feature android:name="android.hardware.<name>"
+    /// android:required="false"/>` so a store still offers the app to a
+    /// device without it (LLP 1133.037 D17: `usb.host`).
+    pub android_features: &'static [&'static str],
 }
 
 /// What a row has unless it says otherwise.
@@ -109,6 +114,7 @@ const ROW: Device = Device {
     ios_tasks: &[],
     needs: None,
     android_services: &[],
+    android_features: &[],
 };
 
 /// Every device grant. Adding a row is one entry here and no host code.
@@ -500,6 +506,35 @@ pub const DEVICES: &[Device] = &[
         tvos: false,
         ..ROW
     },
+    // @ref LLP 1133.037 D17 — Web Serial, WebHID and WebUSB. No platform
+    // shows a purpose for any of them, so no line names one. The web's
+    // policy features are the APIs' names. Android declares USB host mode,
+    // not required, for serial and USB; HID is absent there (D11). macOS
+    // derives nothing while the app is not sandboxed. No device API exists
+    // for apps on iOS or tvOS (D21).
+    Device {
+        name: "serial",
+        web: Some("serial"),
+        purpose: false,
+        tvos: false,
+        android_features: &["usb.host"],
+        ..ROW
+    },
+    Device {
+        name: "hid",
+        web: Some("hid"),
+        purpose: false,
+        tvos: false,
+        ..ROW
+    },
+    Device {
+        name: "usb",
+        web: Some("usb"),
+        purpose: false,
+        tvos: false,
+        android_features: &["usb.host"],
+        ..ROW
+    },
 ];
 
 /// One `device.<name> <key>` line.
@@ -753,11 +788,11 @@ mod tests {
     fn the_policy_allows_what_is_granted_and_denies_the_rest() {
         assert_eq!(
             permissions_policy("device.microphone p\ndevice.speech-recognition q"),
-            "microphone=(self), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
+            "microphone=(self), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=(), serial=(), hid=(), usb=()"
         );
         assert_eq!(
             permissions_policy(""),
-            "microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
+            "microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=(), serial=(), hid=(), usb=()"
         );
     }
 

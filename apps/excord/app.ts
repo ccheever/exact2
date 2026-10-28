@@ -11,6 +11,7 @@ import { emojiChoices, resolveMentions, suggest, switchTargets } from './compose
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { avatarUrl, clip, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 import { messageLanguage } from './language';
+import { mentionLights, setMentionLight } from './light';
 
 export const appId = 'com.exact.excord';
 // Where Discord is: the fixture (app.json's `commands.server`) unless the bake says otherwise.
@@ -24,12 +25,12 @@ export const origin = 'http://127.0.0.1:4790';
 const DISCORD: string = 'https://discord.com';
 export const grants = {
   'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790',
-    'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range',
+    'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range', 'device.hid',
     'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload', 'fs.read doc:/',
     'fs.read app:/data/fixture-identifies.json', 'fs.write app:/data/fixture-identifies.json'],
   // The gateway resumes on other subdomains (`resume_gateway_url`).
   'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg',
-    'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range',
+    'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range', 'device.hid',
     // A message's files go to Discord's upload bucket (`upload` below), with no credentials.
     'net.fetch https://discord-attachments-uploads-prd.storage.googleapis.com',
     'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload', 'fs.read doc:/',
@@ -345,6 +346,8 @@ function newest(channel: string): string | null {
 const sources: Sources = {
   loadSession: (_args, secrets, storage) => loadSession(live, secrets, storage),
   messageLanguage: ([text]) => messageLanguage(text),
+  mentionLights: ([attachedList]) => mentionLights(attachedList),
+  setMentionLight: ([device, on]) => setMentionLight(device, on),
   signIn: ([text], secrets) => { const error = signIn(live, secrets, text); return error ? { ok: false, error } : OK; },
   signOut: (_args, secrets) => { signOut(live, secrets); return OK; },
   unlockSession: (_args, secrets) => unlockSession(live, secrets),

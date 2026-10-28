@@ -71,13 +71,15 @@ android {
     // scripts/android-manifest.mjs, LLP 1133.030 D9, LLP 1133.026 D19 item 3), merged into the shell's manifest from the release source set's: an app that grants no device asks
     // for none, and one that uses no such package runs nothing beyond the shell's activity.
     val fragment = providers.gradleProperty("manifestFragment").orNull?.let { file(it).readText() }?.takeIf { it.isNotBlank() }
+    // The hardware a grant line uses where present (`-PandroidFeatures`, LLP 1133.037 D17), never required.
+    val lineFeatures = providers.gradleProperty("androidFeatures").orNull?.split(',')?.filter { it.isNotBlank() }.orEmpty()
     (providers.gradleProperty("permissions").orNull?.split(',')?.filter { it.isNotEmpty() } ?: emptyList())
-        .takeIf { it.isNotEmpty() || fragment != null }?.let { names ->
+        .takeIf { it.isNotEmpty() || fragment != null || lineFeatures.isNotEmpty() }?.let { names ->
         val permissions = layout.buildDirectory.file("permissions/AndroidManifest.xml").get().asFile
         permissions.parentFile.mkdirs()
         // CAMERA implies the back camera and autofocus as required features, which would filter the app from a
         // device without them; each is declared not required (LLP 1133.008 D6).
-        val features = if ("android.permission.CAMERA" in names) listOf("camera.any", "camera", "camera.autofocus", "camera.flash") else emptyList()
+        val features = (if ("android.permission.CAMERA" in names) listOf("camera.any", "camera", "camera.autofocus", "camera.flash") else emptyList()) + lineFeatures
         // A permission a later API retired names its last level (`<name> maxSdkVersion=32`, LLP 1133.019 D4).
         val permission = { line: String ->
             val (name, last) = line.split(' ').let { it[0] to it.getOrNull(1)?.removePrefix("maxSdkVersion=") }

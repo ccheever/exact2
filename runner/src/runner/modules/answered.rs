@@ -16,6 +16,7 @@ impl<D: DataSource> Runner<D> {
         };
         let (token, source, waits) = (h.token, h.source.clone(), h.waits);
         let name = h.permission.clone();
+        let held_args = h.args.clone();
         let row = self.module_row(&source);
         let sub = self.substitute(&row);
         match (waits, answer) {
@@ -113,6 +114,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             (Waits::Choose, answer) => self.chosen(&row, token, answer),
+            (Waits::Device, answer) => self.device_answered(&row, token, &held_args, answer),
             (Waits::Permission | Waits::Raise | Waits::Check, HoldAnswer::Value(_))
             | (Waits::Span, _) => {}
         }

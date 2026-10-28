@@ -1,0 +1,198 @@
+{
+  "kind": "interface",
+  "name": "@exact/hid",
+  "version": "1.0.0",
+  "grants": ["device.hid"],
+  "permission": {
+    "name": "hid",
+    "grants": ["device.hid"],
+    "status": "hidStatus",
+    "field": "state",
+    "denied": "SecurityError",
+    "initial": { "android": "prompt", "*": "granted" }
+  },
+  "agent": {
+    "devices": "HIDDeviceFixture[]"
+  },
+  "devices": {
+    "word": "devices",
+    "kind": "hid",
+    "record": ["id", "vendorId", "productId", "productName", "collections", "connected", "granted"],
+    "fill": { "vendorId": 0, "productId": 0, "productName": "", "collections": [], "connected": true, "granted": true },
+    "absent": ["ios", "tvos", "android", "terminal"]
+  },
+  "shapes": {
+    "HIDStatus": {
+      "available": "bool",
+      "attachedList": "bool",
+      "state": "enum<granted|prompt|denied>"
+    },
+    "HIDReportInfo": {
+      "reportId": "number"
+    },
+    "HIDCollectionInfo": {
+      "usagePage": "number",
+      "usage": "number",
+      "type": "option<number>",
+      "inputReports": "option<HIDReportInfo[]>",
+      "outputReports": "option<HIDReportInfo[]>",
+      "featureReports": "option<HIDReportInfo[]>"
+    },
+    "HIDDeviceRecord": {
+      "id": "string",
+      "vendorId": "number",
+      "productId": "number",
+      "productName": "string",
+      "collections": "HIDCollectionInfo[]",
+      "connected": "bool",
+      "granted": "bool"
+    },
+    "HIDDeviceFilter": {
+      "vendorId": "option<number>",
+      "productId": "option<number>",
+      "usagePage": "option<number>",
+      "usage": "option<number>"
+    },
+    "HIDOpened": {
+      "connection": "handle<hid>",
+      "device": "HIDDeviceRecord"
+    },
+    "HIDConnection": {
+      "open": "bool",
+      "connected": "bool"
+    },
+    "HIDInputReport": {
+      "reportId": "number",
+      "data": "string",
+      "at": "number"
+    },
+    "HIDInputReports": {
+      "reports": "HIDInputReport[]",
+      "dropped": "number",
+      "interrupted": "bool"
+    },
+    "HIDFeatureReport": {
+      "data": "string"
+    },
+    "HIDDeviceFixture": {
+      "id": "string",
+      "vendorId": "number",
+      "productId": "number",
+      "productName": "option<string>",
+      "collections": "option<HIDCollectionInfo[]>",
+      "connected": "option<bool>",
+      "granted": "option<bool>",
+      "inputReports": "option<HIDInputReport[]>"
+    }
+  },
+  "names": [
+    {
+      "source": "hidStatus",
+      "live": true,
+      "answers": "HIDStatus",
+      "sync": { "name": "hidStatusSync", "from": "read" },
+      "substitute": {
+        "default": { "available": true, "attachedList": true, "state": "granted" },
+        "targets": {
+          "web": { "attachedList": false },
+          "ios": { "available": false, "attachedList": false, "state": "denied" },
+          "tvos": { "available": false, "attachedList": false, "state": "denied" },
+          "android": { "available": false, "attachedList": false, "state": "denied" },
+          "terminal": { "available": false, "attachedList": false, "state": "denied" }
+        }
+      }
+    },
+    {
+      "send": "requestDevice",
+      "origin": "app",
+      "foreground": true,
+      "gesture": true,
+      "options": {
+        "filters": "HIDDeviceFilter[]",
+        "exclusionFilters": "option<HIDDeviceFilter[]>"
+      },
+      "answers": "HIDDeviceRecord[]",
+      "substitute": { "device": { "role": "request", "many": true, "cancel": [] }, "unsupported": ["linux"] }
+    },
+    {
+      "source": "getDevices",
+      "live": true,
+      "answers": "HIDDeviceRecord[]",
+      "substitute": { "device": { "role": "remembered" } }
+    },
+    {
+      "source": "attachedDevices",
+      "live": true,
+      "options": { "filters": "HIDDeviceFilter[]" },
+      "answers": "HIDDeviceRecord[]",
+      "substitute": { "device": { "role": "attached" }, "unsupported": ["web"] }
+    },
+    {
+      "send": "open",
+      "origin": "app",
+      "foreground": true,
+      "options": { "device": "string" },
+      "answers": "HIDOpened",
+      "handles": { "connection": "hid" },
+      "substitute": { "device": { "role": "open", "by": "device" } }
+    },
+    {
+      "source": "hidConnection",
+      "live": true,
+      "options": { "connection": "handle<hid>" },
+      "answers": "HIDConnection",
+      "substitute": { "device": { "role": "connection" } }
+    },
+    {
+      "source": "inputReports",
+      "live": true,
+      "contract": false,
+      "poll": { "option": "interval", "default": 100 },
+      "options": {
+        "connection": "handle<hid>",
+        "reportId": "option<number>",
+        "interval": { "type": "option<number>", "min": 50 },
+        "history": { "type": "option<number>", "min": 1, "max": 1024 }
+      },
+      "answers": "HIDInputReports",
+      "substitute": { "device": { "role": "reports", "events": "inputReports", "history": 16 } }
+    },
+    {
+      "send": "sendReport",
+      "origin": "app",
+      "contract": false,
+      "options": { "connection": "handle<hid>", "reportId": "number", "data": "string" },
+      "answers": null,
+      "substitute": { "device": { "role": "write" } }
+    },
+    {
+      "send": "sendFeatureReport",
+      "origin": "app",
+      "contract": false,
+      "options": { "connection": "handle<hid>", "reportId": "number", "data": "string" },
+      "answers": null,
+      "substitute": { "device": { "role": "write" } }
+    },
+    {
+      "send": "receiveFeatureReport",
+      "origin": "app",
+      "contract": false,
+      "options": { "connection": "handle<hid>", "reportId": "number" },
+      "answers": "HIDFeatureReport",
+      "substitute": { "device": { "role": "keyed", "at": "featureReports.{reportId}", "wrap": "data", "missing": { "error": "NotAllowedError" } } }
+    },
+    {
+      "send": "close",
+      "options": { "connection": "handle<hid>" },
+      "answers": null,
+      "substitute": { "device": { "role": "close" } }
+    },
+    {
+      "send": "forget",
+      "origin": "app",
+      "options": { "device": "string" },
+      "answers": null,
+      "substitute": { "device": { "role": "forget" } }
+    }
+  ]
+}

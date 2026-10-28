@@ -42,6 +42,7 @@ mod bound;
 mod calls;
 mod ceremony;
 mod declared;
+mod devices;
 mod events;
 mod fed;
 mod handles;
@@ -143,6 +144,8 @@ pub(super) struct Extensions {
     ceremonies: Vec<(u64, String, Json)>,
     /// The sends answered after a span, and the calls kept (`spans.rs`).
     spans: spans::Spans,
+    /// The devices remembered and open, their readers and writes (`devices.rs`).
+    devices: devices::Devices,
     /// The pictures admitted and refused, by extension (`pictures.rs`).
     pictures: pictures::Pictures,
     /// The canvases packages feed, and their leases (`fed.rs`).
@@ -262,6 +265,9 @@ enum Waits {
     Choose,
     /// A send the substitute answers after its span (`spans.rs`).
     Span,
+    /// A device module's chooser, or its permission dialog at an open on
+    /// Android (`devices.rs`).
+    Device,
 }
 
 impl Waits {
@@ -274,6 +280,7 @@ impl Waits {
             Waits::Ceremony => "ceremony",
             Waits::Choose => "choose",
             Waits::Span => "span",
+            Waits::Device => "device",
         }
     }
 }
@@ -920,6 +927,15 @@ impl<D: DataSource> Runner<D> {
                 &taps[..],
                 true,
             ),
+            Waits::Device => {
+                let (capability, args, choices) = self.device_ticket(row, origin, call);
+                let choices: Vec<&str> = choices.iter().map(String::as_str).collect();
+                let ticket = self.hold(&capability, None, &args.to_string(), &choices, false);
+                if let Some(h) = self.device_holds.iter_mut().find(|h| h.ticket == ticket) {
+                    h.name = name;
+                }
+                return ticket;
+            }
         };
         let ticket = self.hold(&capability, None, &args.to_string(), choices, value);
         if let Some(h) = self.device_holds.iter_mut().find(|h| h.ticket == ticket) {

@@ -37,6 +37,7 @@ import { reach } from "./reach.js";
 import { updates } from "./update.js";
 import { spans, fillAll } from "./spans.js";
 import { arrivals } from "./arrival.js";
+import { devices } from "./devices.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -87,7 +88,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     : ty.endsWith("[]") ? Array.isArray(v) && v.every(x => wordFits(ty.slice(0, -2), x)) : true;
   const isStatus = row => row.sub.permission?.status === row.key.slice(row.key.indexOf(".") + 1);
   // A permission no platform asks starts as its declaration says (`initial`, LLP 1133.017 D14).
-  const stateOf = name => permission.get(name) ?? [...byKey.values()].flatMap(permissionsOf).find(p => p.name === name)?.initial ?? "prompt";
+  // By target where it differs (`{"android": "prompt", "*": "granted"}`, LLP 1133.037 D17).
+  const initialOf = i => typeof i === "string" ? i : i?.web ?? i?.["*"];
+  const stateOf = name => permission.get(name) ?? initialOf([...byKey.values()].flatMap(permissionsOf).find(p => p.name === name)?.initial) ?? "prompt";
   const now = () => reportTime(clock.now)[0] + clock.now; // the agent clock's date, as `exactTime` reads it
   const filled = (row, v) => {
     if (errorCode(v)) return v;
@@ -158,7 +161,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     return value(json, row.type, row.key);
   };
   const capability = h => h.waits === "permission" ? "permission" : h.waits === "raise" ? h.row.sub.raise.ticket : h.waits === "ceremony" ? h.row.sub.ceremony.ticket
-    : h.waits === "choose" ? h.row.sub.choose.ticket : h.row.sub.ticket;
+    : h.waits === "choose" ? h.row.sub.choose.ticket : h.waits === "device" ? "chooser" : h.row.sub.ticket;
   // `forward`: the implementation's call, made once the ticket allows it.
   // A newer ask of the same reader or mutation supersedes its held one, whatever answers the newer (§6: retired).
   // A forwarded call let go is cancelled at its implementation (LLP 1133.016 D15 item 2).
@@ -292,6 +295,9 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     commit(() => { const sources = new Set([...keys].map(k => byKey.get(k).source)); for (const r of Resources) if (sources.has(r.source)) R(r); }, "module");
     for (const key of keys) globalThis.exact?.announceModule?.(key); // data code's readers
   };
+  // Serial ports, HID and USB devices (LLP 1133.037 §11): `devices.js`, its readers polled as a sampled source's are.
+  const dv = devices({ byKey, preferred, say, clock, reask: keys => { if (keys.length) reask(keys); },
+    polled: row => { live.add(row.key); polls.set(row.key, clock.now); } });
   // What answers a name: its implementation as in production (outside the agent), its implementation told it runs
   // under the agent (an interface that is its own substitute), or the substitute.
   const extensionOf = row => row.key.slice(0, row.key.indexOf("."));
@@ -603,6 +609,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (from !== "app") { say(`${row.key}: refused, person-required (${from} origin)`); return Promise.resolve({ error: p.denied }); }
       return new Promise(resolve => { const h = { ticket: nextTicket(), row, args, resolve }; effects.push(h); say(`device permission ${h.ticket} held (agent)`); });
     }
+    const device = dv.effect(row, args);
+    if (device !== undefined) { if (errorCode(device)) say(`${name}: refused: ${errorCode(device)}`); return Promise.resolve(device); }
     const done = applyEffect(row, args);
     if (done === null) sp.effected(row, args, from);
     return Promise.resolve(done);
@@ -725,7 +733,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     time(); // on the live clock, the wall's time: a page with no timer moves no clock
     const due = [...polls].filter(([key, last]) => {
       const row = byKey.get(key), period = periodOf(row);
-      return period != null && (route(row) !== "substitute" || sampled.sampled(row)) && !asking.has(key) && !failed.has(key) && !pollEnded(row) && live.has(key) && clock.now - last >= period;
+      return period != null && (route(row) !== "substitute" || sampled.sampled(row) || dv.role(row)) && !asking.has(key) && !failed.has(key) && !pollEnded(row) && live.has(key) && clock.now - last >= period;
     }).map(([key]) => key);
     for (const key of due) { polls.set(key, clock.now); say(`poll ${key}`); }
     if (due.length) reask(due);
@@ -770,7 +778,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     // D13 item 4); else the implementation.
     const agentDecision = () => row.sub.unsupported?.includes("web") ? { now: { error: "NotSupportedError" } }
       : decidePermission(row, send, p) ?? (send && row.sub.choose ? { hold: "choose" } : null) ?? (send && row.sub.raise ? decide(row, send, args) : null) ?? { forward: true };
-    let d = r === "agent" ? agentDecision() : decideTimed(row, send, timeout, args);
+    const deviceDecision = () => row.sub.unsupported?.includes("web") ? { now: { error: "NotSupportedError" } } : decidePermission(row, send, p) ?? dv.decide(row, args);
+    let d = r === "agent" ? agentDecision() : dv.role(row) ? deviceDecision() : decideTimed(row, send, timeout, args);
     // A name whose grants are per argument asks permission only for an argument it was given (LLP 1133.009 D3).
     const g = row.sub.nameGrants, asks = !g || Array.isArray(g) || Object.keys(g).some(a => given(args, a));
     if (d.hold === "permission" && !asks) d = r === "agent" ? { forward: true } : { now: { error: "TypeError" } };
@@ -936,6 +945,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       for (const [extension, e] of Object.entries(out)) {
         Object.assign(e, sampled.state(extension));
         sp.state(extension, e);
+        dv.state(extension, e);
         rc.state([...byKey.values()].filter(r => extensionOf(r) === extension), e);
         ar.state(extension, e);
         const own = ready.get(extension)?.state?.();
@@ -997,7 +1007,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     holds: () => [...held.filter(h => !h.queued).map(h => ({ name: h.name, ticket: h.ticket, device: { capability: capability(h),
       args: h.waits === "permission" ? { capability: h.permission, request: h.row.key.split(".")[1], origin: "app" } : h.waits === "ceremony" ? ceremonies.args(h)
         // A sheet shows what the call asked (the properties, the event).
-        : h.waits === "choose" ? { request: h.row.key.split(".")[1], origin: "app", options: h.args ?? {} } : { request: h.row.key.split(".")[1] } } })),
+        : h.waits === "choose" ? { request: h.row.key.split(".")[1], origin: "app", options: h.args ?? {} } : h.waits === "device" ? dv.ticket(h).args : { request: h.row.key.split(".")[1] } } })),
       ...effects.map(h => ({ name: h.row.key, ticket: h.ticket, device: { capability: "permission", args: { capability: h.row.sub.permission.name, request: h.row.key.split(".")[1], origin: "app" } } }))],
     // `tap @t allow|deny|cancel`, `type @t <value>`, `tap @ref` on a listed entry; undefined for a ticket that is not a module's.
     answer(req) {
@@ -1067,6 +1077,15 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         }
         if (h.forward) releaseForward(h, sheet); else release(h, {});
         return { ticket: req.ticket, capability: cap, answered: sheet.tap ?? "value", delivery: "substituted" };
+      }
+      // A device's chooser (LLP 1133.037 D2): `tap @t <id>` or `cancel`.
+      if (h.waits === "device") {
+        const choices = dv.ticket(h).choices;
+        if (req.op !== "tap") return { error: `@${h.ticket} (${cap}): answered by tap, not type` };
+        if (req.choice !== "cancel" && !choices.includes(req.choice)) return { error: `@${h.ticket} (${cap}): tap takes ${["cancel", ...choices].join(" | ")}, not ${req.choice}` };
+        say(`device ${cap} ${h.ticket} ${req.choice === "cancel" ? "cancelled" : `answered: ${req.choice}`}`);
+        release(h, dv.chosen(h, req.choice));
+        return { ticket: req.ticket, capability: cap, answered: req.choice, delivery: "substituted" };
       }
       if (h.waits === "permission") {
         if (req.op !== "tap") return { error: `@${h.ticket} (permission): answered by tap, not type` };
@@ -1142,6 +1161,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         moved.push([key, preferred.get(key)]);
         if (v === "clear") preferred.delete(key); else preferred.set(key, v);
         if (row) sampled.prefer(row, v);
+        dv.preferred(key);
         say(`prefer extension ${key}`);
         if (row?.sub.changes) sp.changed(row, before, valueOf(row));
       }

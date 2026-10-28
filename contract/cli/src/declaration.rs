@@ -405,7 +405,10 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     // Its `images`, an `img` source scheme the package serves (LLP 1133.019
     // D11 item 1), is read by picture admission from any name too. Its
     // `tables` are what a `fill` reads by a field (`{"table", "by"}`: a
-    // gamepad's labels by its family, LLP 1133.022 D2).
+    // gamepad's labels by its family, LLP 1133.022 D2). Its `devices` says
+    // how the substitute keeps a module of plugged-in devices (LLP 1133.037
+    // §11: the agent word that lists them, the handle kind, whether an open
+    // is exclusive, the record's fields and the targets with none).
     for field in [
         "permission",
         "grants",
@@ -413,6 +416,7 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         "agent",
         "images",
         "tables",
+        "devices",
     ] {
         if !interface[field].is_null() {
             out.insert(field.into(), interface[field].clone());
