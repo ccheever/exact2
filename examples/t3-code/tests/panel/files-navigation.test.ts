@@ -106,7 +106,7 @@ test('typed file errors keep the exact attempted path through the transport and 
 });
 
 test('draft image, video, HTML and PDF previews mint workspace assets before a thread exists', async () => {
-  // The PDF's frame shows a local copy of the asset (media-frame.ts).
+  // The PDF is framed at its signed URL (files-rendered-html.ts).
   const server = serveAssets(() => ({ body: '%PDF-1.4' }));
   memoryAppFiles();
   try {

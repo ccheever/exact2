@@ -6,7 +6,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { filesLocal, filesView, workspaceMutationId } from '../../src/panel/files-surface';
 import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
-import { contentRevision, htmlPage, htmlResource, htmlToggleLabel, isHtmlPath, revisedUrl } from '../../src/panel/files-rendered-html';
+import { htmlPage, htmlResource, htmlToggleLabel, isHtmlPath, revisedUrl } from '../../src/panel/files-rendered-html';
 import { highlight, type Token } from '../../src/highlight/timeline-highlight';
 import { deviceFolding } from '../../src/device/device-duo';
 
@@ -42,7 +42,8 @@ describe('Files: rendered HTML (FilePreviewPanel renderBrowserFile)', () => {
     expect(view.canRender).toBe(true);
     expect(view.renderLabel).toBe('Show HTML source');
     expect(view.renderIcon).toBe('code');
-    expect(view.url).toBe(`http://127.0.0.1:9/api/assets/signed/abc?sig=1&workspace-revision=${contentRevision('<h1>Hi</h1>')}`);
+    // No workspace change yet: no revision in the URL (WorkspaceBrowserPreview's revisionSuffix for a null mutation).
+    expect(view.url).toBe('http://127.0.0.1:9/api/assets/signed/abc?sig=1');
     expect(view.crumbsOffset).toBe(-1);
     const mint = calls.find(call => call.method === 'assets.createUrl');
     expect(mint?.payload).toEqual({ resource: { _tag: 'workspace-file', threadId: 't1', path: '/repo/site/index.html' } });
@@ -105,7 +106,6 @@ describe('Files: rendered HTML (FilePreviewPanel renderBrowserFile)', () => {
     expect(htmlToggleLabel(false)).toBe('Show rendered page');
     expect(revisedUrl('http://h/a?s=1', 'r1')).toBe('http://h/a?s=1&workspace-revision=r1');
     expect(revisedUrl('http://h/a', 'r 1')).toBe('http://h/a?workspace-revision=r%201');
-    expect(contentRevision('a')).not.toBe(contentRevision('b'));
   });
 });
 

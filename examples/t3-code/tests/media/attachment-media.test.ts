@@ -38,7 +38,8 @@ afterEach(() => server.restore());
 
 describe('attachment media bodies', () => {
   test('filePreviewKind classifies the four media kinds by MIME type and by name', () => {
-    expect(files.map(file => previewKind(file))).toEqual(['pdf', 'html', 'audio', 'video', 'unsupported']);
+    // An archive is classified as one, and has no preview until its viewer is here (attachment-surface.ts previewBody).
+    expect(files.map(file => previewKind(file))).toEqual(['pdf', 'html', 'audio', 'video', 'archive']);
     expect(['x.pdf', 'x.htm', 'x.mp3', 'x.m4a', 'x.mov', 'x.webm'].map(name => previewKind({ name, mimeType: 'application/octet-stream' })))
       .toEqual(['pdf', 'html', 'audio', 'audio', 'video', 'video']);
     expect([isMediaPreview('pdf'), isMediaPreview('image'), mediaBody('html', false), mediaBody('audio', true), mediaBody('text', true)])
