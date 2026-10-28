@@ -15,6 +15,7 @@ final class AgentStickyRevealMacTests: XCTestCase {
 
     func testARowUnderAStickyBoxIsScrolledClearAndPressed() throws {
         _ = NSApplication.shared
+        clicksArriveAsInTheKeyWindow() // (a test's process is never the active app: its clicks would press only a control, not a row)
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_STICKY_TAP_PLAN"], "build.mjs --test compiles the sticky-tap fixture")))
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
@@ -24,6 +25,7 @@ final class AgentStickyRevealMacTests: XCTestCase {
         let mount = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 440))
         window.contentView = mount
         view.frame = mount.bounds; mount.addSubview(view)
+        window.orderFrontRegardless()
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 320, height: 440)).error)
         window.layoutIfNeeded()
         let agent = Agent(session: session)
