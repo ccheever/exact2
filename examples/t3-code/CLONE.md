@@ -150,6 +150,19 @@ passes 3,722 tests. Temporary probes are removed; the normal build restores the
 saved environment, conversation and photo reply after restart. Actual delivery
 still compares complete server configurations. No phone parity or new TestFlight
 checkpoint is claimed.
+Home now distinguishes an unread native catalog from a successfully loaded empty
+catalog. It shows the existing Loading environments presentation during startup,
+then the saved environment and threads. Readiness survives transient failures;
+status or preference failure does not discard a successful catalog read. The
+normal build restores the saved conversation and unsent text after this change.
+All 3,723 mobile tests pass, including a bounded fresh-process reader lifecycle.
+A fresh ordinary follow-up currently remains at Saving on the large catalog.
+The journal records a 102.4 ms turn before the first native request is dispatched.
+Complete native recovery finds no queue row or ordinary transfer claim, and the
+64-character draft survives restart. One safe retry reproduces the failure. Do not
+submit that draft again until the synchronous preparation is corrected. The source
+performs three full-config reads before its first native await. Send-policy
+projection is the next bounded target; no fix or successful follow-up is claimed.
 The inactive native NewTask editor prerequisite reserves eight final-source slots
 and retains teardown receipts until explicit acknowledgment. Its actual UIKit
 fixture passes 86 checks, including text/chip source recovery, repeated reads,

@@ -523,6 +523,11 @@ describe('bake and command boundary', () => {
     expect(snapshot.origin).toBe('');
     expect(JSON.stringify(snapshot)).not.toContain('access_token');
   });
+  test('catalog readiness requires a current successful catalog independently of preferences', () => {
+    const result = Bun.spawnSync([process.execPath, join(import.meta.dir, 'tests/catalog-readiness.ts')], { timeout: 5000 });
+    expect({ code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() })
+      .toEqual({ code: 0, stdout: 'Catalog readiness verified.\n', stderr: '' });
+  });
   test('unavailable host and invalid mobile addresses never dispatch native work', async () => {
     expect((await mobileCommand(['connect'], undefined, unusedStorage)).message).toContain('iPhone or iPad');
     const requests: unknown[] = [];

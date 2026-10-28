@@ -179,7 +179,7 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
 // This owner keeps only catalog/status/preferences metadata. The canonical
 // client is the sole transcript owner; a reader never caches its raw projection.
 let snapshotReadStarted = 0, snapshotReadPublished = 0;
-let snapshotMetadata = { nativeAvailable: false, focusedStatus: {} as Obj, focusedGeneration: -1,
+let snapshotMetadata = { catalogLoaded: false, nativeAvailable: false, focusedStatus: {} as Obj, focusedGeneration: -1,
   focusedOrigin: '', focusedEnvironmentId: '', preferencesText: '{}', routingReady: false };
 export function mobileConnectionSources(client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
   const facts = client === mobileClient && snapshotMetadata.focusedGeneration === client.generation
@@ -207,32 +207,39 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
   await watchLive(mobileClient, native);
   await mobileQueuedEditRefresh(native, mobileClient);
   mobileVoiceObserveDraft(mobileClient);
+  let catalogSucceeded = false;
   let focusedStatus = {}, focusedGeneration = -1, focusedOrigin = '', focusedEnvironmentId = '', preferencesText = '{}', routingReady = false;
   if (native?.available) {
     try {
       const catalogBefore = fleet.saved;
+      const metadata = async (op: string) => {
+        try { return await bridgeReply(native, { op }); }
+        catch (error) { if (letGo(error)) throw error; return null; }
+      };
       const [status, catalog, preferences] = await Promise.all([
-        bridgeReply(native, { op: 'status' }), bridgeReply(native, { op: 'environments' }),
-        bridgeReply(native, { op: 'connectionPreferences' }),
+        metadata('status'), metadata('environments'), metadata('connectionPreferences'),
       ]);
-      if (reading !== snapshotReadStarted) return { serial: snapshotReadPublished };
-      if (status.ok) {
+      if (reading !== snapshotReadStarted) return { serial: snapshotReadPublished, catalogLoaded: snapshotMetadata.catalogLoaded };
+      if (status?.ok) {
         const value = obj(status.value);
         focusedStatus = { homeOrigin: str(value.homeOrigin), failureKind: str(value.failureKind), traceId: str(value.traceId), activeRouteId: str(value.activeRouteId) };
         focusedGeneration = status.generation; focusedOrigin = str(value.origin); focusedEnvironmentId = str(value.environmentId);
       }
       // A newer fleet/command adoption owns the catalog even while this read waits.
-      if (catalog.ok && fleet.saved === catalogBefore) fleet.saved = arr(obj(catalog.value).saved);
-      if (preferences.ok) preferencesText = str(obj(preferences.value).text, '{}');
-      routingReady = catalog.ok && preferences.ok;
+      if (catalog?.ok && Array.isArray(obj(catalog.value).saved)) {
+        catalogSucceeded = true;
+        if (fleet.saved === catalogBefore) fleet.saved = arr(obj(catalog.value).saved);
+      }
+      if (preferences?.ok) preferencesText = str(obj(preferences.value).text, '{}');
+      routingReady = catalogSucceeded && preferences?.ok === true;
     } catch (error) { if (letGo(error)) throw error; }
   }
   if (reading === snapshotReadStarted) {
-    snapshotMetadata = { nativeAvailable: native?.available === true, focusedStatus, focusedGeneration,
+    snapshotMetadata = { catalogLoaded: snapshotMetadata.catalogLoaded || catalogSucceeded, nativeAvailable: native?.available === true, focusedStatus, focusedGeneration,
       focusedOrigin, focusedEnvironmentId, preferencesText, routingReady };
     snapshotReadPublished++;
   }
-  return { serial: snapshotReadPublished };
+  return { serial: snapshotReadPublished, catalogLoaded: snapshotMetadata.catalogLoaded };
 }
 /** Pure rendering projection; never issues native IO or retains a prior graph. */
 export function mobileSnapshotProjection(now = 0) {
