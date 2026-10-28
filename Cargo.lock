@@ -1547,6 +1547,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-ink"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "naga 30.0.1",
+ "web-time",
+ "wgpu 30.0.1",
+]
+
+[[package]]
 name = "exact-js"
 version = "0.1.0"
 dependencies = [
