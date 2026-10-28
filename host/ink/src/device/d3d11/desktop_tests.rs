@@ -256,6 +256,33 @@ impl Shelf {
     }
 
     fn capture(&mut self, name: &str) -> tiny_skia::Pixmap {
+        // DwmFlush synchronizes presents, but does not finish opening or restore
+        // animations. Wait for three stable desktop captures before comparing.
+        let mut previous = self.capture_pixels();
+        let mut stable = 0;
+        until("desktop animation settles", || {
+            let next = self.capture_pixels();
+            let score = band(&previous, &next);
+            stable = if score.0 < 0.02 && score.1 < 0.0001 {
+                stable + 1
+            } else {
+                0
+            };
+            previous = next;
+            stable >= 3
+        });
+        assert!(
+            previous.data().chunks_exact(4).any(|p| p[0] < 32)
+                && previous.data().chunks_exact(4).any(|p| p[0] > 224),
+            "Shelf capture must contain its text and background"
+        );
+        previous
+            .save_png(out().join(format!("{name}.png")))
+            .unwrap();
+        previous
+    }
+
+    fn capture_pixels(&mut self) -> tiny_skia::Pixmap {
         self.alive();
         assert_eq!(
             unsafe { GetForegroundWindow() },
@@ -270,7 +297,7 @@ impl Shelf {
         assert!(w > 0 && h > 0);
         let mut origin = POINT::default();
         // Capture the compositor's desktop pixels, not a new renderer readback.
-        let pixels = unsafe {
+        unsafe {
             assert!(ClientToScreen(self.hwnd, &mut origin).as_bool());
             let screen = GetDC(None);
             let dc = CreateCompatibleDC(Some(screen));
@@ -317,9 +344,7 @@ impl Shelf {
                 tiny_skia::IntSize::from_wh(w as u32, h as u32).unwrap(),
             )
             .unwrap()
-        };
-        pixels.save_png(out().join(format!("{name}.png"))).unwrap();
-        pixels
+        }
     }
 
     fn close(mut self) -> String {
