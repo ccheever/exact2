@@ -529,7 +529,7 @@ impl<D: DataSource> Presenter<D> {
         role: i32,
         mut flags: i32,
         range: [f32; 3],
-        (name, value): (String, String),
+        words: impl FnOnce() -> Option<(String, String)>,
     ) -> Option<i32> {
         let kernel = self.host.kernel();
         if !self.display.allows(kernel, node.id) {
@@ -547,6 +547,7 @@ impl<D: DataSource> Presenter<D> {
             painted.rect.3,
         );
         let shows = intersect(rect, scope.clip)?;
+        let (name, value) = words()?;
         let id = b.unique(match scope.hash {
             Some(hash) => rowed(hash),
             None => (node.id & 0x3fff_ffff) as i32,
@@ -748,12 +749,12 @@ impl<D: DataSource> Presenter<D> {
             _ => None,
         };
         if let Some((role, flags, range, words)) = leaf {
-            self.access_emit(b, &scope, &node, role, flags, range, words);
+            self.access_emit(b, &scope, &node, role, flags, range, || Some(words));
             return;
         }
         if self.access_pressable(&node) {
             let (role, flags) = self.access_pressed(&node);
-            let name = (self.access_name(&node), String::new());
+            let name = || Some((self.access_name(&node), String::new()));
             let Some(own) = self.access_emit(b, &scope, &node, role, flags, [0.0; 3], name) else {
                 return;
             };
@@ -766,12 +767,15 @@ impl<D: DataSource> Presenter<D> {
             if scope.inside {
                 return;
             }
-            let label = self.access_label(&node);
             let text = node.node_type == NodeType::Text;
-            let name = label.unwrap_or_else(|| match text {
-                true => self.access_inline_words(&node),
-                false => String::new(),
-            });
+            let name = || {
+                let label = self.access_label(&node);
+                let name = label.unwrap_or_else(|| match text {
+                    true => self.access_inline_words(&node),
+                    false => String::new(),
+                });
+                (!name.trim().is_empty()).then_some((name, String::new()))
+            };
             // @ref LLP 1115.000 D12.5 — a heading by its role, never by an
             // `aria-level` alone (the kernel's `Props::heading`).
             let heading = node.props.heading().is_some();
@@ -780,12 +784,8 @@ impl<D: DataSource> Presenter<D> {
                 (true, false) => role::TEXT,
                 _ => role::IMAGE,
             };
-            if !name.trim().is_empty() {
-                if let Some(own) =
-                    self.access_emit(b, &scope, &node, role, 0, [0.0; 3], (name, String::new()))
-                {
-                    scope.parent = own;
-                }
+            if let Some(own) = self.access_emit(b, &scope, &node, role, 0, [0.0; 3], name) {
+                scope.parent = own;
             }
             if text {
                 self.access_inline_controls(b, &node, scope);
@@ -815,7 +815,9 @@ impl<D: DataSource> Presenter<D> {
                 self.access_label(&node).unwrap_or_default(),
                 text.to_string(),
             );
-            self.access_emit(b, &scope, &node, role, flag::RANGE, [min, max, now], words);
+            self.access_emit(b, &scope, &node, role, flag::RANGE, [min, max, now], || {
+                Some(words)
+            });
             return;
         } else {
             // A swipe row is written as a scroller, and is the presenter's
@@ -836,7 +838,9 @@ impl<D: DataSource> Presenter<D> {
                 let words = (label.unwrap_or_default(), String::new());
                 let painted = b.boxes.get(&id).copied();
                 let Some(own) =
-                    self.access_emit(b, &scope, &node, role::SCROLLER, flags, range, words)
+                    self.access_emit(b, &scope, &node, role::SCROLLER, flags, range, || {
+                        Some(words)
+                    })
                 else {
                     return;
                 };
@@ -868,7 +872,9 @@ impl<D: DataSource> Presenter<D> {
                     role::GROUP
                 };
                 let words = (label.unwrap_or_default(), String::new());
-                if let Some(own) = self.access_emit(b, &scope, &node, role, 0, [0.0; 3], words) {
+                if let Some(own) =
+                    self.access_emit(b, &scope, &node, role, 0, [0.0; 3], || Some(words))
+                {
                     scope.parent = own;
                 }
             }
