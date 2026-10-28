@@ -261,7 +261,7 @@ and strong-text color. Workspace and attachment previews share this projection.
 The normal iPhone drive verifies the Caltrain title and Run it metrics, native
 heading selection, the unchanged 344-character code copy, and an exact
 2,043-character Source copy including its final newline. The temporary paste
-draft is cleared and remains empty after ordinary restart. All 3,754 mobile
+draft is cleared and remains empty after ordinary restart. All 3,788 mobile
 tests, strict app TypeScript, boot and the normal native build pass. Independent
 review found strikethrough and bare-link headings losing formatting; those now
 retain the generic reader and their regressions pass. Formatted, nested, setext
@@ -270,9 +270,16 @@ heading heights and independent code-card panning. System appearance and
 16-point text restore through Settings. The existing sent Markdown attachment
 shows the same default heading metrics, copies its original 344-character code
 block exactly, switches Source/Preview, and returns to its conversation. Heading
-accessibility acceptance remains open. Soft line breaks, tables, images and
-heading spacing remain parity gaps. This change is outside maintenance
-build `20261028202307`.
+accessibility acceptance remains open. Plain prose now folds soft line breaks
+within admitted chunks, including single-line inline code. Unsupported Markdown
+keeps its original complete chunk. The normal app verifies workspace and sent
+attachment wrapping at 16-point System appearance and 20-point dark appearance.
+Code copies remain 344 characters, Source copying matches after the device
+tool's final-newline normalization, native word selection copies `measured`, and
+code-card panning remains independent. System appearance and 16-point text are
+restored. Independent review and fifteen projection probes find no introduced issue. Complex
+soft breaks, tables, images and heading spacing remain parity gaps. These
+changes are outside maintenance build `20261028202307`.
 Unclosed/nested fences and reference links across preview chunks remain open.
 The draft file route shares this projection but has no new native acceptance.
 Files rows now align their labels beside the icons without
@@ -306,7 +313,7 @@ one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
 unchanged from the original PR head. A bounded extraction attempt made no changes;
 the desktop checkpoint needs broader integration. Keep the failure visible.
 
-The full mobile suite passes 3,716 tests, strict app TypeScript passes, and the
+The full mobile suite passes 3,788 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
 with `QueueFull` on the former eager-send action and passes with coalesced text.
 

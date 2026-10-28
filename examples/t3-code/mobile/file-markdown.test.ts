@@ -51,3 +51,43 @@ test('preview heading slicing retains non-BMP prose and heading text', () => {
   expect(blocks[0]?.text).toBe('😀 Intro\n\n');
   expect(blocks.at(-1)?.text).toBe('\nTail 😀');
 });
+
+test('plain preview prose folds soft breaks while retaining blank separators and terminal whitespace', () => {
+  const body = 'One \r\nline.\r\n \r\nTwo\r\nlines. \r\n';
+  expect(mobileFileMarkdownBlocks(body, false)[0]?.text).toBe('One line.\n \nTwo lines. \n');
+  expect(body).toBe('One \r\nline.\r\n \r\nTwo\r\nlines. \r\n');
+  expect(mobileFileMarkdownBlocks('你好 👋\n世界。\n\n`code_id`\ncontinues.', true)[0]?.text)
+    .toBe('你好 👋 世界。\n\n`code_id` continues.');
+});
+
+test('prose folding keeps source-based heading identity and complete code records', () => {
+  const body = '# First\n\nOne\nline.\n\n## Second\n\nMore\ntext\n\n```ts\nconst x = 1;\n\n```';
+  const blocks = mobileFileMarkdownBlocks(body, false);
+  expect(blocks.filter(block => block.kind === 'heading').map(block => [block.id, block.text]))
+    .toEqual([['0:heading:0', 'First'], [`0:heading:${body.indexOf('## Second')}`, 'Second']]);
+  expect(blocks.filter(block => block.kind === 'markdown').map(block => block.text))
+    .toEqual(['\nOne line.\n\n', '\nMore text\n\n']);
+  expect(blocks.find(block => block.kind === 'code'))
+    .toEqual({ ...mobileMarkdownBlocks(body, false).find(block => block.kind === 'code'), level: 0 });
+});
+
+test.each([
+  'Hard  \nbreak', 'Hard\\\nbreak', 'Tab\t\nbreak', 'A `multiline\ncode` span',
+  'A `multiline\n\ncode` span', 'A ``longer code``\nspan', 'A `unmatched\nspan',
+  'Text\n===', 'Text\n---', 'Text\n***', 'Text\n1.', 'Text\n1)', 'Text\n1. item',
+  'Text\n- item', 'Text\n> quote', 'Text\n    indented', 'Text\n# Adjacent heading',
+  'A | table\n--- | ---', '[link][target]\n\n[target]: https://example.test',
+  '[^note]: first\nsecond', 'An <em>HTML</em>\nparagraph', '<!--\nPlain\nwrapped\n-->',
+  'A **bold**\nparagraph', 'A ~~strike~~\nparagraph', 'A [link](https://example.test)\nparagraph',
+  'A &amp; entity\nparagraph', 'Visit https://example.test\ntoday', 'Math $x$\ncontinues',
+  'One\u2028line\ncontinues', '```ts\nPlain\nwrapped', '~~~\nPlain\nwrapped',
+])('unsupported prose keeps the existing complete Markdown input: %s', body => {
+  expect(mobileFileMarkdownBlocks(body, false))
+    .toEqual(mobileMarkdownBlocks(body, false).map(block => ({ ...block, level: 0 })));
+});
+
+test('an unsupported fragment preserves other prose in the same original Markdown chunk', () => {
+  const blocks = mobileFileMarkdownBlocks('Plain\nwrapped.\n\n# Heading\n\nA `span\n\nacross paragraphs`.', false);
+  expect(blocks.filter(block => block.kind === 'markdown').map(block => block.text))
+    .toEqual(['Plain\nwrapped.\n\n', '\nA `span\n\nacross paragraphs`.']);
+});
