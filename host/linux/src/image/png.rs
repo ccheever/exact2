@@ -73,9 +73,13 @@ impl Header {
         self.color == SVG
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "android"))]
     pub(super) fn oriented(mut self, orientation: u8) -> Self {
-        self.orientation = orientation;
+        // WIC turns the decode by it; Android's decoders turn it themselves.
+        #[cfg(windows)]
+        {
+            self.orientation = orientation;
+        }
         if orientation >= 5 {
             std::mem::swap(
                 &mut self.metadata.natural.width,

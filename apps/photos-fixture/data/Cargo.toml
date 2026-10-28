@@ -1,11 +1,12 @@
 # @exact/photos's fixture (LLP 1133.019 stage 3): the app's data source,
-# which holds its grants; the library is read from the Contract.
+# which holds its grants and runs the image codec; the library is read from
+# the Contract.
 [package]
 name = "photos-fixture-data"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "@exact/photos's fixture: its grants"
+description = "@exact/photos's fixture: its grants and the image codec's drives"
 publish = false
 
 [lib]
@@ -17,3 +18,5 @@ bench = false
 [dependencies]
 exact-plan = { path = "../../../plan" }
 exact-runner = { path = "../../../runner" }
+exact-data = { path = "../../../data" }
+serde_json = "1.0"

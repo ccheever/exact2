@@ -6,6 +6,10 @@
 // the library. Show more reads again with a larger limit.
 use photoLibraryStatus, photoAssets, copyPhotoAsset, addToPhotoLibrary, managePhotoSelection, PhotoLibraryStatus, PhotoAssetList, PhotoCopy, PhotoAdded from "@exact/photos"
 
+// The image call's record, or its failure, as JSON text.
+shape Edited
+  record: string
+
 component Fixture
   resource status = photoLibraryStatus() as shape PhotoLibraryStatus else empty()
   state limit = 12
@@ -13,6 +17,9 @@ component Fixture
   mutation copied as shape PhotoCopy
   mutation added as shape PhotoAdded
   mutation managed as shape PhotoLibraryStatus
+  state source = ""
+  state options = ""
+  mutation edited as shape Edited
   action more
     limit = limit + 12
   action copy(id: string)
@@ -21,6 +28,14 @@ component Fixture
     send added = addToPhotoLibrary(path=path)
   action manage
     send managed = managePhotoSelection()
+  action changeSource(value)
+    source = value
+  action changeOptions(value)
+    options = value
+  action transform
+    send edited = editImage(source, "transform", options)
+  action compress
+    send edited = editImage(source, "compress", options)
   view
     column gap=8 padding=16
       text `${status.state} ${status.access} ${status.addState}` testId="status"
@@ -33,6 +48,7 @@ component Fixture
       match copied
         case some(c)
           text `${c.path} ${c.type} ${c.width}x${c.height}` testId="copied"
+          image c.path width=48 alt="The copy" testId="copy-picture"
           button press=addBack(c.path) testId="add"
             text "Add the copy"
         case none
@@ -45,4 +61,15 @@ component Fixture
       if status.access == "limited"
         button press=manage testId="manage"
           text "Manage"
-
+      input value=source input=changeSource aria-label="Source" testId="edit-source"
+      input value=options input=changeOptions aria-label="Options" testId="edit-options"
+      row gap=8
+        button press=transform testId="transform"
+          text "Transform"
+        button press=compress testId="compress"
+          text "Compress"
+      match edited
+        case some(e)
+          text e.record testId="edited"
+        case none
+          text "" testId="edited"

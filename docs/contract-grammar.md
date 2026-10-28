@@ -1813,6 +1813,18 @@ action pasteAt(cell: string, e: ClipboardEvent)
 column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 ```
 
+To write an image, data code imports `@exact/clipboard` (LLP 1133.006): the
+Clipboard API's `write([new ClipboardItem({"image/png": path, "text/plain":
+text})])`, with an `app:/` path to a PNG (or at most 2 MiB of PNG bytes)
+and `writeText(text)`. The host writes a new PNG of the image's pixels, frame
+0 of an animation; convert another format first with
+`storage.fs.compressImage(…, {type: "image/png"})`. Web, macOS and iOS. The
+app's Contract names the package with a `use` (`use ClipboardItem from
+"@exact/clipboard"`), which links it. Under the agent neither this nor
+`copyText` touches the person's clipboard: the write lands on the session's
+own pasteboard (in memory on the web), and `state.extensions.clipboard.implementation`
+shows the last one (`EXACT_DEVICE=real` writes the real one on Apple).
+
 ### Text selection
 
 `selectionchange` on a `text` is the web's `selectionchange`, per element:
