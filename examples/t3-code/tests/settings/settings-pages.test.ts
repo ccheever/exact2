@@ -165,6 +165,12 @@ const pageMark = (control: Control) => typeof control.mark === 'string' && (cont
 // Each route's panel and the props app-settings.contract gives it, in a state that draws its controls. `any` is a row or
 // value whose every field is unknown, so the walk takes each arm a field decides.
 const any: unknown = new Proxy({}, { get: (_, key) => { if (key === Symbol.toPrimitive || key === 'toJSON') return undefined; throw new Error(`unknown ${String(key)}`); } });
+/** `fields` with every other field unknown, as `any`. */
+const some = (fields: Record<string, unknown>): unknown => new Proxy(fields, { get: (target, key) => {
+  if (typeof key === 'string' && key in target) return target[key];
+  if (key === Symbol.toPrimitive || key === 'toJSON') return undefined;
+  throw new Error(`unknown ${String(key)}`);
+} });
 const host = { busy: false, error: '', writable: true };
 const pages: Record<string, [file: string, component: string, props: Env]> = {
   chat: ['settings-core-body.contract', 'SettingsCoreBody', { route: 'chat', busy: false, core: { notice: '', message: '', showScope: false, sections: [any] } }],
@@ -184,6 +190,11 @@ const pages: Record<string, [file: string, component: string, props: Env]> = {
   'scheduled-tasks': ['settings-scheduled.contract', 'ScheduledPanel', { busy: false, error: '', data: { available: true, writable: true, items: [{}] } }],
   'open-source-licenses': ['settings-licenses.contract', 'NoticesPanel', { query: '', data: { entries: [{ id: 'react', sourceUrl: 'https://github.com/facebook/react' }] } }],
   diagnostics: ['settings-diagnostics.contract', 'DiagnosticsPanel', { busy: false, data: { available: true } }],
+  connections: ['connections.contract', 'ConnectionsPanel', { view: 'connections', busy: false, error: '', still: true, menu: '', width: 640,
+    page: some({ updateCount: 1, environments: [some({ environmentId: 'e1', key: 'k1' })], machines: ['m1', 'm2'].map(environmentId => some({ environmentId, key: environmentId })) }) }],
+  'connections (one machine)': ['connections.contract', 'ConnectionsPanel', { view: 'connections', busy: false, error: '', still: true, menu: '', width: 640,
+    page: some({ updateCount: 0, environments: [], machines: [] }) }],
+  access: ['connections.contract', 'ConnectionsPanel', { view: 'access', busy: false, error: '', still: true, menu: '', width: 640, page: any }],
 };
 
 describe('every Settings page stop carries `page`', () => {
@@ -203,6 +214,10 @@ describe("Shift+Tab from the first stop wraps to the page's last control (RouteF
   test.each([
     ['open-source-licenses', 'View project source for'],
     ['devices', 'EasGhostButton'],
+    // Environments: Add environment with this machine alone; with more, Pull request sharing's last machine (its fold open).
+    ['connections (one machine)', 'manage-connection'],
+    ['connections', 'CnSelect'],
+    ['access', 'NetXs'],
   ] as const)("%s lands on its last control", (route, last) => {
     const [file, component, props] = pages[route]!;
     // The page's stops in tree order, named by their view line, as querySelectorAll names them by id.
@@ -256,7 +271,6 @@ describe('every result lands on an element its own page draws, in that page stat
   // sidebar's Environments ids; SnapShots' rows; Typography's Separate fonts row.
   const waiting: Record<string, string[]> = {
     access: ['environment-icon', 'network-access', 'tailscale-https', 'connections-environment'],
-    connections: ['local-environment', 'remote-environments'],
     'snap-shot': ['snap-shot-enabled', 'snap-shot-accessibility', 'snap-shot-shortcut', 'snap-shot-sound', 'snap-shot-flash', 'snap-shot-animations'],
     appearance: ['separate-fonts'],
   };
