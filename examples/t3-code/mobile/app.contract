@@ -571,7 +571,9 @@ component App
     match richComposerChanged
       case some(result)
         if result.visit == `${top(nav).id}` and result.admission == richComposer.admission and result.editorId == composerEditor and result.owner == composerOwner
-          if result.effectKind == "submit"
+          if result.attachmentId != ""
+            openDraftMedia(result.attachmentId, result.owner)
+          else if result.effectKind == "submit"
             threadAction(result.alternate ? "send-alternate" : "send", result.owner, "")
           else if result.effectKind == "focus" or result.effectKind == "blur"
             composerFocus(result.effectKind == "focus", result.owner, result.editorId)

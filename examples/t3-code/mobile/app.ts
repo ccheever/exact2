@@ -128,7 +128,7 @@ const sources: Sources = {
       handle?.available ? nativeFiles(handle) : suppliedStorage!);
     const op = (['event', 'rich', 'pick', 'dismiss', 'retry', 'prepare-files', 'cleanup-files', 'immediate', 'wake', 'claim-effect'] as const).find(value => value === args[1]);
     if (!native?.available || !op) return { revision: mobileClient.revision, message: 'This editor action is unavailable.',
-      visit: args[0].visit, owner: '', editorId: args[0].editorId, admission: args[2], effectId: '', effectKind: '', alternate: false };
+      visit: args[0].visit, owner: '', editorId: args[0].editorId, admission: args[2], effectId: '', effectKind: '', alternate: false, attachmentId: '' };
     return mobileComposerRootAction(mobileClient, { ...args[0], now: args[5] },
       { op, admission: args[2], key: args[3], payload: args[4] }, native, storage);
   },

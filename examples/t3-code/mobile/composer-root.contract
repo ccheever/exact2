@@ -61,3 +61,4 @@ shape ComposerRootResult
   effectId: string
   effectKind: string
   alternate: bool
+  attachmentId: string

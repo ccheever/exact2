@@ -36,7 +36,7 @@ export type ComposerRootProjection=Omit<EditorProjection,'effect'|'files'>&{
   eventKey:string;
 };
 export interface ComposerRootResult {
-  revision:number;message:string;visit:string;owner:string;editorId:string;admission:string;effectId:string;effectKind:string;alternate:boolean;
+  revision:number;message:string;visit:string;owner:string;editorId:string;admission:string;effectId:string;effectKind:string;alternate:boolean;attachmentId:string;
 }
 interface State {input:ComposerRootInput;signature:string;admission:string}
 const states=new WeakMap<MobileDraftClient,State>();
@@ -137,7 +137,7 @@ export async function mobileComposerRootAction(client:MobileDraftClient,input:Co
     &&permission(client)===authorization&&route(client,latest.input).active};
   const answer=(message=''):ComposerRootResult=>({revision:client.revision+mobileEditorOwnerRevision(client)
       +(mobileEditorOwner(client)?.state.revision??0)+mobileEditorFilesSnapshot(client).revision,message:current()?message:'',visit:input.visit,
-    owner:shown.owner,editorId:input.editorId,admission:shown.admission,effectId:'',effectKind:'',alternate:false});
+    owner:shown.owner,editorId:input.editorId,admission:shown.admission,effectId:'',effectKind:'',alternate:false,attachmentId:''});
   if(action.op==='cleanup-files'){
     if(!action.key||action.key!==shown.files.cleanupKey)throw superseded();
     // Root has committed to removing/replacing the retired keyed port. Native
@@ -171,7 +171,7 @@ export async function mobileComposerRootAction(client:MobileDraftClient,input:Co
     const payload=action.op==='pick'?JSON.stringify({admission:action.admission,menuRevision:action.key,id:action.payload})
       :action.op==='dismiss'||action.op==='retry'?action.key:action.payload;
     const result=await mobileEditorAction(client,route(client,input),action.op as 'event'|'rich'|'pick'|'dismiss'|'retry',payload,guarded,storage,clock);
-    return answer(result.message);
+    return {...answer(result.message),attachmentId:current()?result.attachmentId:''};
   }
   return answer();
 }

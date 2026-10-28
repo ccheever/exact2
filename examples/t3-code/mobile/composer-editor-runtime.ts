@@ -1,5 +1,6 @@
 // Inactive app-owned Thread rich editor runtime. No producer or root activation.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
+import { referencedFiles } from './shared/composer-editor-files';
 import { mobileComposerMenuSelection } from './composer-command-selection';
 import { mobileThreadLocalUsageOpen } from './thread-send-local-commands';
 import type { EditorUsageCommand, EditorLocalClear, EditorCommandReceipt } from './composer-editor-owner';
@@ -21,7 +22,7 @@ import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { mobileComposerTarget,mobileComposerTargetCurrent } from './composer-target';
 import { mobileComposerContextRead,mobileComposerContextMountedRead } from './composer-command-context';
 import { mobileNewTaskContextProject,type MobileMessageContext } from './mobile-new-task-context';
-import { mobileComposerDocument,formatComposerContextReference,mobileComposerFileIcon,type ComposerInlineToken } from './composer-editor-document';
+import { collectComposerContextReferences,mobileComposerDocument,formatComposerContextReference,mobileComposerFileIcon,type ComposerInlineToken } from './composer-editor-document';
 import { mobileComposerTrigger,mobileComposerCommandRows,replaceTextRange,
   resolveProviderSkillsForCwd,mobileComposerThreadRecord,mobileComposerPullRequestRecord,
   type ComposerCommandItem,type ComposerTrigger } from './composer-command-model';
@@ -48,7 +49,7 @@ export interface EditorProjection {
   queries:{immediateKey:string;immediateAt:number;immediateClockOffset:number;path:EditorWake;pullRequests:EditorWake;discovery:EditorWake};
   effect:EditorRootEffect|null; message:string;
 }
-export interface EditorResult { revision:number; message:string; effect:EditorRootEffect|null; admission:string; command?:{id:string;applied:boolean;contentCleared?:boolean} }
+export interface EditorResult { revision:number; message:string; effect:EditorRootEffect|null; admission:string; attachmentId:string; command?:{id:string;applied:boolean;contentCleared?:boolean} }
 interface Runtime {
   owner:EditorOwner; provider:ComposerQueryInput['provider']; presentation:EditorPresentation; confirmed:readonly ComposerInlineToken[];
   query:ComposerQueryDemand; trigger:ComposerTrigger|null; items:ComposerCommandItem[]; menuRevision:string;
@@ -162,7 +163,7 @@ export function mobileEditorSnapshot(client:T3Client,route:EditorRouteInput,rawL
 }
 function result(client:T3Client,runtime:Runtime,message=''):EditorResult {
   return {revision:client.revision+runtime.owner.state.revision+mobileEditorOwnerRevision(client),message,
-    effect:editorCopy(runtime.owner.effects[0]??null),admission:runtime.owner.admission};
+    effect:editorCopy(runtime.owner.effects[0]??null),admission:runtime.owner.admission,attachmentId:''};
 }
 function rootEffect(owner:EditorOwner,staged:ComposerEditorEffect):void {
   if(!['focus','blur','submit'].includes(staged.event.kind))return;
@@ -310,6 +311,26 @@ export async function mobileEditorAction(client:T3Client,route:EditorRouteInput,
   try {
     if(action==='rich'){
       let callback:Obj;try{callback=obj(JSON.parse(payload))}catch{callback={}}
+      if(callback.kind==='contextPress'){
+        const selection=obj(callback.payload),validate=()=>{
+          requireCurrent(client,runtime);const identity=mounted(owner);
+          if(!identity.mountId||Object.entries(identity).some(([key,value])=>callback[key]!==value)
+            ||!str(callback.richEventId)||callback.eventCount!==owner.state.eventCount||callback.value!==owner.state.value
+            ||owner.state.composing||owner.pending)throw superseded();
+        };
+        validate();
+        const token=collectComposerContextReferences(owner.state.value).find(token=>token.source===selection.source
+          &&token.start===selection.start&&token.end===selection.end);
+        if(!token)throw superseded();
+        if(token.kind==='file'){
+          await consume(client,runtime,native,storage);validate();
+          const file=referencedFiles(client.local,owner.target.key,owner.state.value).find(file=>file.contextId===token.contextId
+            &&file.environmentId===owner.target.environmentId);
+          if(!file)throw superseded();
+          owner.error='';mobileEditorOwnerChanged(client);
+          return {...result(client,runtime),attachmentId:file.id};
+        }
+      }
       if(callback.kind==='contentSize'){
         const size=obj(callback.payload),identity=mounted(owner);
         if(!identity.mountId||Object.entries(identity).some(([key,value])=>callback[key]!==value)

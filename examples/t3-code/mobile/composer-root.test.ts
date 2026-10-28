@@ -179,3 +179,54 @@ test('explicit root clock advances held query settlement and never regresses to 
   const later=f.view();expect(later.admission).toBe(v.admission);expect(later.queries.discovery.dueAt).toBe(17000);
   expect(later.queries.discovery.delayMs).toBe(10000);
 });
+
+test('inline file context opens the owned draft preview through Root and refuses stale token callbacks',async()=>{
+  const source='[file.txt](t3-context://v1/file/file-context)',text=`😀 ${source} `;
+  const f=await fixture(text),id=uuid(1);
+  setDraftFiles(f.client.local,[{id,contextId:'file-context',draftKey:f.client.draftKey,environmentId:f.client.environmentId,
+    name:'file.txt',mimeType:'text/plain',sizeBytes:5,source:'attached',attachmentId:'',status:'staged'}]);
+  await f.ready();const view=f.view();await f.run('prepare-files',view.files.prepareKey);
+  const latest=`${text}rapid edit 😀`,observation=f.event('text',latest);f.view(observation);
+  expect(f.client.draft).toBe(text);expect(f.view().eventKey).not.toBe('');
+  const owner=mobileEditorOwner(f.client)!,callback={...owner.state.identity,mountId:owner.state.mountId,kind:'contextPress',
+    richEventId:'tap-file',eventCount:owner.state.eventCount,value:latest,payload:{source,start:3,end:3+source.length}};
+  const held=deferred<void>(),entered=deferred<void>();f.holdWrite(async()=>{entered.resolve();await held.promise});
+  let finished=false;const opening=f.run('rich','',JSON.stringify(callback)).then(result=>{finished=true;return result});
+  await entered.promise;expect(finished).toBe(false);expect(f.client.draft).toBe(latest);
+  held.resolve();const result=await opening;f.holdWrite(null);
+  expect(obj(f.writes.at(-1)?.drafts)[f.client.draftKey]).toBe(latest);
+  expect(result).toMatchObject({attachmentId:id,message:'',owner:owner.target.owner,visit:f.input.visit});
+  const root=contractComponent('mobile/app.contract','App'),opened:string[][]=[];
+  const scope={richComposerChanged:result,richComposer:f.view(),composerEditor:f.input.editorId,composerOwner:owner.target.owner,
+    nav:{id:f.input.visit},top:(v:unknown)=>v,openDraftMedia:(...args:string[])=>opened.push(args)};
+  root.call('didRichComposerChange',{},scope,[]);expect(opened).toEqual([[id,owner.target.owner]]);
+  root.call('didRichComposerChange',{}, {...scope,nav:{id:'other-visit'}},[]);expect(opened).toHaveLength(1);
+  for(const patch of [{mountId:'retired'},{eventCount:callback.eventCount-1},{value:'changed'},
+    {payload:{...callback.payload,start:2}},{payload:{...callback.payload,end:source.length}},
+    {payload:{...callback.payload,source:'[foreign](t3-context://v1/file/foreign)'}}]){
+    await expect(f.run('rich','',JSON.stringify({...callback,...patch}))).rejects.toMatchObject({kind:'superseded'});
+  }
+  setDraftFiles(f.client.local,[]);await expect(f.run('rich','',JSON.stringify(callback))).rejects.toMatchObject({kind:'superseded'});
+  expect(f.client.draft).toBe(latest);expect(f.writes).toHaveLength(1);
+  f.input.active=false;f.view();f.input.active=true;f.input.visit='returned';await f.ready();
+  expect(JSON.parse(f.view().configuration).document.value).toBe(latest);
+  expect(f.calls.every(call=>call.op==='composerFileHold')).toBe(true);
+});
+
+test('preview revalidates typing, route and file ownership after saving observed text',async()=>{
+  for(const change of ['typing','route','file'] as const){
+    const source='[file.txt](t3-context://v1/file/file-context)',f=await fixture(`${source} `),id=uuid(1);
+    setDraftFiles(f.client.local,[{id,contextId:'file-context',draftKey:f.client.draftKey,environmentId:f.client.environmentId,
+      name:'file.txt',mimeType:'text/plain',sizeBytes:5,source:'attached',attachmentId:'',status:'staged'}]);
+    await f.ready();const view=f.view();await f.run('prepare-files',view.files.prepareKey);
+    const value=`${source} latest`;f.view(f.event('text',value));const owner=mobileEditorOwner(f.client)!;
+    const callback={...owner.state.identity,mountId:owner.state.mountId,kind:'contextPress',richEventId:'tap',
+      eventCount:owner.state.eventCount,value,payload:{source,start:0,end:source.length}};
+    const held=deferred<void>(),entered=deferred<void>();f.holdWrite(async()=>{entered.resolve();await held.promise});
+    const opening=f.run('rich','',JSON.stringify(callback));await entered.promise;
+    if(change==='typing')f.view(f.event('text',`${value} newer`));
+    else if(change==='route'){f.input.active=false;f.view()}
+    else setDraftFiles(f.client.local,[]);
+    held.resolve();await expect(opening).rejects.toMatchObject({kind:'superseded'});
+  }
+});
