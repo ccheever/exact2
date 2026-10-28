@@ -5,7 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows).
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below).
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -119,7 +119,9 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
 The kernel lays the popover subtree out on every commit regardless of
 visibility — a hidden layer, anchored: top-left at the invoker's
 bottom-left by default, sized by content. Authored `position-area` and
-`position-try-fallbacks` follow the placement amendment below. The host shows
+`position-try-fallbacks` follow the placement amendment below; an authored
+`left` or `top`, with no authored `position-area`, places the popover at that
+viewport point instead ("At the press point", below). The host shows
 and hides it; opening is **no relayout**, the instant-menu
 property, and the same discipline as scroll offset (LLP 1008: host state,
 never plan state). Light dismiss, the one-auto-popover rule, and Escape
@@ -586,7 +588,9 @@ the platform's placement. A fitting choice survives resize and invoker movement;
 changing the area, fallback list, margins or size clears it. An overflowing choice tries the list
 again, preserving the current option if none fits. Logical areas, `flip-x`,
 `flip-y`, area-dependent sizing,
-nonzero insets and non-default self-alignment, full scroll-offset bookkeeping,
+nonzero insets alongside an authored area (CSS lets the area win and the
+insets offset the box in its cell; without an area, an authored `left` or
+`top` places it: "At the press point", below) and non-default self-alignment, full scroll-offset bookkeeping,
 and general Linux popover presentation remain outside this slice. `anchor-name`,
 `position-anchor`, named `@position-try` rules and `position-visibility` are
 not admitted by this work.
@@ -665,6 +669,55 @@ with its bottom at the invoker's top, the menu, whose `margin-bottom=12`
 crosses the Apple encoder, 12 points above it (measured on iOS: bottom
 665, invoker top 677; in Chrome: 789 and 801; macOS was driven before the
 margin was added).
+
+**At the press point (2026-10-28).** A menu can open where it was clicked,
+as Electron's `Menu.popup({x, y})` opens one and as `NSMenu` pops one up at a
+point. The T3 Code clone needs it: its New thread button shows a project's
+members at the click, and a file link with no other action shows its menu
+there. A page without Electron writes this with the web's names: the press's
+`MouseEvent` gives the point, and the popover's `left` and `top` place it.
+
+```text
+action openMembers(e: MouseEvent)
+  pointed = e.clientX != 0 or e.clientY != 0
+  x = e.clientX
+  y = e.clientY
+  showPopover("members", source="new-thread")
+column id="members" popover="auto" role="menu" left=(pointed ? `${x}px` : "auto") top=(pointed ? `${y}px` : "auto") margin=0
+```
+
+A press's `MouseEvent` carries `clientX` and `clientY`, from the viewport's
+top-left in CSS px (`frame()`'s space, as a `PointerEvent`'s, LLP 1094 D11).
+A press from the keyboard or an assistive technology is at 0, 0, as the
+`click` Chrome dispatches for one is; a page tests for that and leaves the
+insets `auto`, so the menu opens at its invoker. A native button's click or
+tap carries its point as any node's does (on the Mac, the press AppKit's
+button tracked; on iOS, the touch that lifted). An agent's `tap` is a
+pointer's press at its point.
+
+A popover whose author wrote `left` or `top`, and no `position-area`, is placed
+by them, not by its invoker: its border box's top-left at the inset past its
+margin, as CSS places a fixed box; an axis with no inset is at its margin.
+Where its author also wrote a `position-area`, CSS lets the area win, the
+insets offsetting the box in its cell; every host then places it by the area
+against its invoker, as before. The press itself is the platform's
+presentation at a point (§5.1):
+
+| Host | placed |
+|---|---|
+| Web (both targets), neutral look | `position-area: none`; the base option is the authored insets, and where it does not fit it opens up or toward the start from the point (`--exact-inset-start`, `-up`, `-up-start`, as a context menu's fallbacks; `navigation.js` leaves the insets on it as `--exact-inset-x`, `-y` while open, and again as they change; insets written away while it is open, or a `position-area` added, return it to its invoker). An authored `position-try-fallbacks` replaces these flips, and `none` turns them off. An authored `right` or `bottom` leaves the popover to plain CSS: no point is kept. |
+| Web, the shell's look (LLP 1116 D1) | plain CSS: the user agent's `[popover] { inset: 0; margin: auto }` stays, so the author writes `margin=0` (and `right`, `bottom` `auto`) for the box to sit at the point, as on a page without Exact |
+| macOS, menu-shaped | an `NSMenu` popped up with its top-left at the point (`popUp(positioning:at:in:)`); AppKit keeps it on screen |
+| macOS, any other | AppKit's `NSPopover`, pointed at a 1×1 rectangle at the point in the window's content view (the viewport's point, wherever its invoker is or scrolls), as a hand-built app points one at a click; a key's press (no insets) points it at its invoker, the same popover. Only an authored `position-try-fallbacks` keeps it painted, as before; there, and under the agent's chrome, it goes to the point, the other way from it on an axis without room, held in the window where neither way fits (`PositionArea.at`) |
+| macOS, toolbar items, segments, sidebar rows | their presses carry no point (0, 0): a toolbar item's pull-down hangs from its item, as AppKit's does, and the others are controls AppKit tracks |
+| iOS, painted (the agent's lift) | as the Mac's painted layer |
+| iOS, `UIMenu` and sheets | declared: attached to the invoker. No public API presents a pull-down `UIMenu` at an arbitrary point (`UIEditMenuInteraction` presents the edit menu at one, which is another menu), and the HIG's pull-down buttons hang their menus from the button. |
+| Linux and Windows (windowed), Android | the context menu's path at the point: the shell menu hangs from it, the neutral surface is held in the window (`area::at_point`). Each pointer path (a click, a finger's activation, a row of the shell's menu) carries its own point; a header item the shell's bar draws carries none, its popover hanging from the item |
+| Terminal | at its insets, as every top-layer box there (`Kernel::top_layer_origin`) |
+
+The native hosts read a popover's `left` and `top` only; they ignore its
+`right` and `bottom`. The kernel lays the popover out in the viewport's
+block, as one with no area.
 
 **D3 — menu-shaped popovers may present natively.** A popover whose
 children are exclusively `button` rows (each with optional

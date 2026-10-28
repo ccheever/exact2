@@ -186,12 +186,14 @@ pub enum Event {
         /// Exact insertion-before key; None denotes the actual logical end.
         before: Option<String>,
     },
-    /// A press on the view, no modifier key held.
+    /// A press on the view with no point and no modifier key held: a
+    /// keyboard's or an assistive technology's.
     Press,
-    /// A press with modifier keys held (gallery F20: shift-click, ⌘-click),
-    /// the `MouseEvent` flags a `press` action may take; dispatched as
-    /// `Press`. [`Event::press`] makes whichever the modifiers call for.
-    PressWith(KeyModifiers),
+    /// A press with a pointer's point or modifier keys held (gallery F20:
+    /// shift-click, ⌘-click; LLP 1021 D2: a menu at the press), the
+    /// `MouseEvent` a `press` action may take; dispatched as `Press`.
+    /// [`Event::press`] makes whichever the press calls for.
+    PressWith(super::MouseEvent),
     /// A control's value moved (HTML's `input`): a text field's every
     /// keystroke, a checkbox's toggle (LLP 1069.001 D4).
     Input(ControlValue),
@@ -479,17 +481,6 @@ impl KeyModifiers {
         Some(held)
     }
 
-    /// The `MouseEvent` record `press` offers, its fields in the compiler's
-    /// order (`contract/types/src/selection.rs`).
-    pub fn mouse(&self) -> Value {
-        Value::record(vec![
-            Value::Bool(self.shift),
-            Value::Bool(self.ctrl),
-            Value::Bool(self.alt),
-            Value::Bool(self.meta),
-        ])
-    }
-
     /// A key as a host writes it, split: the modifiers named before it with
     /// any of `Shift+`, `Control+`, `Alt+` and `Meta+`, and the key's name —
     /// the chord syntax of `aria-keyshortcuts` and Playwright
@@ -536,15 +527,20 @@ impl Event {
         })
     }
 
-    /// A press with the modifiers a host held ([`KeyModifiers::held`]):
-    /// `Press` when none is; `None` for a word DOM does not name.
-    pub fn press(held: &str) -> Option<Self> {
-        let held = KeyModifiers::held(held)?;
-        Some(if held == KeyModifiers::default() {
+    /// A press as a host writes it ([`super::MouseEvent::parse`]): the
+    /// modifiers held, after the pointer's point where there was one;
+    /// `Press` for neither; `None` for a malformed line.
+    pub fn press(payload: &str) -> Option<Self> {
+        Some(Self::pressed(super::MouseEvent::parse(payload)?))
+    }
+
+    /// A press with `mouse`'s point and modifiers: `Press` for neither.
+    pub fn pressed(mouse: super::MouseEvent) -> Self {
+        if mouse == super::MouseEvent::default() {
             Self::Press
         } else {
-            Self::PressWith(held)
-        })
+            Self::PressWith(mouse)
+        }
     }
 
     /// A key from its chord ([`KeyModifiers::split`]), with no code.
@@ -616,8 +612,8 @@ impl Event {
                 Value::Number(*end),
                 Value::list(rects.iter().map(|r| r.value()).collect()),
             ])),
-            Event::Press => Some(KeyModifiers::default().mouse()),
-            Event::PressWith(held) => Some(held.mouse()),
+            Event::Press => Some(super::MouseEvent::default().value()),
+            Event::PressWith(mouse) => Some(mouse.value()),
             Event::Media(kind, payload) => super::media_session::record(*kind, payload),
             Event::Focusin {
                 target,

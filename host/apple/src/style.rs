@@ -1042,7 +1042,8 @@ fn style_json_shown(
     let (mut json, skipped) = style_json_sized(&computed, env, kept_geometry(node));
     // A modal dialog is placed in the viewport by AppKit: its insets cross. A popover (its area,
     // or the web's default: `PositionArea.painted`) is placed by the host against its invoker by
-    // its margin box: its margins cross (a dialog used as one, both), `auto` and % read as 0.
+    // its margin box, or at its authored `left`/`top` (LLP 1021 D2): its margins and insets cross,
+    // `auto` and % margins read as 0.
     let placed = [
         StyleId::MarginTop,
         StyleId::MarginRight,
@@ -1057,10 +1058,8 @@ fn style_json_shown(
     let placed_box = computed.position_area != PositionArea::None
         || node.props.str(exact_kernel::PropId::Popover).is_some();
     let crossing: Option<&[StyleId]> =
-        if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
+        if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") || placed_box {
             Some(if placed_box { &both } else { &insets })
-        } else if placed_box {
-            Some(&placed)
         } else if node.layout_position() == exact_kernel::PositionType::Sticky {
             Some(&vertical)
         } else {

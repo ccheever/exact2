@@ -21,6 +21,12 @@ extension Presenter {
         let p = viewport.convert(windowPoint, from: nil)
         return CGPoint(x: p.x - viewport.pageOrigin.x, y: p.y - viewport.pageOrigin.y)
     }
+    /// A viewport point, `client`'s answer, in `view`'s coordinates.
+    func point(fromClient p: CGPoint, in view: UIView) -> CGPoint {
+        view.convert(CGPoint(x: p.x + viewport.pageOrigin.x, y: p.y + viewport.pageOrigin.y), from: viewport)
+    }
+    /// The viewport's size, what an inset's percentage is of.
+    var clientSize: CGSize { viewport.pageSize }
 }
 #endif
 
@@ -490,7 +496,7 @@ extension NodeView {
         pressed = overlayHoldsPress
         if lands {
             presenter?.menus.activating(from: touched, pressing: self) {
-                presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? []), bubbled: contact.bubbled)
+                presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? []), at: touches.first?.location(in: nil), bubbled: contact.bubbled)
             }
         }
         if let row { cells?.ran(row, on: screen) }

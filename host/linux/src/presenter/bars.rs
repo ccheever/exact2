@@ -492,8 +492,11 @@ impl<D: DataSource> Presenter<D> {
         (stack.len() == 1 && stack[0] == shows).then_some(shows)
     }
 
-    /// A person chose what `what` is.
+    /// A person chose what `what` is. Its press carries no point: the bar is
+    /// the shell's, outside the page, and a popover it opens hangs from the
+    /// item (`surface_anchor`), as the Mac's toolbar item's (LLP 1021 D2).
     fn bar_choose(&mut self, what: What, now_ms: f64) {
+        self.press_point = None;
         match what {
             What::Up => {
                 self.system_back(now_ms);

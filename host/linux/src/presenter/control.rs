@@ -181,12 +181,7 @@ impl<D: DataSource> Presenter<D> {
             self.dispatch_press(target, now_ms, true);
             return true;
         }
-        let held = self.modifiers();
-        let press = if held == Default::default() {
-            Event::Press
-        } else {
-            Event::PressWith(held)
-        };
+        let press = self.press_event(false);
         if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }

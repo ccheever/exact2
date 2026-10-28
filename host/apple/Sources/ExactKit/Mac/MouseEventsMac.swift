@@ -207,7 +207,8 @@ extension NodeView {
             // The element has no view of its own: the `svg`'s view stands for it.
             if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target {
                 presenter?.menus.activating(from: self, pressing: nil) {
-                    presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+                    presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.pressClick = event
+                    presenter?.onPress?(target); presenter?.pressHeld = ""; presenter?.pressClick = nil
                 }
             }
             return

@@ -120,12 +120,12 @@ pub use runner::{
     Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks, DrawReply, DrawRequest,
     Drawn, DropEvent, Event, FieldSelection, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
     InFlight, InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits,
-    ListTextPolicy, ListTextPosition, Native, NativeCall, NativeHandler, Overlaid, Picked,
-    PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange, RouterLink,
-    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, SnapshotModule,
-    SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target, Timed, WheelEvent,
-    Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
-    TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    ListTextPolicy, ListTextPosition, MouseEvent, Native, NativeCall, NativeHandler, Overlaid,
+    Picked, PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange,
+    RouterLink, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection,
+    SnapshotModule, SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target,
+    Timed, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND,
+    RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
 pub use runner::{CallHow, WakeHow};

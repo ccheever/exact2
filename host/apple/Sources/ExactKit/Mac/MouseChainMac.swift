@@ -468,6 +468,13 @@ extension Presenter {
         let clip = viewport.contentView, p = clip.convert(windowPoint, from: nil)
         return NSPoint(x: p.x - clip.bounds.minX, y: p.y - clip.bounds.minY)
     }
+    /// A viewport point, `client`'s answer, in `view`'s coordinates.
+    func point(fromClient p: NSPoint, in view: NSView) -> NSPoint {
+        let clip = viewport.contentView
+        return view.convert(NSPoint(x: p.x + clip.bounds.minX, y: p.y + clip.bounds.minY), from: clip)
+    }
+    /// The viewport's size, what an inset's percentage is of.
+    var clientSize: CGSize { viewport.contentView.bounds.size }
     /// Keep each node's latest free move and send them at the next display
     /// frame: a pointer crossing two `pointermove` nodes in one frame leaves
     /// each its own last move.

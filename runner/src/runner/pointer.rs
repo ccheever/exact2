@@ -11,7 +11,8 @@
 //! `offsetX,offsetY,buttons,pressure,pointerType,pointerId,clientX,clientY`
 //! (the viewport point last, LLP 1094 D11); a wheel's is
 //! `offsetX,offsetY,deltaX,deltaY,deltaMode`; a drop's is `offsetX,offsetY`
-//! and then one `doc:` handle per line. Each may end in the modifiers held.
+//! and then one `doc:` handle per line; a press's is `clientX,clientY`, or
+//! nothing where there was no pointer. Each may end in the modifiers held.
 
 use super::Event;
 use exact_plan::Value;
@@ -99,6 +100,53 @@ impl PointerEvent {
             Value::Bool(self.held.ctrl),
             Value::Bool(self.held.alt),
             Value::Bool(self.held.meta),
+        ])
+    }
+}
+
+/// A press's `MouseEvent`, what a `press` action may take: where the pointer
+/// was and the modifier keys held (gallery F20). A press from the keyboard or
+/// an assistive technology is at 0, 0, as the `click` Chrome dispatches for
+/// one is, which is how a page tells it from a pointer's (LLP 1021 D2).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MouseEvent {
+    /// From the viewport's left, CSS px, as a `PointerEvent`'s.
+    pub client_x: f64,
+    /// From the viewport's top, CSS px.
+    pub client_y: f64,
+    /// The modifier keys held.
+    pub held: super::KeyModifiers,
+}
+
+impl MouseEvent {
+    /// Decode the wire line: the modifiers alone (no point), or the point
+    /// and then optionally the modifiers; `None` for a malformed one, a
+    /// non-finite number or a modifier DOM does not name.
+    pub fn parse(payload: &str) -> Option<MouseEvent> {
+        if !payload.contains(',') {
+            let held = super::KeyModifiers::held(payload)?;
+            return Some(MouseEvent {
+                held,
+                ..MouseEvent::default()
+            });
+        }
+        let ([client_x, client_y], held) = numbers(payload)?;
+        Some(MouseEvent {
+            client_x,
+            client_y,
+            held,
+        })
+    }
+
+    /// The `MouseEvent` record, its fields in the compiler's order.
+    pub fn value(&self) -> Value {
+        Value::record(vec![
+            Value::Bool(self.held.shift),
+            Value::Bool(self.held.ctrl),
+            Value::Bool(self.held.alt),
+            Value::Bool(self.held.meta),
+            Value::Number(self.client_x),
+            Value::Number(self.client_y),
         ])
     }
 }

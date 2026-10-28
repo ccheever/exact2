@@ -751,8 +751,13 @@ final class MenuHost {
         }
         let opener = entry.source.flatMap { presenter.views[$0] }
         guard let source = opener, source.window != nil else {
-            // An opener out of the window for now (its sheet leaving) keeps the place it gave; one gone recentres it.
-            if !entry.placed || opener == nil { pop.center = CGPoint(x: placement.midX, y: placement.midY) }
+            // An opener out of the window for now (its sheet leaving) keeps the place it gave; one gone
+            // recentres it, or one placed by its insets goes there.
+            if !entry.placed || opener == nil {
+                if let at = presenter.placeAtInset(pop, laid: pop.bounds.size, told: &entry.block, in: entry.layer, bounds: placement) {
+                    pop.center = CGPoint(x: at.origin.x + at.size.width / 2, y: at.origin.y + at.size.height / 2)
+                } else { pop.center = CGPoint(x: placement.midX, y: placement.midY) }
+            }
             return
         }
         let anchorView: UIView = source.isNativeButton ? presenter.controls.controls[source.id] ?? source : source
@@ -762,7 +767,7 @@ final class MenuHost {
         // Sized in its option's region, as the web's (PopoverRegion.swift). The overflow's page: the
         // document less the bands past its area (status bar, home indicator).
         let at = presenter.placePainted(pop, laid: pop.bounds.size, anchor: anchor, scroll: scroll, pageScroll: presenter.viewport.contentOffset, overflow: PositionArea.overflow(of: pop, page: presenter.viewport.convert(CGRect(origin: .zero, size: presenter.viewport.contentSize).inset(by: presenter.pageMargins), to: entry.layer)),
-                                        history: &entry.placement, told: &entry.block, in: placement)
+                                        history: &entry.placement, told: &entry.block, in: entry.layer, bounds: placement)
         let center = CGPoint(x: at.origin.x + at.size.width / 2, y: at.origin.y + at.size.height / 2)
         entry.placed = true
         // The size it was placed at, now: the region's frame comes with the layout its tell starts.

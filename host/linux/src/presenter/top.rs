@@ -403,6 +403,16 @@ impl<D: DataSource> Presenter<D> {
     ) -> bool {
         // Its session's roles (LLP 1121 stage 5): the surface's look resolves them.
         let _roles = self.host.runner().bind_roles();
+        // A popover its author placed by `left` or `top` opens at that point,
+        // as a context menu opens at the pointer (LLP 1021 D2).
+        let point = point.or_else(|| {
+            let node = self.host.kernel().node_by_key(target?)?;
+            let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
+            let popover = !modal && node.props.str(PropId::Popover).is_some();
+            popover
+                .then(|| area::inset_point(&style, &self.host.kernel().env(), self.viewport))
+                .flatten()
+        });
         if self.neutral_alerts() {
             return self.alert_present(target, name, invoker, point, modal, now_ms);
         }
@@ -570,7 +580,20 @@ impl<D: DataSource> Presenter<D> {
     /// A person chose row `index`: the surface closes, then the row's
     /// `press` runs (an alert's cancel has none), then the menu it opens,
     /// where it opens one, takes the first one's place.
-    fn choose(&mut self, index: usize, now_ms: f64) {
+    /// A point of the open surface's own space in the page's, where its
+    /// row's `MouseEvent` has `clientX`/`clientY` (LLP 1021 D2).
+    /// Its frame is in the window's pixels, the rest in points.
+    fn surface_client(&self, (x, y): (f32, f32)) -> Option<(f32, f32)> {
+        let open = self.top.open.as_ref()?;
+        let [px, py, ..] = self.chrome().frame;
+        Some((
+            open.frame[0] as f32 / open.scale + x - px,
+            open.frame[1] as f32 / open.scale + y - py,
+        ))
+    }
+
+    /// Row `index` chosen; `pressed`, where a pointer chose it, in the page.
+    fn choose(&mut self, index: usize, now_ms: f64, pressed: Option<(f32, f32)>) {
         let Some(open) = &self.top.open else {
             return;
         };
@@ -587,7 +610,13 @@ impl<D: DataSource> Presenter<D> {
             .contains(&EventKind::Press)
             && !row.cancel
         {
-            let error = self.host.dispatch_at(row.node, Event::Press, now_ms);
+            let (x, y) = pressed.unwrap_or_default();
+            let press = Event::pressed(exact_runner::MouseEvent {
+                client_x: x.into(),
+                client_y: y.into(),
+                held: self.modifiers(),
+            });
+            let error = self.host.dispatch_at(row.node, press, now_ms);
             if let Some(e) = error.or(self.after_commit()) {
                 eprintln!("exact: {e}");
             }
@@ -666,7 +695,8 @@ impl<D: DataSource> Presenter<D> {
             self.executor.notify();
         }
         if let Some(index) = chosen {
-            self.choose(index, now_ms);
+            let point = self.surface_client((x, y));
+            self.choose(index, now_ms, point);
         }
     }
 
@@ -724,7 +754,7 @@ impl<D: DataSource> Presenter<D> {
             "Home" | "End" if self.top.overlay.enabled => self.surface_edge(name == "End"),
             "Enter" | " " => {
                 if let Some(index) = self.top.open.as_ref().and_then(|open| open.focused) {
-                    self.choose(index, now_ms);
+                    self.choose(index, now_ms, None);
                 }
             }
             _ => {}
@@ -855,7 +885,10 @@ impl<D: DataSource> Presenter<D> {
                 "view {id} is disabled in the open surface (view {pop})"
             )),
             (Some(index), _) => {
-                self.choose(index, now);
+                // The agent's tap is a pointer's, at the row's middle.
+                let (x, y, w, h) = open.layout.targets[index].rect;
+                let point = self.surface_client((x + w / 2., y + h / 2.));
+                self.choose(index, now, point);
                 Ok(format!("{{\"tapped\":{id},\"surface\":{serial}}}"))
             }
             (None, _) if outside => {

@@ -781,6 +781,7 @@ impl<D: DataSource> Presenter<D> {
         focus_before_down: Option<Option<ViewId>>,
         mouse_click: bool,
     ) -> Option<ViewId> {
+        self.press_point = Some((x, y));
         self.note_press_from(hit, false, focus_before_down.unwrap_or(self.focus));
         let focus = focus_before_down.is_none() && !self.pointerdown_prevents_focus(hit);
         let click = mouse_click.then(|| self.mouse_press_target(hit)).flatten();
@@ -931,6 +932,19 @@ impl<D: DataSource> Presenter<D> {
             .is_some_and(|view| self.canvas_pointer(view, "down", 1, x, y, at))
     }
 
+    /// A press's event: the modifiers held, and the point the pointer path
+    /// that sent it left (`press_point`), taken so no later press reads it.
+    /// A key's press has none, as a browser's synthetic click is at 0, 0.
+    pub(crate) fn press_event(&mut self, pointer: bool) -> Event {
+        let point = self.press_point.take();
+        let (client_x, client_y) = point.filter(|_| pointer).unwrap_or_default();
+        Event::pressed(exact_runner::MouseEvent {
+            client_x: client_x.into(),
+            client_y: client_y.into(),
+            held: self.modifiers(),
+        })
+    }
+
     pub(crate) fn dispatch_press(&mut self, target: ViewId, now_ms: f64, pointer: bool) {
         let row = self.capture_split_row(target);
         // Capture ancestry before the handler can remove its button. Pointer
@@ -949,12 +963,7 @@ impl<D: DataSource> Presenter<D> {
             }
         });
         // With the modifiers held (gallery F20: shift-click), as a click has them.
-        let held = self.modifiers();
-        let press = if held == Default::default() {
-            Event::Press
-        } else {
-            Event::PressWith(held)
-        };
+        let press = self.press_event(pointer);
         if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }

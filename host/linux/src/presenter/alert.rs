@@ -695,3 +695,7 @@ impl<D: DataSource> Presenter<D> {
 #[cfg(test)]
 #[path = "alert_input_tests.rs"]
 mod input_tests;
+
+#[cfg(test)]
+#[path = "press_point_tests.rs"]
+mod press_point_tests;
