@@ -534,8 +534,11 @@ impl<D: DataSource> Runner<D> {
     /// What answers `row` now (module doc).
     pub(in crate::runner) fn route(&self, row: &ModulesRow) -> Route {
         let extension = self.plan.str(row.extension);
-        if self.extensions.bound.contains(extension) {
+        if self.extensions.bound.contains(extension) && !self.kept_by_runner(row) {
             Route::Real
+        } else if self.extensions.bound.contains(extension) {
+            // The runner keeps the list it hands over (`declared/handed.rs`).
+            Route::Substitute
         } else if self.extensions.agent.contains(extension)
             && self.substitute(row)["implementation"] == true
         {

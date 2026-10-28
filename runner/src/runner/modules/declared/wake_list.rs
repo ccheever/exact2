@@ -376,5 +376,6 @@ impl<D: DataSource> Runner<D> {
         for key in keys {
             self.announce(&key);
         }
+        self.hand_over(state);
     }
 }

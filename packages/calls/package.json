@@ -2,9 +2,10 @@
   "name": "@exact/calls",
   "version": "1.0.0",
   "private": true,
-  "description": "An app's voice or video call: the module keeps the call as its own state; on the web Media Session's call actions are its controls, and elsewhere the declared substitute keeps it until CallKit and Core-Telecom are bound (LLP 1133.033).",
+  "description": "An app's voice or video call: the runner keeps the call list; CallKit shows it on iOS and Media Session's call actions on the web (LLP 1133.033).",
   "exports": {
     ".": "./exact.json",
+    "./apple": "./apple/exact.json",
     "./web": "./web/exact.json"
   }
 }

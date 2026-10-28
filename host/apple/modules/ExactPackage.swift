@@ -748,4 +748,17 @@ public final class ExactAudioSession {
     public func claim(mode: String?, options: [String], background: Bool, events: @escaping (String) -> Void) -> ExactSubscription? {
         claimFn(mode, options, background, events).map(ExactSubscription.init)
     }
+    /// A call's claim (LLP 1133.033 D10): the session takes the call's
+    /// configuration and is never activated by the app while any is held;
+    /// the system activates it. Captures and the app's sound join it. Held
+    /// for as long as any call lasts. Nil where the host has no audio
+    /// session owner to compose.
+    public func claimCall(video: Bool, events: @escaping (String) -> Void) -> ExactSubscription? {
+        claimFn(video ? "call-video" : "call-voice", [], true, events).map(ExactSubscription.init)
+    }
+    /// CallKit activated (`provider(_:didActivate:)`) or deactivated the
+    /// calls' session.
+    public func callAudio(_ active: Bool) {
+        _ = claimFn(active ? "call-activated" : "call-deactivated", [], false, { _ in })
+    }
 }

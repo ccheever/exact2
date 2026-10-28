@@ -57,6 +57,7 @@ impl<D: DataSource> Runner<D> {
         for extension in &answering {
             self.tell_preferred(extension);
         }
+        self.hand_over_all();
         if self.page.in_background() {
             self.tell_foreground();
         }

@@ -22,6 +22,17 @@
 // applies it. When the last speech claim goes and nothing else runs, the
 // session is given up with `.notifyOthersOnDeactivation`, so what a prompt
 // ducked or interrupted comes back.
+//
+// A call claims too (LLP 1133.033 D10), made by `@exact/calls` when CallKit
+// starts or answers a call: `.playAndRecord` in `.voiceChat` (`.videoChat`
+// for a video call), set before the action is fulfilled, and never
+// activated here: the system activates a call's session
+// (`provider(_:didActivate:)`), and an app that activates first blocks the
+// phone session. While a call claim is held no other path sets the category
+// or activates: a capture joins in the call's configuration, and the app's
+// own sound plays in it. The claim lasts while any call does; when the last
+// ends, the app's category comes back at the deactivation that follows, or
+// at once, without activating, when the session is already inactive.
 #if os(iOS) || os(tvOS)
 import AVFoundation
 import Foundation
@@ -69,6 +80,11 @@ package enum AudioSession {
     /// submitted and not ended. Each answers whether it let its hold go.
     nonisolated(unsafe) private static var idlers: [ObjectIdentifier: () -> Bool] = [:]
     nonisolated(unsafe) private static var composing = false
+    /// The calls' claims, and whether the system has activated their session.
+    nonisolated(unsafe) private static var calls: Set<UInt64> = []
+    nonisolated(unsafe) private(set) static var callActive = false
+    /// Whether a call claim is held: the session is the call's.
+    static var inCall: Bool { !calls.isEmpty }
     static let spokenTypes = ["transient", "transient-solo", "playback"]
 
     /// The process keeps running in the background with `audio` in
@@ -181,7 +197,7 @@ package enum AudioSession {
     /// The speech configuration, at a boundary: applied, kept, or given up,
     /// only while nothing else runs.
     private static func composeSpeechThrowing() throws {
-        guard !composing else { return }
+        guard !composing, !inCall else { return }
         composing = true
         defer { composing = false }
         // A capture's configuration holds for its whole length; speech plays under it.
@@ -222,7 +238,7 @@ package enum AudioSession {
                                      events: @escaping (UInt32) -> Void) -> UInt64 {
         observe()
         let claim = Capture(mode: mode, options: options, background: background, events: events)
-        if captures.isEmpty {
+        if captures.isEmpty && !inCall {
             do {
                 if let failure = nextHoldFailure { nextHoldFailure = nil; throw failure }
                 let session = AVAudioSession.sharedInstance()
@@ -250,6 +266,7 @@ package enum AudioSession {
 
     /// The category the app's own sound wants, or the session given up.
     private static func restoreAfterCaptures() {
+        guard !inCall else { return }
         let session = AVAudioSession.sharedInstance()
         if !speeches.isEmpty {
             spoken = nil
@@ -264,11 +281,61 @@ package enum AudioSession {
         }
     }
 
+    /// A call's claim (file doc): the call's category and mode, set now and
+    /// not activated. Every claim made meanwhile hears the session's events.
+    package static func claimCall(video: Bool, events: @escaping (UInt32) -> Void) -> UInt64 {
+        observe()
+        if calls.isEmpty {
+            try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: video ? .videoChat : .voiceChat, options: [.allowBluetoothHFP])
+        }
+        nextCapture += 1
+        calls.insert(nextCapture)
+        callEvents[nextCapture] = events
+        return nextCapture
+    }
+    nonisolated(unsafe) private static var callEvents: [UInt64: (UInt32) -> Void] = [:]
+
+    /// Whether `id` is a call's claim.
+    package static func isCall(_ id: UInt64) -> Bool { calls.contains(id) }
+
+    /// A call's claim ends. With none left, the app's own configuration
+    /// comes back now only if the session is already inactive; else at
+    /// `callActivated(false)`.
+    package static func releaseCall(_ id: UInt64) {
+        guard calls.remove(id) != nil else { return }
+        callEvents[id] = nil
+        if calls.isEmpty && !callActive { restoreAfterCall() }
+    }
+
+    /// The system activated (`provider(_:didActivate:)`) or deactivated the
+    /// calls' session: every claim hears it, as an interruption's end (2) or
+    /// beginning (1) would tell it.
+    package static func callActivated(_ active: Bool) {
+        callActive = active
+        tell(active ? 2 : 1)
+        for e in Array(callEvents.values) { e(active ? 2 : 1) }
+        if !active && calls.isEmpty { restoreAfterCall() }
+    }
+
+    /// The app's category back, without activating: activation waits for
+    /// the app's next sound or an interruption's end (D10).
+    private static func restoreAfterCall() {
+        let session = AVAudioSession.sharedInstance()
+        if !captures.isEmpty, let claim = configuring {
+            try? session.setCategory(.playAndRecord, mode: claim.mode, options: claim.options)
+        } else {
+            try? session.setCategory(holders.isEmpty ? .ambient : category)
+        }
+    }
+
     /// For tests: nothing held, no player, no capture, the category back to ambient.
     static func reset() {
         holders.removeAll()
         players.removeAll()
         captures.removeAll()
+        calls.removeAll()
+        callEvents.removeAll()
+        callActive = false
         configuring = nil
         speeches.removeAll()
         spoken = nil
@@ -278,7 +345,7 @@ package enum AudioSession {
     }
 
     private static func reconcile() throws {
-        guard !holders.isEmpty || !captures.isEmpty else { return }
+        guard !holders.isEmpty || !captures.isEmpty, !inCall else { return }
         if let failure = nextHoldFailure { nextHoldFailure = nil; throw failure }
         let session = AVAudioSession.sharedInstance()
         // A sound started during speech plays in the configuration in force (LLP 1133.012 D4).

@@ -488,6 +488,11 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         Value::String(s) if s == "implementation" => {
             out.insert("implementation".into(), Value::Bool(true));
         }
+        // The runner keeps the interface's declared lists where its
+        // implementation is bound, and hands them over (LLP 1133.033 §13).
+        Value::String(s) if s == "runner" => {
+            out.insert("runner".into(), Value::Bool(true));
+        }
         // An arrival the agent's words stand for (LLP 1133.035 D16 item 1):
         // the names a tag in the field settles, raises and ends, read by
         // the runner from any name of the interface.
@@ -503,7 +508,7 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
         }
         other => {
             return Err(format!(
-                "an interface's `substitute` is \"implementation\" or {{\"arrival\": {{\"field\", \"from\", \"status\", \"scan\", \"write\", \"lock\", \"reading\", \"readingerror\"}}}}, not `{other}`"
+                "an interface's `substitute` is \"implementation\", \"runner\" or {{\"arrival\": {{\"field\", \"from\", \"status\", \"scan\", \"write\", \"lock\", \"reading\", \"readingerror\"}}}}, not `{other}`"
             ))
         }
     }

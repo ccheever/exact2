@@ -65,6 +65,7 @@ pub(super) use admit::OriginsSaved;
 use admit::{Origins, Route};
 pub use calls::CallHow;
 pub use declared::AppState;
+pub(super) use declared::CHOSEN;
 pub(super) use events::EMITTED;
 pub use presence::{PresenceAnswer, PresenceAsk};
 pub(super) use services::CLAIMED;

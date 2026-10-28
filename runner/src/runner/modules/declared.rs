@@ -44,10 +44,13 @@ use std::sync::{Arc, Mutex};
 
 mod app_list;
 mod desktop;
+mod handed;
 mod reach;
 mod region_list;
 mod update;
 mod wake_list;
+
+pub(in crate::runner) use handed::CHOSEN;
 
 /// The host's app-wide state: one per app, shared by its sessions.
 pub type AppState = Arc<Mutex<BTreeMap<String, Json>>>;

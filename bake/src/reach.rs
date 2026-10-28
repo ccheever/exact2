@@ -863,7 +863,10 @@ mod tests {
         let grants = "device.microphone mic\ndevice.calls calls";
         let mut development = compat(grants);
         derive(&dir.0, "ios", None, &mut development).unwrap();
-        assert_eq!(development.reach["backgroundModes"], json!(["audio"]));
+        assert_eq!(
+            development.reach["backgroundModes"],
+            json!(["audio", "voip"])
+        );
         let mut android = compat(grants);
         derive(&dir.0, "linux", None, &mut android).unwrap();
         assert_eq!(

@@ -357,9 +357,12 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
 /// What a lease configures (D2, D4): voice processing, the session's mode and options.
 struct CaptureOptions {
     let voiceProcessing: Bool, mode: String?, categoryOptions: [String], background: Bool
+    /// The capture asked `echoCancellation=false`: no voice processing even during a call.
+    let echoRefused: Bool
     let preferredIOBufferDuration: Double?, deviceId: String?
     init(constraints: [String: Any], apple: [String: Any]) {
         voiceProcessing = ["echoCancellation", "noiseSuppression", "autoGainControl"].contains { constraints[$0] as? Bool == true }
+        echoRefused = constraints["echoCancellation"] as? Bool == false
         mode = apple["mode"] as? String
         categoryOptions = apple["categoryOptions"] as? [String] ?? []
         background = Permission.recordsInBackground
@@ -505,9 +508,16 @@ final class ProcessCapture: ExactAudioSource {
     private func start(_ options: CaptureOptions) throws {
         let engine = AVAudioEngine()
         let input = engine.inputNode
-        if options.voiceProcessing { try input.setVoiceProcessingEnabled(true) }
         #if os(iOS)
         let s = AVAudioSession.sharedInstance()
+        // During a call (LLP 1133.033 D10) the session is the call's, `.voiceChat` or `.videoChat`, which applies no
+        // echo cancellation without voice processing on the I/O unit.
+        let inCall = s.mode == .voiceChat || s.mode == .videoChat
+        #else
+        let inCall = false
+        #endif
+        if options.voiceProcessing || (inCall && !options.echoRefused) { try input.setVoiceProcessingEnabled(true) }
+        #if os(iOS)
         if let d = options.preferredIOBufferDuration { try? s.setPreferredIOBufferDuration(d) }
         if let id = options.deviceId, let port = s.availableInputs?.first(where: { $0.uid == id }) { try? s.setPreferredInput(port) }
         #endif

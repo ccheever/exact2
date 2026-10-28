@@ -184,6 +184,21 @@ private let hatchAudioClaim: HatchAudioClaimFn = { host, mode, length, options, 
         return macClaims
         #endif
     }
+    // A call's claim, and the system's activation of the calls' session (LLP 1133.033 D10).
+    if word.hasPrefix("call-") {
+        #if os(iOS) || os(tvOS)
+        switch word {
+        case "call-voice", "call-video":
+            hatchSession(host)?.log("audio session: claimed by a call (\(word))")
+            return AudioSession.claimCall(video: word == "call-video") { code in event(context, code) }
+        case "call-activated", "call-deactivated":
+            hatchSession(host)?.log("audio session: the system \(word == "call-activated" ? "activated" : "deactivated") the calls' session")
+            AudioSession.callActivated(word == "call-activated")
+        default: break
+        }
+        #endif
+        return 0
+    }
     hatchSession(host)?.log("audio session: claimed by a capture\(word.isEmpty ? "" : " (mode \(word))")")
     #if os(iOS) || os(tvOS)
     // Map `AudioClaims.options` in declaration order to `CategoryOptions` raw values.
@@ -211,6 +226,12 @@ private let hatchAudioRelease: HatchAudioReleaseFn = { host, id in
     if AudioSession.isSpeech(id) {
         hatchSession(host)?.log("audio session: a speech claim released")
         return AudioSession.releaseSpeech(id)
+    }
+    #endif
+    #if os(iOS) || os(tvOS)
+    if AudioSession.isCall(id) {
+        hatchSession(host)?.log("audio session: a call's claim released")
+        return AudioSession.releaseCall(id)
     }
     #endif
     hatchSession(host)?.log("audio session: a claim released")

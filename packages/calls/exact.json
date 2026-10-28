@@ -5,6 +5,7 @@
   "grants": [
     "device.calls"
   ],
+  "substitute": "runner",
   "shapes": {
     "Call": {
       "id": "string",
@@ -252,6 +253,47 @@
                     "muted": false
                   }
                 ]
+              },
+              "failed": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "state": "ended",
+                  "endedReason": "failed",
+                  "audio": false
+                }
+              },
+              "activated": {
+                "when": {
+                  "state": [
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "audio": true
+                }
+              },
+              "deactivated": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "audio": false
+                }
               }
             }
           },
@@ -487,6 +529,47 @@
                     "muted": false
                   }
                 ]
+              },
+              "failed": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "state": "ended",
+                  "endedReason": "failed",
+                  "audio": false
+                }
+              },
+              "activated": {
+                "when": {
+                  "state": [
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "audio": true
+                }
+              },
+              "deactivated": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "audio": false
+                }
               }
             }
           },

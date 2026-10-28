@@ -8,12 +8,11 @@ run it. Use a test phone, never a personal one.
 
 **What is built.** The foreground service on Android and the background
 line on iOS (§12 stages 0 and 3), so the recorder's steps run now. The
-call is the module's own state on every target, with no system screen
-(`callsStatus().systemUI` is false); on the web Media Session's call
-actions are its controls (stage 1, step 5 below). CallKit (stage 2) and
-Core-Telecom (stage 4) are not built, so steps 1 to 4 wait for them; they
-are written here so the person running them knows what to look for when
-they land.
+runner keeps the call list on every target. On iOS CallKit shows it
+(stage 2, steps 1 to 3); on the web Media Session's call actions are its
+controls (stage 1, step 5); a Mac has no system call screen. On Android
+Core-Telecom (stage 4, step 4) is written but not yet built, so step 4
+waits for it.
 
 ## The recorder
 
@@ -23,11 +22,10 @@ minutes, the Android notification, `dumpsys`, and the same without the
 line) and 10 (a take the Task Manager stopped, recovered at the next
 launch).
 
-## Calls (steps 1 to 4 wait for stages 2 and 4)
+## Calls (step 4 waits for stage 4)
 
 Harmony's **Make a Test Call**, under You, on an iPhone and a Mac; the
-package's fixture on an Android phone (`packages/calls/test/fixture`,
-when it lands).
+package's fixture (`packages/calls/test/fixture`) on an Android phone.
 
 1. **The call screen (iPhone).** Make a test call: the green call
    indicator shows, "Say something" for five seconds, then the take plays

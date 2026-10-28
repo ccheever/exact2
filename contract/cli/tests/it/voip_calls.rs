@@ -378,3 +378,77 @@ fn a_third_party_list_drives_as_calls_does() {
         logs(&r)
     );
 }
+
+/// Bound, `@exact/calls`' list stays the runner's (LLP 1133.033 §13,
+/// "Runner hands it over"): the implementation is handed it at the bind and
+/// at each change, never sent the list's sends, and its report of a
+/// person's act on the platform's screen takes the declared choice.
+#[test]
+fn a_bound_implementation_is_handed_the_list_and_reports_a_choice() {
+    use exact_runner::{Outcome, Reply, Response};
+    use std::sync::{Arc, Mutex};
+    let app = App::new("handed");
+    let mut r = boot(&app);
+    let told: Arc<Mutex<Vec<serde_json::Value>>> = Arc::default();
+    let seen = told.clone();
+    r.native_slot()
+        .host(Some(Arc::new(move |body: Vec<u8>, reply: Reply| {
+            let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            seen.lock().unwrap().push(v);
+            reply.send(Outcome::Response(Response {
+                status: 200,
+                headers: Vec::new(),
+                body: br#"{"available":true,"systemUI":true}"#.to_vec(),
+            }));
+        })));
+    r.bind_extensions(&["calls"], &[]);
+    let handed = |told: &Arc<Mutex<Vec<serde_json::Value>>>| {
+        (told.lock().unwrap().iter())
+            .rfind(|v| v["send"] == "exact:listed")
+            .cloned()
+    };
+    let first = handed(&told).expect("handed at the bind");
+    assert_eq!(first["args"]["state"], "calls");
+    assert_eq!(first["args"]["entries"], serde_json::json!([]));
+    r.act("place", Vec::new()).unwrap();
+    r.act("connect", Vec::new()).unwrap();
+    settle(&mut r);
+    let now = handed(&told).unwrap();
+    let entry = &now["args"]["entries"][0];
+    assert_eq!(
+        (entry["id"].as_str(), entry["state"].as_str()),
+        (Some("c1"), Some("connected")),
+        "{now}"
+    );
+    assert!(entry["ref"].is_u64(), "{now}");
+    assert!(
+        !told
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|v| v["send"] == "startCall"),
+        "the list's sends stay the runner's"
+    );
+    // The person hangs up on the platform's screen.
+    r.native_slot().changed(
+        r#"exact-choice:{"extension":"calls","state":"calls","key":"c1","choice":"hangup"}"#,
+    );
+    settle(&mut r);
+    assert!(
+        slot(&r, "heard").contains("hangup c1"),
+        "{} {}",
+        slot(&r, "heard"),
+        logs(&r)
+    );
+    assert_eq!(state(&r)["calls"][0]["endedReason"], "local");
+    // A choice for no entry, or one the list does not declare, changes nothing.
+    r.native_slot().changed(
+        r#"exact-choice:{"extension":"calls","state":"calls","key":"c9","choice":"answer"}"#,
+    );
+    settle(&mut r);
+    assert!(
+        logs(&r).contains(r#"calls.calls: `answer` for \"c9\": no such entry"#),
+        "{}",
+        logs(&r)
+    );
+}

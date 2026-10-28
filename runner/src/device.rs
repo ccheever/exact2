@@ -148,15 +148,16 @@ pub const DEVICES: &[Device] = &[
         ..ROW
     },
     // @ref LLP 1133.033 D16 — `@exact/calls`. A call keeps the process for
-    // its active audio session on iOS (`audio`; the host's provider is made
-    // under this line), and on Android runs in the reader's `call` service,
+    // its active audio session on iOS (`audio`), and CallKit refuses a
+    // transaction as `unentitled` without `voip` (measured on an iOS 27
+    // simulator, 2026-10-27). On Android it runs in the reader's `call` service,
     // which needs `MANAGE_OWN_CALLS`; the purpose names the call
     // notification's channel. Every Android permission here is normal but
     // `USE_FULL_SCREEN_INTENT`, a special access the person can turn off.
     // No call service on a Mac, the web or tvOS.
     Device {
         name: "calls",
-        ios_modes: &["audio"],
+        ios_modes: &["audio", "voip"],
         android: &[
             "android.permission.MANAGE_OWN_CALLS",
             "android.permission.FOREGROUND_SERVICE",

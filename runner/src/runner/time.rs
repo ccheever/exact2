@@ -209,6 +209,12 @@ impl<D: DataSource> Runner<D> {
                 self.raise_told_wake(wake);
                 continue;
             }
+            // A person's act on a bound implementation's own screen, on a
+            // list the runner keeps (LLP 1133.033 §13).
+            if let Some(choice) = topic.strip_prefix(super::modules::CHOSEN) {
+                self.listed_choice(choice);
+                continue;
+            }
             // A foreground-service claim under the agent (LLP 1133.033 D21).
             if let Some(claim) = topic.strip_prefix(super::modules::CLAIMED) {
                 self.foreground_service_told(claim);
