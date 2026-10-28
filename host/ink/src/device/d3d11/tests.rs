@@ -2,6 +2,21 @@ use super::*;
 use crate::instance::Encoder;
 
 #[test]
+fn prepared_device_draws_on_the_receiving_thread() {
+    let preparing = Preparing::start(true).unwrap();
+    let mut device = preparing.finish().unwrap();
+    let target = device.create_target(3, 2).unwrap();
+    device
+        .render(&Frame::default(), target, Some([0.25, 0., 0., 0.5]))
+        .unwrap();
+    assert!(device
+        .readback(target)
+        .unwrap()
+        .chunks_exact(4)
+        .all(|p| p == [64, 0, 0, 128]));
+}
+
+#[test]
 fn readback_scissors_uploads_mips_and_retirement() {
     let mut d = D3d11::new().unwrap();
     let target = d.create_target(12, 4).unwrap();

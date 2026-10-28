@@ -327,50 +327,6 @@ fn r2(x: f32) -> f64 {
     (x as f64 * 100.0).round() / 100.0
 }
 impl<D: DataSource> Presenter<D> {
-    /// Boot the app under a viewport (points) at a device scale, with its
-    /// asset root. The boot error, if any, is reported beside the presenter
-    /// (the tree is what booted).
-    pub fn boot(
-        plan: &[u8],
-        data: D,
-        viewport: (f32, f32),
-        scale: f32,
-        assets: PathBuf,
-    ) -> Result<(Presenter<D>, Option<String>), HostError> {
-        Presenter::boot_with(
-            plan,
-            data,
-            viewport,
-            scale,
-            assets,
-            PainterChoice::from_env(PainterChoice::Auto),
-        )
-    }
-
-    /// Boot with a chosen painter (`boot` reads `EXACT_PAINTER`).
-    pub fn boot_with(
-        plan: &[u8],
-        data: D,
-        viewport: (f32, f32),
-        scale: f32,
-        assets: PathBuf,
-        choice: PainterChoice,
-    ) -> Result<(Presenter<D>, Option<String>), HostError> {
-        let (mut presenter, error) = Self::boot_with_assets(
-            PlanBytes::Copied(plan),
-            data,
-            viewport,
-            scale,
-            Assets::embedded(assets),
-            PainterBoot::selected(choice),
-            None,
-            "/",
-            None,
-        )?;
-        presenter.measure();
-        Ok((presenter, error))
-    }
-
     /// Boot from entry zero or one selected generation. The selected asset
     /// roster is complete: absent names cannot fall through to `root`.
     #[allow(clippy::too_many_arguments)]
@@ -430,11 +386,20 @@ impl<D: DataSource> Presenter<D> {
         }
         let t = std::time::Instant::now();
         let decoded = plan.decode().map_err(HostError::Plan)?;
+        #[cfg(windows)]
+        let preparing = painter.prepare_direct();
         let text = TextEngine::shared_for_assets(&decoded, &assets);
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
+        #[cfg(windows)]
+        let opened = preparing
+            .is_none()
+            .then(|| painter.open())
+            .transpose()
+            .map_err(HostError::Painter)?;
+        #[cfg(not(windows))]
         let (backend, painter) = painter.open().map_err(HostError::Painter)?;
         let (mut host, error) = Host::boot_decoded(
             decoded,
@@ -450,6 +415,12 @@ impl<D: DataSource> Presenter<D> {
         )?;
         // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
         let error = error.or(host.set_display_scale(f64::from(scale)));
+        #[cfg(windows)]
+        let (backend, painter) = match preparing {
+            Some(preparing) => PainterBoot::finish_direct(preparing.map_err(HostError::Painter)?)
+                .map_err(HostError::Painter)?,
+            None => opened.expect("synchronous painter"),
+        };
         let mut images = Images::with_assets(assets.clone());
         images.fit(viewport, scale);
         if assets.is_selected() {

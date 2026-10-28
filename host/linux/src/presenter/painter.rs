@@ -98,7 +98,7 @@ pub(super) fn cpu_info() -> PainterInfo {
 type OpenedPainter = Result<(Box<dyn Backend>, PainterInfo), String>;
 
 /// A carrier chooses its constructor without retaining every native backend.
-/// The constructor still runs after plan and font validation, on the paint thread.
+/// The backend is installed after validation, on the paint thread.
 #[derive(Clone, Copy)]
 pub(crate) struct PainterBoot {
     pub(super) choice: PainterChoice,
@@ -106,6 +106,43 @@ pub(crate) struct PainterBoot {
 }
 
 impl PainterBoot {
+    #[cfg(windows)]
+    pub(super) fn prepare_direct(
+        self,
+    ) -> Option<Result<exact_ink::device::d3d11::Preparing, String>> {
+        if self.choice != PainterChoice::Ink
+            || !std::ptr::fn_addr_eq(
+                self.open,
+                open_backend as fn(PainterChoice) -> OpenedPainter,
+            )
+        {
+            return None;
+        }
+        let force_warp = match std::env::var("EXACT_INK_DEVICE").as_deref() {
+            Ok("d3d11") => false,
+            Ok("warp") => true,
+            _ => return None,
+        };
+        Some(exact_ink::device::d3d11::Preparing::start(force_warp).map_err(|e| e.to_string()))
+    }
+
+    #[cfg(windows)]
+    pub(super) fn finish_direct(preparing: exact_ink::device::d3d11::Preparing) -> OpenedPainter {
+        let start = std::time::Instant::now();
+        let device = preparing.finish().map_err(|e| e.to_string())?;
+        let ink =
+            crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));
+        if std::env::var_os("EXACT_AGENT_WINDOW_FRAMES").is_some() {
+            eprintln!(
+                "exact-ink: startup device {:.3} ms, pipelines {:.3} ms, join {:.3} ms",
+                ink.info().device_ms,
+                ink.info().shaders_ms,
+                start.elapsed().as_secs_f64() * 1000.
+            );
+        }
+        Ok(ink_backend(ink))
+    }
+
     pub(super) fn selected(choice: PainterChoice) -> Self {
         Self {
             choice,
@@ -160,15 +197,7 @@ pub(super) fn open_backend(
         #[cfg(not(target_os = "android"))]
         PainterChoice::Ink => {
             let ink = crate::ink::Ink::new()?;
-            let device = ink.info();
-            let info = PainterInfo {
-                name: "ink",
-                adapter: Some(format!("{} ({})", device.adapter, device.api)),
-                device_ms: device.device_ms,
-                shaders_ms: device.shaders_ms,
-                cached: device.cached,
-            };
-            Ok((Box::new(ink), info))
+            Ok(ink_backend(ink))
         }
         PainterChoice::Custom => {
             let (name, make) = CUSTOM
@@ -199,7 +228,64 @@ pub(super) fn open_backend(
     }
 }
 
+#[cfg(not(target_os = "android"))]
+fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
+    let device = ink.info();
+    let info = PainterInfo {
+        name: "ink",
+        adapter: Some(format!("{} ({})", device.adapter, device.api)),
+        device_ms: device.device_ms,
+        shaders_ms: device.shaders_ms,
+        cached: device.cached,
+    };
+    (Box::new(ink), info)
+}
+
 impl<D: DataSource> Presenter<D> {
+    /// Boot the app under a viewport (points) at a device scale, with its
+    /// asset root. The boot error, if any, is reported beside the presenter
+    /// (the tree is what booted).
+    pub fn boot(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: PathBuf,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        Presenter::boot_with(
+            plan,
+            data,
+            viewport,
+            scale,
+            assets,
+            PainterChoice::from_env(PainterChoice::Auto),
+        )
+    }
+
+    /// Boot with a chosen painter (`boot` reads `EXACT_PAINTER`).
+    pub fn boot_with(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: PathBuf,
+        choice: PainterChoice,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let (mut presenter, error) = Self::boot_with_assets(
+            PlanBytes::Copied(plan),
+            data,
+            viewport,
+            scale,
+            Assets::embedded(assets),
+            PainterBoot::selected(choice),
+            None,
+            "/",
+            None,
+        )?;
+        presenter.measure();
+        Ok((presenter, error))
+    }
+
     /// The carrier transfers a retained window to a directly presenting backend.
     #[cfg(windows)]
     pub fn attach_painter_window(

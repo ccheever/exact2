@@ -1,0 +1,673 @@
+//! Product-window qualification, run in the signed-in desktop after building Shelf.
+//! @ref LLP 1149 S2.1, D7, D9; LLP 1115.004 D13.
+use std::{
+    fs::{self, File},
+    path::PathBuf,
+    process::{Child, Command, Stdio},
+    time::{Duration, Instant},
+};
+use windows::{
+    core::BOOL,
+    Win32::{
+        Foundation::{HWND, LPARAM, POINT, RECT, WPARAM},
+        Graphics::{Dwm::DwmFlush, Gdi::*},
+        UI::{HiDpi::*, WindowsAndMessaging::*},
+    },
+};
+
+fn out() -> PathBuf {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/ink-s2");
+    fs::create_dir_all(&path).unwrap();
+    path
+}
+
+fn until(label: &str, mut condition: impl FnMut() -> bool) {
+    let end = Instant::now() + Duration::from_secs(30);
+    while !condition() {
+        assert!(Instant::now() < end, "timed out: {label}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn unlocked() -> bool {
+    use windows::Win32::{Foundation::HANDLE, System::StationsAndDesktops::*};
+    unsafe {
+        let Ok(desktop) = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
+        else {
+            return false;
+        };
+        let mut name = [0u16; 64];
+        let result = GetUserObjectInformationW(
+            HANDLE(desktop.0),
+            UOI_NAME,
+            Some(name.as_mut_ptr().cast()),
+            size_of_val(&name) as u32,
+            None,
+        );
+        CloseDesktop(desktop).unwrap();
+        result.is_ok()
+            && String::from_utf16_lossy(
+                &name[..name.iter().position(|n| *n == 0).unwrap_or(name.len())],
+            ) == "Default"
+    }
+}
+
+struct Shelf {
+    child: Child,
+    hwnd: HWND,
+    log: PathBuf,
+}
+
+impl Shelf {
+    fn launch(
+        name: &str,
+        exe: &str,
+        painter: &str,
+        size: &str,
+        frames: Option<u32>,
+        field: bool,
+    ) -> Self {
+        let log = out().join(format!("{name}.log"));
+        let file = File::create(&log).unwrap();
+        let mut command = Command::new(exe);
+        command
+            .env("EXACT_INK_DEVICE", "d3d11")
+            .env("EXACT_PAINTER", painter)
+            .env("EXACT_SIZE", size)
+            .env("EXACT_AGENT_WINDOW_READY", "library-count")
+            .env(
+                "EXACT_AGENT_STORAGE",
+                format!("ink-s2-{name}-{}", std::process::id()),
+            )
+            .env("EXACT_AGENT_STORAGE_FRESH", "1")
+            .env_remove("EXACT_AGENT")
+            .env_remove("EXACT_DISPLAY")
+            .env_remove("EXACT_INK_RICHEDIT")
+            .env_remove("EXACT_AGENT_WINDOW_TAP")
+            .env_remove("EXACT_AGENT_WINDOW_FRAMES")
+            .stdout(Stdio::from(file.try_clone().unwrap()))
+            .stderr(Stdio::from(file));
+        if let Some(frames) = frames {
+            command.env("EXACT_AGENT_WINDOW_FRAMES", frames.to_string());
+        }
+        if field {
+            command.env("EXACT_AGENT_WINDOW_TAP", "search");
+        }
+        let child = command.spawn().unwrap();
+        println!("S2_PROCESS {name} pid={} exe={exe}", child.id());
+        let mut app = Self {
+            child,
+            hwnd: HWND::default(),
+            log,
+        };
+        until("Shelf's complete first screen", || {
+            app.alive();
+            app.text()
+                .contains("process to first-screen compositor sync")
+        });
+        until("Shelf HWND", || {
+            app.hwnd = window_for(app.child.id());
+            !app.hwnd.is_invalid()
+        });
+        app
+    }
+
+    fn open(name: &str, field: bool) -> Self {
+        // Coordinates below are physical pixels, including under a changed DPI.
+        unsafe {
+            let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        let exe = std::env::var("INK_SHELF").expect("INK_SHELF names the built Shelf.exe");
+        let mut app = Self::launch(name, &exe, "ink", "1024x720", None, field);
+        app.place(1024, 720);
+        app
+    }
+
+    fn alive(&mut self) {
+        assert!(
+            self.child.try_wait().unwrap().is_none(),
+            "Shelf exited: {}",
+            self.text()
+        );
+    }
+
+    fn text(&self) -> String {
+        fs::read_to_string(&self.log).unwrap()
+    }
+
+    fn client(&self) -> RECT {
+        let mut rect = RECT::default();
+        unsafe {
+            GetClientRect(self.hwnd, &mut rect).unwrap();
+        }
+        rect
+    }
+
+    fn place(&mut self, width: i32, height: i32) {
+        let mut outer = RECT::default();
+        unsafe {
+            GetWindowRect(self.hwnd, &mut outer).unwrap();
+        }
+        let client = self.client();
+        unsafe {
+            SetWindowPos(
+                self.hwnd,
+                Some(HWND_TOP),
+                80,
+                80,
+                width + outer.right - outer.left - client.right,
+                height + outer.bottom - outer.top - client.bottom,
+                SWP_SHOWWINDOW,
+            )
+            .unwrap();
+            let _ = SetForegroundWindow(self.hwnd);
+        }
+        until("window resize and paint", || {
+            self.alive();
+            let rect = self.client();
+            rect.right == width
+                && rect.bottom == height
+                && self
+                    .text()
+                    .lines()
+                    .rev()
+                    .find(|s| s.starts_with("exact-windows: frame "))
+                    .is_some_and(|s| s.contains(&format!("{width}x{height}, scale")))
+        });
+    }
+
+    fn drag_size(&mut self, width: i32, height: i32) {
+        use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        fn button(flags: MOUSE_EVENT_FLAGS) {
+            let input = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dwFlags: flags,
+                        ..Default::default()
+                    },
+                },
+            };
+            assert_eq!(unsafe { SendInput(&[input], size_of::<INPUT>() as i32) }, 1);
+        }
+        struct Release;
+        impl Drop for Release {
+            fn drop(&mut self) {
+                button(MOUSEEVENTF_LEFTUP);
+            }
+        }
+        for horizontal in [true, false] {
+            let mut outer = RECT::default();
+            unsafe {
+                GetWindowRect(self.hwnd, &mut outer).unwrap();
+            }
+            let client = self.client();
+            let (x, y, delta) = if horizontal {
+                (
+                    outer.right - 2,
+                    (outer.top + outer.bottom) / 2,
+                    width - client.right,
+                )
+            } else {
+                (
+                    (outer.left + outer.right) / 2,
+                    outer.bottom - 2,
+                    height - client.bottom,
+                )
+            };
+            unsafe {
+                SetCursorPos(x, y).unwrap();
+            }
+            button(MOUSEEVENTF_LEFTDOWN);
+            let release = Release;
+            for step in 1..=8 {
+                unsafe {
+                    SetCursorPos(
+                        x + if horizontal { delta * step / 8 } else { 0 },
+                        y + if horizontal { 0 } else { delta * step / 8 },
+                    )
+                    .unwrap();
+                }
+                let target = if horizontal {
+                    client.right
+                } else {
+                    client.bottom
+                } + delta * step / 8;
+                until("drag reaches the requested size", || {
+                    self.alive();
+                    let rect = self.client();
+                    if horizontal {
+                        rect.right == target
+                    } else {
+                        rect.bottom == target
+                    }
+                });
+            }
+            drop(release);
+        }
+        until("dragged extent painted", || {
+            self.alive();
+            self.text()
+                .lines()
+                .rev()
+                .find(|s| s.starts_with("exact-windows: frame "))
+                .is_some_and(|s| s.contains(&format!("{width}x{height}, scale")))
+        });
+    }
+
+    fn capture(&mut self, name: &str) -> tiny_skia::Pixmap {
+        self.alive();
+        assert_eq!(
+            unsafe { GetForegroundWindow() },
+            self.hwnd,
+            "Shelf must be unobscured"
+        );
+        unsafe {
+            DwmFlush().unwrap();
+        }
+        let rect = self.client();
+        let (w, h) = (rect.right, rect.bottom);
+        assert!(w > 0 && h > 0);
+        let mut origin = POINT::default();
+        // Capture the compositor's desktop pixels, not a new renderer readback.
+        let pixels = unsafe {
+            assert!(ClientToScreen(self.hwnd, &mut origin).as_bool());
+            let screen = GetDC(None);
+            let dc = CreateCompatibleDC(Some(screen));
+            let info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: w,
+                    biHeight: -h,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut data = std::ptr::null_mut();
+            let bitmap =
+                CreateDIBSection(Some(screen), &info, DIB_RGB_COLORS, &mut data, None, 0).unwrap();
+            let previous = SelectObject(dc, HGDIOBJ(bitmap.0));
+            let result = BitBlt(
+                dc,
+                0,
+                0,
+                w,
+                h,
+                Some(screen),
+                origin.x,
+                origin.y,
+                SRCCOPY | CAPTUREBLT,
+            );
+            let mut bytes =
+                std::slice::from_raw_parts(data.cast::<u8>(), (w * h * 4) as usize).to_vec();
+            SelectObject(dc, previous);
+            let _ = DeleteObject(HGDIOBJ(bitmap.0));
+            let _ = DeleteDC(dc);
+            ReleaseDC(None, screen);
+            result.unwrap();
+            for p in bytes.chunks_exact_mut(4) {
+                p.swap(0, 2);
+                p[3] = 255;
+            }
+            tiny_skia::Pixmap::from_vec(
+                bytes,
+                tiny_skia::IntSize::from_wh(w as u32, h as u32).unwrap(),
+            )
+            .unwrap()
+        };
+        pixels.save_png(out().join(format!("{name}.png"))).unwrap();
+        pixels
+    }
+
+    fn close(mut self) -> String {
+        unsafe {
+            PostMessageW(Some(self.hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+        }
+        until("Shelf closes", || self.child.try_wait().unwrap().is_some());
+        assert!(self.child.wait().unwrap().success(), "{}", self.text());
+        let log = self.text();
+        assert!(
+            log.contains("frames; mean paint"),
+            "missing frame log: {log}"
+        );
+        log
+    }
+}
+
+impl Drop for Shelf {
+    fn drop(&mut self) {
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
+fn window_for(pid: u32) -> HWND {
+    struct Search {
+        pid: u32,
+        hwnd: HWND,
+    }
+    unsafe extern "system" fn visit(hwnd: HWND, data: LPARAM) -> BOOL {
+        let search = unsafe { &mut *(data.0 as *mut Search) };
+        let mut pid = 0;
+        unsafe {
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        }
+        if pid == search.pid && unsafe { IsWindowVisible(hwnd).as_bool() } {
+            search.hwnd = hwnd;
+            return false.into();
+        }
+        true.into()
+    }
+    let mut search = Search {
+        pid,
+        hwnd: HWND::default(),
+    };
+    unsafe {
+        let _ = EnumWindows(Some(visit), LPARAM((&mut search as *mut Search) as isize));
+    }
+    search.hwnd
+}
+
+fn band(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap) -> (f64, f64) {
+    assert_eq!((a.width(), a.height()), (b.width(), b.height()));
+    let mut sum = 0u64;
+    let mut over = 0usize;
+    for (a, b) in a.data().chunks_exact(4).zip(b.data().chunks_exact(4)) {
+        let delta = (0..3).map(|i| a[i].abs_diff(b[i])).max().unwrap();
+        sum += u64::from(delta);
+        over += usize::from(delta > 32);
+    }
+    let n = (a.width() * a.height()) as f64;
+    (sum as f64 / n, over as f64 / n)
+}
+
+fn fresh_comparison(name: &str, mut app: Shelf) {
+    app.place(1024, 720);
+    // Wait on agreement with the independently launched frame, not a fixed delay.
+    let after = app.capture(&format!("{name}-after"));
+    let log = app.close();
+    assert!(
+        !log.contains("device lost") && !log.contains("resize:"),
+        "{log}"
+    );
+    let mut fresh = Shelf::open(&format!("{name}-fresh"), false);
+    let mut score = (f64::INFINITY, 1.);
+    until("journey agrees with fresh launch", || {
+        let image = fresh.capture(&format!("{name}-fresh"));
+        score = band(&after, &image);
+        score.0 < 5. && score.1 < 0.06
+    });
+    println!("S2_BAND {name} mean={} over32={}", score.0, score.1);
+    fresh.close();
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF and INK_SHELF_BEFORE name built executables"]
+fn shelf_startup_series() {
+    let after = std::env::var("INK_SHELF").unwrap();
+    let before = std::env::var("INK_SHELF_BEFORE").unwrap();
+    for size in ["1024x720", "1920x1080"] {
+        for round in 0..10 {
+            let arms = [
+                (&before, "cpu", "cpu"),
+                (&before, "ink", "before"),
+                (&after, "ink", "after"),
+            ];
+            for step in 0..arms.len() {
+                let (exe, painter, arm) = arms[(round + step) % arms.len()];
+                let name = format!("startup-{size}-{round}-{arm}");
+                let mut app = Shelf::launch(&name, exe, painter, size, Some(120), false);
+                until("bounded startup run finishes", || {
+                    app.child.try_wait().unwrap().is_some()
+                });
+                assert!(app.child.wait().unwrap().success(), "{}", app.text());
+                println!("S2_STARTUP {name}\n{}", app.text());
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_resize() {
+    let mut app = Shelf::open("resize", false);
+    app.capture("resize-before");
+    for (w, h) in [(800, 600), (1280, 900), (1920, 1080), (1024, 720)] {
+        app.drag_size(w, h);
+        app.capture(&format!("resize-{w}x{h}"));
+    }
+    fresh_comparison("resize", app);
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_minimize_restore() {
+    let mut app = Shelf::open("minimize", false);
+    app.capture("minimize-before");
+    unsafe {
+        let _ = ShowWindowAsync(app.hwnd, SW_MINIMIZE);
+    }
+    until("minimized", || {
+        app.alive();
+        unsafe { IsIconic(app.hwnd).as_bool() }
+    });
+    unsafe {
+        let _ = ShowWindowAsync(app.hwnd, SW_RESTORE);
+    }
+    until("restored", || {
+        app.alive();
+        unsafe { !IsIconic(app.hwnd).as_bool() }
+    });
+    fresh_comparison("minimize", app);
+}
+
+#[test]
+#[ignore = "NucBox desktop; system caret blink enabled; INK_SHELF names Shelf.exe"]
+fn shelf_idle_caret() {
+    let mut app = Shelf::open("caret", true);
+    let thread = unsafe { GetWindowThreadProcessId(app.hwnd, None) };
+    let mut gui = GUITHREADINFO {
+        cbSize: size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    until("native caret in Shelf's focused field", || {
+        app.alive();
+        unsafe { GetGUIThreadInfo(thread, &mut gui).is_ok() && gui.hwndCaret == app.hwnd }
+    });
+    let mut shown = None;
+    let mut hidden = None;
+    let mut changes = 0;
+    let mut previous = None;
+    until("three idle caret transitions", || {
+        app.alive();
+        let text = app.text();
+        let last = text
+            .lines()
+            .rev()
+            .find(|s| s.starts_with("exact-windows: frame "))
+            .unwrap_or("");
+        let visible = last.contains("caret true");
+        if previous != Some(visible) {
+            let image = app.capture(if visible {
+                "caret-shown"
+            } else {
+                "caret-hidden"
+            });
+            if visible {
+                shown = Some(image);
+            } else {
+                hidden = Some(image);
+            }
+            if previous.is_some() {
+                changes += 1;
+            }
+            previous = Some(visible);
+        }
+        changes >= 3
+    });
+    let (shown, hidden) = (shown.unwrap(), hidden.unwrap());
+    let changed = shown
+        .data()
+        .chunks_exact(4)
+        .zip(hidden.data().chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(
+        changed > 0 && changed < 2000,
+        "idle blink changed {changed} pixels"
+    );
+    println!("S2_CARET transitions={changes} changed_pixels={changed}");
+    app.close();
+    let mut fresh = Shelf::open("caret-fresh", true);
+    let image = fresh.capture("caret-fresh");
+    let score = band(&shown, &image);
+    assert!(score.0 < 5. && score.1 < 0.06, "{score:?}");
+    println!("S2_BAND caret mean={} over32={}", score.0, score.1);
+    fresh.close();
+}
+
+#[test]
+#[ignore = "NucBox desktop; operator changes Settings display scaling 100% to 150% to 100%"]
+fn shelf_dpi_roundtrip() {
+    let mut app = Shelf::open("dpi", false);
+    assert_eq!(unsafe { GetDpiForWindow(app.hwnd) }, 96);
+    fs::write(out().join("dpi-waiting"), app.child.id().to_string()).unwrap();
+    until("Settings display scaling 150%", || {
+        app.alive();
+        unsafe { GetDpiForWindow(app.hwnd) == 144 }
+    });
+    unsafe {
+        let _ = SetForegroundWindow(app.hwnd);
+    }
+    app.capture("dpi-150");
+    fs::write(out().join("dpi-at-150"), "return to 100%").unwrap();
+    until("Settings display scaling 100%", || {
+        app.alive();
+        unsafe { GetDpiForWindow(app.hwnd) == 96 }
+    });
+    fresh_comparison("dpi", app);
+}
+
+#[test]
+#[ignore = "NucBox desktop; forces a real GPU TDR with dxcap -forcetdr"]
+fn shelf_device_loss() {
+    let mut app = Shelf::open("device-loss", false);
+    app.capture("device-loss-before");
+    let mut reset = Command::new("dxcap.exe").arg("-forcetdr").spawn().unwrap();
+    println!("S2_PROCESS dxcap pid={}", reset.id());
+    assert!(
+        reset.wait().unwrap().success(),
+        "dxcap could not force a TDR"
+    );
+    // Force a changed extent so an otherwise idle app observes the removed device.
+    app.place(1025, 720);
+    until("CPU fallback presented through composition", || {
+        app.alive();
+        app.text().contains("painter cpu")
+    });
+    app.capture("device-loss-cpu");
+    until("hardware recovered after backoff", || {
+        app.alive();
+        let text = app.text();
+        let loss = text.rfind("painting on the CPU");
+        loss.is_some_and(|offset| text[offset..].contains("painter ink"))
+    });
+    let recovered = app.text();
+    assert!(recovered.contains("WARP composition"));
+    let mut frames = recovered
+        .lines()
+        .filter(|s| s.starts_with("exact-windows: frame "));
+    let cpu = frames.find(|s| s.contains("painter cpu")).unwrap();
+    let ink = frames.find(|s| s.contains("painter ink")).unwrap();
+    let at = |line: &str| {
+        line.split_once(" at ")
+            .unwrap()
+            .1
+            .split_once(" ms,")
+            .unwrap()
+            .0
+            .parse::<f64>()
+            .unwrap()
+    };
+    let backoff = at(ink) - at(cpu);
+    assert!(
+        backoff >= 250.,
+        "recovered before the retry deadline: {backoff} ms"
+    );
+    println!("S2_RECOVERY cpu_to_ink_ms={backoff}");
+    // Retain the expected loss log separately; the ordinary comparison rejects losses.
+    fs::write(out().join("device-loss-recovery.log"), &recovered).unwrap();
+    let after = app.capture("device-loss-recovered");
+    app.close();
+    let mut fresh = Shelf::open("device-loss-fresh", false);
+    fresh.place(1025, 720);
+    let image = fresh.capture("device-loss-fresh");
+    let score = band(&after, &image);
+    assert!(score.0 < 5. && score.1 < 0.06, "{score:?}");
+    println!("S2_BAND device-loss mean={} over32={}", score.0, score.1);
+    fresh.close();
+}
+
+#[test]
+#[ignore = "NucBox desktop; a person must unlock after LockWorkStation"]
+fn shelf_lock_unlock() {
+    assert!(unlocked(), "desktop must start unlocked");
+    let mut app = Shelf::open("lock", false);
+    app.capture("lock-before");
+    let mut lock = Command::new("rundll32.exe")
+        .arg("user32.dll,LockWorkStation")
+        .spawn()
+        .unwrap();
+    println!("S2_PROCESS lock pid={}", lock.id());
+    assert!(lock.wait().unwrap().success());
+    until("locked input desktop", || {
+        app.alive();
+        !unlocked()
+    });
+    fs::write(out().join("lock-waiting"), "Unlock the NucBox to continue").unwrap();
+    until("person unlocks the desktop", || {
+        app.alive();
+        unlocked()
+    });
+    fresh_comparison("lock", app);
+}
+
+#[test]
+#[ignore = "NucBox desktop; sleep and a 15-second wake timer; unlock if Windows requires it"]
+fn shelf_sleep_wake() {
+    use windows::{
+        core::PCWSTR,
+        Win32::{
+            Foundation::CloseHandle,
+            System::{Power::SetSuspendState, Threading::*},
+        },
+    };
+    let mut app = Shelf::open("sleep", false);
+    app.capture("sleep-before");
+    unsafe {
+        let timer = CreateWaitableTimerW(None, true, PCWSTR::null()).unwrap();
+        SetWaitableTimer(timer, &(-150_000_000i64), 0, None, None, true).unwrap();
+        let started = Instant::now();
+        let suspended = SetSuspendState(false, false, false);
+        CloseHandle(timer).unwrap();
+        assert!(
+            suspended,
+            "Windows refused sleep: {}",
+            std::io::Error::last_os_error()
+        );
+        println!(
+            "S2_SLEEP returned_after_ms={}",
+            started.elapsed().as_millis()
+        );
+    }
+    until("unlocked desktop after wake", || {
+        app.alive();
+        unlocked()
+    });
+    fresh_comparison("sleep", app);
+}

@@ -109,6 +109,8 @@ pub(super) struct Composition {
     size: [u32; 2],
     _window: Window,
     pub creation_ms: f64,
+    swap_ms: f64,
+    visual_ms: f64,
 }
 impl Drop for Composition {
     fn drop(&mut self) {
@@ -148,12 +150,15 @@ impl Composition {
                 .CreateSwapChainForComposition(device, &desc, None)?
                 .cast()?;
             swap.SetMaximumFrameLatency(1)?;
+            let swap_ms = start.elapsed().as_secs_f64() * 1000.;
+            let visual_started = Instant::now();
             let device: IDCompositionDevice = DCompositionCreateDevice(&dxgi)?;
             let target = device.CreateTargetForHwnd(window.hwnd, true)?;
             let visual = device.CreateVisual()?;
             visual.SetContent(&swap)?;
             target.SetRoot(&visual)?;
             device.Commit()?;
+            let visual_ms = visual_started.elapsed().as_secs_f64() * 1000.;
             // The first statistics query establishes the interval; it may report
             // DXGI_ERROR_FRAME_STATISTICS_DISJOINT before any frame is presented.
             let mut statistics = DXGI_FRAME_STATISTICS_MEDIA::default();
@@ -189,6 +194,8 @@ impl Composition {
                 size,
                 _window: window,
                 creation_ms: start.elapsed().as_secs_f64() * 1000.,
+                swap_ms,
+                visual_ms,
             })
         }
     }
@@ -226,8 +233,8 @@ impl D3d11 {
         }
         let composition = Composition::new(&self.device, window.clone(), size)?;
         eprintln!(
-            "exact-ink: composition swap chain {:.3} ms",
-            composition.creation_ms
+            "exact-ink: composition {:.3} ms (swap chain {:.3}, device and visual {:.3})",
+            composition.creation_ms, composition.swap_ms, composition.visual_ms
         );
         self.composition = Some(composition);
         Ok(())
