@@ -161,9 +161,9 @@ component Excord
   resource guilds = loadGuilds(gw.sidebar) as shape Guild[] else empty()
   resource rail = loadRail(gw.sidebar) as shape RailEntry[] else empty()
   // Followed only while a member list shows: op 37 moves `gw.members` with every presence in the list's
-  // range. Otherwise it is read once the snapshot names the open channel and once its list arrives, so a
-  // list opens on rows.
-  resource members = loadMembers(open, membersShown ? gw.members : gw.channel == open ? min(gw.members, 1) : -1) as shape MemberRow[] else empty()
+  // range. Otherwise it is read once the snapshot names the open channel and again when its rows change,
+  // so a list opens on them. The keys are negative so that none is a revision.
+  resource members = loadMembers(open, membersShown ? gw.members : gw.channel == open ? -2 - gw.memberRows : -1) as shape MemberRow[] else empty()
   derive membersBeside = showMembers and paneWidth >= 900 and chan.guild != ""
   derive membersShown = membersBeside or membersSheet
   // The rail's open folders, kept across launches.
