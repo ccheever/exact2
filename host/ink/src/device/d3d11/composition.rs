@@ -2,6 +2,7 @@
 //! @ref LLP 1149 D7; LLP 1115.004 D4.3.
 use super::*;
 use std::any::Any;
+use std::cell::RefCell;
 use windows::Win32::{
     Foundation::{CloseHandle, DXGI_STATUS_OCCLUDED, HANDLE, HWND, WAIT_OBJECT_0},
     Graphics::{DirectComposition::*, Dwm::*},
@@ -13,6 +14,7 @@ use windows::Win32::{
 #[derive(Clone)]
 pub struct Window {
     pub(super) hwnd: HWND,
+    visual: Rc<RefCell<std::rc::Weak<Visual>>>,
     _owner: Rc<dyn Any>,
 }
 impl Window {
@@ -29,6 +31,7 @@ impl Window {
         };
         Ok(Self {
             hwnd: HWND(handle.hwnd.get() as *mut _),
+            visual: Default::default(),
             _owner: owner,
         })
     }
@@ -51,7 +54,7 @@ impl Window {
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
             match CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
+                WS_EX_NOREDIRECTIONBITMAP,
                 w!("STATIC"),
                 w!("Ink measurement"),
                 WS_POPUP | WS_VISIBLE,
@@ -66,6 +69,7 @@ impl Window {
             ) {
                 Ok(hwnd) => Ok(Self {
                     hwnd,
+                    visual: Default::default(),
                     _owner: Rc::new(Owner(hwnd)),
                 }),
                 Err(e) => {
@@ -100,11 +104,23 @@ impl Window {
     }
 }
 
-pub(super) struct Composition {
-    swap: IDXGISwapChain2,
+struct Visual {
     device: IDCompositionDevice,
     target: IDCompositionTarget,
     visual: IDCompositionVisual,
+}
+impl Drop for Visual {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.visual.SetContent(None);
+            let _ = self.target.SetRoot(None);
+            let _ = self.device.Commit();
+        }
+    }
+}
+pub(super) struct Composition {
+    swap: IDXGISwapChain2,
+    scene: Rc<Visual>,
     latency: HANDLE,
     size: [u32; 2],
     _window: Window,
@@ -116,9 +132,6 @@ pub(super) struct Composition {
 impl Drop for Composition {
     fn drop(&mut self) {
         unsafe {
-            let _ = self.visual.SetContent(None);
-            let _ = self.target.SetRoot(None);
-            let _ = self.device.Commit();
             let _ = CloseHandle(self.latency);
         }
     }
@@ -153,11 +166,27 @@ impl Composition {
             swap.SetMaximumFrameLatency(1)?;
             let swap_ms = start.elapsed().as_secs_f64() * 1000.;
             let visual_started = Instant::now();
-            let device: IDCompositionDevice = DCompositionCreateDevice(&dxgi)?;
-            let target = device.CreateTargetForHwnd(window.hwnd, true)?;
-            let visual = device.CreateVisual()?;
-            visual.SetContent(&swap)?;
-            target.SetRoot(&visual)?;
+            let existing = window.visual.borrow().upgrade();
+            let scene = match existing {
+                Some(scene) => scene,
+                None => {
+                    // No rendering device: the visual must not retain WARP after
+                    // its swap chain retires. DCompositionCreateDevice2 permits
+                    // this for swap-chain content. @ref LLP 1149 D11.
+                    let device: IDCompositionDevice =
+                        DCompositionCreateDevice2(None::<&windows::core::IUnknown>)?;
+                    let target = device.CreateTargetForHwnd(window.hwnd, true)?;
+                    let visual = device.CreateVisual()?;
+                    target.SetRoot(&visual)?;
+                    let scene = Rc::new(Visual {
+                        device,
+                        target,
+                        visual,
+                    });
+                    *window.visual.borrow_mut() = Rc::downgrade(&scene);
+                    scene
+                }
+            };
             let visual_ms = visual_started.elapsed().as_secs_f64() * 1000.;
             // The first statistics query establishes the interval; it may report
             // DXGI_ERROR_FRAME_STATISTICS_DISJOINT before any frame is presented.
@@ -171,9 +200,7 @@ impl Composition {
             }
             Ok(Self {
                 swap,
-                device,
-                target,
-                visual,
+                scene,
                 latency,
                 size,
                 _window: window,
@@ -190,21 +217,16 @@ impl Composition {
         if self.active {
             return Ok(());
         }
-        // Commit only after drawing the first image into the swap chain. The carrier
-        // has released GDI; alpha now belongs to DWM. @ref LLP 1115.004 D4.3.
+        // Change content only after the new swap chain has its first picture.
+        // The old chain stays visible until this commit. @ref LLP 1149 D7.
         unsafe {
             let hwnd = self._window.hwnd;
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-            if style & WS_EX_LAYERED.0 != 0 {
+            if style & WS_EX_LAYERED.0 != 0 || style & WS_EX_NOREDIRECTIONBITMAP.0 == 0 {
                 return Err(Error::Invalid(
-                    "ink composition cannot use WS_EX_LAYERED".into(),
+                    "ink requires WS_EX_NOREDIRECTIONBITMAP at window creation and no WS_EX_LAYERED".into(),
                 ));
             }
-            SetWindowLongPtrW(
-                hwnd,
-                GWL_EXSTYLE,
-                (style | WS_EX_NOREDIRECTIONBITMAP.0) as isize,
-            );
             let backdrop = DWMSBT_MAINWINDOW;
             DwmSetWindowAttribute(
                 hwnd,
@@ -221,7 +243,8 @@ impl Composition {
                     cyBottomHeight: -1,
                 },
             )?;
-            self.device.Commit()?;
+            self.scene.visual.SetContent(&self.swap)?;
+            self.scene.device.Commit()?;
         }
         self.active = true;
         Ok(())
@@ -254,6 +277,38 @@ impl Composition {
 }
 
 impl D3d11 {
+    /// Keep the old device until its commands and the replacement present finish.
+    /// A swap-chain handoff never waits for either on the frame path.
+    pub fn retire_after_present(&mut self, previous: D3d11) -> Result<()> {
+        let c = self
+            .composition
+            .as_ref()
+            .ok_or(Error::Unsupported("no composition window"))?;
+        let present = unsafe { c.swap.GetLastPresentCount()? };
+        self.retiring_device = Some((Box::new(previous), present));
+        Ok(())
+    }
+
+    fn collect_presented_device(&mut self) {
+        let Some((previous, present)) = &mut self.retiring_device else {
+            return;
+        };
+        let complete = previous
+            .completed()
+            .map_or(true, |done| done >= previous.submitted);
+        let displayed = self.composition.as_ref().is_some_and(|c| unsafe {
+            let mut stats = DXGI_FRAME_STATISTICS_MEDIA::default();
+            c.swap
+                .cast::<IDXGISwapChainMedia>()
+                .and_then(|s| s.GetFrameStatisticsMedia(&mut stats))
+                .is_ok()
+                && stats.PresentCount >= *present
+        });
+        if complete && displayed {
+            self.retiring_device = None;
+        }
+    }
+
     pub fn attach_window(&mut self, window: Window, size: [u32; 2]) -> Result<()> {
         if size.contains(&0) {
             return Err(Error::Invalid("composition size".into()));
@@ -271,6 +326,7 @@ impl D3d11 {
     }
     pub fn present(&mut self, id: TextureId) -> Result<f64> {
         let start = Instant::now();
+        self.collect_presented_device();
         let desc = self.texture(id)?.desc;
         let size = [desc.width, desc.height];
         let composition = self
@@ -361,7 +417,7 @@ impl D3d11 {
                     stats.PresentCount, stats.SyncQPCTime,
                 )));
             }
-            let rate = c.device.GetFrameStatistics()?.currentCompositionRate;
+            let rate = c.scene.device.GetFrameStatistics()?.currentCompositionRate;
             if rate.Numerator == 0 {
                 return Err(Error::Unsupported("composition refresh rate"));
             }
@@ -408,29 +464,25 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "native Windows desktop; GDI handoff and Mica"]
-    fn gdi_picture_migrates_without_layering_and_alpha_reaches_mica() {
+    #[ignore = "native Windows desktop; WARP handoff and Mica"]
+    fn warp_picture_migrates_without_layering_and_alpha_reaches_mica() {
         use windows::Win32::{Graphics::Gdi::*, UI::WindowsAndMessaging::*};
         let window = Window::fixture([320, 240]).unwrap();
         window.dispatch_pending();
         let hwnd = window.hwnd;
         let color = 0x00336699;
-        unsafe {
-            let dc = GetDC(Some(hwnd));
-            let brush = CreateSolidBrush(windows::Win32::Foundation::COLORREF(color));
-            FillRect(
-                dc,
-                &RECT {
-                    left: 0,
-                    top: 0,
-                    right: 320,
-                    bottom: 240,
-                },
-                brush,
-            );
-            assert!(DeleteObject(brush.into()).as_bool());
-            ReleaseDC(Some(hwnd), dc);
-        }
+        let mut warp = D3d11::open(true).unwrap();
+        warp.attach_window(window.clone(), [320, 240]).unwrap();
+        let warp_target = warp.create_target(320, 240).unwrap();
+        let clear = [
+            0x99 as f64 / 255.,
+            0x66 as f64 / 255.,
+            0x33 as f64 / 255.,
+            1.,
+        ];
+        warp.render(&Frame::default(), warp_target, Some(clear))
+            .unwrap();
+        warp.present(warp_target).unwrap();
         let pixel = || unsafe {
             let mut at = windows::Win32::Foundation::POINT { x: 160, y: 120 };
             assert!(ClientToScreen(hwnd, &mut at).as_bool());
@@ -454,6 +506,14 @@ mod tests {
                 );
             }
         };
+        wait_for(Some(color));
+        warp.render(&Frame::default(), warp_target, Some([0.; 4]))
+            .unwrap();
+        warp.present(warp_target).unwrap();
+        let mica_before = wait_for(None);
+        warp.render(&Frame::default(), warp_target, Some(clear))
+            .unwrap();
+        warp.present(warp_target).unwrap();
         wait_for(Some(color));
         let mut d = D3d11::new().unwrap();
         let t = d.create_target(320, 240).unwrap();
@@ -497,6 +557,7 @@ mod tests {
         started.recv().unwrap();
         d.attach_window(window.clone(), [320, 240]).unwrap();
         d.present(t).unwrap();
+        d.retire_after_present(warp).unwrap();
         for _ in 0..3 {
             assert_eq!(wait_for(Some(color)), color);
         }
@@ -523,9 +584,18 @@ mod tests {
         }
         d.render(&Frame::default(), t, Some([0.; 4])).unwrap();
         d.present(t).unwrap();
-        println!(
-            "S2_MICA opaque={color:06x}, transparent={:06x}, layered=false",
-            wait_for(None)
+        let mica_after = wait_for(None);
+        assert!(
+            (0..3).all(|c| ((mica_before >> (8 * c)) as u8)
+                .abs_diff((mica_after >> (8 * c)) as u8)
+                < 5),
+            "Mica changed: {mica_before:06x} -> {mica_after:06x}"
+        );
+        println!("S2_MICA before={mica_before:06x}, after={mica_after:06x}, layered=false");
+        d.collect_presented_device();
+        assert!(
+            d.retiring_device.is_none(),
+            "completed WARP device must retire"
         );
     }
     #[test]

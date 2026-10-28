@@ -189,10 +189,11 @@ impl<D: DataSource> Presenter<D> {
 /// CPU frames retain composition presentation after a device loss; DXGI does
 /// not permit returning the HWND to GDI. @ref LLP 1149 D5.4.
 pub(crate) struct DirectWindow {
-    window: exact_ink::device::d3d11::Window,
+    pub(crate) window: exact_ink::device::d3d11::Window,
     pub(crate) recovering: bool,
+    pub(crate) starting: bool,
     retry: exact_ink::device::Retry,
-    fallback: Option<(
+    pub(crate) fallback: Option<(
         exact_ink::device::d3d11::D3d11,
         exact_ink::instance::TextureId,
     )>,
@@ -202,6 +203,7 @@ impl DirectWindow {
         Self {
             window,
             recovering: false,
+            starting: false,
             retry: Default::default(),
             fallback: None,
         }
@@ -238,7 +240,7 @@ impl DirectWindow {
                 p.repaint();
             }
         }
-        if !self.recovering {
+        if !self.recovering && !self.starting {
             let frame = p.frame_for(FrameTarget::Window);
             if p.last_frame_succeeded() {
                 self.retry = Default::default();
@@ -289,12 +291,12 @@ impl DirectWindow {
                 self.fallback = None;
             } else {
                 p.last_frame_succeeded = true;
-                if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+                if !self.starting && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
                     eprintln!("exact-ink: CPU recovery frame presented through composition");
                 }
             }
         }
-        if retry_due {
+        if retry_due && !self.starting {
             self.retry.failed(std::time::Instant::now());
         }
         None
@@ -302,6 +304,26 @@ impl DirectWindow {
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// The CPU painter's first frames go through WARP on the composition HWND.
+    pub fn start_composition(
+        &mut self,
+        mut device: exact_ink::device::d3d11::D3d11,
+        window: exact_ink::device::d3d11::Window,
+        size: [u32; 2],
+    ) -> Result<(), String> {
+        use exact_ink::device::Device;
+        let result = (|| {
+            device.attach_window(window.clone(), size)?;
+            let target = device.create_target(size[0], size[1])?;
+            let mut direct = DirectWindow::new(window);
+            direct.starting = true;
+            direct.fallback = Some((device, target));
+            self.surfaces.direct_window = Some(direct);
+            Ok::<_, exact_ink::device::Error>(())
+        })();
+        result.map_err(|e| e.to_string())
+    }
+
     /// Next recovery attempt after a direct painter loses its device.
     pub fn painter_retry_deadline(&self) -> Option<std::time::Instant> {
         self.surfaces

@@ -108,8 +108,9 @@ impl Shelf {
         };
         until("Shelf's complete first screen", || {
             app.alive();
-            app.text()
-                .contains("process to first-screen compositor sync")
+            let text = app.text();
+            text.contains("process to first-screen compositor sync")
+                || text.contains("complete first screen submitted (probe off)")
         });
         until("Shelf HWND", || {
             app.hwnd = window_for(app.child.id());
@@ -512,6 +513,14 @@ fn shelf_startup_series() {
 }
 
 #[test]
+#[ignore = "NucBox desktop; same startup series without the synchronization probe"]
+fn shelf_handoff_intervals() {
+    std::env::set_var("EXACT_AGENT_WINDOW_PROBE", "off");
+    shelf_startup_series();
+    std::env::remove_var("EXACT_AGENT_WINDOW_PROBE");
+}
+
+#[test]
 #[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_resize() {
     let mut app = Shelf::open("resize", false);
@@ -623,7 +632,18 @@ fn shelf_dpi_roundtrip() {
     unsafe {
         let _ = SetForegroundWindow(app.hwnd);
     }
-    app.capture("dpi-150");
+    app.place(1024, 720);
+    let changed = app.capture("dpi-150");
+    let mut fresh = Shelf::open("dpi-fresh-150", false);
+    assert_eq!(unsafe { GetDpiForWindow(fresh.hwnd) }, 144);
+    let image = fresh.capture("dpi-fresh-150");
+    let score = band(&changed, &image);
+    println!("S2_BAND dpi-150 mean={} over32={}", score.0, score.1);
+    assert!(
+        score.0 < 5. && score.1 < 0.06,
+        "150% differs from fresh launch: {score:?}"
+    );
+    fresh.close();
     fs::write(out().join("dpi-at-150"), "return to 100%").unwrap();
     until("Settings display scaling 100%", || {
         app.alive();

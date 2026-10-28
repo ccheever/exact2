@@ -136,6 +136,7 @@ pub struct D3d11 {
     owner: Rc<()>,
     info: Info,
     composition: Option<composition::Composition>,
+    retiring_device: Option<(Box<D3d11>, u32)>,
 }
 
 impl D3d11 {
@@ -191,6 +192,7 @@ impl D3d11 {
             retired: Vec::new(),
             owner,
             composition: None,
+            retiring_device: None,
             info,
         })
     }
