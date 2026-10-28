@@ -29,6 +29,8 @@ enum TintDimming {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             guard probe.tintColor.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
             let out = [Double(r), Double(g), Double(b), Double(a)].map { $0 * 255 }
+            // Bound the cache as `SRGBColors` bounds its own: a colour transition on a dimmed face asks for a new grey each frame
+            if greys.count >= 512 { greys.removeAll() }
             greys[key] = out
             return out
         }()

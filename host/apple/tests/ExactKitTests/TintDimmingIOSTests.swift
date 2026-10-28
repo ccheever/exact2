@@ -258,6 +258,43 @@ final class TintDimmingIOSTests: XCTestCase {
         dim(p, false)
     }
 
+    /// A native field's placeholder in a pressable row keeps its colour while dimmed, a written one
+    /// and one from the tint alike: UIKit leaves a field's placeholder as set
+    func testANativeFieldsPlaceholderInAControlKeepsItsColour() throws {
+        // A session's presenter: a field takes its font and colours from its text engine
+        let session = ExactApp.shared.makeSession(label: "dim-placeholder-\(UUID().uuidString)")
+        defer { session.destroy() }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.overrideUserInterfaceStyle = .light
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
+            ["op": "create", "id": 2, "kind": "input", "handlers": ["change"], "props": ["placeholder": "Garage"], "style": ["placeholder_color": red]],
+            ["op": "create", "id": 3, "kind": "input", "handlers": ["change"], "props": ["placeholder": "Home"], "style": ["placeholder_color": ["sys": "@tint", "c": blue]]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 80.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 200.0, "h": 34.0],
+            ["op": "roots", "ids": [1]],
+        ]))
+        let fields = try [2, 3].map { try XCTUnwrap(p.views[UInt32($0)]?.field, "input \($0) is a native field") }
+        let ink = { (field: UITextField) -> [Double] in
+            let placeholder = try XCTUnwrap(field.attributedPlaceholder, "the field shows its placeholder")
+            let color = try XCTUnwrap(placeholder.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor)
+            return try self.components(color.resolvedColor(with: field.traitCollection).cgColor)
+        }
+        let written = try ink(fields[0]), tinted = try ink(fields[1])
+        assertChannels(written, red, "the written placeholder colour")
+        XCTAssertGreaterThan((tinted[0...2].max() ?? 0) - (tinted[0...2].min() ?? 0), 24, "the tint has a hue to lose: \(tinted)")
+        dim(p, true)
+        assertChannels(try ink(fields[0]), red, "the written placeholder colour while dimmed")
+        assertChannels(try ink(fields[1]), tinted.map { Int($0.rounded()) }, "the placeholder colour from the tint while dimmed")
+        dim(p, false)
+    }
+
     /// Text in the tint outside a control keeps the tint while dimmed when nothing set one: the
     /// window's, which the viewport takes as it joins the window
     func testAStatusInTheDefaultTintKeepsItWhileDimmed() throws {
