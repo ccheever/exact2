@@ -258,6 +258,21 @@ final class TintDimmingIOSTests: XCTestCase {
         dim(p, false)
     }
 
+    /// Text in the tint outside a control keeps the tint while dimmed when nothing set one: the
+    /// window's, which the viewport takes as it joins the window
+    func testAStatusInTheDefaultTintKeepsItWhileDimmed() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let status = try XCTUnwrap(p.views[1]), before = try runChannels(status)
+        XCTAssertGreaterThan((before[0...2].max() ?? 0) - (before[0...2].min() ?? 0), 24, "the default tint has a hue to lose: \(before)")
+        dim(p, true)
+        assertChannels(try runChannels(status), before.map { Int($0.rounded()) }, "the default tint while dimmed")
+        dim(p, false)
+    }
+
     /// A symbol in a custom control greys with it, and its colour comes back
     func testASymbolInAControlGreysWithIt() throws {
         let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]]
@@ -430,7 +445,7 @@ final class TintDimmingIOSTests: XCTestCase {
     }
 
     /// A native field in a pressable row is UIKit's to dim: its written text colour stays while the
-    /// row's own fill greys
+    /// row's own fill greys, a colour from the tint and one at a fifth of it included
     func testANativeFieldInAControlKeepsItsTextColour() throws {
         // A session's presenter: a field takes its font and colour from its text engine
         let session = ExactApp.shared.makeSession(label: "dim-field-\(UUID().uuidString)")
@@ -444,18 +459,29 @@ final class TintDimmingIOSTests: XCTestCase {
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": blue, "written": ["background_color"]]],
             ["op": "create", "id": 2, "kind": "input", "handlers": ["change"], "props": ["value": "Garage"], "style": ["text_color": red, "written": ["text_color"]]],
-            ["op": "children", "id": 1, "ids": [2]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "create", "id": 3, "kind": "input", "handlers": ["change"], "props": ["value": "Home"],
+             "style": ["text_color": ["sys": "@tint", "c": blue], "written": ["text_color"]]],
+            ["op": "create", "id": 4, "kind": "input", "handlers": ["change"], "props": ["value": "Work"],
+             "style": ["text_color": ["sys": "@tint/0.2", "c": [0, 122, 255, 51]], "written": ["text_color"]]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 120.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 80.0, "w": 200.0, "h": 34.0],
             ["op": "roots", "ids": [1]],
         ]))
-        let row = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[2])
-        let field = try XCTUnwrap(node.field, "the input is a native field")
-        let text = { try self.components(XCTUnwrap(field.textColor).resolvedColor(with: field.traitCollection).cgColor) }
-        assertChannels(try text(), red, "the field's text before the dimming")
+        let row = try XCTUnwrap(p.views[1])
+        let fields = try [2, 3, 4].map { try XCTUnwrap(p.views[UInt32($0)]?.field, "input \($0) is a native field") }
+        let text = { (field: UITextField) in try self.components(XCTUnwrap(field.textColor).resolvedColor(with: field.traitCollection).cgColor) }
+        assertChannels(try text(fields[0]), red, "the field's text before the dimming")
+        let tinted = try text(fields[1]), faint = try text(fields[2])
+        XCTAssertGreaterThan((tinted[0...2].max() ?? 0) - (tinted[0...2].min() ?? 0), 24, "the tint has a hue to lose: \(tinted)")
+        XCTAssertEqual(faint[3], 51, accuracy: 2, "a fifth of the tint")
         dim(p, true)
         assertChannels(try fill(row), uikitGrey(blue), "the row's fill")
-        assertChannels(try text(), red, "the field's text while dimmed")
+        assertChannels(try text(fields[0]), red, "the field's text while dimmed")
+        assertChannels(try text(fields[1]), tinted.map { Int($0.rounded()) }, "the field's text from the tint while dimmed")
+        assertChannels(try text(fields[2]), faint.map { Int($0.rounded()) }, "the field's text at a fifth of the tint while dimmed")
         dim(p, false)
     }
 
