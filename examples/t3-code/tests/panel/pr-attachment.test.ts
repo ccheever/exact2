@@ -251,6 +251,14 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     expect(assets.calls.at(-1)).toEqual({ url: 'http://127.0.0.1:14861/api/assets/attachment/sig', range: null });
     expect(lastSave(client, files)).toMatchObject({ name: 'notes.md', nonce: 1, text: '# Notes\n\n- one\n' });
   });
+  test("a sent SVG's chip opens its file beside the thread, as a file chip does (SvgFileChip's onOpen)", async () => {
+    const { client, replies } = fakeClient();
+    ((client.projection.visibleTurnItems as { item: { attachments: unknown[] } }[])[0]!.item.attachments).push({ type: 'file', id: 'att-svg', name: 'badge.svg', mimeType: 'image/svg+xml', sizeBytes: 120 });
+    replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
+    const { chatLocal } = await import('../../src/timeline/timeline-presentation');
+    await chatLocal(client, native, 'image-open', 'att-svg', 'owner');
+    expect(panelState(client).surfaces.map(entry => entry.id)).toEqual(['attachment:att-svg']);
+  });
   // AttachmentFilePreview's rendered Markdown is ChatMarkdown (cwd undefined), as Files' is.
   test('a rendered attachment is the chat renderer: code colours, Mermaid diagrams and their expand', async () => {
     const { client, replies } = fakeClient();

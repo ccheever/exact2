@@ -8,9 +8,10 @@ import { workspaceValues } from '../composer/composer-workspace-snapshots';
 import { workspaceCwd } from '../composer/composer-editor';
 import { snapshotDraftTiles } from '../snapshot/snapshot-settings';
 import { arr, obj, str, num, type Message, type Obj } from './domain';
+import { textDirection } from '../shared/text-direction';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
-import { timelineMessages, timelineSnapshot, transcriptRows } from '../timeline/timeline-presentation';
+import { headerRenameDir, timelineMessages, timelineSnapshot, transcriptRows } from '../timeline/timeline-presentation';
 import { threadFooterRows } from '../timeline/thread-status-line';
 import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import { sidebarSnapshot } from '../sidebar/sidebar-view';
@@ -158,7 +159,9 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     projectId: client.projectId, projectName: isScratch(project, str(client.config.scratchWorkspaceRoot).trim()) ? 'No project' : str(project?.title, 'Choose a project'), threadId: client.threadId, // ChatHeader: a scratch thread's crumb
     threadTitle: str(obj(client.projection.thread).title, 'New thread'),
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
-    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
+    threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })),
+    threadTitleDir: textDirection(str(obj(client.projection.thread).title, 'New thread')) === 'rtl' ? 'rtl' : 'ltr',
+    renameDir: headerRenameDir(client, str(obj(client.projection.thread).title, 'New thread')), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
     running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
     canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)

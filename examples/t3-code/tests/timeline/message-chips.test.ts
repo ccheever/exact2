@@ -16,6 +16,18 @@ describe('sent-message context chips', () => {
     expect(chips).toEqual([{ id: 'chip-0', href: 't3-context://v1/file/file_abc', kind: 'file', label: 'notes.md', size: '1 KB', tip: 'notes.md\n1 KB', detail: '', icon: 'markdown', target: 'att-1', owner: 'm1', menu: [] }]);
     expect([...chippedAttachmentIds(chips)]).toEqual(['att-1']);
   });
+  test('a sent SVG is an image chip with the picture as its thumbnail, named and tipped as the file it opens (#21355)', () => {
+    const svg = (mimeType: string, name = 'logo.svg') => messageChips(item(`see [${name}](t3-context://v1/file/file_svg)`,
+      [{ version: 1, kind: 'file', contextId: 'file_svg', label: name, attachmentId: 'att-s', name, mimeType, sizeBytes: 2048 }],
+      [{ type: 'file', id: 'att-s', name, mimeType, sizeBytes: 2048 }]), '', [], 'm1')[0];
+    expect(svg('image/svg+xml')).toMatchObject({ kind: 'image', label: 'logo.svg', size: '2 KB', tip: 'File attachment, logo.svg, 2 KB', detail: 'logo.svg\n2 KB', target: 'att-s' });
+    // Its chip shows it, so it has no file row of its own.
+    expect([...chippedAttachmentIds([svg('image/svg+xml')])]).toEqual(['att-s']);
+    expect(svg('application/octet-stream')).toMatchObject({ kind: 'image' });
+    // A definite type other than SVG keeps the name's extension from counting.
+    expect(svg('text/plain')).toMatchObject({ kind: 'file' });
+    expect(svg('', 'logo.png')).toMatchObject({ kind: 'file' });
+  });
   test('a reference without its record, or whose attachment is gone, reads "This context is no longer available."', () => {
     const chips = messageChips(item('[deploy](t3-context://v1/skill/skill_deploy) and ![a.png](t3-context://v1/image/image_x)',
       [{ version: 1, kind: 'image', contextId: 'image_x', label: 'a.png', attachmentId: 'gone', name: 'a.png', mimeType: 'image/png', sizeBytes: 10 }]), '', []);
@@ -220,6 +232,30 @@ describe('skill chips open their details (#25432)', () => {
     const ids = [['0', chips[0]!], ['1', chips[0]!], ['3', chips[1]!]].map(([blockId, chip]) => value(call, { chip, blockId, run: { id: '0' } }));
     expect(ids).toEqual(['m-0-0', 'm-1-0', 'm-3-0']);
     expect(appText('markdown.contract')).toContain('ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId)');
+  });
+});
+
+describe('the chips and rows a context reference draws', () => {
+  test('an attachment chip without a target is no button, an image chip included (FileChip disabled)', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const body = contractComponent('markdown.contract', 'AttachmentChipBody');
+    const button = (kind: string, target: string) => body.drawn('button press=local(', body.state(), { chip: { kind, target }, run: { id: '0' } });
+    expect([button('image', 'att'), button('image', ''), button('file', ''), button('video', 'v')]).toEqual([true, false, false, true]);
+  });
+  test('a chip picture that fails to load tells the data module, which then draws the file chip', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const { appText } = await import('../support/app-files');
+    const thumb = contractComponent('timeline-attachments.contract', 'ChipThumb'), sent: unknown[][] = [];
+    const url = 'http://127.0.0.1:1/api/assets/att-svg?sig=1';
+    thumb.call('failed', thumb.state(), { target: 'att-svg', url, local: (...args: unknown[]) => sent.push(args) }, ['decode failed']);
+    expect(sent).toEqual([['chip-preview-failed', 'att-svg', url]]);
+    expect(appText('markdown.contract').match(/ChipThumb\(url=entry\.url, target=chip\.target, local=local\)/g)).toHaveLength(2);
+  });
+  test('a secret request draws its card and no divider under it', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const content = contractComponent('timeline.contract', 'TimelineContent');
+    const divider = (kind: string) => content.drawn('Icon(name="compacted"', content.state(), { message: { kind } });
+    expect([divider('secret'), divider('notice')]).toEqual([false, true]);
   });
 });
 

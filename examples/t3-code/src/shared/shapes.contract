@@ -454,6 +454,10 @@ shape Snapshot
   threadId: string
   threadTitle: string
   threadHeading: CommandChoice[]
+  // The title's majority direction (shared/text-direction.ts), "ltr" or "rtl": ChatHeader's `dir` on the title.
+  threadTitleDir: string
+  // The header's rename field's direction, `dir="auto"` over the text being typed (timeline-presentation.ts headerRenameDir).
+  renameDir: string
   // A subagent thread's parent (id and title) for the header's crumb; empty otherwise.
   parentThread: CommandChoice[]
   draft: string
@@ -586,6 +590,8 @@ shape Snapshot
   // ThreadErrorBanner's collapsed message (a JSON error's message) and whether it expands to the full text.
   errorSummary: string
   errorExpandable: bool
+  // A ChatGPT sharing limit the server named by its code (timeline-errors.ts): "workspace", "chatgpt" or "".
+  errorLimit: string
   look: Look
 shape Change
   revision: number
