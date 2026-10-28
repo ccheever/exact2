@@ -96,6 +96,14 @@ final class BarFaceIOSTests: XCTestCase {
         window.tintAdjustmentMode = .dimmed
         for (got, want) in zip(try fill(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the red tint, undimmed, while dimmed") }
         window.tintAdjustmentMode = .automatic
+        // A tint that differs under Increase Contrast resolves in the node's traits, as its text does
+        try XCTSkipIf(SystemColor.highContrast, "the system's Increased Contrast is on")
+        window.tintColor = UIColor { $0.accessibilityContrast == .high ? UIColor(red: 1, green: 0, blue: 0, alpha: 1) : UIColor(red: 0, green: 0, blue: 1, alpha: 1) }
+        node.traitOverrides.accessibilityContrast = .high
+        node.updateTraitsIfNeeded()
+        window.tintAdjustmentMode = .dimmed
+        for (got, want) in zip(try fill(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the tint's high-contrast side, the node's") }
+        window.tintAdjustmentMode = .automatic
     }
 
     /// A colour only inherited from the page is unsaid: the bar's ink, as a

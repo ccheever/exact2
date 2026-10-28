@@ -64,16 +64,18 @@ struct ChipFace: Equatable {
         }
         // A childless box (often a flat leaf, a layer and no view,
         // FlatLeavesIOS) with no authored size in points has none to draw.
-        // Its fill names the tint by `host`'s, undimmed, as `pair` reads
-        // its colours: the face is baked and kept (TintDimmingIOS.swift).
+        // Its fill resolves in `host`'s traits and names the tint by
+        // `host`'s, undimmed, as `pair` reads its colours: the face is
+        // baked and kept (TintDimmingIOS.swift).
         func dot(_ style: NodeStyle, _ alpha: CGFloat, host: NodeView) {
             guard let width = style["width"]?.number, let height = style["height"]?.number, width > 0, height > 0,
                   let fill = style["background_color"] else { return }
             let size = CGSize(width: width, height: height)
             dotted = true
             let rect = CGRect(origin: .zero, size: size)
-            let tint = host.undimmedTint(for: fill)
-            parts.append(.dot(size, [fill.channels(dark: false, tint: tint) ?? [0, 0, 0, 0], fill.channels(dark: true, tint: tint) ?? [0, 0, 0, 0]],
+            let tint = host.undimmedTint(for: fill), contrast = host.drawsHighContrast, elevated = host.drawsElevated
+            let sides = [false, true].map { fill.channels(dark: $0, contrast: contrast, elevated: elevated, tint: tint) ?? [0, 0, 0, 0] }
+            parts.append(.dot(size, sides,
                               BorderPaint.reduced(BorderPaint.radii(style, in: rect), in: rect)))
             opacities.append(alpha)
             lineHeights.append(nil)
