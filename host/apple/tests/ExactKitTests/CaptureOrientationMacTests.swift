@@ -151,6 +151,9 @@ final class CaptureOrientationMacTests: XCTestCase {
         let header = OrientationInk(frame: NSRect(x: 0, y: 0, width: 120, height: 56))
         document.addSubview(header)
         let window = CaptureDisplayWindow(contentRect: shell.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        // Light, as the other captures here: the scroll view draws the window's background colour behind the rows,
+        // which Dark Mode makes dark, and the placeholder's glyph test reads dark pixels as ink.
+        window.appearance = NSAppearance(named: .aqua)
         window.isReleasedWhenClosed = false; window.contentView = shell
         defer { window.close() }
         window.orderFront(nil); shell.displayIfNeeded(); CATransaction.flush()
