@@ -778,22 +778,21 @@ test('19. a REST reply that lands after a sign-out leaves the next account\'s li
 
 // F1 (x2-perf4's fling plan): a page still loading is aborted when the reader leaves its channel or opens another,
 // and a jump aborts its channel's page toward the old window's edge but never its own.
-test('F1. with the anchor at the first row, older pages are named one after another until 100 rows stand above it', async () => {
+test('F1. with the anchor at the first row, one older page is named; re-anchored as each lands, the window grows to 300 rows', async () => {
   const app = await rig.app(); await app.dial();
   const channel = rig.fixture.world.generalChannelId, history = rig.fixture.world.messages[channel], path = historyPath(channel);
   expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
   const top = (await app.window(channel)).firstId;
-  // No scroll moves the anchor: each page that lands names the next, while fewer than 100 rows stand above it.
-  for (let pages = 1; pages <= 2; pages++) {
-    const edge = await app.window(channel, top);
-    // The cursor is the oldest cached message, the one that only supplies the first row's grouping.
-    expect(edge).toMatchObject({ need: 'before', cursor: history.at(-50 * pages)!.id });
-    expect(await app.ask('loadPage', [channel, edge.need, edge.cursor])).toEqual({ ok: true, error: '' });
-  }
+  // The view's lead (app.contract's leadOlder) moves the anchor to the first row again as each page lands; the
+  // window names one page per anchor, so the lead adds a page a step and stops within a page of 100 rows.
+  const edge = await app.window(channel, top);
+  // The cursor is the oldest cached message, the one that only supplies the first row's grouping.
+  expect(edge).toMatchObject({ need: 'before', cursor: history.at(-50)!.id });
+  expect(await app.ask('loadPage', [channel, edge.need, edge.cursor])).toEqual({ ok: true, error: '' });
   const led = await app.window(channel, top);
   expect(led.need).toBe('');
-  expect(ids(led.rows).indexOf(top)).toBeGreaterThanOrEqual(100);
-  expect(rig.counts.get(path)).toBe(3);
+  expect(ids(led.rows).indexOf(top)).toBe(50);
+  expect(rig.counts.get(path)).toBe(2);
   // The window holds at most 300 rows, and the rows a page just brought are never shed from it.
   let anchor = led.firstId, longest = 0;
   for (let pages = 0; pages < 6; pages++) {

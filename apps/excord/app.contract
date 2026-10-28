@@ -364,7 +364,8 @@ component Excord
   task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
   // The lead holds with no scroll event (F1): a page that lands while the reader is still within 100 rows of
-  // the window's first row moves the anchor there, and the next page goes out at once.
+  // the window's first row moves the anchor there, and the next page goes out at once. One page a step, so
+  // at most 149 rows stand above the reader when the lead stops.
   task leadOlder when current and target == "" and (away or anchor != "") and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
     after(1, older)
   // The page the window lacks; a failed one is asked again, at most three times.
@@ -574,9 +575,9 @@ component Excord
   // The reader is at the end within the last row's height of it (§3.7). The
   // window anchors at its first row when the first visible row comes within
   // 100 rows of it (15 at the live end, which a short tail must not leave by
-  // itself), and the data module then fetches the pages before it, one
-  // at a time, each the moment the last lands, until 100 rows stand above the
-  // anchor (x2-perf4's fling plan, F1: a fling up travels 60-90 rows, so it
+  // itself), and the data module fetches the page before it; `leadOlder` moves
+  // the anchor there again as each page lands, until 100 rows stand above the
+  // reader (x2-perf4's fling plan, F1: a fling up travels 60-90 rows, so it
   // meets loaded rows, not the top). Toward the newest end, 15 rows and one page,
   // as before. `reachstart` alone gives one viewport of lead, which a fling
   // overruns. A page is asked only of a window that answers the present
