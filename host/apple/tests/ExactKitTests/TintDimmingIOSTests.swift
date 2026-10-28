@@ -305,6 +305,56 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try runChannels(paragraph, 1), blue, "the link once the dimming ends")
     }
 
+    /// A link in a neutral tint greys as UIKit dims that tint, its alpha included, as a text view's
+    /// link does
+    func testALinkInANeutralTintDimsAsUIKitDimsIt() throws {
+        let grey = [142, 142, 147, 255]
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "text"],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        var tinted = InlineStyle()
+        tinted.colorRef = .object(["sys": .string("@tint"), "c": [142, 142, 147, 255]])
+        p.applyParagraph(1, [InlineText(id: 2, parent: 1, props: ["text": "terms", "href": "https://example.com/terms"], style: tinted, handlers: [], paints: true)])
+        let paragraph = try XCTUnwrap(p.views[1])
+        p.viewport.tintColor = color(grey)
+        dim(p, true)
+        assertChannels(try runChannels(paragraph), uikitGrey(grey, uikitAlpha: true), "the link, as UIKit dims a grey tint")
+        dim(p, false)
+        assertChannels(try runChannels(paragraph), grey, "the link once the dimming ends")
+    }
+
+    /// A native field in a pressable row is UIKit's to dim: its written text colour stays while the
+    /// row's own fill greys
+    func testANativeFieldInAControlKeepsItsTextColour() throws {
+        // A session's presenter: a field takes its font and colour from its text engine
+        let session = ExactApp.shared.makeSession(label: "dim-field-\(UUID().uuidString)")
+        defer { session.destroy() }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.overrideUserInterfaceStyle = .light
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": blue, "written": ["background_color"]]],
+            ["op": "create", "id": 2, "kind": "input", "handlers": ["change"], "props": ["value": "Garage"], "style": ["text_color": red, "written": ["text_color"]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 34.0],
+            ["op": "roots", "ids": [1]],
+        ]))
+        let row = try XCTUnwrap(p.views[1]), node = try XCTUnwrap(p.views[2])
+        let field = try XCTUnwrap(node.field, "the input is a native field")
+        let text = { try self.components(XCTUnwrap(field.textColor).resolvedColor(with: field.traitCollection).cgColor) }
+        assertChannels(try text(), red, "the field's text before the dimming")
+        dim(p, true)
+        assertChannels(try fill(row), uikitGrey(blue), "the row's fill")
+        assertChannels(try text(), red, "the field's text while dimmed")
+        dim(p, false)
+    }
+
     private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:]) -> Presenter {
         let p = Presenter()
         p.buttonFace = { faces[$0] ?? ButtonFace() }

@@ -17,11 +17,11 @@ enum TintDimming {
 
     /// The grey UIKit gives a tint of this colour while it dims tints, in 0...255 sRGB channels, at
     /// the colour's own alpha (as a native button's dimmed symbol keeps its alpha), or at UIKit's
-    /// (`uikitAlpha`, as a text view's link has it). A colour whose channels lie within 24 of each
-    /// other counts as neutral and stays. A colour in its own space (`textChannels`' nine numbers)
-    /// greys from its sRGB channels.
+    /// (`uikitAlpha`, as a text view's link has it, neutral or not). Otherwise a colour whose channels
+    /// lie within 24 of each other counts as neutral and stays. A colour in its own space
+    /// (`textChannels`' nine numbers) greys from its sRGB channels.
     static func grey(_ c: [Double], uikitAlpha: Bool = false) -> [Double] {
-        guard c.count >= 4, (c[0...2].max() ?? 0) - (c[0...2].min() ?? 0) > 24 else { return c }
+        guard c.count >= 4, uikitAlpha || (c[0...2].max() ?? 0) - (c[0...2].min() ?? 0) > 24 else { return c }
         let key = c[0...3].map { Int($0.rounded()) }
         let dimmed = greys[key] ?? {
             probe.tintColor = UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
@@ -49,12 +49,13 @@ extension NodeView {
     }
 
     /// Whether this node's colours grey now: UIKit dims tints and the node is on the face of a
-    /// control Exact draws. A control UIKit draws (`appearance` other than `none`) is left to UIKit.
-    /// A node that becomes or stops being a control while UIKit dims tints, by its role or by moving
-    /// into or out of one, does not repaint the nodes beneath it, which keep their earlier paint
-    /// until they next paint.
+    /// control Exact draws. A control UIKit draws is left to UIKit: a native control (`appearance`
+    /// other than `none`) and a native field or text area (`isNativeTextControl`). A node that becomes
+    /// or stops being a control while UIKit dims tints, by its role or by moving into or out of one,
+    /// does not repaint the nodes beneath it, which keep their earlier paint until another update
+    /// recomputes it.
     var dimsItsPaint: Bool {
-        tintAdjustmentMode == .dimmed && !(kind == "control" && style["appearance"]?.string != "none") && insideControl
+        tintAdjustmentMode == .dimmed && !(kind == "control" && style["appearance"]?.string != "none") && !isNativeTextControl && insideControl
     }
 
     /// The tint this node paints with: UIKit's, which it dims, inside a control; outside one the
@@ -126,7 +127,7 @@ extension NodeView {
 
     /// The tint row `row` resolves `@tint` by for a colour Exact hands UIKit (`undimmedChannels`)
     func undimmedTint(for row: BatchValue) -> UIColor? {
-        row.namesTint ? (tintAdjustmentMode == .dimmed ? restingTint : viewTint) : nil
+        row.namesTint ? undimmedInheritedTint : nil
     }
 
     /// Inks the symbol view in its node's ink and keeps UIKit from dimming it, as the ink is already the
