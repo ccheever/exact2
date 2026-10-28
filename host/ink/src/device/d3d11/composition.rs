@@ -462,9 +462,45 @@ mod tests {
             ]),
         )
         .unwrap();
+        let (ready, started) = std::sync::mpsc::channel();
+        let address = hwnd.0 as usize;
+        let sampling = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let active = sampling.clone();
+        let samples = std::thread::spawn(move || {
+            let mut samples = Vec::new();
+            let start = Instant::now();
+            let mut ready = Some(ready);
+            while active.load(std::sync::atomic::Ordering::Acquire) {
+                unsafe {
+                    DwmFlush().unwrap();
+                    let mut point = windows::Win32::Foundation::POINT { x: 160, y: 120 };
+                    assert!(ClientToScreen(HWND(address as *mut _), &mut point).as_bool());
+                    let dc = GetDC(None);
+                    samples.push((
+                        start.elapsed().as_secs_f64() * 1000.,
+                        GetPixel(dc, point.x, point.y).0,
+                    ));
+                    ReleaseDC(None, dc);
+                }
+                if let Some(ready) = ready.take() {
+                    ready.send(()).unwrap();
+                }
+            }
+            samples
+        });
+        started.recv().unwrap();
         d.attach_window(window.clone(), [320, 240]).unwrap();
         d.present(t).unwrap();
-        assert_eq!(wait_for(Some(color)), color);
+        for _ in 0..3 {
+            assert_eq!(wait_for(Some(color)), color);
+        }
+        sampling.store(false, std::sync::atomic::Ordering::Release);
+        let samples = samples.join().unwrap();
+        assert!(
+            samples.len() >= 2 && samples.iter().all(|s| s.1 == color),
+            "handoff samples: {samples:?}"
+        );
+        println!("S2_HANDOFF desktop_ms_and_rgb={samples:?}");
         unsafe {
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
             assert_eq!(style & WS_EX_LAYERED.0, 0);
