@@ -119,7 +119,8 @@ final class ReadoutView: UIView {
             return dot
         case .symbol(let name, let points, let tint):
             let image = UIImageView(image: FaceSymbol.image(name, points: points, configuration: UIImage.SymbolConfiguration(pointSize: points)))
-            image.tintColor = ink(tint)
+            // Keep UIKit from dimming the status's symbol beside its words, as a status in the content keeps it (TintDimmingIOS.swift)
+            image.tintColor = ink(tint); image.tintAdjustmentMode = .normal
             return image
         case .text(let text, let font, let color):
             let label = UILabel()

@@ -60,17 +60,22 @@ struct ChipFace: Equatable {
         let bold = traits.legibilityWeight == .bold
         var parts: [Part] = [], opacities: [CGFloat] = [], lineHeights: [CGFloat?] = [], dotted = false, typed = false, gap: CGFloat?
         func pair(_ node: NodeView, _ key: String) -> [[Double]] {
-            [node.channels(key, dark: false) ?? [0, 0, 0, 1], node.channels(key, dark: true) ?? [1, 1, 1, 1]]
+            [node.undimmedChannels(key, dark: false) ?? [0, 0, 0, 1], node.undimmedChannels(key, dark: true) ?? [1, 1, 1, 1]]
         }
         // A childless box (often a flat leaf, a layer and no view,
         // FlatLeavesIOS) with no authored size in points has none to draw.
-        func dot(_ style: NodeStyle, _ alpha: CGFloat) {
+        // Its fill resolves in `host`'s traits and names the tint by
+        // `host`'s, undimmed, as `pair` reads its colours: the face is
+        // baked and kept (TintDimmingIOS.swift).
+        func dot(_ style: NodeStyle, _ alpha: CGFloat, host: NodeView) {
             guard let width = style["width"]?.number, let height = style["height"]?.number, width > 0, height > 0,
                   let fill = style["background_color"] else { return }
             let size = CGSize(width: width, height: height)
             dotted = true
             let rect = CGRect(origin: .zero, size: size)
-            parts.append(.dot(size, [fill.channels(dark: false) ?? [0, 0, 0, 0], fill.channels(dark: true) ?? [0, 0, 0, 0]],
+            let tint = host.undimmedTint(for: fill), contrast = host.drawsHighContrast, elevated = host.drawsElevated
+            let sides = [false, true].map { fill.channels(dark: $0, contrast: contrast, elevated: elevated, tint: tint) ?? [0, 0, 0, 0] }
+            parts.append(.dot(size, sides,
                               BorderPaint.reduced(BorderPaint.radii(style, in: rect), in: rect)))
             opacities.append(alpha)
             lineHeights.append(nil)
@@ -87,17 +92,17 @@ struct ChipFace: Equatable {
             if kids.count > 1, gap == nil, let g = node.style["column_gap"]?.number { gap = CGFloat(g) }
             for kid in kids {
                 guard case .view(let child) = kid else {
-                    if case .leaf(let leaf) = kid { visitLeaf(leaf, in: presenter, alpha: alpha * CGFloat(leaf.opacity)) }
+                    if case .leaf(let leaf) = kid { visitLeaf(leaf, in: presenter, alpha: alpha * CGFloat(leaf.opacity), host: node) }
                     continue
                 }
                 visit(child, fonted: fonted, inked: inked, alpha: alpha * child.alpha)
             }
         }
         // A flat box with children is walked as a view with them is.
-        func visitLeaf(_ leaf: FlatLeaf, in presenter: Presenter?, alpha: CGFloat) {
+        func visitLeaf(_ leaf: FlatLeaf, in presenter: Presenter?, alpha: CGFloat, host: NodeView) {
             let kids = (presenter?.flats.children(of: leaf.id) ?? []).compactMap { presenter?.flats.leaves[$0] }
-            guard !kids.isEmpty else { dot(leaf.style, alpha); return }
-            for kid in kids where kid.style["display"]?.string != "none" { visitLeaf(kid, in: presenter, alpha: alpha * CGFloat(kid.opacity)) }
+            guard !kids.isEmpty else { dot(leaf.style, alpha, host: host); return }
+            for kid in kids where kid.style["display"]?.string != "none" { visitLeaf(kid, in: presenter, alpha: alpha * CGFloat(kid.opacity), host: host) }
         }
         func visit(_ child: NodeView, fonted: Bool, inked: Bool, alpha: CGFloat) {
             let fonted = fonted || ["font_family", "font_size", "font_weight"].contains(where: child.wrote)
@@ -123,7 +128,7 @@ struct ChipFace: Equatable {
                 lineHeights.append(nil)
             } else if (child.presenter?.flats.children(of: child.id) ?? child.container.subviews.compactMap { ($0 as? NodeView)?.id }).isEmpty,
                       child.style["background_color"] != nil {
-                dot(child.style, alpha)
+                dot(child.style, alpha, host: child)
             } else {
                 walk(child, fonted: fonted, inked: inked, alpha: alpha)
             }

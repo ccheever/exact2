@@ -474,11 +474,14 @@ extension NodeView {
     /// A field of the author's own (`appearance="none"`) is their box, and
     /// inherits as text does.
     var fieldInk: UIColor {
-        showsOwnTextColor || !isNativeTextControl ? color("text_color", SystemColor.canvasText) : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
+        guard isNativeTextControl else { return color("text_color", SystemColor.canvasText) }
+        // A native editor's own colour as written, with the tint undimmed: UIKit leaves its text colour as set (TintDimmingIOS.swift)
+        return showsOwnTextColor ? undimmedCGColor("text_color").map { UIColor(cgColor: $0) } ?? SystemColor.canvasText : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
     }
-    /// `ownColor` as this node draws it now, or nil.
+    /// The colour this node's author wrote for row `key`, with the tint undimmed, for UIKit to draw
+    /// with (TintDimmingIOS.swift); nil where the author wrote none
     func ownUIColor(_ key: String) -> UIColor? {
-        ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }
+        ownColor(key) == nil ? nil : undimmedCGColor(key).map { UIColor(cgColor: $0) }
     }
 }
 extension NodeView {

@@ -56,6 +56,22 @@ final class ProgressIOSTests: XCTestCase {
         for (got, want) in zip([r, g, b, a], [want.0, want.1, want.2, want.3]) { XCTAssertEqual(got, want, accuracy: 0.01, "\([r, g, b, a])") }
     }
 
+    /// A colour its author wrote that names the tint reaches the indicator undimmed, also from a
+    /// refresh while UIKit dims tints: the indicator keeps the colour it is given
+    func testATintColourReachesTheIndicatorUndimmed() throws {
+        var ops = progress(2, written: true)
+        ops[0]["style"] = ["text_color": ["sys": "@tint", "c": [0, 122, 255, 255]], "written": ["text_color"]]
+        let p = presenter(ops + [["op": "roots", "ids": [2]]])
+        window.tintColor = UIColor(red: 1, green: 0, blue: 0, alpha: 1)
+        let spinner = try XCTUnwrap(p.controls.spinners[2])
+        p.viewport.tintAdjustmentMode = .dimmed
+        p.controls.syncProgress()
+        p.viewport.tintAdjustmentMode = .automatic
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        spinner.color.resolvedColor(with: spinner.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a)
+        for (got, want) in zip([r, g, b, a], [CGFloat(1), 0, 0, 1]) { XCTAssertEqual(got, want, accuracy: 0.01, "the red tint once the dimming ends: \([r, g, b, a])") }
+    }
+
     /// `accent-color: AccentColor` under an authored accent keeps that one,
     /// as the web's `var(--exact-accent, AccentColor)` does (LLP 1121 D9,
     /// stage 9 F1); with none authored above, the role's own.

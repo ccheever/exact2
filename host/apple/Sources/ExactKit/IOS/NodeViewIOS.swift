@@ -564,7 +564,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        symbolView?.tintColor = drawnSymbolInk
+        inkSymbolView()
         symbolView?.preferredSymbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
@@ -1011,13 +1011,13 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     // @ref LLP 1034 D1/D2
     var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     package func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
+        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) }
     }
-    func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
+    func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) } }
     package func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
-    /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
-    var placeholderColor: UIColor? { cgColor("placeholder_color").map { UIColor(cgColor: $0) } }
-    package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
+    /// CSS `::placeholder { color }` (LLP 1104 D3), a native editor's undimmed as `fieldInk` is; nil, the platform's.
+    var placeholderColor: UIColor? { (isNativeTextControl ? undimmedCGColor("placeholder_color") : cgColor("placeholder_color")).map { UIColor(cgColor: $0) } }
+    package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0, key: key)) }.map { dimmedWithTint($0, key: key) } }
     package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
@@ -1248,7 +1248,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
         Self.textGeometry &+= 1
-        paintOrderMoved()
+        paintOrderMoved(); repaintFacesWhileDimmed() // as a move into or out of a control changes its face (TintDimmingIOS.swift)
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { redrawFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }

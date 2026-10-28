@@ -66,7 +66,9 @@ package final class Presenter {
     /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsIOS.swift`).
     var flights: [UInt32: Flight] = [:]
     private(set) var chrome = ChromeIndex()
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh(); view.relook() }
+    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh(); view.relook(); view.controlMayHaveChanged() }
+    /// The nodes that were controls when their props last changed (`NodeView.controlMayHaveChanged`)
+    var controlNodes: Set<UInt32> = []
     package func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
@@ -207,6 +209,7 @@ package final class Presenter {
 
     init() {
         viewport.addSubview(root)
+        svg.boxGrey = { [unowned self] id in views[id]?.boxTrackGrey }
         viewport.delegate = scrollPump
         collections.motion = { [unowned self] id in
             if collections.animating.contains(id) { return nil }
@@ -1083,7 +1086,7 @@ package final class Presenter {
         transformBindings.removeValue(forKey: id)
         transformGeometry.retire(id)
         chrome.forget(id)
-        scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id)
+        scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id); controlNodes.remove(id)
         return views.removeValue(forKey: id)
     }
 
@@ -1389,11 +1392,12 @@ package final class Presenter {
         // The root's colour, resolved and compared only when what it is made
         // of changes: every batch asked UIKit for a colour it then compared.
         let first = root.subviews.first as? NodeView
-        let key = CanvasKey(root: first.map(ObjectIdentifier.init), channels: first?.channels("background_color"))
+        // As written, never greyed: the viewport keeps it once the dimming ends (TintDimmingIOS.swift)
+        let key = CanvasKey(root: first.map(ObjectIdentifier.init), channels: first.flatMap { $0.undimmedChannels("background_color", dark: $0.drawsDark) })
         guard key != canvasKey else { return }
         canvasKey = key
         // A root without a background shows the platform's (LLP 1115 D2).
-        let color = first?.color("background_color", .platformBackground(in: root)) ?? .platformBackground(in: root)
+        let color = first?.undimmedCGColor("background_color").map { UIColor(cgColor: $0) } ?? .platformBackground(in: root)
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted

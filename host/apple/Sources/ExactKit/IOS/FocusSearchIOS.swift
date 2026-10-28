@@ -58,16 +58,20 @@ final class Viewport: ScrollView {
     var pageMargins = UIEdgeInsets.zero
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
-    #if os(iOS)
-    // The page's own scroller takes the keyboard down with a drag that
-    // reaches it, as a scroller's unsaid `keyboardDismissMode` does
-    // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
+    /// Its tint undimmed, for the nodes mounted here (`RestsTint`)
+    var restingTint: UIColor { probe.tintColor }
+    private let probe = TintProbe()
     override init(frame: CGRect) {
         super.init(frame: frame)
+        addSubview(probe)
+        #if os(iOS)
+        // The page's own scroller takes the keyboard down with a drag that
+        // reaches it, as a scroller's unsaid `keyboardDismissMode` does
+        // (`NodeView.keyboardDismissal`, LLP 1115.000 D9.1).
         keyboardDismissMode = .interactive
+        #endif
     }
     required init?(coder: NSCoder) { nil }
-    #endif
     /// A scroll indicator is an accessibility element ("Horizontal scroll
     /// bar, 1 page"), which a page that does not scroll on that axis has
     /// none of, as a hand-built view controller's root has none: a route
@@ -89,7 +93,7 @@ final class Viewport: ScrollView {
 }
 /// Bound focus search to a native route or modal presentation, as the
 /// document viewport does (LLP 1123 D2).
-final class PresentationMount: UIView {
+final class PresentationMount: RestingTintView {
     #if os(iOS)
     /// Relay a modal presentation's events to its logical ancestors (`MountRelay`).
     var relay: MountRelay?
