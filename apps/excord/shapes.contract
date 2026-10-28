@@ -238,13 +238,14 @@ shape Channel
   firstUnreadAt: number
   lastRead: string
   arrived: number
-  typing: string
-  // When the last of them stops, unless they type again: the store's clock, in ms (0 when none is typing).
-  typingUntil: number
   // Discord's `nsfw`: the channel shows its age gate before it opens (LLP 1133.028 §8.2).
   ageRestricted: bool
 
-fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, private=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="", typingUntil=0, ageRestricted=false) }
+// Who is typing in a channel: "Ada is typing…", "Ada and Grace are typing…", or "".
+shape Typing
+  line: string
+
+fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, private=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, ageRestricted=false) }
 // The gateway holds a session, or is opening one, so the heartbeat runs.
 fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
 

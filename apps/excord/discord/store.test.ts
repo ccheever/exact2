@@ -583,9 +583,9 @@ describe('message mutations', () => {
     expect(typingUsers(s, cid, 10499)).toEqual([{ user: other, expiresAtMs: 10500 }]);
     expect(typingUsers(s, cid, 10500)).toEqual([]);
     const version = channelVersion(s, cid);
-    expect(expireTyping(s, 10500)).toEqual({ channels: [cid], sidebar: false });
-    expect(channelVersion(s, cid)).toBe(version + 1);
-    expect(expireTyping(s, 10500)).toEqual({ channels: [], sidebar: false });
+    expect(expireTyping(s, 10500)).toBe(1);
+    expect(channelVersion(s, cid)).toBe(version);
+    expect(expireTyping(s, 10500)).toBe(0);
     event(s, 'TYPING_START', { user_id: '2' });
     expect(typingUsers(s, cid, 100)).toHaveLength(1);
     send(s, '101');

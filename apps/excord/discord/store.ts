@@ -941,13 +941,14 @@ export function removePending(s: Store, channelId: string, nonce: string): Chang
   return finish(s, { channels: new Set([channelId]), sidebar: false });
 }
 
-/** Expire typing on the caller's clock and invalidate just the affected channels. */
-export function expireTyping(s: Store, nowMs: number): Changed {
-  const c = changes();
-  for (const [id, h] of s.histories) for (const [userId, expiry] of h.typing) {
-    if (expiry <= nowMs) { h.typing.delete(userId); c.channels.add(id); }
+/** Forget typing that has ended on the caller's clock. The typing line reads `typingUsers` at its own time, so
+ * no version moves; the count is of entries dropped. */
+export function expireTyping(s: Store, nowMs: number): number {
+  let dropped = 0;
+  for (const h of s.histories.values()) for (const [userId, expiry] of h.typing) {
+    if (expiry <= nowMs) { h.typing.delete(userId); dropped++; }
   }
-  return finish(s, c);
+  return dropped;
 }
 
 /** Read the version used by a channel's message, typing and read-state resources. */

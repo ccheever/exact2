@@ -220,7 +220,7 @@ component Excord
   // A send shows at once (`echoed`, the local row), then posts (`sent`).
   mutation echoed as shape Sent queue refreshes win, chan then postEchoed
   mutation sent as shape Sent queue refreshes win, chan, categories then afterSent
-  mutation changed as shape Ack queue refreshes win, chan, categories, dms, guilds, rail
+  mutation changed as shape Ack queue refreshes win, chan, typing, categories, dms, guilds, rail
   mutation deleted as shape Ack queue refreshes win, chan, categories, dms, guilds, rail then afterDelete
   mutation edited as shape Ack refreshes win then afterEdit
   mutation pastedPictures as shape Pasted queue then takePasted
@@ -337,14 +337,11 @@ component Excord
   members "./routing.contract"
   members "./viewer.contract"
   members "./light.contract"
+  members "./typing.contract"
   task digest when gw.queued > 0 and not pending(digested) key=gw.seq
     after(1, digestNow)
   task traffic when live and open != ""
     every(2500, trafficTick)
-  // Discord's typing lasts ten seconds unless sent again. Another change to the channel (a reaction, a
-  // typer's new name) moves its version but not when the typing stops.
-  task typingEnds when chan.typing != "" key=chan.typingUntil
-    after(10000, stopTyping)
   task scrollQuiet when scrolling key=scrollTick
     after(200, scrollSettled)
   task unhighlight when highlight != "" key=highlight
@@ -400,8 +397,6 @@ component Excord
     send identified = sendIdentify()
   action trafficTick
     send changed = inject(open, "message", topKey, time.epochAtZero + performanceNow())
-  action stopTyping
-    send changed = expireTyping(time.epochAtZero + performanceNow())
   action clearHighlight
     highlight = ""
   action ackNow
@@ -457,8 +452,10 @@ component Excord
         stash = ""
       if not away and anchor == "" and chan.unread > 0 and viewing == ""
         send acked = markRead(open)
-    now = performanceNow()
+    let t = performanceNow()
+    now = t
     open = id
+    typingAt = time.epochAtZero + t
     replyTo = ""
     replyName = ""
     editing = ""
@@ -1370,13 +1367,13 @@ component Excord
                   MessageMenu(canTranslate=canTranslate, mine=aimedMine, forwarded=aimedForward, reply=replyAimed, react=reactAimed, pickReaction=openPicker, copy=copyAimed, translate=translateAimed, copyLink=copyLink, edit=editAimed, remove=askDelete)
                   PickerFrames(picking=picking, forDraft=pickingForDraft, popover=pickerPopover, touch=(viewport.pointer == "coarse"), query=pickerQuery, choices=choices, search=searchPicker, pick=emojiPicked, closed=pickerClosed, toggled=pickerToggled, keys=dialogKey)
                   DeleteConfirm(confirm=deleteAimed, keys=dialogKey)
-                  if chan.typing != ""
+                  if typing.line != ""
                     row position="absolute" left=16 right=16 bottom=2 gap=6 align-items="center"
                       row gap=3 aria-hidden=true
                         for d in ["0", "1", "2"] key=d
                           view width=5 height=5 border-radius=3 background-color="-exact-secondary-label"
                             animation=(viewport.prefersReducedMotion ? "none" : `typingDot 1.2s ${d == "0" ? 0 : d == "1" ? 160 : 320}ms ease-in-out infinite`)
-                      text chan.typing testId="typing" font="-exact-caption1" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0
+                      text typing.line testId="typing" font="-exact-caption1" color="-exact-secondary-label" line-clamp=1 flex=1 min-width=0
                   if away and (newCount > 0 or win.hasAfter)
                     button press=toPresent buttonStyle="filled" testId="jump-present" position="absolute" bottom=28 right=16
                       text (newCount > 0 ? `${newCount} new ${newCount == 1 ? "message" : "messages"}` : "Jump to Present")

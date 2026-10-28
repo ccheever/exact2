@@ -1,0 +1,13 @@
+// Who is typing in the open channel, read at the page's time: when the channel changes (a typer arrives, or
+// sends), when it opens (`openChannel` sets `typingAt`), and once a second while anyone types, so each goes
+// within a second of their own ten seconds. A timer cannot be set to the next of those: its interval is a
+// literal. `typingAt` is an identifying argument so that the last launch's line never shows at this one.
+use Typing from "./shapes.contract"
+
+members Excord
+  state typingAt = 0
+  resource typing = loadTyping(open, chanVersion, typingAt) as shape Typing else empty()
+  task typingEnds when typing.line != ""
+    every(1000, typingTick)
+  action typingTick
+    typingAt = time.epochAtZero + performanceNow()
