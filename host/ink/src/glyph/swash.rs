@@ -42,6 +42,21 @@ impl Default for Glyphs {
 }
 
 impl Glyphs {
+    pub fn pin(&mut self, texture: crate::instance::TextureId) {
+        self.alpha.pin(texture);
+        self.color.pin(texture);
+    }
+
+    pub fn unpin(&mut self, texture: crate::instance::TextureId) {
+        self.alpha.unpin(texture);
+        self.color.unpin(texture);
+    }
+
+    pub fn touch(&mut self, texture: crate::instance::TextureId) {
+        self.alpha.touch(texture);
+        self.color.touch(texture);
+    }
+
     pub fn begin(&mut self, device: &mut impl Device) -> Result<()> {
         self.alpha.begin(device)?;
         self.color.begin(device)?;

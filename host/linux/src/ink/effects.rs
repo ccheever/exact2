@@ -40,7 +40,7 @@ impl Ink {
         self.close_masked_group(Some(target))
     }
 
-    fn destination(&mut self) -> Result<TextureId> {
+    pub(super) fn destination(&mut self) -> Result<TextureId> {
         let target = self.flush()?;
         let started = Instant::now();
         let copy = self.pool.take(&mut self.device)?;
@@ -61,7 +61,7 @@ impl Ink {
             return Ok(());
         }
         let texture = self.images.pixmap(&mut self.device, pixels)?;
-        let destination = if mode == 0 {
+        let destination = if mode == 0 || !self.rows.capture.is_empty() {
             TextureId(0)
         } else {
             self.destination()?
@@ -78,7 +78,7 @@ impl Ink {
             },
         )?;
         // A following blend must see this result, including within an opacity root.
-        if mode != 0 {
+        if mode != 0 && self.rows.capture.is_empty() {
             self.flush()?;
         }
         Ok(())

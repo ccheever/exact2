@@ -14,6 +14,12 @@ pub struct Statistics {
     pub paths: Stats,
     /// Gradient stop rows, independent of their placement.
     pub ramps: Stats,
+    /// Viewport targets used this frame and retained at the pool's high-water mark.
+    pub layers: usize,
+    /// Number of retained viewport targets.
+    pub layer_targets: usize,
+    /// Retained viewport-target storage, excluding the final readback target.
+    pub layer_bytes: u64,
 }
 
 /// A snapshot handle remains readable while the presenter owns the backend.
@@ -40,6 +46,9 @@ impl Ink {
             color_glyphs,
             paths: self.paths.stats(),
             ramps: self.ramps.stats(),
+            layers: self.pool.used(),
+            layer_targets: self.pool.retained(),
+            layer_bytes: self.pool.bytes(),
         });
     }
 }

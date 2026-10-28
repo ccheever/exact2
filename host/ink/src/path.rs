@@ -17,7 +17,7 @@ pub fn coverage(
     rule: FillRule,
     clips: &[(&Path, FillRule)],
     transform: Transform,
-    viewport: [u32; 2],
+    viewport: Option<[u32; 2]>,
 ) -> Result<Option<Coverage>> {
     if !transform.is_finite() || transform.invert().is_none() {
         return Ok(None);
@@ -26,16 +26,17 @@ pub fn coverage(
         return Ok(None);
     };
     let bounds = transformed.bounds();
-    let x = bounds.left().floor().max(0.).min(viewport[0] as f32);
-    let y = bounds.top().floor().max(0.).min(viewport[1] as f32);
-    let right = bounds.right().ceil().max(0.).min(viewport[0] as f32);
-    let bottom = bounds.bottom().ceil().max(0.).min(viewport[1] as f32);
+    let bound = |v: f32, axis: usize| viewport.map_or(v, |s| v.clamp(0., s[axis] as f32));
+    let x = bound(bounds.left().floor(), 0);
+    let y = bound(bounds.top().floor(), 1);
+    let right = bound(bounds.right().ceil(), 0);
+    let bottom = bound(bounds.bottom().ceil(), 1);
     if right <= x || bottom <= y {
         return Ok(None);
     }
     let size = [(right - x) as u32, (bottom - y) as u32];
     let rect = [x, y, right - x, bottom - y];
-    let mut key = vec![viewport[0], viewport[1]];
+    let mut key = viewport.unwrap_or([u32::MAX; 2]).to_vec();
     key.extend(
         [
             transform.sx,
@@ -113,9 +114,10 @@ pub fn clip_union(
     device: &mut impl Device,
     groups: &[Vec<(Path, FillRule)>],
     transform: Transform,
-    viewport: [u32; 2],
+    viewport: Option<[u32; 2]>,
 ) -> Result<Coverage> {
-    let mut key = vec![u32::MAX, viewport[0], viewport[1]];
+    let mut key = vec![u32::MAX];
+    key.extend(viewport.unwrap_or([u32::MAX; 2]));
     key.extend(
         [
             transform.sx,
@@ -127,7 +129,12 @@ pub fn clip_union(
         ]
         .map(f32::to_bits),
     );
-    let mut bounds = [viewport[0] as f32, viewport[1] as f32, 0., 0.];
+    let mut bounds = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
     for (n, group) in groups.iter().enumerate() {
         key.push(group.len() as u32);
         for (path, rule) in group {
@@ -143,10 +150,14 @@ pub fn clip_union(
             }
         }
     }
-    let x = bounds[0].floor().clamp(0., viewport[0] as f32);
-    let y = bounds[1].floor().clamp(0., viewport[1] as f32);
-    let w = (bounds[2].ceil().clamp(0., viewport[0] as f32) - x).max(1.) as u32;
-    let h = (bounds[3].ceil().clamp(0., viewport[1] as f32) - y).max(1.) as u32;
+    if !bounds.iter().all(|v| v.is_finite()) {
+        bounds = [0.; 4];
+    }
+    let bound = |v: f32, axis: usize| viewport.map_or(v, |s| v.clamp(0., s[axis] as f32));
+    let x = bound(bounds[0].floor(), 0);
+    let y = bound(bounds[1].floor(), 1);
+    let w = (bound(bounds[2].ceil(), 0) - x).max(1.) as u32;
+    let h = (bound(bounds[3].ceil(), 1) - y).max(1.) as u32;
     let rect = [x, y, w as f32, h as f32];
     if let Some(entry) = atlas.get(&key) {
         return Ok(Coverage { rect, entry });

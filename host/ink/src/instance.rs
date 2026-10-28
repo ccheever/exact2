@@ -88,6 +88,29 @@ pub struct Instance {
 const _: () = assert!(size_of::<Instance>() == 192);
 
 impl Instance {
+    /// Local shadow exclusions stay in brush space; coverage bounds do not.
+    pub fn translated(mut self, offset: [f32; 2]) -> Self {
+        self.xform[4] += offset[0];
+        self.xform[5] += offset[1];
+        if self.kind_brush & 65535 == Kind::Coverage as u32 {
+            self.rect[0] += offset[0];
+            self.rect[1] += offset[1];
+        }
+        if self.flags & flags::CLIP0 != 0 {
+            self.clip0[0] += offset[0];
+            self.clip0[1] += offset[1];
+        }
+        if self.flags & flags::CLIP1 != 0 && self.flags & flags::SHADOW_LOCAL == 0 {
+            self.clip1[0] += offset[0];
+            self.clip1[1] += offset[1];
+        }
+        if self.flags & flags::MASK != 0 {
+            self.mask_rect[0] += offset[0];
+            self.mask_rect[1] += offset[1];
+        }
+        self
+    }
+
     pub fn new(kind: Kind, brush: Brush, rect: [f32; 4]) -> Self {
         Self {
             rect,
@@ -240,6 +263,10 @@ pub struct Encoder {
 }
 
 impl Encoder {
+    pub fn scissor(&self) -> Scissor {
+        self.state.scissor
+    }
+
     pub fn new(width: u32, height: u32) -> Self {
         Self {
             frame: Frame::default(),
