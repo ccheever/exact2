@@ -22,6 +22,9 @@ use diffSel from "../diff/diff-rows.contract"
 use DiagramBlocks, ChatDocument from "../timeline/markdown.contract"
 use FilesMedia from "../media/media-actions.contract"
 use MediaFrame from "../media/media-frame.contract"
+use PreviewImage, ImageActions from "./preview-image.contract"
+use MermaidFileView from "./mermaid-file.contract"
+use FileSurfaceFailure from "./file-surface-chrome.contract"
 use PanelIcon from "./panel-icons.contract"
 use SidebarMenuCard, SidebarMenuItem from "../sidebar/sidebar-row.contract"
 use SidebarMenuRow from "../sidebar/sidebar-shapes.contract"
@@ -236,14 +239,21 @@ component FilesCrumbView
               column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=crumb.label testId="crumb-menu"
                 // Mounted once the data module lists this folder, so the rows a key asked for are there to take the focus.
                 if open
-                  KeyMenu(menuId="crumb-menu-keys", items=(menu.back != "" ? [KmItem(id="crumb-back", label=menu.back)] : []).concat(menu.entries.map((entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=true)
+                  KeyMenu(menuId="crumb-menu-keys", items=(menu.back != "" ? [KmItem(id="crumb-back", label=menu.back)] : []).concat(menu.statusRetry ? [KmItem(id="crumb-retry", label=menu.status)] : []).concat(menu.entries.map((entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))).concat(menu.retry != "" ? [KmItem(id="crumb-refresh-retry", label=menu.retry)] : []), keyed=kmEndKeyed(menuEnd), gap="0px", modal=true)
                     if menu.back != ""
                       FilesCrumbItem(keysId="crumb-menu-keys", label=menu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=pick(menu.backPath, true))
                       box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
-                    if menu.status != ""
+                    // A first listing that failed is a row that lists the folder again (FileBreadcrumbs "Retry loading folder").
+                    if menu.statusRetry
+                      FilesCrumbItem(keysId="crumb-menu-keys", label=menu.status, icon="refresh", token="", trailing=false, current=false, ignored=false, test="crumb-retry", press=pick(menu.dir, true))
+                    else if menu.status != ""
                       text menu.status height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" font-size="0.875rem" line-height="1.75rem" opacity=0.64 color="light-dark(#18181b, #f5f5f5)"
                     for entry in menu.entries key=entry.id
                       FilesCrumbItem(keysId="crumb-menu-keys", label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=pick(entry.path, entry.directory))
+                    // A refresh that failed keeps the entries it had, then offers another (FileBreadcrumbs "Refresh failed. Retry").
+                    if menu.retry != ""
+                      box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
+                      FilesCrumbItem(keysId="crumb-menu-keys", label=menu.retry, icon="refresh", token="", trailing=false, current=false, ignored=false, test="crumb-refresh-retry", press=local("surface-files-crumb-refresh", menu.dir, ""))
         else
           box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex" aria-hidden=true
             ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #a1a1a199)")
@@ -295,6 +305,9 @@ component FilePreview
     local: action
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
+  // The picture's failure is the image body's own (PreviewImage).
+  action imageFailed(message: string)
+    let ignored = message
   // diff-review: the open comment draft's text (FilePreviewPanel's annotation draft).
   state draftText = ""
   action editDraft(text: string)
@@ -362,9 +375,23 @@ component FilePreview
             row min-width="100%" background-color=(row.header ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
               for cell in row.cells key=cell.id
                 text cell.text flex=1 max-width="20rem" min-width="4rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=(row.header ? "light-dark(#e4e4e7, #ffffff14)" : "light-dark(#e4e4e799, #ffffff0c)") white-space="pre-wrap" font-size="0.75rem" line-height="1rem" font-weight=(row.header ? 500 : 400) font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)"
-    // An image or video file with its menu, tooltip and failure states (FilesMedia).
+    if files.preview == "mermaid"
+      MermaidFileView(diagrams=files.diagrams, note=files.mermaidNote, scheme=scheme, local=local, testId="file-mermaid")
+    // An image or video file with its menu, tooltip and failure states (FilesMedia); a signed picture has the size and
+    // zoom bar, and its own "Unable to load image." when it does not load (WorkspaceImagePreview's PreviewImage).
     if files.preview == "media"
-      FilesMedia(media=files.media, local=local)
+      if files.media.kind == "image" and files.media.state == "ready"
+        ImageActions(source=files.media.source, tip=files.media.tip, local=local, testId="file-image-actions")
+          for url in [files.media.url] key=url
+            PreviewImage(url=url, name=files.media.name, zoomId="file-image-zoom", expand=local("surface-files-image-open", url, files.media.name), failed=imageFailed, testId="file-image")
+      else
+        FilesMedia(media=files.media, local=local)
+    // WorkspaceAudioPreview: AudioPreview's player centred in 24pt, or "Unable to load audio." with Try again.
+    if files.preview == "audio"
+      column flex=1 min-height=0 width="100%" padding="1.5rem" box-sizing="border-box" align-items="center" justify-content="center" testId="file-audio"
+        video files.url controls=true preload="metadata" aria-label=files.path error=local("surface-files-audio-error", files.url) width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="file-audio-player"
+    if files.preview == "audio-error"
+      FileSurfaceFailure(message="Unable to load audio.", canRetry=true, retry=local("surface-files-audio-retry", files.absolutePath, ""), testId="file-audio-failed")
     // A rendered HTML page or a PDF (always rendered), as an attachment's (BrowserDocumentFrame, media-frame.contract).
     if files.preview == "html" or files.preview == "pdf"
       box position="relative" flex=1 min-height=0 width="100%" background-color="#ffffff"

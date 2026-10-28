@@ -6,7 +6,7 @@
 // - PrSurfaceBody: the right panel's "pull-request" surface, the Pull Requests
 //   page's detail panel without its own tab bar (ChatView rightPanelContent:
 //   PullRequestDetailPanel, PullRequestsUnavailableState);
-// - AttachmentBody: a sent attachment's preview (files/AttachmentFilePreview.tsx,
+// - AttachmentBody: a sent attachment's preview (files/AttachmentFilePreview.tsx at 7c3b3b3605ef,
 //   fileSurfaceChrome.tsx FILE_SURFACE_SUBHEADER_CLASS, FileSurfaceAction).
 // `local` is the window's chatLocal (`surface-linked-*` reaches pr-attachment-surfaces.ts),
 // `act` the card's detailsAct (gated writes as `shell:surface-linked-*`).
@@ -33,6 +33,10 @@ use ChecksPopover from "../details/pr-row.contract"
 use hoverTipAtFrame, hoverTipWide from "../shell/hover-layer.contract"
 use PrActionButton from "../details/pr-row.contract"
 use AttachmentMediaBody from "../media/attachment-media.contract"
+use FileSurfaceAction from "./file-surface-chrome.contract"
+use PreviewImage from "./preview-image.contract"
+use MermaidFileView from "./mermaid-file.contract"
+use FontSpecimen from "./font-preview.contract"
 
 fn surfaceMuted(): string = "light-dark(#71717b, #a1a1a1)"
 fn surfaceRowInk(): string = "light-dark(#18181bcc, #f5f5f5cc)"
@@ -227,14 +231,19 @@ component AttachmentBody
           column width=(att.wrap ? "100%" : "auto") min-width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" role="code" aria-label=att.name
             for line in att.lines key=line.id
               AttachmentCodeRow(line=line, gutter=att.gutter, wrap=att.wrap)
+      if att.preview == "mermaid"
+        MermaidFileView(diagrams=att.diagrams, note=att.mermaidNote, scheme=scheme, local=local, testId="attachment-mermaid")
+      // The picture's error is the surface's ("Unable to load image." with Try again).
       if att.preview == "image"
-        column flex=1 min-height=0 width="100%" padding="1rem" box-sizing="border-box" align-items="center" justify-content="center" overflow="hidden" testId="attachment-image"
-          image att.url aria-label=att.name error=local("surface-linked-att-media-error", att.id) max-width="100%" max-height="100%" width="100%" height="100%" object-fit="contain"
+        for url in [att.url] key=url
+          PreviewImage(url=url, name=att.name, zoomId=(actionIds != "" ? `${actionIds}-image-zoom` : "attachment-image-zoom"), expand=local("surface-linked-att-image-open", att.id, ""), failed=local("surface-linked-att-media-error", att.id), testId="attachment-image")
+      if att.preview == "font"
+        FontSpecimen(src=att.url, name=att.name, scheme=scheme, failed=local("surface-linked-att-font-failed", att.id, ""), testId="attachment-font")
       // PDF, rendered HTML, audio and video (attachment-media.contract).
       if att.preview == "pdf" or att.preview == "html" or att.preview == "audio" or att.preview == "video"
         AttachmentMediaBody(att=att, local=local)
       if att.preview == "none"
-        column flex=1 min-height=0 align-items="center" justify-content="center" gap="0.25rem" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box" testId="attachment-no-preview"
+        column flex=1 min-height=0 align-items="center" justify-content="center" gap="0.25rem" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box" role=(att.noPreviewAlert ? "alert" : "") testId="attachment-no-preview"
           text "No preview for this file" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
           text att.noPreview max-width="24rem" text-align="center" font-size="0.75rem" line-height="1.21875rem" color=surfaceMuted()
 
@@ -271,7 +280,8 @@ component AttachmentHeader
         box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex"
           ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #a1a1a199)")
         text att.name min-width=0 padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#18181b, #f5f5f5)" testId="attachment-name"
-        text att.size margin-left="0.5rem" flex-shrink=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" color=surfaceMuted() testId="attachment-size"
+        if att.size != ""
+          text att.size margin-left="0.5rem" flex-shrink=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" color=surfaceMuted() testId="attachment-size"
       if att.canRender
         FileSurfaceAction(id="render", ids=actionIds, label=att.renderLabel, icon=att.renderIcon, toggle=true, pressed=att.rendered, disabled=false, hovered=hovered, hover=hover, press=local("surface-linked-att-render", att.id, ""))
       if att.showWrap
@@ -284,28 +294,6 @@ component AttachmentHeader
         FileSurfaceAction(id="remove", ids=actionIds, label="Remove from draft", icon="trash", toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-linked-att-remove", att.id, ""))
       if att.canClose
         FileSurfaceAction(id="close", ids=actionIds, label="Close", icon="x", toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-linked-att-close", att.id, ""))
-
-// FileSurfaceAction: 28pt; a toggle wears the accent fill when pressed, a command is a ghost icon button.
-component FileSurfaceAction
-  props
-    id: string
-    ids: string
-    label: string
-    icon: string
-    toggle: bool
-    pressed: bool
-    disabled: bool
-    hovered: string
-    hover: action
-    press: action
-  view
-    box position="relative" flex-shrink=0
-      button id=(ids != "" ? `${ids}-${id}` : "") press=press hover=hover(id) disabled=disabled aria-label=label aria-keyshortcuts=(ids != "" and id == "close" ? "Escape" : "") testId=`attachment-action-${id}` data-focus-stop=(ids != "" and not disabled ? "enabled" : "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") title=""
-        if icon == "copy" or icon == "download" or icon == "check" or icon == "trash"
-          ShellIcon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
-        else
-          PanelIcon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
-      TipBubble(label=label, side="bottom", align="end", offset=32, inset=0, shown=(hovered == id))
 
 component AttachmentCodeRow
   props

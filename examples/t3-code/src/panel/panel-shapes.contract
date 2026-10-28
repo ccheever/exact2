@@ -168,9 +168,12 @@ shape FilesView
   crumbMenu: FilesCrumbMenu
   crumbsMask: string
   crumbsOffset: number
+  // A rendered page or PDF's frame source, or an audio file's signed URL.
   url: string
   // An image or video file (media-views.ts filesMediaView).
   media: MediaView
+  // A Mermaid file the reference will not lay out names why; `diagrams` holds its diagram otherwise.
+  mermaidNote: string
 shape FilesCrumbEntry
   id: string
   path: string
@@ -184,7 +187,13 @@ shape FilesCrumbMenu
   root: string
   back: string
   backPath: string
+  // The folder the menu lists.
+  dir: string
+  // Stands for the entries: loading, empty, or a failed first listing, which `statusRetry` makes a retry row.
   status: string
+  statusRetry: bool
+  // After the entries when their refresh failed ("Refresh failed. Retry").
+  retry: string
   entries: FilesCrumbEntry[]
 shape LinkedPrRow
   context: string
