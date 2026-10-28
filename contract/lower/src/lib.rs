@@ -1134,6 +1134,9 @@ impl<'a> Lowerer<'a> {
         if a.name == "atomFaces" {
             return self.bind_atom_faces(a, scope, locals, bindings);
         }
+        if a.name == "keep-mounted" {
+            return self.bind_keep_mounted(a, scope, locals, bindings);
+        }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };

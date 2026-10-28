@@ -196,6 +196,12 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
                 .map_err(|_| mismatch())?
                 .into(),
         )
+    } else if prop == PropId::KeepMounted {
+        // The runner reads the list's value; the row holds its keys.
+        crate::instance::collection::keep_mounted(value).ok_or_else(mismatch)?;
+        let mut json = String::new();
+        crate::agent::untyped_json(value, &mut json);
+        PropValue::Str(json.into())
     } else if prop == PropId::AtomFaces {
         PropValue::Str(
             crate::decorations::atom_faces(value)
