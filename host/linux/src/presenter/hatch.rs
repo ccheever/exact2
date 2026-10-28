@@ -566,7 +566,7 @@ impl<D: DataSource> Presenter<D> {
         self.timer_due_ms()
             .into_iter()
             .chain(crate::pads::due())
-            .chain(self.image_retry_due_in_ms().map(|ms| now + ms))
+            .chain(self.image_turn_due_in_ms().map(|ms| now + ms))
             .reduce(f64::min)
     }
 

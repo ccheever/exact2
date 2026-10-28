@@ -203,6 +203,10 @@ pub(super) struct Downloads {
     streak: AtomicUsize,
     started: std::sync::Once,
     cache: Mutex<Cache>,
+    /// URLs whose server said when to ask again (`Retry-After`), until then,
+    /// with its answer: a source asked for meanwhile, however new, has that
+    /// answer at once and asks nothing.
+    cooling: Mutex<HashMap<String, (Instant, String)>>,
     clock: Clock,
     /// Responses asked for, redirects included, for diagnostics.
     pub fetches: AtomicU64,
@@ -222,6 +226,7 @@ impl Downloads {
             streak: AtomicUsize::new(0),
             started: std::sync::Once::new(),
             cache: Mutex::new(Cache::new(policy.cache)),
+            cooling: Mutex::new(HashMap::new()),
             clock: Clock::default(),
             fetches: AtomicU64::new(0),
         })
@@ -259,6 +264,12 @@ impl Downloads {
         };
         if let Some(body) = cached {
             return Ok(load(Some(Ok(body))));
+        }
+        if let Some((at, message)) = self.cooling(url) {
+            return Ok(load(Some(Err(Failure {
+                after: Some(at),
+                ..failed(message)
+            }))));
         }
         self.start();
         let mut queue = self.queue.lock().unwrap();
@@ -303,6 +314,27 @@ impl Downloads {
         drop(whole);
         self.clock.poke();
         true
+    }
+
+    /// The deadline `url`'s server set and its answer, while it lasts.
+    fn cooling(&self, url: &str) -> Option<(Instant, String)> {
+        let cooling = self.cooling.lock().unwrap();
+        (cooling.get(url))
+            .filter(|(at, _)| *at > Instant::now())
+            .cloned()
+    }
+    /// Remember that `url`'s server said not before `at`: the expired let go
+    /// of, and at most [`CACHE_ENTRIES`] kept, those ending soonest first to go.
+    fn cool(&self, url: &str, at: Instant, message: &str) {
+        let mut cooling = self.cooling.lock().unwrap();
+        let now = Instant::now();
+        cooling.retain(|_, (until, _)| *until > now);
+        cooling.insert(url.to_owned(), (at, message.to_owned()));
+        while cooling.len() > CACHE_ENTRIES {
+            let soonest = cooling.iter().min_by_key(|(_, (until, _))| *until);
+            let soonest = soonest.map(|(url, _)| url.clone()).expect("not empty");
+            cooling.remove(&soonest);
+        }
     }
 
     /// The bytes the cache holds.
@@ -377,6 +409,14 @@ impl Downloads {
             // aborts the download.
             drop(load);
             let result = self.fetch(&job, &signal, whole);
+            if let Err(Failure {
+                after: Some(at),
+                message,
+                ..
+            }) = &result
+            {
+                self.cool(&job.url, *at, message);
+            }
             let body = result.as_ref().ok().cloned();
             // Cached under the same lock as it is published, so a worker that
             // rejects it (`SourceOwner::release`) finds it there to forget.
@@ -443,8 +483,11 @@ impl Downloads {
                 .then(|| response.headers.get("retry-after"))
                 .flatten()
                 .map(|value| {
-                    Instant::now()
-                        + retry_after(value, SystemTime::now()).unwrap_or(MOST_RETRY_AFTER)
+                    let wait = retry_after(value, SystemTime::now()).unwrap_or(MOST_RETRY_AFTER);
+                    // The server's number, held to ten years: past that it is never anyway.
+                    let wait = wait.min(Duration::from_secs(10 * 365 * 86_400));
+                    let now = Instant::now();
+                    now.checked_add(wait).unwrap_or(now + MOST_RETRY_AFTER * 2)
                 });
             return Err(Failure {
                 after,
@@ -533,7 +576,17 @@ fn imf_fixdate(value: &str) -> Option<SystemTime> {
     let [h, m, s] = hms[..] else {
         return None;
     };
-    if !(1..=31).contains(&day) || year < 1970 || h > 23 || m > 59 || s > 60 {
+    let fields = [
+        (day, 1, 31),
+        (year, 1970, 9999),
+        (h, 0, 23),
+        (m, 0, 59),
+        (s, 0, 60),
+    ];
+    if fields
+        .iter()
+        .any(|(n, low, high)| !(*low..=*high).contains(n))
+    {
         return None;
     }
     // Days since 1970-01-01 (Howard Hinnant's days_from_civil).

@@ -818,6 +818,9 @@ fn a_retry_after_is_read_as_seconds_or_a_date() {
         "soon",
         "Sun, 06 Nov 1994 08:49:37 PST",
         "Sun, 06 Foo 1994 08:49:37 GMT",
+        "Sun, 06 Nov 99999999999999 08:49:37 GMT",
+        "Sun, 06 Nov 1994 -1:49:37 GMT",
+        "99999999999999999999999",
     ] {
         assert_eq!(retry_after(unread, at), None, "{unread:?}");
     }
@@ -875,6 +878,11 @@ fn a_picture_on_screen_is_never_asked_again_sooner_than_its_server_says() {
         .count();
     assert_eq!(long_asks, 1);
     assert_eq!(images.retry_due_in(), None);
+    assert_eq!(
+        images.views[&1].retries,
+        crate::image::RETRY_AFTER.len(),
+        "no more in this showing, however long it lasts"
+    );
 }
 
 #[test]
@@ -894,7 +902,14 @@ fn a_picture_shown_again_with_its_source_unchanged_sends_no_second_load() {
     };
     images.sync(&k, &k.roots());
     show(&mut images);
-    assert_eq!(std::mem::take(&mut images.load_events), [1]);
+    let events = std::mem::take(&mut images.load_events);
+    assert_eq!(
+        events
+            .iter()
+            .map(|e| (e.0, e.2.as_str()))
+            .collect::<Vec<_>>(),
+        [(1, url.as_str())]
+    );
     // Out of view, its picture let go of; back in view, drawn again from the same source.
     images.sync_visible(&k, &k.roots(), 1., |_| false);
     images.poll();
@@ -902,4 +917,28 @@ fn a_picture_shown_again_with_its_source_unchanged_sends_no_second_load() {
     images.sync(&k, &k.roots());
     show(&mut images);
     assert!(images.load_events.is_empty(), "{:?}", images.load_events);
+}
+
+#[test]
+fn a_url_whose_server_said_when_to_ask_again_is_not_fetched_sooner_by_a_new_source() {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = asked.clone();
+    let origin = serve(move |path, _| {
+        count.fetch_add(1, Ordering::SeqCst);
+        match path {
+            "/huge.png" => Answer::RetryAfter(503, "18446744073709551615".into()),
+            _ => Answer::RetryAfter(429, "600".into()),
+        }
+    });
+    let downloads = Downloads::new(Policy::default());
+    let url = format!("{origin}/wait.png");
+    let failure = fetched(&downloads, &url).unwrap_err();
+    assert!(failure.transient && failure.after.is_some(), "{failure:?}");
+    // A new source of the same URL (its picture mounted again): the same answer, nothing asked.
+    let again = fetched(&downloads, &url).unwrap_err();
+    assert_eq!(again.after, failure.after);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    // A wait too long for the clock is no panic: it is never, in effect.
+    let huge = fetched(&downloads, &format!("{origin}/huge.png")).unwrap_err();
+    assert!(huge.after.unwrap() > Instant::now() + Duration::from_secs(86_400));
 }

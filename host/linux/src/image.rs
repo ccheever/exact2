@@ -125,8 +125,9 @@ pub struct Images {
     /// Current loaded views and NATURAL pixel sizes; never traversal history.
     pub loaded: Vec<(String, (u32, u32))>,
     /// The views whose source's first picture has landed since the presenter
-    /// last took them: each hears its `load` (LLP 1011 §4).
-    pub(crate) load_events: Vec<ViewId>,
+    /// last took them, with the node (its key, packed) and the source they
+    /// landed for: each hears its `load` (LLP 1011 §4) if it is still that.
+    pub(crate) load_events: Vec<(ViewId, u64, String)>,
     decode_enabled: bool,
     deferred: usize,
     /// The last [`Images::sync_visible`] met a picture (an image that is not
@@ -404,6 +405,7 @@ impl Images {
                 view.refusal = None;
                 (view.retries, view.retry_at) = (0, None);
                 view.load_sent = false;
+                self.load_events.retain(|(at, ..)| at != id);
                 // The old lease, bitmap and natural size stay until acceptance.
                 if source.is_empty() {
                     view.lease = None;
@@ -456,6 +458,7 @@ impl Images {
         }
         self.bitmaps.remove(&id);
         self.package.forget(id);
+        self.load_events.retain(|(at, ..)| *at != id);
     }
     /// Consume bounded completions and retry metadata/decode admission once.
     pub fn poll(&mut self) -> Vec<Report> {
@@ -530,9 +533,14 @@ impl Images {
                         && remote::is_remote(&view.source))
                     .then(|| self.backend.transient(source))
                     .flatten()
-                    .filter(|after| *after <= Instant::now() + remote::MOST_RETRY_AFTER)
                     {
-                        view.retry_at = Some(after.max(Instant::now() + RETRY_AFTER[view.retries]));
+                        let now = Instant::now();
+                        if after > now + remote::MOST_RETRY_AFTER {
+                            // Further off than a picture waits: no more in this showing.
+                            view.retries = RETRY_AFTER.len();
+                        } else {
+                            view.retry_at = Some(after.max(now + RETRY_AFTER[view.retries]));
+                        }
                     }
                     continue;
                 }
@@ -573,7 +581,11 @@ impl Images {
                                 view.accepted = Some(request);
                                 view.displayed_source = view.source.clone();
                                 if !std::mem::replace(&mut view.load_sent, true) {
-                                    self.load_events.push(*id);
+                                    (self.load_events).push((
+                                        *id,
+                                        view.key.view,
+                                        view.source.clone(),
+                                    ));
                                 }
                             }
                         }
@@ -691,7 +703,11 @@ impl Images {
                                     view.accepted = Some(request);
                                     view.displayed_source = view.source.clone();
                                     if !std::mem::replace(&mut view.load_sent, true) {
-                                        self.load_events.push(*id);
+                                        (self.load_events).push((
+                                            *id,
+                                            view.key.view,
+                                            view.source.clone(),
+                                        ));
                                     }
                                 }
                             }
@@ -841,6 +857,7 @@ impl Images {
         self.package = std::mem::take(&mut self.package).reset();
         self.bitmaps.clear();
         self.loaded.clear();
+        self.load_events.clear();
         self.generation = self.backend.generation();
         self.settled = None;
     }

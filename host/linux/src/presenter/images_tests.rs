@@ -68,7 +68,7 @@ fn a_hidden_pictures_failed_download_is_asked_again_only_once_it_shows() {
     let hidden = asked.load(Ordering::SeqCst);
     assert!(hidden <= 1, "{hidden} asks while hidden");
     assert_eq!(
-        p.image_retry_due_in_ms(),
+        p.image_turn_due_in_ms(),
         None,
         "no retry is due for a picture with no painted box"
     );
@@ -200,4 +200,56 @@ fn an_image_hears_load_once_a_source_when_its_first_picture_lands() {
         3.,
         "a cached source assigned again sends load"
     );
+}
+
+#[test]
+fn a_load_waiting_is_sent_only_to_the_node_and_source_it_landed_for_and_owes_a_turn() {
+    let source = r#"component App
+  state loads = 0
+  action loaded
+    loads = loads + 1
+  view
+    column width=300 height=300
+      image "pictures/a.png" width=20 height=20 load=loaded testId="picture"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (300., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let k = p.host().kernel();
+    let node = k.node_by_key(k.find_by_test_id("picture")[0]).unwrap();
+    let (id, key) = (node.id, node.key);
+    let packed = u64::from(key.index) | (u64::from(key.generation) << 32);
+    let loads = |p: &mut Presenter<()>| {
+        let state = crate::agent::handle(p, r#"{"op":"state"}"#);
+        let state: serde_json::Value = serde_json::from_str(&state).unwrap();
+        state["slots"]["loads"].as_f64().unwrap()
+    };
+    // Landed for another source (the node's changed since), or another node at this id: not sent.
+    p.images
+        .load_events
+        .push((id, packed, "pictures/old.png".into()));
+    p.images
+        .load_events
+        .push((id, packed + 1, "pictures/a.png".into()));
+    assert_eq!(
+        p.image_turn_due_in_ms(),
+        Some(0.0),
+        "a waiting load owes a turn at once"
+    );
+    p.apply_reports(Vec::new());
+    assert_eq!(loads(&mut p), 0.);
+    assert!(p.images.load_events.is_empty());
+    // Its own node and source: sent.
+    p.images
+        .load_events
+        .push((id, packed, "pictures/a.png".into()));
+    p.apply_reports(Vec::new());
+    assert_eq!(loads(&mut p), 1.);
 }

@@ -26,8 +26,14 @@ impl<D: DataSource> Presenter<D> {
         self.apply_reports(reports)
     }
 
-    /// Milliseconds until a picture on screen asks again for a failed download.
-    pub(crate) fn image_retry_due_in_ms(&self) -> Option<f64> {
+    /// Milliseconds until the pictures owe a turn: at once while a `load`
+    /// waits to be sent (a picture from the cache lands in a paint's sync,
+    /// with no decode to wake the loop), else when a picture on screen asks
+    /// again for a failed download.
+    pub(crate) fn image_turn_due_in_ms(&self) -> Option<f64> {
+        if !self.images.load_events.is_empty() {
+            return Some(0.0);
+        }
         self.images.retry_due_in().map(|d| d.as_secs_f64() * 1000.0)
     }
 
@@ -54,20 +60,22 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         // After the sizes: a source's first picture sends its `load`, to an
-        // image that hears it (LLP 1011 §4).
+        // image that hears it (LLP 1011 §4) and is still that node showing
+        // that source (an earlier load's action may have changed either).
         let mut loads = false;
-        for id in std::mem::take(&mut self.images.load_events) {
-            let hears = self
-                .host
-                .kernel()
-                .node(id)
-                .is_some_and(|n| n.node_type == NodeType::Image)
-                && self
+        for (id, key, source) in std::mem::take(&mut self.images.load_events) {
+            let same = self.host.kernel().node(id).is_some_and(|n| {
+                n.node_type == NodeType::Image
+                    && (u64::from(n.key.index) | (u64::from(n.key.generation) << 32)) == key
+                    && n.props.str(PropId::ImageSource) == Some(source.as_str())
+            });
+            if !same
+                || !self
                     .host
                     .runner()
                     .handlers_of(id)
-                    .contains(&EventKind::Load);
-            if !hears {
+                    .contains(&EventKind::Load)
+            {
                 continue;
             }
             let sent = self.host.dispatch_at(id, Event::Load, self.host.now());
