@@ -421,6 +421,36 @@ final class TintDimmingIOSTests: XCTestCase {
         until("the last picture lands") { !p.boxFilters.drawing }
     }
 
+    /// A filtered box's picture draws again when a link in the tint beneath it greys, outside any
+    /// control, and when it takes its colour back: here a paragraph that draws itself, with no raster
+    /// whose landing would draw the picture again
+    func testAFilteredBoxAboveALinkDrawsAgainWithTheTint() throws {
+        let sub: [Double] = [-10, -10, 20, 20]
+        let program = sub + [1] + [0, -1, -3] + sub + [0, 2, 2]
+        guard SvgFilterGPU.runs(program.map(Float.init)) else { throw missing("metal", "no GPU filter path") }
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "style": ["filter": ["p": program]]],
+            ["op": "create", "id": 2, "kind": "text", "style": ["background_clip": "text"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        var tinted = InlineStyle()
+        tinted.colorRef = .object(["sys": .string("@tint"), "c": [0, 122, 255, 255]])
+        p.applyParagraph(2, [InlineText(id: 3, parent: 2, props: ["text": "terms", "href": "https://example.com/terms"], style: tinted, handlers: [], paints: true)])
+        let paragraph = try XCTUnwrap(p.views[2])
+        XCTAssertFalse(paragraph.canRasterText, "the paragraph draws itself")
+        XCTAssertNotNil(p.views[1]?.boxFilter?.picture, "the box is pictured")
+        until("the first picture lands") { !p.boxFilters.drawing }
+        dim(p, true)
+        XCTAssertTrue(p.boxFilters.drawing, "the picture draws again as the link greys")
+        until("that picture lands") { !p.boxFilters.drawing }
+        dim(p, false)
+        XCTAssertTrue(p.boxFilters.drawing, "and again as the link takes its colour back")
+        until("the last picture lands") { !p.boxFilters.drawing }
+    }
+
     /// A pressable route's backdrop, which its controller's view keeps, takes its fill as written
     /// while dimmed, so the view shows it once the dimming ends
     func testAPressableRoutesBackdropIsAsWrittenWhileDimmed() throws {
