@@ -456,6 +456,8 @@ shape Snapshot
   threadHeading: CommandChoice[]
   // The title's majority direction (shared/text-direction.ts), "ltr" or "rtl": ChatHeader's `dir` on the title.
   threadTitleDir: string
+  // The header's rename field's direction, `dir="auto"` over the text being typed (timeline-presentation.ts headerRenameDir).
+  renameDir: string
   // A subagent thread's parent (id and title) for the header's crumb; empty otherwise.
   parentThread: CommandChoice[]
   draft: string

@@ -1,4 +1,4 @@
-// Compactions T3 Code starts, adapted from T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3; 0345e852ed, ad068d7c93):
+// Compactions T3 Code starts, adapted from T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3):
 // packages/contracts/src/orchestrationV2.ts (isCompactionCommandMessage, idleCompactionOf),
 // packages/client-runtime/src/userMessage.ts (IDLE_COMPACTING_LABELS, IDLE_COMPACTION_TITLES),
 // packages/shared/src/claudeCompaction.ts (claudeResumeCompactionAge) and

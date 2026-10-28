@@ -1,5 +1,5 @@
 // ThreadErrorBanner's variant and message, and ChatView's timelineThreadError (T3 Code 74541bab17,
-// MIT; see LICENSE-T3; the ChatGPT limits at 7c3b3b3605ef, 6f75bcb374): a usage-limit failure of the latest
+// MIT; see LICENSE-T3; the ChatGPT limits at 7c3b3b3605ef): a usage-limit failure of the latest
 // run belongs to the composer's usage banner, so the thread banner stays quiet for it; any other server
 // error of class usage_limit, or a ChatGPT sharing limit by its code, reads as a warning, not an error.
 import { str, type Obj } from '../client/domain';

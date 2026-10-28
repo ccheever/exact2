@@ -54,7 +54,7 @@ export function isSentAudio(attachment: Obj): boolean {
   return attachment.downloadable !== false && (mime.startsWith('audio/') || generic && /\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff|weba)$/i.test(str(attachment.name)));
 }
 const GENERIC_MIME_TYPES = new Set(['application/octet-stream', 'binary/octet-stream', 'application/unknown']);
-/** shared/image.ts isSvgAttachment (T3 Code 7c3b3b3605ef, efea68679f): an SVG MIME type, or a `.svg` name under a generic one. */
+/** shared/image.ts isSvgAttachment: an SVG MIME type, or a `.svg` name under a generic one. */
 export function isSvgAttachment(attachment: Obj): boolean {
   const mime = str(attachment.mimeType).split(';', 1)[0]!.trim().toLowerCase();
   return mime === 'image/svg+xml' || (!mime || GENERIC_MIME_TYPES.has(mime)) && /\.svg$/i.test(str(attachment.name));
@@ -64,6 +64,16 @@ export function isSentSvg(client: T3Client, id: string): boolean {
   return !!id && arr(client.projection.visibleTurnItems).some(row => obj(row.item).type === 'user_message'
     && arr(obj(row.item).attachments).some(attachment => attachment.type === 'file' && str(attachment.id) === id && isSvgAttachment(attachment)));
 }
+// SvgFileChip's failed previews (its picture reported an error), by connection, environment and attachment.
+const failedSvgs = new WeakMap<T3Client, Set<string>>();
+const svgKey = (client: T3Client, id: string) => JSON.stringify([client.generation, client.environmentId, id]);
+/** A chip's thumbnail did not load: a sent SVG's chip becomes its file chip from then on. */
+export function noteChipPreviewFailed(client: T3Client, id: string): void {
+  if (!isSentSvg(client, id)) return;
+  const failed = failedSvgs.get(client) ?? new Set<string>();
+  failed.add(svgKey(client, id)); failedSvgs.set(client, failed);
+}
+export function svgPreviewFailed(client: T3Client, id: string): boolean { return failedSvgs.get(client)?.has(svgKey(client, id)) ?? false; }
 const CONTEXT_FILE_REFERENCE = /!?\[[^\]\n]{0,512}\]\(t3-context:\/\/v1\/file\/([a-z0-9_-]{1,128})\)/gi;
 /**
  * A sent sound's reference leaves the prompt: TimelineUserMessageRow's renderContextReference returns null for a file
@@ -92,8 +102,8 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
     for (const attachment of arr(item.attachments)) if (attachment.type === 'image' && str(attachment.id) && !str(attachment.name).startsWith('preview-annotation-')) wanted.push(attachment);
     // buildAttachmentVideoAsset signs a sent video under its video MIME type.
     for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && isSentVideo(attachment)) wanted.push({ ...attachment, mimeType: videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) });
-    // SvgFileChip: a sent SVG's chip shows the picture, signed as one.
-    for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && isSvgAttachment(attachment)) wanted.push({ ...attachment, mimeType: 'image/svg+xml' });
+    // SvgFileChip: a sent SVG's chip shows the picture, signed as one (a file the server does not hand out has none).
+    for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && attachment.downloadable !== false && isSvgAttachment(attachment)) wanted.push({ ...attachment, mimeType: 'image/svg+xml' });
     // InlineAudioPreview: a sent sound plays from its inline attachment resource.
     for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && !isSentVideo(attachment) && isSentAudio(attachment)) wanted.push(attachment);
   }

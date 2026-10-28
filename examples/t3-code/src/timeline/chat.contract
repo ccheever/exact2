@@ -35,6 +35,8 @@ component ChatHeader
     details: action
     title: action
     command: action
+    // The timeline's local ops (app.contract chatLocal): the rename field's text, for its direction.
+    local: action
   state hovered = ""
   // The thread menu takes the focus as it opens (the native menu the desktop shows
   // does): its popup, its first item when Enter, Space or ↓ opened it, its last from ↑ (menu-keys.contract).
@@ -52,6 +54,15 @@ component ChatHeader
   action renameKey(k: string, e: KeyboardEvent)
     if not e.isComposing
       title("key", k)
+      if k == "Escape"
+        local("rename-input", "", "")
+  // The field is `dir="auto"`: the data module reads each edit's direction (renameDir).
+  action renameEdit(value: string)
+    title("edit", value)
+    local("rename-input", data.threadId, value)
+  action renameDone
+    title("commit", "")
+    local("rename-input", "", "")
   action openTitle
     title("open", "")
     focus(kmOpenTarget("title-menu-keys", titleEnd))
@@ -80,7 +91,7 @@ component ChatHeader
             TipBubble(label=parent.label, side="bottom", align="center", offset=26, inset=0, shown=(hovered == "parent"))
           text "/" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" flex-shrink=0
         if renaming
-          input value=renameText input=title("edit") key=renameKey blur=title("commit", "") submit=title("commit", "") id="header-rename" aria-label="Thread title" testId="header-rename" flex=1 min-width="2.5rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" font-size="0.875rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" autocorrect="off" data-editable="yes"
+          input value=renameText input=renameEdit key=renameKey blur=renameDone submit=renameDone id="header-rename" direction=data.renameDir text-align="start" aria-label="Thread title" testId="header-rename" flex=1 min-width="2.5rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" font-size="0.875rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" autocorrect="off" data-editable="yes"
         else
           if shell.serverThread
             // ChatHeader's title item is `min-w-10 flex-1`: it takes the room left after the

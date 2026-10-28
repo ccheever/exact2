@@ -29,13 +29,13 @@ import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, isSentSvg, messageAttachments, withoutSoundReferences } from './timeline-attachments';
+import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, isSentSvg, messageAttachments, noteChipPreviewFailed, svgPreviewFailed, withoutSoundReferences } from './timeline-attachments';
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
 import { mathFrames, noteMathFrame } from './markdown-math';
 import { agentStarted, setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
-import { chippedAttachmentIds, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
+import { asFileChip, chippedAttachmentIds, markdownEnv, messageChips, shouldCollapseUserMessage } from './message-chips';
 import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
 import { gitChatLocal } from '../details/git-route';
 import { openFileSurface, surfaceLocal } from '../panel/panel-surfaces';
@@ -49,6 +49,7 @@ import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-fo
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
 import { CHATGPT_WORKSPACE_ADMIN_REQUEST } from './timeline-errors';
+import { autoDirection } from '../sidebar/title-direction';
 import { pullRequestLinkPick } from '../panel/context-menu-actions';
 import { prGuideLocalFor, prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
 import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
@@ -99,14 +100,21 @@ interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok
   /** The answer row the last View source asked ChatColumn to place, on its thread; each request a new nonce. */
   citeJump: { threadId: string; key: string; nonce: number };
   /** The thread whose folded messages `open` holds: another thread's start closed, as their rows' state is. */
-  foldsThread: string }
+  foldsThread: string;
+  /** The chat header's rename field's text on its thread, while it is edited (headerRenameDir). */
+  renameDraft: { threadId: string; text: string } | null }
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 }, foldsThread: '' }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 }, foldsThread: '', renameDraft: null }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
+/** ChatHeader's rename field is `dir="auto"`: the direction of the text being typed, else of the title it starts from. */
+export function headerRenameDir(client: T3Client, title: string): string {
+  const draft = timelineView(client).renameDraft;
+  return autoDirection(draft && draft.threadId === client.threadId ? draft.text : title) ?? 'ltr';
+}
 
 /**
  * Local timeline actions: T3 keeps fold, attempt and work-group disclosure in
@@ -148,6 +156,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('plan-')) return planAction(client, native, op, id, value);
   if (op === 'tree-all' || op === 'tree-dir') return toggleTree(client, view, op, id, value);
   if (op === 'image-open' && isSentSvg(client, id)) return surfaceLocal(client, native, 'linked-attachment', id, value); // SvgFileChip's onOpen
+  if (op === 'chip-preview-failed') { noteChipPreviewFailed(client, id); return ''; } // a chip's thumbnail reported an error
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
@@ -180,6 +189,8 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     return '';
   }
   if (op === 'copy-prompt-link') { await copyPromptLink(client, native, promptLinkFor(copyText(client, id))); return ''; }
+  // The header's rename field: its text as typed (`id` its thread; none once the field closes), for its direction.
+  if (op === 'rename-input') { view.renameDraft = id ? { threadId: id, text: value } : null; return ''; }
   // ThreadErrorBanner's Copy request for admin, for a ChatGPT Business workspace limit.
   if (op === 'admin-request') {
     try { await client.restAccess(native).call({ op: 'copyText', text: CHATGPT_WORKSPACE_ADMIN_REQUEST }); }
@@ -548,7 +559,8 @@ function present(row: Row, context: PresentContext): Message {
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
       // An automation's prompt reads its context references as their labels (AutomationMessageRow's UserMessageBody).
       const relabeled = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads);
-      const text = sender.attribution === 'automation' ? plainContextReferences(relabeled) : withoutSoundReferences(relabeled, item), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
+      const text = sender.attribution === 'automation' ? plainContextReferences(relabeled) : withoutSoundReferences(relabeled, item), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client))
+        .map(chip => chip.kind === 'image' && svgPreviewFailed(context.client, chip.target) ? asFileChip(chip) : chip), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips, item);
       // Automation and other agents' messages fold to one line, their author (the sending thread's title) as the heading.
       const automation = sender.attribution === 'automation', agent = sender.attribution === 'agent';
       const senderTitle = agent ? str(context.threads.find(thread => thread.id === item.senderThreadId)?.title).trim() || 'Agent' : '';

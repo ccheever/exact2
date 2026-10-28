@@ -78,8 +78,7 @@ type Transition = { threadId: string; kind: 'completion' | 'input'; status: stri
  * EnvironmentNotifications: each root thread's observation against the previous shell of the same environment (the
  * focused client's or a background one's). The first live shell only records. Attention notifies at once and replaces
  * the completion before it; a completion waits out the grace in `gate` and notifies once, and an observation that is
- * not settled meanwhile cancels it. Archived threads, stopped runs (latestRunStopRequested) and T3 Code's own idle
- * compactions (latestRunSilent) notify no completion; their failures and requests still do.
+ * not settled meanwhile cancels it. Archived threads and stopped runs (latestRunStopRequested) notify no completion.
  * `now` is the shell's clock; a caller without one gets completions at once.
  */
 export function threadTransitions(environment: { shell: Shell }, previous: Map<string, Memory> | null, gate: NotifyGate = notifyGate(), now = 0): { next: Map<string, Memory>; transitions: Transition[] } {
@@ -101,7 +100,7 @@ export function threadTransitions(environment: { shell: Shell }, previous: Map<s
     const settled = status === 'ready' && run?.status === 'completed';
     const observed: Memory = { attention, settled, completedAt: settled && Number.isFinite(completedAt) ? completedAt : null };
     next.set(id, observed); statuses.set(id, status);
-    const archived = thread.archivedAt != null, quiet = thread.latestRunStopRequested === true || thread.latestRunSilent === true;
+    const archived = thread.archivedAt != null, quiet = thread.latestRunStopRequested === true;
     if (observed.settled && observed.completedAt !== null) gate.lastSettled.set(id, observed.completedAt);
     if (!observed.settled || archived || quiet) cancel(id);
     if (!prior || archived || quiet) skip(id, observed.completedAt);

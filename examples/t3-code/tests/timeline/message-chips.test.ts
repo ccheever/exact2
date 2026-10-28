@@ -235,6 +235,29 @@ describe('skill chips open their details (#25432)', () => {
   });
 });
 
+describe('the chips and rows a context reference draws', () => {
+  test('an attachment chip without a target is no button, an image chip included (FileChip disabled)', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const body = contractComponent('markdown.contract', 'AttachmentChipBody');
+    const button = (kind: string, target: string) => body.drawn('button press=local(', body.state(), { chip: { kind, target }, run: { id: '0' } });
+    expect([button('image', 'att'), button('image', ''), button('file', ''), button('video', 'v')]).toEqual([true, false, false, true]);
+  });
+  test('a chip picture that fails to load tells the data module, which then draws the file chip', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const { appText } = await import('../support/app-files');
+    const thumb = contractComponent('timeline-attachments.contract', 'ChipThumb'), sent: unknown[][] = [];
+    thumb.call('failed', thumb.state(), { target: 'att-svg', local: (...args: unknown[]) => sent.push(args) }, ['decode failed']);
+    expect(sent).toEqual([['chip-preview-failed', 'att-svg', '']]);
+    expect(appText('markdown.contract').match(/ChipThumb\(url=entry\.url, target=chip\.target, local=local\)/g)).toHaveLength(2);
+  });
+  test('a secret request draws its card and no divider under it', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const content = contractComponent('timeline.contract', 'TimelineContent');
+    const divider = (kind: string) => content.drawn('Icon(name="compacted"', content.state(), { message: { kind } });
+    expect([divider('secret'), divider('notice')]).toEqual([false, true]);
+  });
+});
+
 describe('a sent sound (#21363)', () => {
   test('its context reference is an audio chip, which the prose draws nothing for: the sound plays in its audio chip', async () => {
     const chips = messageChips(item('Listen to [memo.mp3](t3-context://v1/file/file_m)',

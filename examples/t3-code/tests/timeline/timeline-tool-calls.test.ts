@@ -188,6 +188,14 @@ describe('T3 action tools (#25423) and background waits (#24610)', () => {
     const lists = [1, 2].map(n => work(item(`q${n}`, 'dynamic_tool', n, { toolName: 'mcp__t3-code__t3_queue', input: { action: 'list' }, output: '{"ok":true}' })));
     expect(summarizeToolGroup(lists).summary).toBe('Listed queued messages 2 times');
   });
+  test('an action tool without its action, and the preview tools it reaches, read their own labels', () => {
+    const name = (tool: string) => t3ToolPresentation(t3ToolDefinition(`t3-code.${tool}`), 'completed')?.displayName;
+    expect(['t3_queue', 't3_pending_request', 't3_thread_transfer', 't3_thread_configure', 'preview_act'].map(name)).toEqual([
+      'Managed queued messages', 'Handled pending questions', 'Used thread transfers', 'Used thread model settings', 'Used the preview browser']);
+    expect(['preview_select', 'preview_drag', 'preview_upload', 'preview_dialog', 'preview_hover'].map(name)).toEqual([
+      'Chose an option in the preview browser', 'Dragged in the preview browser', 'Uploaded files to the preview browser',
+      'Responded to a preview browser dialog', 'Hovered in the preview browser']);
+  });
   test('a background wait reads "Updated background waits" and leads the group as an effect', () => {
     const call = { input: { taskIds: ['b1'] }, output: { matched: ['b1'], unmatched: [] }, outcome: 'completed' as const };
     expect(summarizeT3ToolCalls('background-wait', [call]).label).toBe('Updated background waits 1 time');

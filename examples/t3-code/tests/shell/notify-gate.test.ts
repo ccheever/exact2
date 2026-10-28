@@ -77,8 +77,8 @@ describe('the completion grace', () => {
     h.advance(500);
     expect(h.kinds).toEqual(['completion']);
   });
-  test('drops a pending completion on archive, a stop request or a silent run, and never notifies the first observation', () => {
-    for (const extra of [{ archivedAt: at(0) }, { latestRunStopRequested: true }, { latestRunSilent: true }]) {
+  test('drops a pending completion on archive or a stop request, and never notifies the first observation', () => {
+    for (const extra of [{ archivedAt: at(0) }, { latestRunStopRequested: true }]) {
       const h = harness();
       h.observe(working); h.observe(completed(1), extra);
       h.advance(WORKING_EXIT_GRACE_MS * 2);

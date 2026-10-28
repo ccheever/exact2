@@ -170,6 +170,36 @@ describe('desktop presentation and model options', () => {
     expect(snapshot(client).threadTitleDir).toBe('ltr');
   });
 
+  test("the header's rename field reads the direction of what is typed (dir=\"auto\")", async () => {
+    const { client, command } = await opened();
+    obj(client.projection.thread).title = 'Fix the sidebar';
+    expect(snapshot(client).renameDir).toBe('ltr');
+    await command('chatlocal:rename-input', client.threadId, 'مرحبا Exact');
+    expect(snapshot(client).renameDir).toBe('rtl');
+    // Another thread's text is not this field's; a closed field reads the title again.
+    await command('chatlocal:rename-input', 'other-thread', 'Hello');
+    expect(snapshot(client).renameDir).toBe('ltr');
+    await command('chatlocal:rename-input', client.threadId, 'شريط');
+    await command('chatlocal:rename-input', '', '');
+    expect(snapshot(client).renameDir).toBe('ltr');
+  });
+
+  test("a sent SVG's chip becomes its file chip once its picture fails, and a file the server does not hand out is no button", async () => {
+    const { client, command } = await opened();
+    const svg = { type: 'file', id: 'att-svg', name: 'badge.svg', mimeType: 'image/svg+xml', sizeBytes: 120 };
+    const record = (contextId: string, attachment: Obj) => ({ version: 1, kind: 'file', contextId, label: str(attachment.name), attachmentId: str(attachment.id), name: str(attachment.name), mimeType: str(attachment.mimeType), sizeBytes: 120 });
+    const gone = { type: 'file', id: 'att-gone', name: 'gone.pdf', mimeType: 'application/pdf', sizeBytes: 120, downloadable: false };
+    client.thread!.projection.visibleTurnItems = [{ sourceThreadId: 't1', sourceItemId: 'ask', item: { id: 'ask', type: 'user_message', messageId: 'ask',
+      text: 'See [badge.svg](t3-context://v1/file/file_svg) and [gone.pdf](t3-context://v1/file/file_gone)', attachments: [svg, gone],
+      context: { version: 1, records: [record('file_svg', svg), record('file_gone', gone)] } } }];
+    const chips = () => snapshot(client).messages[0]!.md.chips.map(chip => [chip.kind, chip.target, chip.tip]);
+    expect(chips()).toEqual([['image', 'att-svg', 'File attachment, badge.svg, 1 KB'], ['file', '', 'gone.pdf\n1 KB']]);
+    // Both are chips in the prose, so neither has a file row of its own.
+    expect(snapshot(client).messages[0]!.attachFiles).toEqual([]);
+    await command('chatlocal:chip-preview-failed', 'att-svg');
+    expect(chips()[0]).toEqual(['file', 'att-svg', 'badge.svg\n1 KB']);
+  });
+
   test('a checkpoint that changed no files is no row, so the transcript holds no zero-height row', async () => {
     const { client } = await opened();
     client.thread!.projection.runs = [{ id: 'r1', status: 'completed', startedAt: timestamp, completedAt: '2026-10-03T01:00:00.847Z' },

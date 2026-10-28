@@ -541,7 +541,8 @@ component TimelineContent
                                 if message.kind == "worktree-setup"
                                   for setup in message.setup key=setup.id
                                     WorktreeSetupCard(setup=setup, now=now, local=local)
-                                else
+                                // A secret request is its card alone, drawn above.
+                                else if message.kind != "secret"
                                   row width="100%" align-items="center" gap="0.75rem" padding-top="1.25rem" padding-bottom="1.25rem"
                                     box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff14)"
                                     Icon(name="compacted", size=12, color="light-dark(#71717b, #a1a1a1)")

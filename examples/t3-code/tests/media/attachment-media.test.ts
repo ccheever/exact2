@@ -156,6 +156,21 @@ describe('sent videos in the transcript', () => {
       expect(accents.calls.map(call => call.url.split('/').pop())).toEqual(['i1', 'i2']);
     } finally { accents.restore(); }
   });
+  test('a sent SVG is signed as a picture and read for its accent; one the server does not hand out is not signed', async () => {
+    const svgItem = { type: 'user_message', attachments: [{ type: 'file', id: 's1', name: 'badge.svg', mimeType: 'image/svg+xml' },
+      { type: 'file', id: 's2', name: 'logo.svg', mimeType: 'application/octet-stream' }, { type: 'file', id: 's3', name: 'gone.svg', mimeType: 'image/svg+xml', downloadable: false }] };
+    const calls: Obj[] = [], c = { ...timeline(calls), environmentId: 'e-svg', projection: { visibleTurnItems: [{ sourceThreadId: 't1', sourceItemId: 'm1', item: svgItem }] } } as T3Client;
+    memoryFiles(null);
+    const accents = serveAssets(() => ({ status: 404 }));
+    try {
+      const { items } = await attachmentUrls(c, { available: true } as Native, 1000);
+      expect(items.map(entry => entry.id)).toEqual(['s1', 's2']);
+      expect(calls.filter(call => call.method === 'assets.createUrl').map(call => [call.attachmentId, call.mimeType, call.disposition])).toEqual([
+        ['s1', 'image/svg+xml', 'inline'], ['s2', 'image/svg+xml', 'inline']]);
+      // Unlike a video's, its picture is read for the chip's accent.
+      expect(accents.calls.map(call => call.url.split('/').pop())).toEqual(['s1', 's2']);
+    } finally { accents.restore(); }
+  });
   test('a video opens alone in the media dialog; images step among the images only', () => {
     const c = timeline();
     imagePreviewAction(c, 'image-open', 'v1', messageId);
