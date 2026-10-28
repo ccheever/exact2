@@ -8,19 +8,24 @@ import UIKit
 import AppKit
 #endif
 
-/// A development session's presented frames (LLP 1079 D3–D4): a display
-/// link of its own, run only inside active segments. It watches; it never
-/// keeps the session's frame source (`Frames`) running, so the measured app
-/// schedules frames as the shipped one does. A release build has none.
+/// A session's display-link callbacks, the frames it judges presented (LLP
+/// 1079 D3–D4): a display link of its own, run only inside active segments,
+/// or throughout a recording an app
+/// started (`startTrace_EXPERIMENTAL`). It watches; it never keeps the
+/// session's frame source (`Frames`) running, so the measured app schedules
+/// frames as the shipped one does. A production bake has one only while an
+/// app records.
 ///
 /// A segment starts on activity — a batch applied, the session's frame
 /// source running — and ends 500 ms after the last, or when the app leaves
 /// the foreground or its window is hidden. Its first callback is the
 /// baseline, never a sample. The period is the link's own
 /// `targetTimestamp − timestamp`, as the canvases read it (`duration` is
-/// wrong under ProMotion); `missed = round(interval / period) − 1`.
+/// wrong under ProMotion), at the callback an interval starts from;
+/// `missed = round(interval / period) − 1`.
 final class FrameSampler: NSObject {
-    /// Whether this binary measures at all: not a production bake.
+    /// Whether this binary measures on its own: not a production bake, which
+    /// measures only while an app records.
     static let measured = !ExactEnv.productionBake
     /// Whether it measures from boot: a development build, or one the agent
     /// launched. A release build starts at the first ask (`measurePerf`).
@@ -55,12 +60,19 @@ final class FrameSampler: NSObject {
         /// what none of them took (LLP 1142 D1, `HostPhases.window`).
         var phases: [String: Any]?
         /// The tracked scroller's offset as the last turn committed it, and
-        /// its phase: `t` tracking, `d` decelerating, `b` past its range,
-        /// `-` at rest (LLP 1144 D1).
+        /// its phase: `t` dragged, `d` decelerating, `b` past its range,
+        /// `-` at rest (LLP 1144 D1, `scrollSample`).
         var scroll: (Double, String)?
+        /// In a recording: how long the main thread's turns that ended in
+        /// this frame's interval ran, milliseconds.
+        var main: Double?
+        /// In a recording: which of its taken scrollers (`Recording.scrollers`)
+        /// `scroll` was read from, as the turn committed it.
+        var taken: Int?
         var json: [String: Any] {
             var o: [String: Any] = ["t": t, "target": t + period, "period": period, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
             o["seq"] = seq.map { [$0.0, $0.1] } ?? NSNull()
+            if let main { o["main"] = main }
             if let scroll { o["scroll"] = [scroll.0, scroll.1] }
             if let hatches { o.merge(hatches) { a, _ in a } }
             if let phases {
@@ -103,6 +115,41 @@ final class FrameSampler: NSObject {
     private var observers: [NSObjectProtocol] = []
     private var replyMain: [Double] = []
     private var replyCount = 0, replyTotal = 0.0
+
+    /// A recording an app started (`startTrace_EXPERIMENTAL`): each callback until
+    /// `stopTrace_EXPERIMENTAL`, and the scroller a person moved last, read where each
+    /// turn ends, apart from what a held fling reads (`tracked`).
+    final class Recording {
+        var records: [Record] = []
+        var dropped = 0
+        /// The scrollers the recording followed, in the order it took them:
+        /// each one's name, its own in the recording, and its offset then: as
+        /// a person took it, before it moved; when it `moved` with no finger,
+        /// already past where it began.
+        struct Taken { let name: String; var from: Double? = nil, moved = false }
+        var scrollers: [Taken] = []
+        #if canImport(UIKit)
+        weak var scroller: UIScrollView?
+        /// Each scroller the recording named, held weakly: an identifier
+        /// names the same scroller only while it lives, and a new one at a
+        /// released one's address is another scroller. `given` is every
+        /// name given, which no later scroller takes.
+        struct Named { weak var scroll: UIScrollView?; let name: String }
+        var names: [ObjectIdentifier: Named] = [:]
+        var given: Set<String> = []
+        #endif
+        /// The followed scroller's offset and phase as the last turn committed
+        /// them, and which taken scroller it was then: one taken since is not
+        /// the one this offset is from.
+        var committed: (offset: Double, phase: String, taken: Int)?
+        func keep(_ record: Record) {
+            if records.count < FrameSampler.recordingKept { records.append(record) } else { dropped += 1 }
+        }
+    }
+    /// Five minutes at 120 Hz.
+    static let recordingKept = 36_000
+    private(set) var recording: Recording?
+    private var busy = 0.0
 
     /// Main-thread wall time submitting and presenting each executor pump.
     /// A pump takes at most one outcome; wakes with no outcome count too.
@@ -163,6 +210,17 @@ final class FrameSampler: NSObject {
         last = nil
         segments += 1
         watchTurns()
+        followDisplay()
+    }
+
+    /// A recording's link asks for the display's full rate, so that it ticks
+    /// at every refresh a scroll draws; otherwise it keeps the default range,
+    /// which never raises the rate (LLP 1061 D4).
+    private func followDisplay() {
+        #if os(iOS)
+        let range = recording == nil ? CAFrameRateRange.default : FrameClock.full(on: session?.presenter.viewport.window?.screen)
+        if let link, link.preferredFrameRateRange != range { link.preferredFrameRateRange = range }
+        #endif
     }
 
     /// Forget every sample, and the link's baseline: a replaced runner
@@ -218,6 +276,10 @@ final class FrameSampler: NSObject {
     /// A turn that began before the frame's target and ended after it.
     func turnEnded(at now: CFTimeInterval) {
         if let tracked { committed = tracked() }
+        if let recording {
+            recording.committed = recordedScroll().map { ($0.0, $0.1, recording.scrollers.count - 1) }
+            if let began = turnBegan { busy += now - began }
+        }
         defer { turnBegan = nil }
         guard let target, let began = turnBegan, began < target, now > target else { return }
         overrun = max(overrun, (now - target) * 1000)
@@ -241,39 +303,100 @@ final class FrameSampler: NSObject {
             overrun = max(overrun, (wall - old) * 1000)
         }
         self.target = target
+        // Hold the interval to the period the last callback announced, so a
+        // change of rate (a recording asking for the full one, ProMotion
+        // lowering it) misses no frame
+        let announced = period
         period = (target - now) * 1000
-        if let last { sample(interval: (now - last) * 1000, at: now) }
+        if let last { sample(interval: (now - last) * 1000, period: announced ?? (target - now) * 1000, at: now) }
         last = now
     }
 
-    private func sample(interval: Double, at now: CFTimeInterval) {
+    private func sample(interval: Double, period p: Double, at now: CFTimeInterval) {
         let r2 = { (x: Double) in (x * 100).rounded() / 100 }
-        let p = period ?? interval
         let missedHere = max(0, Int((interval / p).rounded()) - 1)
         let seq = pending.first.flatMap { first in pending.last.map { (first, $0) } }
         var record = Record(t: r2((now - ExactEnv.t0) * 1000), interval: r2(interval), missed: missedHere, seq: seq, batches: pending.batches, apply: r2(pending.apply))
         record.period = r2(p)
         record.overrun = r2(overrun)
         if tracked != nil, let c = committed { record.scroll = (r2(c.0), c.1) }
+        if recording != nil { record.main = r2(busy * 1000); busy = 0 }
         overrun = 0
         pending = (nil, nil, 0, 0)
         records.append(record)
         if records.count > Self.ring { records.removeFirst(); dropped += 1 }
         presented += 1
         if record.overrun > 0 { overruns += 1 }
-        guard missedHere > 0 || record.overrun > 0 else { return }
+        guard missedHere > 0 || record.overrun > 0 else { keepRecorded(record); return }
         lateCount += 1
         missed += missedHere
         // The hatches that ran in it: the sample's own interval, `(now − interval, now]`.
         record.hatches = session?.hatchDiagnostics.window(from: now - interval / 1000, to: now)
         record.phases = HostPhases.shared.window(from: now - interval / 1000, to: now)
         if record.hatches != nil || record.phases != nil { records[records.count - 1] = record }
+        keepRecorded(record)
         late.append(record)
         if late.count > Self.lateKept { late.removeFirst() }
         let range = seq.map { " seq \($0.0)..\($0.1)" } ?? ""
         let past = record.overrun > 0 ? ", main \(record.overrun) ms past the target" : ""
         session?.log("frame late at \(record.t): \(missedHere) missed (\(record.interval) ms / \(r2(p)) target)\(past)\(range) apply \(record.apply)")
     }
+
+    /// A recording keeps the frame with its own scroller's offset and phase.
+    private func keepRecorded(_ record: Record) {
+        guard let recording else { return }
+        var r = record
+        r.scroll = recording.committed.map { (($0.offset * 100).rounded() / 100, $0.phase) }
+        r.taken = recording.committed?.taken
+        recording.keep(r)
+    }
+
+    /// Keep every frame from now, at rest too, until `endRecording`. False
+    /// while one runs, or with no display link to observe.
+    func beginRecording() -> Bool {
+        guard recording == nil, beginObservation() else { return false }
+        recording = Recording()
+        followDisplay()
+        // The first frame is the recording's own, not what waited since the last segment
+        busy = 0; overrun = 0
+        pending = (nil, nil, 0, 0)
+        return true
+    }
+
+    func endRecording() -> Recording? {
+        guard let done = recording else { return nil }
+        recording = nil
+        followDisplay()
+        endObservation()
+        return done
+    }
+
+    #if canImport(UIKit)
+    /// `scroll` moved in `session`, by a person's drag when `person`: a
+    /// recording follows it, unless a person is moving another. Every
+    /// scroller's delegate tells it: an element's, a route's page and the
+    /// document.
+    static func scrolled(_ scroll: UIScrollView, in session: ExactSession?, person: Bool) {
+        guard let sampler = session?.sampler, let recording = sampler.recording, recording.scroller !== scroll else { return }
+        if !person, let current = recording.scroller, current.isTracking || current.isDecelerating { return }
+        recording.scroller = scroll
+        let id = ObjectIdentifier(scroll), name = recording.names[id].flatMap { $0.scroll === scroll ? $0.name : nil } ?? {
+            // A second scroller of one name (two routes' pages) is told apart by a count
+            let base = scrollerName(scroll)
+            var name = base, count = 1
+            while recording.given.contains(name) { count += 1; name = "\(base) (\(count))" }
+            recording.names[id] = Recording.Named(scroll: scroll, name: name)
+            recording.given.insert(name)
+            return name
+        }()
+        recording.scrollers.append(Recording.Taken(name: name, from: person ? scroll.scrollSample.0 : nil, moved: !person))
+    }
+
+    private func recordedScroll() -> (Double, String)? { recording?.scroller?.scrollSample }
+    #else
+    /// No AppKit scroller is followed: a Mac recording's frames are all at rest.
+    private func recordedScroll() -> (Double, String)? { nil }
+    #endif
 
     /// Observe callbacks at rest too, without advancing or taking the session clock.
     func beginObservation() -> Bool {

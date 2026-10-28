@@ -375,7 +375,7 @@ public final class ExactSession {
     lazy var midi = MIDIOutput(self)
     var activityOutput: ActivityOutput?
     package let frames: Frames
-    /// A development session's presented frames (LLP 1079 D3); a production bake has none.
+    /// A session's presented frames (LLP 1079 D3); a production bake has one only while an app records.
     var sampler: FrameSampler?
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
@@ -1076,9 +1076,9 @@ public final class ExactSession {
         // After the batch's own accounting below, which a later defer runs first
         defer { if outermost { advanceIfDue(); rasters.readmitPictures() } }
         applying = true
-        // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
-        let began = sampler == nil ? 0 : CACurrentMediaTime()
-        defer { sampler?.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0); if let q = batch.seq { natives.hatchClock.seq = q.1 }; logAlerts(batch.alerts); logJournal(batch.journal) }
+        // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3), told to the sampler there was when it began while the session keeps it: a recording the batch starts makes a new one, and one it stops lets a production bake's go.
+        let timed = sampler, began = CACurrentMediaTime()
+        defer { if let timed, timed === sampler { timed.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }; if let q = batch.seq { natives.hatchClock.seq = q.1 }; logAlerts(batch.alerts); logJournal(batch.journal) }
         if batch.facts { app.scheduleStatus() } // the app's own `setMode` or `setRootFontSize` (LLP 1122 D4)
         // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
@@ -1165,15 +1165,13 @@ public final class ExactSession {
                 }
                 if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7)
                 if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
+                if name == "startTrace_EXPERIMENTAL" || name == "stopTrace_EXPERIMENTAL" { app.deliver { [weak self] in self?.traceCommand(name, args) }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
                     continue
                 }
-                if name == "share" {
-                    app.deliver { [weak self] in self?.share(args, source: source) }
-                    continue
-                }
+                if name == "share" { app.deliver { [weak self] in self?.share(args, source: source) }; continue }
                 if name == "showNotification" || name == "closeNotification" {
                     app.deliver { [weak self] in self?.notify(name, args) }
                     continue
@@ -1474,7 +1472,7 @@ public final class ExactSession {
         clockTimer?.invalidate()
         clockTimer = nil
         frames.run(false)
-        sampler?.stop()
+        sampler?.stop(); releaseSampler()
         DisplayPreferences.forget(preferenceObservers)
         PageFacts.forget(pageObservers)
         #if os(macOS)

@@ -12,12 +12,7 @@ extension Agent {
         guard let node = presenter.views[UInt32(id)] else { return nil }
         #if canImport(UIKit)
         guard let sv = node.scrollView else { return nil }
-        return { [weak sv] in
-            guard let sv else { return nil }
-            let y = Double(sv.contentOffset.y), i = sv.adjustedContentInset
-            let past = sv.contentOffset.y < -i.top - 0.5 || sv.contentOffset.y > max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height) + 0.5
-            return (y, past ? "b" : sv.isTracking ? "t" : sv.isDecelerating ? "d" : "-")
-        }
+        return { [weak sv] in sv?.scrollSample }
         #else
         // The node's own scroller; the page's encloses every node and does not move with a list.
         guard let sv: NSScrollView = node.scroll ?? node.enclosingScrollView else { return nil }
@@ -29,3 +24,20 @@ extension Agent {
         #endif
     }
 }
+
+#if canImport(UIKit)
+extension UIScrollView {
+    /// The offset UIKit committed, along the axis it scrolls on (x for one
+    /// that scrolls only sideways, a row of cards), and what moves it: `b`
+    /// past its range, `t` a finger dragging it (`isDragging`: a finger only
+    /// touching it is not a drag, as Apple's scroll-dragging metric counts
+    /// it), `d` decelerating, `-` still. A held fling and a recording read it.
+    var scrollSample: (Double, String) {
+        let i = adjustedContentInset
+        let sideways = contentSize.width + i.left + i.right > bounds.width + 0.5 && contentSize.height + i.top + i.bottom <= bounds.height + 0.5
+        let at = sideways ? contentOffset.x : contentOffset.y, low = sideways ? -i.left : -i.top
+        let high = max(low, sideways ? contentSize.width + i.right - bounds.width : contentSize.height + i.bottom - bounds.height)
+        return (Double(at), at < low - 0.5 || at > high + 0.5 ? "b" : isTracking && isDragging ? "t" : isDecelerating ? "d" : "-")
+    }
+}
+#endif

@@ -54,6 +54,9 @@ export const commands = (say, agentMode = () => false) => ({
   // follow it; checked here, where no runner checked it first.
   // (A size the app may not set is no choice: the last one stands, and the call refuses as ever.)
   setRootFontSize: v => v === "medium" || (typeof v === "number" && Math.fround(v) > 0 && Number.isFinite(Math.fround(v))) || (typeof v === "string" && /^[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%$/i.test(v) && ((h) => Math.fround(parseFloat(v) / 100 * h) > 0 && Number.isFinite(Math.fround(parseFloat(v) / 100 * h)))(parseFloat(getComputedStyle(document.documentElement).fontSize) || 16)) ? asked('rootFontSize', v, () => appRootFontSize(v, say)) : appRootFontSize(v, say),
+  // A recording of frames is the Apple hosts'; the browser's performance panel records the page.
+  startTrace_EXPERIMENTAL: () => say("startTrace_EXPERIMENTAL refused: the web host does not record traces; use the browser's performance panel"),
+  stopTrace_EXPERIMENTAL: () => say("stopTrace_EXPERIMENTAL refused: the web host does not record traces"),
   // The window's app modes (LLP 1121 D5, D7): modes.js's, which an app with
   // axes loads; any other refuses it, as the runner does.
   setMode: (...args) => globalThis.exact?.modes ? globalThis.exact.modes.command(args) : say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`),

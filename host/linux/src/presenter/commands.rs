@@ -166,6 +166,10 @@ impl<D: DataSource> Presenter<D> {
                 | "load") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
+                // Recording a trace is the Apple hosts'
+                name @ ("startTrace_EXPERIMENTAL" | "stopTrace_EXPERIMENTAL") => self
+                    .host
+                    .log(format!("{name} refused: trace recording is on Apple hosts only")),
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
@@ -174,3 +178,7 @@ impl<D: DataSource> Presenter<D> {
         self.dispatch_toggles();
     }
 }
+
+#[cfg(test)]
+#[path = "commands_tests.rs"]
+mod tests;

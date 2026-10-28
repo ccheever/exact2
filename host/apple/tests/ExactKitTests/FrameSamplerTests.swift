@@ -1,4 +1,5 @@
 import CExact
+import ExactCore
 import Foundation
 import QuartzCore
 import XCTest
@@ -116,6 +117,412 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertEqual(batch.seq?.1, 7)
         XCTAssertNil(Batch.decode(Data(#"{"ops":[],"timers":false,"motion":false,"clock":0,"error":null}"#.utf8)).seq)
     }
+
+    /// A recording's report (`stopTrace_EXPERIMENTAL`): a person's drag and
+    /// glide are segments of their own on the scroller they took, each the
+    /// distance from where its first interval began (for the first, where
+    /// the scroller was when the recording took it), only a frame shown again
+    /// counts as lateness (the link's jitter does not), and each late frame
+    /// names its phase.
+    func testARecordingReportsEachScrollPhaseAndItsLateFrames() throws {
+        let recording = FrameSampler.Recording()
+        recording.scrollers = [.init(name: "list", from: -4)]
+        let p = 1000.0 / 120
+        func frame(_ t: Double, _ interval: Double, _ phase: String?, _ y: Double = 0, overrun: Double = 0) {
+            var r = FrameSampler.Record(t: t, interval: interval, missed: max(0, Int((interval / p).rounded()) - 1), seq: nil, batches: 0, apply: 0)
+            r.period = p; r.overrun = overrun; r.main = 2
+            if let phase { r.scroll = (y, phase); r.taken = 0 }
+            recording.keep(r)
+        }
+        frame(8.33, p, nil)
+        frame(16.67, p + 0.02, "t", 0)
+        frame(33.33, p * 2, "t", 10)
+        frame(41.67, p, "d", 20, overrun: 3)
+        frame(50, p, "d", 25)
+        frame(58.33, p, "-", 25)
+        let report = FrameSampler.report(recording, identity: [:])
+        let segments = try XCTUnwrap(report["segments"] as? [[String: Any]])
+        XCTAssertEqual(segments.map { $0["phase"] as? String }, ["rest", "drag", "glide", "rest"])
+        XCTAssertEqual(segments[1]["scroller"] as? String, "list")
+        XCTAssertEqual(segments[1]["missed"] as? Int, 1)
+        XCTAssertEqual(segments[1]["hitchMs"] as? Double, 8.33)
+        XCTAssertEqual(segments[1]["scrolledPt"] as? Double, 14, "the drag from where the scroller was when taken")
+        XCTAssertEqual(segments[2]["scrolledPt"] as? Double, 15, "the glide from where the drag left it")
+        let late = try XCTUnwrap(report["late"] as? [[String: Any]])
+        XCTAssertEqual(late.map { $0["phase"] as? String }, ["drag", "glide"])
+        XCTAssertEqual(late[1]["overrun"] as? Double, 3)
+    }
+
+    /// A recording keeps its first 36,000 callbacks and counts the rest, and
+    /// both reports say how many it did not keep.
+    func testARecordingKeepsItsLimitAndCountsTheRest() throws {
+        let recording = FrameSampler.Recording()
+        let p = 1000.0 / 120
+        for i in 0..<(FrameSampler.recordingKept + 5) {
+            var r = FrameSampler.Record(t: Double(i) * p, interval: p, missed: 0, seq: nil, batches: 0, apply: 0)
+            r.period = p
+            recording.keep(r)
+        }
+        XCTAssertEqual(recording.records.count, FrameSampler.recordingKept)
+        XCTAssertEqual(recording.dropped, 5)
+        let report = FrameSampler.report(recording, identity: [:])
+        XCTAssertEqual((report["recording"] as? [String: Any])?["droppedFrames"] as? Int, 5)
+        let compact = try XCTUnwrap(try JSONSerialization.jsonObject(with: FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: 8000)) as? [String: Any])
+        XCTAssertEqual(compact["droppedFrames"] as? Int, 5)
+    }
+
+    /// A compact late frame keeps its timings' coverage: `partial` when the
+    /// host phases or hatch calls kept no longer reach back over the frame.
+    func testACompactLateFrameKeepsItsTimingsCoverage() throws {
+        let recording = FrameSampler.Recording()
+        let p = 1000.0 / 120
+        var r = FrameSampler.Record(t: p, interval: p * 3, missed: 2, seq: nil, batches: 0, apply: 0)
+        r.period = p
+        r.phases = ["phases": [["phase": "runtime", "ms": 4.0]], "unattributed": 20.0, "coverage": "partial"]
+        r.hatches = ["hatches": [["hatch": "element avatar", "ms": 2.0]], "coverage": "partial"]
+        recording.keep(r)
+        let report = FrameSampler.report(recording, identity: [:])
+        let compact = try XCTUnwrap(try JSONSerialization.jsonObject(with: FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: 8000)) as? [String: Any])
+        let columns = try XCTUnwrap(compact["lateColumns"] as? [String])
+        let row = try XCTUnwrap((compact["late"] as? [[Any]])?.first)
+        for column in ["phasesCoverage", "coverage"] {
+            XCTAssertEqual(row[try XCTUnwrap(columns.firstIndex(of: column), column)] as? String, "partial", column)
+        }
+    }
+
+    /// A recording's whole trace is never written over another file: a name
+    /// already taken (two recordings stopped in one millisecond) is tried
+    /// again with a new suffix, and the first file is left as it was.
+    func testATraceFileIsNeverWrittenOverAnother() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("trace-save-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = directory.appendingPathComponent("trace-recording-T-a.json")
+        try Data("first".utf8).write(to: first)
+        var suffixes = ["a", "b"].makeIterator()
+        let url = try FrameSampler.save(Data("second".utf8), in: directory, stamp: "T") { suffixes.next() ?? "c" }
+        XCTAssertEqual(url.lastPathComponent, "trace-recording-T-b.json")
+        XCTAssertEqual(try Data(contentsOf: first), Data("first".utf8))
+        XCTAssertEqual(try Data(contentsOf: url), Data("second".utf8))
+    }
+
+    /// A scroller that moves less than a point a frame with no finger on it
+    /// (a slow animation) is moving in every frame its offset changes.
+    func testASlowMoveIsMovingInEveryFrame() throws {
+        let recording = FrameSampler.Recording()
+        recording.scrollers = [.init(name: "list", from: 0)]
+        let p = 1000.0 / 120
+        for (i, y) in [0, 0.33, 0.67, 1.0, 1.0].enumerated() {
+            var r = FrameSampler.Record(t: Double(i + 1) * p, interval: p, missed: 0, seq: nil, batches: 0, apply: 0)
+            r.period = p; r.scroll = (y, "-"); r.taken = 0
+            recording.keep(r)
+        }
+        let segments = try XCTUnwrap(FrameSampler.report(recording, identity: [:])["segments"] as? [[String: Any]])
+        XCTAssertEqual(segments.map { $0["phase"] as? String }, ["rest", "moving", "rest"])
+        XCTAssertEqual(segments[1]["frames"] as? Int, 3)
+        XCTAssertEqual(segments[1]["scrolledPt"] as? Double, 1)
+    }
+
+    /// A scroller the recording took as it moved with no finger on it (the
+    /// app's own scroll, the first `scrollViewDidScroll` already past where it
+    /// began) is moving in its first frame, with no distance, since the
+    /// recording never saw where it began.
+    func testAScrollerTakenAsItMovedIsMovingFromItsFirstFrame() throws {
+        let recording = FrameSampler.Recording()
+        recording.scrollers = [.init(name: "page", moved: true)]
+        let p = 1000.0 / 120
+        for (i, y) in [nil, 40, 40].enumerated() {
+            var r = FrameSampler.Record(t: Double(i + 1) * p, interval: p, missed: 0, seq: nil, batches: 0, apply: 0)
+            r.period = p
+            if let y { r.scroll = (Double(y), "-"); r.taken = 0 }
+            recording.keep(r)
+        }
+        let segments = try XCTUnwrap(FrameSampler.report(recording, identity: [:])["segments"] as? [[String: Any]])
+        XCTAssertEqual(segments.map { $0["phase"] as? String }, ["rest", "moving", "rest"])
+        XCTAssertNil(segments[1]["scrolledPt"])
+    }
+
+    /// `stopTrace_EXPERIMENTAL(maxBytes)`: the report cut to fit, its late
+    /// frames those late the longest first, as many as fit, and its scroll
+    /// segments kept.
+    func testACompactReportFitsItsBudgetWithTheLongestLateFramesFirst() throws {
+        let recording = FrameSampler.Recording()
+        recording.scrollers = [.init(name: "list")]
+        let p = 1000.0 / 120
+        for i in 0..<300 {
+            let interval = i % 3 == 0 ? p * Double(2 + i % 4) : p
+            var r = FrameSampler.Record(t: Double(i) * p, interval: interval, missed: max(0, Int((interval / p).rounded()) - 1), seq: nil, batches: 1, apply: 1.5)
+            r.period = p; r.main = 4; r.scroll = (Double(i), i < 150 ? "t" : "d"); r.taken = 0
+            recording.keep(r)
+        }
+        recording.dropped = 3
+        let report = FrameSampler.report(recording, identity: ["device": "test"])
+        let data = FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: 4000)
+        XCTAssertLessThanOrEqual(data.count, 4000)
+        let compact = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(compact["droppedFrames"] as? Int, 3, "the callbacks past what a recording keeps")
+        XCTAssertEqual((compact["segments"] as? [[Any]])?.map { $0.first as? String }, ["drag", "glide"])
+        let late = try XCTUnwrap(compact["late"] as? [[Any]])
+        XCTAssertFalse(late.isEmpty)
+        let intervals = late.compactMap { $0[2] as? Double }
+        XCTAssertEqual(intervals, intervals.sorted(by: >))
+        let columns = try XCTUnwrap(compact["lateColumns"] as? [String])
+        XCTAssertEqual(late.first?[try XCTUnwrap(columns.firstIndex(of: "scroller"))] as? String, "list", "each late frame names its scroller")
+        XCTAssertGreaterThan(FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: 8000).count, data.count)
+        let unsaved = try XCTUnwrap(try JSONSerialization.jsonObject(with: FrameSampler.compact(report, file: nil, bytes: 1, maxBytes: 4000)) as? [String: Any])
+        XCTAssertEqual(unsaved["full"] as? String, "not saved")
+    }
+
+    /// A budget the totals alone exceed gets a note within it naming the
+    /// smallest that fits; one between that and every segment keeps the
+    /// segments that fit, the worst first.
+    func testACompactReportKeepsToABudgetTooSmallForAllOfIt() throws {
+        let recording = FrameSampler.Recording()
+        recording.scrollers = [.init(name: "list")]
+        let p = 1000.0 / 120
+        for i in 0..<400 {
+            let interval = i % 7 == 0 ? p * 2 : p
+            var r = FrameSampler.Record(t: Double(i) * p, interval: interval, missed: interval > p ? 1 : 0, seq: nil, batches: 0, apply: 0)
+            r.period = p; r.scroll = (Double(i), (i / 10) % 2 == 0 ? "t" : "d"); r.taken = 0
+            recording.keep(r)
+        }
+        let report = FrameSampler.report(recording, identity: [:])
+        let note = FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: 600)
+        XCTAssertLessThanOrEqual(note.count, 600)
+        let error = try XCTUnwrap((try JSONSerialization.jsonObject(with: note) as? [String: Any])?["error"] as? String)
+        let smallest = try XCTUnwrap(error.split(separator: " ").compactMap { Int($0) }.last, error)
+        XCTAssertGreaterThan(smallest, 600)
+        let cut = FrameSampler.compact(report, file: "trace.json", bytes: 1, maxBytes: smallest + 400)
+        XCTAssertLessThanOrEqual(cut.count, smallest + 400)
+        let kept = try XCTUnwrap((try JSONSerialization.jsonObject(with: cut) as? [String: Any])?["segments"] as? [[Any]])
+        XCTAssertGreaterThan(kept.count, 0)
+        XCTAssertLessThan(kept.count, 40, "of 40 scroll segments")
+    }
+
+    /// The batch that starts a session's first recording, with no sampler
+    /// before it (a production bake's), charges the recording's first frame
+    /// nothing: the sampler was not there when the batch began.
+    func testTheBatchThatStartsARecordingChargesNoTimeFromBeforeIt() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { _ = session.sampler?.endRecording(); session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        session.sampler?.stop()
+        session.sampler = nil
+        session.apply(wireBatch([["op": "command", "name": "startTrace_EXPERIMENTAL", "args": []]]))
+        let sampler = try XCTUnwrap(session.sampler, "the command made one")
+        #if canImport(UIKit)
+        XCTAssertNotNil(sampler.recording, "and started its recording")
+        #endif
+        // On macOS the window is not shown, so the recording is refused: the sampler the command made still times what follows
+        let p = 1.0 / 60, t = ExactEnv.t0 + 40
+        sampler.observe(now: t, target: t + p)
+        sampler.observe(now: t + p, target: t + 2 * p)
+        let first = try XCTUnwrap((sampler.reply(all: true)["records"] as? [[String: Any]])?.last)
+        // A later batch the turn applies is the sampler's own, and short; the media clock since boot is not
+        XCTAssertLessThan(try XCTUnwrap(first["apply"] as? Double), 100)
+    }
+
+    /// A link that changes rate (a recording asking for the display's full
+    /// rate, ProMotion lowering it) holds each interval to the period the
+    /// callback before it announced: the change misses no frame, and a frame
+    /// shown again at the new rate is still one.
+    func testARateChangeMissesNoFrame() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        let slow = 1.0 / 60, fast = 1.0 / 120
+        var t = ExactEnv.t0 + 60
+        sampler.observe(now: t, target: t + slow)
+        t += slow; sampler.observe(now: t, target: t + fast)      // from here at 120 Hz
+        t += fast; sampler.observe(now: t, target: t + slow)      // back to 60 Hz
+        t += slow; sampler.observe(now: t, target: t + fast)
+        let steady = try XCTUnwrap(sampler.reply()["lifetime"] as? [String: Int])
+        XCTAssertEqual(steady["missed"], 0)
+        XCTAssertEqual(steady["late"], 0)
+        t += 2 * fast; sampler.observe(now: t, target: t + fast)  // one 120 Hz frame shown again
+        XCTAssertEqual((sampler.reply()["lifetime"] as? [String: Int])?["missed"], 1)
+    }
+
+    /// The batch that lets the session's sampler go (a production bake's
+    /// recording its command stopped) is not told to that sampler, which
+    /// would start its display link again.
+    func testABatchIsNotToldToTheSamplerItLetGo() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        sampler.stop()
+        // The boot's batches go to a frame of their own first
+        let p = 1.0 / 60, t = ExactEnv.t0 + 90
+        sampler.observe(now: t, target: t + p)
+        sampler.observe(now: t + p, target: t + 2 * p)
+        #if canImport(UIKit)
+        let segments = { (sampler.reply()["lifetime"] as? [String: Int])?["segments"] }
+        let before = segments()
+        #endif
+        session.presenter.onCommand = { [unowned session] _, _, _ in session.sampler = nil }
+        session.apply(wireBatch([["op": "command", "name": "stopTrace_EXPERIMENTAL", "args": []]]))
+        XCTAssertNil(session.sampler)
+        #if canImport(UIKit)
+        XCTAssertEqual(segments(), before, "its display link stays stopped")
+        #endif
+        // The batch never reached it: no frame it samples after the boot's has one
+        sampler.observe(now: t + 2 * p, target: t + 3 * p)
+        sampler.observe(now: t + 3 * p, target: t + 4 * p)
+        let after = try XCTUnwrap(sampler.reply(all: true)["records"] as? [[String: Any]]).filter { ($0["t"] as? Double ?? 0) > (t + p - ExactEnv.t0) * 1000 + 0.01 }
+        XCTAssertFalse(after.isEmpty)
+        XCTAssertEqual(after.map { $0["batches"] as? Int }, after.map { _ in 0 })
+    }
+
+    /// A production bake's sampler goes with its recording, and the host
+    /// phases only with the last sampler any session keeps: letting one
+    /// session's go leaves another's phases on.
+    func testLettingOneSessionsSamplerGoLeavesAnothersPhasesOn() throws {
+        let a = ExactApp.shared.makeSession(), b = ExactApp.shared.makeSession()
+        defer { a.destroy(); b.destroy(); HostPhases.shared.on = true }
+        XCTAssertNil(a.boot(size: CGSize(width: 390, height: 844)).error)
+        XCTAssertNil(b.boot(size: CGSize(width: 390, height: 844)).error)
+        XCTAssertNotNil(b.sampler)
+        a.releaseSampler()
+        XCTAssertNotNil(a.sampler, "a build that measures on its own keeps its sampler")
+        a.releaseSampler(measured: false)
+        XCTAssertNil(a.sampler)
+        XCTAssertTrue(HostPhases.shared.on, "the other session's sampler still reads them")
+    }
+
+    #if canImport(UIKit)
+    /// A recording follows the scroller that moved last with no finger on
+    /// any: the document's too, which the app's own scroll moves.
+    func testARecordingFollowsTheDocumentsOwnScroll() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { _ = session.sampler?.endRecording(); session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        XCTAssertTrue(sampler.beginRecording())
+        let page = session.presenter.viewport
+        page.contentSize = CGSize(width: 390, height: 3000)
+        page.setContentOffset(CGPoint(x: 0, y: 40), animated: false)
+        XCTAssertTrue(sampler.recording?.scroller === page)
+        XCTAssertEqual(sampler.recording?.scrollers.last?.name, "page")
+    }
+
+    /// Two scrollers of one name (two routes' pages) are two scrollers to
+    /// the report: the second is told apart by a count, and keeps it.
+    func testTwoScrollersOfOneNameAreToldApart() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { _ = session.sampler?.endRecording(); session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        XCTAssertTrue(sampler.beginRecording())
+        let a = UIScrollView(), b = UIScrollView()
+        for scroll in [a, b, a] { FrameSampler.scrolled(scroll, in: session, person: true) }
+        XCTAssertEqual(sampler.recording?.scrollers.map(\.name), ["page", "page (2)", "page"])
+        // A name an author wrote that reads like a count is not given again
+        sampler.recording?.names = [:]
+        sampler.recording?.given = ["page (2)"]
+        for scroll in [b, a] { FrameSampler.scrolled(scroll, in: session, person: true) }
+        XCTAssertEqual(sampler.recording?.scrollers.suffix(2).map(\.name), ["page", "page (3)"])
+    }
+
+    /// A frame sampled after the recording took another scroller, but before
+    /// a turn committed it, is the old scroller's: its offset and phase were
+    /// read from that one, so it is reported under that one's name.
+    func testAFrameSampledBeforeItsTurnCommitsIsTheScrollerItWasReadFrom() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { _ = session.sampler?.endRecording(); session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        XCTAssertTrue(sampler.beginRecording())
+        let a = UIScrollView(frame: CGRect(x: 0, y: 0, width: 100, height: 100)), b = UIScrollView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        for scroll in [a, b] { scroll.contentSize = CGSize(width: 100, height: 1000) }
+        a.contentOffset = CGPoint(x: 0, y: -50)                    // past its top: a bounce
+        b.contentOffset = CGPoint(x: 0, y: 300)
+        FrameSampler.scrolled(a, in: session, person: true)
+        let p = 0.1
+        var t = CACurrentMediaTime()
+        sampler.observe(now: t, target: t + p)
+        sampler.turnEnded(at: t + 0.001)                           // commits a's offset
+        FrameSampler.scrolled(b, in: session, person: true)        // b taken before the next frame
+        t += p; sampler.observe(now: t, target: t + p)             // read from a
+        sampler.turnEnded(at: t + 0.001)                           // commits b's
+        t += p; sampler.observe(now: t, target: t + p)
+        let segments = try XCTUnwrap(FrameSampler.report(try XCTUnwrap(sampler.recording), identity: [:])["segments"] as? [[String: Any]])
+        XCTAssertEqual(segments.first?["phase"] as? String, "bounce")
+        XCTAssertEqual(segments.first?["scroller"] as? String, "page", "a's bounce, not b's")
+    }
+
+    /// A new scroller at the address of one that was released is another
+    /// scroller, with a name of its own. Whether the allocator reuses an
+    /// address is not the test's to decide, so it builds the state that
+    /// reuse leaves: an entry under the new scroller's identifier whose
+    /// scroller is gone.
+    func testANewScrollerWhereAReleasedOneWasGetsANewName() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { _ = session.sampler?.endRecording(); session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        XCTAssertTrue(sampler.beginRecording())
+        let scroll = UIScrollView()
+        sampler.recording?.names[ObjectIdentifier(scroll)] = .init(scroll: nil, name: "page")
+        sampler.recording?.given = ["page"]
+        FrameSampler.scrolled(scroll, in: session, person: true)
+        XCTAssertEqual(sampler.recording?.scrollers.last?.name, "page (2)")
+    }
+
+    /// A recording and a held fling (`perf frames hold`) each read their own
+    /// scroller: the agent's probe neither replaces the recording's, nor
+    /// takes it away when the hold is released.
+    func testARecordingAndAHeldFlingReadTheirOwnScrollers() throws {
+        let session = ExactApp.shared.makeSession()
+        defer { _ = session.sampler?.endRecording(); session.destroy() }
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        let sampler = try XCTUnwrap(session.sampler)
+        XCTAssertTrue(sampler.beginRecording())
+        let page = session.presenter.viewport
+        page.contentSize = CGSize(width: 390, height: 3000)
+        page.setContentOffset(CGPoint(x: 0, y: 40), animated: false)
+        sampler.tracked = { (99, "t") }
+        let p = 1.0 / 60
+        var t = ExactEnv.t0 + 80
+        sampler.observe(now: t, target: t + p)
+        sampler.turnEnded(at: t + 0.001)
+        t += p; sampler.observe(now: t, target: t + p)
+        XCTAssertEqual(sampler.recording?.records.last?.scroll?.0, 40)
+        XCTAssertEqual(((sampler.reply(all: true)["records"] as? [[String: Any]])?.last?["scroll"] as? [Any])?.first as? Double, 99, "the hold's own record")
+        sampler.held = false
+        sampler.turnEnded(at: t + 0.001)
+        t += p; sampler.observe(now: t, target: t + p)
+        XCTAssertEqual(sampler.recording?.records.last?.scroll?.0, 40, "released, the hold leaves the recording's reader")
+    }
+
+    /// A scroller that scrolls only sideways (a row of cards) is sampled
+    /// along x: its offset, and past its edge, a bounce.
+    func testASidewaysScrollerIsSampledAlongX() {
+        let scroll = UIScrollView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        scroll.contentSize = CGSize(width: 400, height: 100)
+        scroll.contentOffset = CGPoint(x: 30, y: 0)
+        XCTAssertEqual(scroll.scrollSample.0, 30)
+        XCTAssertEqual(scroll.scrollSample.1, "-")
+        scroll.contentOffset = CGPoint(x: -10, y: 0)
+        XCTAssertEqual(scroll.scrollSample.1, "b")
+    }
+
+    /// A finger only touching a scroller is not a drag: the drag is what
+    /// Apple's scroll-dragging metric times, once UIKit's pan has begun.
+    func testATouchThatDoesNotDragIsNotADrag() {
+        final class Touched: UIScrollView {
+            var panBegan = false
+            override var isTracking: Bool { true }
+            override var isDragging: Bool { panBegan }
+        }
+        let scroll = Touched(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        scroll.contentSize = CGSize(width: 100, height: 400)
+        XCTAssertEqual(scroll.scrollSample.1, "-")
+        scroll.panBegan = true
+        XCTAssertEqual(scroll.scrollSample.1, "t")
+    }
+    #endif
 
     /// A frame the link delivered on time is late all the same when the main
     /// thread's turn that commits it ends after the frame's target: the
