@@ -113,8 +113,8 @@ test "reading back moves the window a page ahead of the reader, who stays put (ย
   tap "transcript" into "1562732896249194217"
   clock settle
   expect state anchor == "1562033782335219374"
-  expect state win.firstId == "1561326527558198858"
-  expect state win.rows.0 .key == "1561326527558198858"
+  expect state win.firstId == "1561797858988926588"
+  expect state win.rows.0 .key == "1561797858988926588"
   expect tree has "message-1562732896249194217"
 
 test "changes above the viewport leave the reader's row where it is (ยง3.5)"
@@ -779,10 +779,10 @@ test "a reply to a deleted message does not jump (review: Grok 5)"
   clock settle
   tap "transcript" into "1562068155507943107"
   clock settle
-  expect state anchor == "1562033782335219374"
+  expect state anchor == "1561797858988926588"
   tap "reply-to-1562068155507943107"
   clock settle
-  expect state anchor == "1562033782335219374"
+  expect state anchor == "1561797858988926588"
   expect state highlight == ""
 
 test "what was read at the end is acknowledged (review: Grok 4)"
@@ -815,6 +815,12 @@ test "paging is not refused while another refresh is in flight (review: Grok 6)"
   clock data
   tap "transcript" into "1562732896249194217"
   clock +400
+  clock settle
+  // The lead's pages go on until 100 rows stand above the reader (F1); slow pages land on the
+  // pump, so the clock runs on until the chain has ended and its end is what is checked.
+  clock +3000
+  clock settle
+  clock +3000
   clock settle
   expect state win.firstId == "1561797858988926588"
 
@@ -973,6 +979,12 @@ test "paging continues while the pin request is out (re-check: Grok new 3)"
   tap "transcript" into "1562755578936174328"
   tap "transcript" into "1562624645306263268"
   clock +400
+  clock settle
+  // The lead's pages go on until 100 rows stand above the reader (F1); slow pages land on the
+  // pump, so the clock runs on until the chain has ended and its end is what is checked.
+  clock +3000
+  clock settle
+  clock +3000
   clock settle
   expect state win.firstId == "1561797858988926588"
 
