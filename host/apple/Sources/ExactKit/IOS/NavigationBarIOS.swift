@@ -152,9 +152,9 @@ struct HeaderShape: Equatable {
             // 1115.000 D2): a `color` written on the symbol, else a `color`
             // written on the button, a platform colour as much as a literal.
             // One the button only inherits, or a sheet wrote, is unsaid.
-            let symbolTint = ink?.0.kind == "image" ? ink?.0.ownColor("text_color") : nil
-            let row = symbolTint ?? button.ownColor("text_color")
-            if let row, let light = row.channels(dark: false), let dark = row.channels(dark: true) {
+            // Read from the node it is written on, undimmed: the item keeps it (TintDimmingIOS.swift)
+            let source = ink.flatMap { $0.0.kind == "image" && $0.0.ownColor("text_color") != nil ? $0.0 : nil } ?? (button.ownColor("text_color") != nil ? button : nil)
+            if let source, let light = source.undimmedChannels("text_color", dark: false), let dark = source.undimmedChannels("text_color", dark: true) {
                 tint = [light, dark]
             } else {
                 tint = nil
