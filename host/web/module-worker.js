@@ -40,6 +40,8 @@ const presenceRead = (store, op, name) => {
 self.__exact_host = (op, name, value) => {
   // The runner's clock as the turn was dispatched: when a timer armed now is due; none outside a turn.
   if (op === 21) return context?.clock === undefined ? undefined : String(context.clock);
+  // The prelude asks at load whether this host has a local listener (LLP 1133.005): a worker never does.
+  if (op === 12 && name === 'listen') return '';
   if (!context) throw new Error('host call outside an answer');
   if (op === 6) {
     // A page module answers `native.later` on the page; nothing here can answer at once.
