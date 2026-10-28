@@ -211,30 +211,34 @@ fn query_pairs(query: &str) -> impl Iterator<Item = (String, String)> + '_ {
     })
 }
 
+/// `%` and two hex digits as a byte (a trailing one too), `+` a space,
+/// anything else as written: the loopback receiver's rule as well
+/// (`exact-listen`'s `loopback.rs`), so the two read one `state`.
 fn decode(text: &str) -> String {
     let bytes = text.as_bytes();
+    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < bytes.len() => {
-                match text
-                    .get(i + 1..i + 3)
-                    .and_then(|h| u8::from_str_radix(h, 16).ok())
-                {
-                    Some(b) => {
-                        out.push(b);
-                        i += 2;
-                    }
-                    None => out.push(b'%'),
-                }
+        let escaped = (bytes[i] == b'%')
+            .then(|| Some(hex(*bytes.get(i + 1)?)? << 4 | hex(*bytes.get(i + 2)?)?))
+            .flatten();
+        match (bytes[i], escaped) {
+            (_, Some(b)) => {
+                out.push(b);
+                i += 2;
             }
-            b => out.push(b),
+            (b'+', _) => out.push(b' '),
+            (b, _) => out.push(b),
         }
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Whether `a` and `b` are equal, in time that depends on their lengths only.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
 /// Whether `url` is on a loopback host (`localhost`, `127.0.0.1`, `[::1]`).
@@ -396,7 +400,9 @@ pub fn check_grants(
 
 /// A loopback callback's host (`127.0.0.1` or `[::1]`), port and path
 /// (LLP 1133.005 D9): `http://127.0.0.1:<port>/<path>` with a port of 1 to
-/// 65535, no query and no fragment. `localhost` is none: RFC 8252 §8.3.
+/// 65535 as a browser writes it in `Host` (no sign or leading zero, not the
+/// default 80, which `Host` leaves out), no query and no fragment.
+/// `localhost` is none: RFC 8252 §8.3.
 pub fn loopback_callback(callback: &str) -> Option<(&'static str, u16, String)> {
     let url = Url::parse(callback)?;
     if url.scheme != "http" || url.query.is_some() || url.fragment.is_some() {
@@ -411,7 +417,7 @@ pub fn loopback_callback(callback: &str) -> Option<(&'static str, u16, String)> 
     let port = port
         .parse::<u16>()
         .ok()
-        .filter(|p| *p > 0 && !port.starts_with('0'))?;
+        .filter(|p| *p > 0 && *p != 80 && p.to_string() == port)?;
     (url.path.starts_with('/') && url.path.len() > 1).then(|| (host, port, url.path.to_string()))
 }
 
@@ -454,7 +460,7 @@ pub fn accept(session: &Session, got: &str) -> Result<(), String> {
         .map(|(_, v)| v)
         .collect();
     match states.as_slice() {
-        [one] if *one == session.state => Ok(()),
+        [one] if same(one, &session.state) => Ok(()),
         [] => Err("the callback carries no state".into()),
         [_] => Err("the callback's state is not the request's".into()),
         _ => Err("the callback carries state more than once".into()),
@@ -790,6 +796,9 @@ mod tests {
             "http://localhost:1455/auth/callback",
             "http://127.0.0.1/auth/callback",
             "http://127.0.0.1:0/auth/callback",
+            "http://127.0.0.1:80/auth/callback",
+            "http://127.0.0.1:01455/auth/callback",
+            "http://127.0.0.1:+1455/auth/callback",
             "http://127.0.0.1:1455/auth/callback?x=1",
         ] {
             s.callback = bad.into();
@@ -802,6 +811,12 @@ mod tests {
         let s = session("http://127.0.0.1:1455/auth/callback");
         assert!(accept(&s, "http://127.0.0.1:1455/auth/callback?code=c&state=s1").is_ok());
         assert!(accept(&s, "http://127.0.0.1:1456/auth/callback?state=s1").is_err());
+        // The receiver's rule: a name is decoded too, a trailing escape
+        // decodes, a signed one does not.
+        let mut t = session("http://127.0.0.1:1455/auth/callback");
+        t.state = "s A".into();
+        assert!(accept(&t, "http://127.0.0.1:1455/auth/callback?st%61te=s+%41").is_ok());
+        assert_eq!(decode("%+4"), "% 4");
         assert_eq!(
             carrier_callback("auth.callback http://127.0.0.1/cb", None),
             None

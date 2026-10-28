@@ -75,6 +75,9 @@ component AuthFixture
     send identity = signInWith("google")
   action prepare
     send prepared = prepareSignIn(time.epochAtZero + performanceNow())
+  // A desktop's loopback callback (LLP 1133.005 D9), signed in by the same press.
+  action prepareLoopback
+    send prepared = prepareLoopbackSignIn(time.epochAtZero + performanceNow())
   action signIn
     send signed = signIn(time.epochAtZero + performanceNow())
   action signOut
@@ -107,6 +110,8 @@ component AuthFixture
       text (session.signedIn ? "Signed in as " + session.handle : "Signed out") testId="session" font-size=16
       button press=prepare disabled=busy testId="prepare" padding=12 border-radius=8 background-color="#dfe5ee"
         text "Prepare sign-in"
+      button press=prepareLoopback disabled=busy testId="prepare-loopback" padding=12 border-radius=8 background-color="#dfe5ee"
+        text "Prepare loopback sign-in"
       button press=signIn disabled=busy testId="sign-in" padding=12 border-radius=8 background-color="#2f6fd6"
         text "Sign in" color="#ffffff" font-weight=600
       button press=signOut testId="sign-out" padding=12 border-radius=8 background-color="#dfe5ee"

@@ -69,3 +69,21 @@ test("ordinary exact-origin sessions still reach a held callback", async () => {
   answer({ ticket: hold.ticket, op: "type", text: callback });
   expect(await pending).toBe(callback);
 });
+
+test("a loopback callback answers as the runner's arm does on the web (LLP 1133.005 D9)", async () => {
+  globalThis.location = { origin: "http://localhost:8080" };
+  clock.agent = true;
+  install("auth.session https://login.example.com\nauth.callback http://127.0.0.1/oauth/loopback", () => "login");
+  const failed = (callback) => openAuthSession("https://login.example.com/authorize", { callback, state: "s" }).catch(e => e);
+  // Granted at any port, then 501: a page cannot listen.
+  const loopback = await failed("http://127.0.0.1:4332/oauth/loopback");
+  expect([loopback.status, loopback.message]).toEqual([501, "a page cannot listen"]);
+  // Not granted, or not D9's form (a port `Host` would not carry as written): the grants refuse it first.
+  for (const callback of ["http://127.0.0.1:4332/other", "http://127.0.0.1:80/oauth/loopback", "http://127.0.0.1:04332/oauth/loopback", "http://localhost:4332/oauth/loopback"])
+    expect((await failed(callback)).status).toBe(403);
+  // The page's own callback on a loopback development origin is held as ever.
+  const page = openAuthSession("https://login.example.com/authorize", { callback: authCallback(), state: "s" });
+  expect(holds().length).toBe(1);
+  for (const hold of holds()) answer({ ticket: hold.ticket, op: "tap", choice: "cancel" });
+  expect((await page.catch(e => e)).status).toBe(499);
+});

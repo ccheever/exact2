@@ -4,7 +4,8 @@
 //! query carries `state` exactly once with a short page, and hands back the
 //! full callback URL; anything else gets a 400 and the receiver stays open.
 //! Each connection has 5 s to send its head, of at most 32 KiB; at most 8
-//! are open at once; a reply that cannot be written within 5 s is abandoned.
+//! are open at once, and while they are, new ones wait in the backlog; a
+//! reply that cannot be written within 5 s is abandoned.
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,7 +63,7 @@ pub fn open(callback: Callback, done: Box<dyn FnOnce(String) + Send>) -> Result<
     } else {
         Ipv4Addr::LOCALHOST.into()
     };
-    let listener = TcpListener::bind(SocketAddr::new(ip, callback.port)).map_err(|e| {
+    let listener = bind(SocketAddr::new(ip, callback.port)).map_err(|e| {
         if e.kind() == io::ErrorKind::AddrInUse {
             Failed::PortInUse
         } else {
@@ -82,6 +83,68 @@ pub fn open(callback: Callback, done: Box<dyn FnOnce(String) + Send>) -> Result<
     })
 }
 
+/// Bind `address` without `SO_REUSEADDR`, which `TcpListener::bind` sets:
+/// with it, macOS binds 127.0.0.1:P beside another process listening on
+/// 0.0.0.0:P or [::]:P, and the browser's callback could reach either.
+fn bind(address: SocketAddr) -> io::Result<TcpListener> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    let check = |r: libc::c_int| {
+        if r < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(r)
+        }
+    };
+    let family = if address.is_ipv4() {
+        libc::AF_INET
+    } else {
+        libc::AF_INET6
+    };
+    // SAFETY: a new socket, owned at once.
+    let fd = unsafe { OwnedFd::from_raw_fd(check(libc::socket(family, libc::SOCK_STREAM, 0))?) };
+    let raw = fd.as_raw_fd();
+    // SAFETY: `raw` is open; each address is a valid `sockaddr` of its length.
+    unsafe {
+        libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC);
+        match address {
+            SocketAddr::V4(a) => {
+                let mut sin: libc::sockaddr_in = std::mem::zeroed();
+                sin.sin_family = libc::AF_INET as libc::sa_family_t;
+                sin.sin_port = a.port().to_be();
+                sin.sin_addr.s_addr = u32::from_ne_bytes(a.ip().octets());
+                #[cfg(target_vendor = "apple")]
+                {
+                    sin.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+                }
+                let len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+                check(libc::bind(
+                    raw,
+                    (&sin as *const libc::sockaddr_in).cast(),
+                    len,
+                ))?;
+            }
+            SocketAddr::V6(a) => {
+                let mut sin6: libc::sockaddr_in6 = std::mem::zeroed();
+                sin6.sin6_family = libc::AF_INET6 as libc::sa_family_t;
+                sin6.sin6_port = a.port().to_be();
+                sin6.sin6_addr.s6_addr = a.ip().octets();
+                #[cfg(target_vendor = "apple")]
+                {
+                    sin6.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
+                }
+                let len = std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t;
+                check(libc::bind(
+                    raw,
+                    (&sin6 as *const libc::sockaddr_in6).cast(),
+                    len,
+                ))?;
+            }
+        }
+        check(libc::listen(raw, 16))?;
+    }
+    Ok(TcpListener::from(fd))
+}
+
 /// One connection, reading its head.
 struct Pending {
     stream: TcpStream,
@@ -97,21 +160,24 @@ fn serve(
 ) {
     let mut open: Vec<Pending> = Vec::new();
     let mut done = Some(done);
+    // After a failed `accept` (out of descriptors), when to try again.
+    let mut paused: Option<Instant> = None;
     while !stop.load(Ordering::SeqCst) {
-        loop {
+        paused = paused.filter(|until| *until > Instant::now());
+        // While every place is taken nothing is accepted, so a new
+        // connection waits in the backlog: idle ones cannot shut the
+        // browser's callback out, only delay it until their 5 s pass.
+        while open.len() < OPEN_AT_ONCE && paused.is_none() {
             match listener.accept() {
-                Ok((stream, _))
-                    if open.len() < OPEN_AT_ONCE && stream.set_nonblocking(true).is_ok() =>
-                {
-                    open.push(Pending {
-                        stream,
-                        head: Vec::new(),
-                        since: Instant::now(),
-                    })
-                }
-                // Past the bound: closed on accept.
+                Ok((stream, _)) if stream.set_nonblocking(true).is_ok() => open.push(Pending {
+                    stream,
+                    head: Vec::new(),
+                    since: Instant::now(),
+                }),
                 Ok(_) => {}
-                Err(_) => break,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => paused = Some(Instant::now() + Duration::from_millis(100)),
             }
         }
         let mut i = 0;
@@ -195,39 +261,46 @@ fn check<'a>(head: &'a str, callback: &Callback) -> Result<&'a str, &'static str
     if path != callback.path {
         return Err("This address answers only the sign-in's return.");
     }
-    let states: Vec<String> = (query.split('&'))
-        .filter_map(|pair| pair.split_once('=').or(Some((pair, ""))))
-        .filter(|(name, _)| *name == "state")
+    // The runner's rule (`exact_runner::auth::accept`): nonempty
+    // `&`-separated pairs, name and value percent-decoded.
+    let states: Vec<String> = (query.split('&').filter(|p| !p.is_empty()))
+        .map(|pair| pair.split_once('=').unwrap_or((pair, "")))
+        .filter(|(name, _)| decode(name) == "state")
         .map(|(_, value)| decode(value))
         .collect();
-    if states.len() != 1 || states[0] != callback.state {
+    if states.len() != 1 || !same(&states[0], &callback.state) {
         return Err("This is not the sign-in this app is waiting for.");
     }
     Ok(target)
 }
 
+/// `exact_runner::auth`'s decoding: `%` and two hex digits as a byte, `+`
+/// a space, anything else as written.
 fn decode(text: &str) -> String {
     let bytes = text.as_bytes();
+    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' => match text
-                .get(i + 1..i + 3)
-                .and_then(|h| u8::from_str_radix(h, 16).ok())
-            {
-                Some(b) => {
-                    out.push(b);
-                    i += 2;
-                }
-                None => out.push(b'%'),
-            },
-            b => out.push(b),
+        let escaped = (bytes[i] == b'%')
+            .then(|| Some(hex(*bytes.get(i + 1)?)? << 4 | hex(*bytes.get(i + 2)?)?))
+            .flatten();
+        match (bytes[i], escaped) {
+            (_, Some(b)) => {
+                out.push(b);
+                i += 2;
+            }
+            (b'+', _) => out.push(b' '),
+            (b, _) => out.push(b),
         }
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Whether `a` and `b` are equal, in time that depends on their lengths only.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
 fn escape(text: &str) -> String {
@@ -333,5 +406,62 @@ mod tests {
             TcpListener::bind(("127.0.0.1", port)).is_ok(),
             "the port is freed"
         );
+    }
+
+    fn callback(port: u16) -> Callback {
+        Callback {
+            host: "127.0.0.1".into(),
+            port,
+            path: "/cb".into(),
+            state: "s A".into(),
+            app: "App".into(),
+        }
+    }
+
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn a_port_held_on_the_wildcard_address_is_in_use() {
+        for wildcard in ["0.0.0.0:0", "[::]:0"] {
+            let held = TcpListener::bind(wildcard).unwrap();
+            let port = held.local_addr().unwrap().port();
+            assert!(
+                matches!(
+                    open(callback(port), Box::new(|_| {})),
+                    Err(Failed::PortInUse)
+                ),
+                "{wildcard}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn idle_connections_in_every_place_delay_the_callback_but_do_not_shut_it_out() {
+        let free = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = free.local_addr().unwrap().port();
+        drop(free);
+        let (tx, rx) = mpsc::channel();
+        let _receiver = open(callback(port), Box::new(move |url| tx.send(url).unwrap())).unwrap();
+        let idle: Vec<TcpStream> = (0..OPEN_AT_ONCE)
+            .map(|_| TcpStream::connect(("127.0.0.1", port)).unwrap())
+            .collect();
+        std::thread::sleep(Duration::from_millis(100));
+        // The runner's state rule: a name is decoded too, a trailing escape
+        // decodes.
+        let answer = ask(
+            port,
+            &format!("GET /cb?st%61te=s+%41 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+        );
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
+        drop(idle);
+    }
+
+    #[test]
+    fn the_state_rule_is_the_runner_s() {
+        assert_eq!(decode("a%41"), "aA");
+        assert_eq!(decode("%+4"), "% 4");
+        assert_eq!(decode("%4"), "%4");
+        assert!(same("s A", "s A") && !same("s A", "s B") && !same("s", "s A"));
     }
 }

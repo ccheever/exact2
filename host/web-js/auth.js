@@ -26,7 +26,17 @@ function parse(text) {
 const unsafeCallback = u => u && (u.authority?.includes("@") || (["http", "https"].includes(u.scheme) && u.authority == null));
 const host = u => (u.authority ?? "").split("@").at(-1).toLowerCase();
 const origin = u => u.authority == null ? null : `${u.scheme}://${host(u)}`;
-const decode = s => { try { return decodeURIComponent(s.replace(/\+/g, " ")); } catch { return s.replace(/\+/g, " "); } };
+// auth.rs `decode`: `%` and two hex digits as a byte, `+` a space, anything else as written, then UTF-8.
+const decode = s => { const out = []; for (let i = 0; i < s.length; i++) { if (s[i] === "%" && /^[0-9A-Fa-f]{2}$/.test(s.slice(i + 1, i + 3))) { out.push(parseInt(s.slice(i + 1, i + 3), 16)); i += 2; } else if (s[i] === "+") out.push(32); else out.push(...new TextEncoder().encode(s[i])); } return new TextDecoder().decode(new Uint8Array(out)); };
+// auth.rs `same`: equal in time that depends on the lengths only.
+const same = (a, b) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
+/** auth.rs `loopback_callback` (LLP 1133.005 D9): `http://127.0.0.1:<port>/<path>` or `[::1]`, the port as a
+ * browser writes it in `Host` (no leading zero, not 80), no query or fragment; the same without its port, as a grant
+ * names it, or null. */
+const loopbackCallback = callback => {
+  const m = /^http:\/\/(127\.0\.0\.1|\[::1\]):([1-9]\d{0,4})(\/[^?#]+)$/.exec(callback);
+  return m && +m[2] !== 80 && +m[2] < 65536 ? `http://${m[1]}${m[3]}` : null;
+};
 const pairs = q => (q ?? "").split("&").filter(Boolean).map(p => { const i = p.indexOf("="); return i < 0 ? [decode(p), ""] : [decode(p.slice(0, i)), decode(p.slice(i + 1))]; });
 const loopback = u => ["localhost", "127.0.0.1", "[::1]"].includes((u.authority ?? "").replace(/:\d+$/, ""));
 
@@ -50,7 +60,9 @@ function checkGrants(s, grants) {
   if (!u) return "the authorization URL is not absolute";
   if (u.authority?.includes("@")) return "the authorization URL carries userinfo";
   if (!lines.some(l => l.startsWith("auth.session ") && admits(l.slice(13).trim(), u))) return `outside the app's grants (auth.session ${origin(u) ?? ""})`;
-  const granted = lines.some(l => l.startsWith("auth.callback ") && l.slice(14).trim() === s.callback);
+  // A loopback callback is granted at any port (LLP 1133.005 D9).
+  const any = loopbackCallback(s.callback);
+  const granted = lines.some(l => l.startsWith("auth.callback ") && (l.slice(14).trim() === s.callback || any !== null && l.slice(14).trim() === any));
   const page = parse(location.origin);
   if (!granted && !(s.callback === location.origin + CALLBACK && page && loopback(page))) return `outside the app's grants (auth.callback ${s.callback})`;
   return null;
@@ -67,7 +79,7 @@ function accept(s, got) {
   if (u.authority?.toLowerCase() !== want.authority?.toLowerCase()) return "the callback's host is not the request's";
   if (u.path !== want.path) return "the callback's path is not the request's";
   const states = pairs(u.query).filter(([n]) => n === "state").map(([, v]) => v);
-  return states.length === 1 ? (states[0] === s.state ? null : "the callback's state is not the request's") : states.length ? "the callback carries state more than once" : "the callback carries no state";
+  return states.length === 1 ? (same(states[0], s.state) ? null : "the callback's state is not the request's") : states.length ? "the callback carries state more than once" : "the callback carries no state";
 }
 
 /** D7: the hold's summary — the URL's origin and path, its parameter
@@ -124,10 +136,11 @@ export function install(grants, target) {
     if (u.authority.includes("@")) return refuse(502, "the authorization URL carries userinfo");
     if (!cb || cb.fragment != null || cb.query != null || (["http", "https"].includes(cb.scheme) && cb.authority == null)) return refuse(502, "the callback is not a scheme:/path or https://host/path");
     if (cb.authority?.includes("@")) return refuse(502, "the callback carries userinfo");
-    // A loopback callback other than the page's own (LLP 1133.005 D9): the popup and its callback page are the web's.
-    if (cb.scheme === "http" && /^(127\.0\.0\.1|\[::1\]):\d+$/.test(cb.authority ?? "") && s.callback !== location.origin + CALLBACK) return refuse(501, "a page cannot listen");
     const denied = check(s);
     if (denied) return refuse(403, denied);
+    // A loopback callback other than the page's own (LLP 1133.005 D9), after the grants as the runner's `arm`:
+    // the popup and its callback page are the web's.
+    if (loopbackCallback(s.callback) && s.callback !== location.origin + CALLBACK) return refuse(501, "a page cannot listen");
     // One session per window: the same target's earlier one is superseded;
     // another target's live one refuses this (409).
     for (let i = Live.length - 1; i >= 0; i--) if (Live[i].target === name) { say(`auth ${Live[i].ticket}: cancelled by supersession`); Live[i].close?.(); Live[i].release(); Live.splice(i, 1); }
