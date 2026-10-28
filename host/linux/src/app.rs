@@ -331,6 +331,19 @@ thread_local! {
     pub(crate) static AGENT_BOOT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// A window may paint on the CPU while its selected device opens (LLP 1149 D6.3).
+#[cfg(windows)]
+pub fn boot_presenter_on_cpu<D: DataSource + Default>(
+    config: &mut Config,
+    viewport: (f32, f32),
+) -> Result<(Presenter<D>, Option<String>), String> {
+    boot_presenter_with_painter(
+        config,
+        viewport,
+        PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
+    )
+}
+
 /// Keep the carrier's constructor through selected-plan refusal and baked fallback.
 pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
     config: &mut Config,

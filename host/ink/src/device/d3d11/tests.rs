@@ -2,9 +2,30 @@ use super::*;
 use crate::instance::Encoder;
 
 #[test]
+fn pending_device_never_waits_and_a_failed_worker_is_reported() {
+    let (send, receive) = std::sync::mpsc::channel();
+    let mut preparing = Preparing(receive);
+    // The sender cannot complete until this poll returns.
+    assert!(preparing.try_finish().unwrap().is_none());
+    send.send(Err(Error::Device("test device refusal".into())))
+        .unwrap();
+    assert!(matches!(preparing.try_finish(), Err(Error::Device(e)) if e == "test device refusal"));
+    drop(send);
+    assert!(matches!(preparing.try_finish(), Err(Error::Device(e)) if e.contains("disconnected")));
+}
+
+#[test]
 fn prepared_device_draws_on_the_receiving_thread() {
-    let preparing = Preparing::start(true).unwrap();
-    let mut device = preparing.finish().unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    let mut preparing = Preparing::with_wake(true, move || {
+        send.send(()).unwrap();
+    })
+    .unwrap();
+    receive.recv().unwrap();
+    let mut device = preparing
+        .try_finish()
+        .unwrap()
+        .expect("wake follows publication");
     let target = device.create_target(3, 2).unwrap();
     device
         .render(&Frame::default(), target, Some([0.25, 0., 0., 0.5]))

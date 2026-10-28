@@ -15,7 +15,7 @@ use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
-    platform::windows::{EventLoopBuilderExtWindows, WindowAttributesExtWindows},
+    platform::windows::EventLoopBuilderExtWindows,
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{CursorIcon, Fullscreen, Theme, Window, WindowId},
 };
@@ -28,6 +28,7 @@ struct App<D: DataSource> {
     config: Config,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    preparing: Option<exact_ink::device::d3d11::Preparing>,
     presenter: Option<Presenter<D>>,
     timers: crate::timers::Timers,
     started: Instant,
@@ -45,6 +46,7 @@ struct App<D: DataSource> {
     occluded: bool,
     frames: u64,
     measured_first_screen: bool,
+    measure_first_composition: bool,
     paint_ms: f64,
     present_ms: f64,
     previous_frame: Option<Instant>,
@@ -228,6 +230,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         config,
         window: None,
         surface: None,
+        preparing: None,
         presenter: None,
         timers,
         started,
@@ -244,6 +247,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         occluded: false,
         frames: 0,
         measured_first_screen: false,
+        measure_first_composition: false,
         paint_ms: 0.,
         present_ms: 0.,
         previous_frame: None,
@@ -373,6 +377,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         // A frame task can wake the loop from its own commit. Those wakes
         // must not advance the animation again before the next display tick.
         let continuous = self.frame_limit.is_some()
+            || self.preparing.is_some()
             || self
                 .presenter
                 .as_ref()
@@ -388,6 +393,19 @@ impl<D: DataSource + Default + 'static> App<D> {
         else {
             return Ok(());
         };
+        if self.measure_first_composition {
+            // Read before submitting another frame; the compositor has had the
+            // intervening display period. Measurement must not delay migration.
+            match p.displayed_process_ms() {
+                Ok(Some(ms)) => eprintln!(
+                    "exact-windows: process to displayed first composition {ms:.3} ms (DXGI)"
+                ),
+                other => {
+                    eprintln!("exact-windows: first composition timestamp unavailable: {other:?}")
+                }
+            }
+            self.measure_first_composition = false;
+        }
         let size = window.inner_size();
         let (Some(width), Some(height)) =
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
@@ -454,7 +472,43 @@ impl<D: DataSource + Default + 'static> App<D> {
         };
         let owned = exact_ink::device::d3d11::Window::from_owner(window.clone())
             .map_err(|e| e.to_string())?;
-        let mut frame = p.window_frame(owned.clone())?;
+        let prepared = (self.frames > 0)
+            .then(|| self.preparing.as_mut().map(|worker| worker.try_finish()))
+            .flatten();
+        let mut migrated = false;
+        match prepared {
+            Some(Ok(Some(device))) => {
+                self.preparing = None;
+                let pixels = p.frame();
+                if p.last_frame_succeeded() {
+                    // No GDI call is permitted after the flip-model handoff,
+                    // including the caret's damage-only presentation.
+                    surface.take();
+                    self.caret.clear();
+                    if let Err(error) = p.migrate_painter_window(device, owned.clone(), &pixels) {
+                        eprintln!(
+                            "exact-windows: migration: {error}; recovering through composition"
+                        );
+                    }
+                    migrated = true;
+                    eprintln!(
+                        "exact-windows: composition migration on frame {} at {:.3} ms",
+                        self.frames + 1,
+                        self.started.elapsed().as_secs_f64() * 1000.
+                    );
+                }
+            }
+            Some(Err(error)) => {
+                self.preparing = None;
+                eprintln!("exact-windows: device preparation: {error}; keeping CPU presentation");
+            }
+            _ => {}
+        }
+        let mut frame = if migrated {
+            None
+        } else {
+            p.window_frame(owned.clone())?
+        };
         let caret_rect = (self.focused && p.last_frame_succeeded())
             .then(|| p.caret_frame())
             .flatten();
@@ -464,7 +518,8 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.scale as f32,
             frame.clone(),
             frame_started,
-        ) {
+        ) && !migrated
+        {
             p.set_caret_visible(true);
             // A programmatic move while hidden starts a fresh visible phase.
             frame = p.window_frame(owned)?;
@@ -588,6 +643,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.measured_first_screen = true;
         }
         self.frames += 1;
+        self.measure_first_composition = migrated && self.frame_limit.is_some();
         if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
             eprintln!("exact-windows: frame {} at {:.3} ms, {}x{}, scale {}, painter {}, caret {}, paint {:.3} ms, present {:.3} ms",
                 self.frames, now, size.width, size.height, self.scale, p.painter.name,
@@ -713,10 +769,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         let window = match events.create_window(
             Window::default_attributes()
-                .with_no_redirection_bitmap(direct_device(
-                    self.config.painter(),
-                    std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
-                ))
                 .with_visible(false)
                 .with_title(&self.name)
                 .with_fullscreen(
@@ -761,7 +813,30 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             }
         }
         let mut direct = false;
-        match app::boot_presenter::<D>(&mut self.config, viewport) {
+        let deferred = direct_device(
+            self.config.painter(),
+            std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
+        );
+        if deferred {
+            let wake = self.proxy.clone();
+            match exact_ink::device::d3d11::Preparing::with_wake(
+                std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("warp"),
+                move || {
+                    let _ = wake.send_event(crate::accessibility::Event::Wake);
+                },
+            ) {
+                Ok(worker) => self.preparing = Some(worker),
+                Err(error) => eprintln!(
+                    "exact-windows: device preparation: {error}; keeping CPU presentation"
+                ),
+            }
+        }
+        let booted = if deferred {
+            app::boot_presenter_on_cpu::<D>(&mut self.config, viewport)
+        } else {
+            app::boot_presenter::<D>(&mut self.config, viewport)
+        };
+        match booted {
             Ok((mut p, warning)) => {
                 if let Ok(handle) = window.window_handle() {
                     if let RawWindowHandle::Win32(_) = handle.as_raw() {
@@ -1144,6 +1219,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         if !self.minimized
             && (self.frame_limit.is_some()
+                || self.preparing.is_some()
                 || (!self.occluded && (p.wants_display_frames() || p.host().motion())))
         {
             if Instant::now() >= self.next_frame {
@@ -1204,8 +1280,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use winit::platform::windows::WindowAttributesExtWindows;
     #[test]
-    fn default_ink_window_keeps_redirection_for_softbuffer() {
+    fn only_direct_ink_devices_prepare_asynchronously() {
         use exact_linux::presenter::PainterChoice::*;
         assert!(!direct_device(Ink, None));
         assert!(!direct_device(Ink, Some("wgpu")));
@@ -1263,6 +1340,7 @@ mod tests {
             config: Config::from_env(&plan, ""),
             window: Some(window),
             surface: None,
+            preparing: None,
             presenter: Some(p),
             started,
             pointer: (0., 0.),
@@ -1279,6 +1357,7 @@ mod tests {
             occluded: false,
             frames: 1,
             measured_first_screen: false,
+            measure_first_composition: false,
             paint_ms: 0.,
             present_ms: 0.,
             previous_frame: None,

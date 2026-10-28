@@ -71,8 +71,14 @@ impl Shelf {
         let file = File::create(&log).unwrap();
         let mut command = Command::new(exe);
         command
-            .env("EXACT_INK_DEVICE", "d3d11")
-            .env("EXACT_PAINTER", painter)
+            .env(
+                "EXACT_INK_DEVICE",
+                if painter == "wgpu" { "wgpu" } else { "d3d11" },
+            )
+            .env(
+                "EXACT_PAINTER",
+                if painter == "wgpu" { "ink" } else { painter },
+            )
             .env("EXACT_SIZE", size)
             .env("EXACT_AGENT_WINDOW_READY", "library-count")
             .env(
@@ -472,15 +478,14 @@ fn fresh_comparison(name: &str, mut app: Shelf) {
 }
 
 #[test]
-#[ignore = "NucBox desktop; INK_SHELF and INK_SHELF_BEFORE name built executables"]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
 fn shelf_startup_series() {
     let after = std::env::var("INK_SHELF").unwrap();
-    let before = std::env::var("INK_SHELF_BEFORE").unwrap();
     for size in ["1024x720", "1920x1080"] {
         for round in 0..10 {
             let arms = [
-                (&before, "cpu", "cpu"),
-                (&before, "ink", "before"),
+                (&after, "cpu", "cpu"),
+                (&after, "wgpu", "wgpu"),
                 (&after, "ink", "after"),
             ];
             for step in 0..arms.len() {

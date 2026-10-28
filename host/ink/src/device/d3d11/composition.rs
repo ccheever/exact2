@@ -111,6 +111,7 @@ pub(super) struct Composition {
     pub creation_ms: f64,
     swap_ms: f64,
     visual_ms: f64,
+    active: bool,
 }
 impl Drop for Composition {
     fn drop(&mut self) {
@@ -157,7 +158,6 @@ impl Composition {
             let visual = device.CreateVisual()?;
             visual.SetContent(&swap)?;
             target.SetRoot(&visual)?;
-            device.Commit()?;
             let visual_ms = visual_started.elapsed().as_secs_f64() * 1000.;
             // The first statistics query establishes the interval; it may report
             // DXGI_ERROR_FRAME_STATISTICS_DISJOINT before any frame is presented.
@@ -169,22 +169,6 @@ impl Composition {
             if latency.is_invalid() {
                 return Err(Error::Device("DXGI frame latency handle".into()));
             }
-            let backdrop = DWMSBT_MAINWINDOW;
-            DwmSetWindowAttribute(
-                window.hwnd,
-                DWMWA_SYSTEMBACKDROP_TYPE,
-                (&backdrop as *const DWM_SYSTEMBACKDROP_TYPE).cast(),
-                size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
-            )?;
-            DwmExtendFrameIntoClientArea(
-                window.hwnd,
-                &MARGINS {
-                    cxLeftWidth: -1,
-                    cxRightWidth: -1,
-                    cyTopHeight: -1,
-                    cyBottomHeight: -1,
-                },
-            )?;
             Ok(Self {
                 swap,
                 device,
@@ -196,8 +180,51 @@ impl Composition {
                 creation_ms: start.elapsed().as_secs_f64() * 1000.,
                 swap_ms,
                 visual_ms,
+                active: false,
             })
         }
+    }
+
+    fn activate(&mut self) -> Result<()> {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        if self.active {
+            return Ok(());
+        }
+        // Commit only after the first image has been submitted. The carrier
+        // has released GDI; alpha now belongs to DWM. @ref LLP 1115.004 D4.3.
+        unsafe {
+            let hwnd = self._window.hwnd;
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            if style & WS_EX_LAYERED.0 != 0 {
+                return Err(Error::Invalid(
+                    "ink composition cannot use WS_EX_LAYERED".into(),
+                ));
+            }
+            SetWindowLongPtrW(
+                hwnd,
+                GWL_EXSTYLE,
+                (style | WS_EX_NOREDIRECTIONBITMAP.0) as isize,
+            );
+            let backdrop = DWMSBT_MAINWINDOW;
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_SYSTEMBACKDROP_TYPE,
+                (&backdrop as *const DWM_SYSTEMBACKDROP_TYPE).cast(),
+                size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
+            )?;
+            DwmExtendFrameIntoClientArea(
+                hwnd,
+                &MARGINS {
+                    cxLeftWidth: -1,
+                    cxRightWidth: -1,
+                    cyTopHeight: -1,
+                    cyBottomHeight: -1,
+                },
+            )?;
+            self.device.Commit()?;
+        }
+        self.active = true;
+        Ok(())
     }
     fn resize(&mut self, size: [u32; 2]) -> Result<()> {
         if self.size == size {
@@ -288,6 +315,9 @@ impl D3d11 {
         }
         let s = self.submit()?;
         self.textures.get_mut(&id).unwrap().last = s;
+        if did_present {
+            self.composition.as_mut().unwrap().activate()?;
+        }
         Ok(if did_present {
             start.elapsed().as_secs_f64() * 1000.
         } else {
