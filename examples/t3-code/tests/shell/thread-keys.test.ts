@@ -179,7 +179,7 @@ describe('A14: keys', () => {
   });
   // QueuedRunsControl editLatest at 7c3b3b3605ef (fe507c5a1e): an open question takes the composer for its answer, so ⌥↑
   // leaves the queue alone; a guest's message can be cancelled, not edited.
-  test('⌥↑ does not edit the last queued message while a question is open, or when it is a guest\'s', () => {
+  test('⌥↑ does not edit the last queued message while a question is open, when it is a guest\'s, or while one is being sent', () => {
     const base = { thread: { id: 'a' }, messages: [{ id: 'm1', text: 'one' }], runs: [{ id: 'q1', status: 'queued', userMessageId: 'm1', ordinal: 1 }] };
     const keysOf = (projection: Obj) => keyboardDispatch(keyClient({ projection }), rows(['a'], 'a'), '', '', { ...context, composerFocus: true, editableFocus: true });
     expect(find(keysOf(base), 'thread.editQueuedMessage')).toMatchObject({ extra: 'q1' });
@@ -187,6 +187,10 @@ describe('A14: keys', () => {
     expect(find(keysOf(asking), 'thread.editQueuedMessage')).toBeUndefined();
     const guest = { ...base, messages: [{ id: 'm1', text: 'one', context: { guest: { name: 'Ana', text: 'hi' } } }] };
     expect(find(keysOf(guest), 'thread.editQueuedMessage')).toBeUndefined();
+    // QueuedRunsControl's busyRunId: while a queued message is being sent, the queue stays still; another command does not hold it.
+    const sendingKeys = (description: string) => keyboardDispatch(keyClient({ projection: base, busy: true, pending: { description } }), rows(['a'], 'a'), '', '', { ...context, composerFocus: true, editableFocus: true });
+    expect(find(sendingKeys('Steer queued message'), 'thread.editQueuedMessage')).toBeUndefined();
+    expect(find(sendingKeys('Send message'), 'thread.editQueuedMessage')).toMatchObject({ extra: 'q1' });
   });
   test('⌥⌘B toggles a draft\'s right panel too; ⇧⌘C stays off a draft', () => {
     const items = keyboardDispatch(keyClient({ threadId: '' }), rows(['a'], ''), '', '', { ...context, draftThreadRoute: true });

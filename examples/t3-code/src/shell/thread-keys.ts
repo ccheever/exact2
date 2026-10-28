@@ -18,6 +18,8 @@ import { queueState, queuedEdit, queuedEditBlockedReason } from '../composer/com
 import { environmentOptions } from '../details/git-env';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
+/** The composer's dispatches that send a queued message (composer-controls-commands.ts `queued-steer`). */
+const QUEUED_SENDS = ['Steer queued message', 'Send queued message'];
 /** steerNext and editLatest: the first queued message as a steer, the last one into the composer. Not on a draft. */
 export function queueKeyRows(add: DispatchAdd, client: T3Client, context: DispatchContext): void {
   if (context.draftThreadRoute || !client.threadId) return;
@@ -27,8 +29,10 @@ export function queueKeyRows(add: DispatchAdd, client: T3Client, context: Dispat
   // workflow.canPromoteToSteer: a running turn whose provider steers (queueState canSteer).
   if (first && state.canSteer) add('thread.steerQueuedMessage', 'command', 'cc:queued-steer', 'Steer First Queued Message', str(first.run.id));
   // QueuedRunsControl editLatest at T3 Code 7c3b3b3605ef: declines while a queued message is already being edited, so the
-  // key keeps moving the caret in that draft, while a question is open (queuedRunEditBlockedReason) and for a guest's.
-  if (last && last.editable && !queuedEdit(client) && !queuedEditBlockedReason(client)) add('thread.editQueuedMessage', 'composer-key', 'cclocal:queued-edit', 'Edit Last Queued Message', str(last.run.id));
+  // key keeps moving the caret in that draft, while a question is open (queuedRunEditBlockedReason), for a guest's, and
+  // while a queued message is being sent (its busyRunId: the steer, or the start of a turn, in flight).
+  const sending = client.busy && QUEUED_SENDS.includes(client.pending?.description ?? '');
+  if (last && last.editable && !queuedEdit(client) && !queuedEditBlockedReason(client) && !sending) add('thread.editQueuedMessage', 'composer-key', 'cclocal:queued-edit', 'Edit Last Queued Message', str(last.run.id));
 }
 
 /**
