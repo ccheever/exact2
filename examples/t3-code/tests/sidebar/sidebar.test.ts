@@ -391,6 +391,18 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     expect(strip(dispatched).map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.settle:a', 'thread.settle:c', 'thread.unsettle:c', 'thread.unsettle:a']);
   });
 
+  test('the undo notice sits on the first bottom shelf header; while searching or with no rows it sits in the footer', async () => {
+    const { client } = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) }), shell('z', { snoozedUntil: iso(3_600_000) })], { threadId: 'a' });
+    await sidebarCommand(client, native, files, 'settle', 'a', '');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoText: 'Settled 1 thread,', undoHost: 'snoozed' });
+    (client as unknown as { query: string }).query = 'Thread';
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoHost).toBe('');
+    // With nothing snoozed, Settled is the first bottom shelf.
+    const plain = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) })], { threadId: 'a' });
+    await sidebarCommand(plain.client, native, files, 'settle', 'a', '');
+    expect(sidebarSnapshot(plain.client, NOW, helpers).sidebar.undoHost).toBe('settled');
+  });
+
   test('rename trims, warns on empty, skips unchanged; failures and successes surface as toasts', async () => {
     const { client, dispatched } = fake([shell('a', { title: 'Old' })]);
     const session = sidebarSession(client);
