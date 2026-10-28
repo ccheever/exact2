@@ -150,11 +150,14 @@ describe('background work (151c241cd2, a5b34b2537)', () => {
     expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c' }])).toMatchObject({ title: 'Waiting on subagent Review', description: 'Show',
       segments: [{ label: 'Show', aria: 'Show subagent Review', threadId: 'c', last: true }] });
   });
-  test('only commands left (a dev server) run rather than wait, and do not pulse', () => {
+  test('commands and monitors left (a dev server, its watchdog) run rather than wait unless the agent awaits them', () => {
     expect(presentBackgroundWork([{ kind: 'command', description: 'Start the dev server' }])).toEqual({ title: 'Running: Start the dev server', description: '', waiting: false, segments: [] });
     expect(presentBackgroundWork([{ kind: 'command' }])!.title).toBe('Running a command');
     expect(presentBackgroundWork([{ kind: 'command' }, { kind: 'command', description: 'b' }])).toMatchObject({ title: 'Running 2 commands', waiting: false });
-    expect(presentBackgroundWork([{ kind: 'monitor' }])).toMatchObject({ title: 'Waiting on a monitor', waiting: true });
+    expect(presentBackgroundWork([{ kind: 'monitor' }])).toMatchObject({ title: 'Running a monitor', waiting: false });
+    expect(presentBackgroundWork([{ kind: 'monitor', awaited: true }])).toMatchObject({ title: 'Waiting on a monitor', waiting: true });
+    expect(presentBackgroundWork([{ kind: 'command', description: 'npm test', awaited: true }])).toMatchObject({ title: 'Waiting on command npm test', waiting: true });
+    expect(presentBackgroundWork([{ kind: 'background_task' }])).toMatchObject({ title: 'Waiting on a background task', waiting: true });
   });
   test('the line at the end of the timeline: a muted dot for commands, a dark one for work that wakes the agent', async () => {
     const { client } = await opened();

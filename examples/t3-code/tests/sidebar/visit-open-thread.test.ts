@@ -1,6 +1,7 @@
-// The open thread's visit against T3 Code 1e2ecbd975 (MIT, LICENSE-T3), ChatView.tsx's visit effect: it runs whenever
-// the open thread's shell changes, sends thread.visit to the thread's own environment at its updatedAt, dedupes per
-// `${routeThreadKey}:${updatedAt}`, and sends at once when a completion is unseen. A thread opened from a background
+// The open thread's visit against T3 Code 7c3b3b3605ef (MIT, LICENSE-T3), threadVisits.ts createThreadVisitTracker: it
+// runs whenever the open thread's shell changes, sends thread.visit to the thread's own environment at its updatedAt,
+// dedupes per `${routeThreadKey}:${updatedAt}`, and sends at once when a completion is unseen. Showing a thread is its
+// open (claimThreadOpen), and the open rides on the first visit the server hears. A thread opened from a background
 // environment's row arrives by the reconnect to that environment (settings-b-fleet.ts focusFleetThread), so the
 // refresh after it is where the visit is sent.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -9,7 +10,9 @@ import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { sidebarRefreshed } from '../../src/sidebar/sidebar-commands';
 import { lastVisited, unseenCompletion } from '../../src/sidebar/sidebar-model';
-import { setRuntimeClock } from '../../src/sidebar/sidebar-state';
+import { adoptCommandTime, setRuntimeClock } from '../../src/sidebar/sidebar-state';
+import { claimThreadOpen, threadSearchSubject } from '../../src/palette/palette-search';
+import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
 import { resolveThreadStatusPill } from '../../src/sidebar/legacy-sidebar-model';
 
 beforeEach(() => setRuntimeClock(() => Date.now()));
@@ -47,14 +50,14 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 const strip = (payloads: Obj[]) => payloads.map(({ commandId: _id, ...rest }) => rest);
 
 describe('opening a background environment\'s thread visits it there', () => {
-  test('the refresh after the reconnect sends thread.visit to that environment once, and the row\'s Completed goes', async () => {
+  test('the refresh after the reconnect sends thread.visit, the open, to that environment once, and the row\'s Completed goes', async () => {
     const thread = markedUnread('t-bg');
     expect(resolveThreadStatusPill(thread, lastVisited(thread, undefined))?.label).toBe('Completed');
     const { client, dispatched } = focused('env-second', [thread], 't-bg');
     await sidebarRefreshed(client, native);
     await sidebarRefreshed(client, native);
     await settle();
-    expect(strip(dispatched)).toEqual([{ environmentId: 'env-second', type: 'thread.visit', threadId: 't-bg', visitedAt: iso(37_374) }]);
+    expect(strip(dispatched)).toEqual([{ environmentId: 'env-second', type: 'thread.visit', threadId: 't-bg', visitedAt: iso(37_374), opened: true }]);
     // The server's thread.visited echo moves the watermark to updatedAt: no unseen completion, no status.
     const visited = { ...thread, lastVisitedAt: iso(37_374) };
     client.shell.threads = [visited];
@@ -121,5 +124,78 @@ describe('opening a background environment\'s thread visits it there', () => {
     await sidebarRefreshed(readOnly.client, native);
     await settle();
     expect([...none.dispatched, ...readOnly.dispatched]).toEqual([]);
+  });
+});
+
+// Opens are kept per environment and thread for the whole window, so each test here names its own environment.
+describe('showing a thread counts as opening it (claimThreadOpen)', () => {
+  const visited = (id: string, extra: Obj = {}): Obj => ({ ...markedUnread(id), latestRunCompletedAt: iso(-5000), lastVisitedAt: iso(37_374), ...extra });
+  const payloads = (dispatched: Obj[]) => strip(dispatched).map(payload => `${String(payload.threadId)}:${String(payload.visitedAt)}:${String(payload.opened ?? '')}`);
+
+  test('the open rides on the first visit the server hears, even with the watermark current, however late the shell arrives', async () => {
+    const { client, dispatched } = focused('env-opens-late', [], 't-late');
+    await sidebarRefreshed(client, native); // shown before its shell: nothing to send yet
+    await settle();
+    expect(dispatched).toEqual([]);
+    client.shell.threads = [visited('t-late')];
+    await sidebarRefreshed(client, native);
+    await sidebarRefreshed(client, native);
+    await settle();
+    expect(payloads(dispatched)).toEqual([`t-late:${iso(37_374)}:true`]);
+  });
+
+  test('a thread opened again within ten minutes sends no second open, nor does one a ⌘K pick claimed', async () => {
+    const { client, dispatched } = focused('env-opens-again', [visited('t-a'), visited('t-b'), visited('t-picked')], 't-a');
+    const show = async (threadId: string) => { Object.assign(client, { threadId }); await sidebarRefreshed(client, native); await settle(); };
+    await show('t-a');
+    await show('t-b');
+    await show('t-a');
+    claimThreadOpen('env-opens-again', 't-picked', Date.now()); // palette-commands.ts claimPick: a ⌘K query pick claims its open first
+    await show('t-picked');
+    expect(payloads(dispatched)).toEqual([`t-a:${iso(37_374)}:true`, `t-b:${iso(37_374)}:true`]);
+  });
+
+  test('a server that keeps no visits hears no open; a read-only connection sends it once writable', async () => {
+    const untracked = focused('env-opens-untracked', [{ ...visited('t-u'), lastVisitedAt: undefined }], 't-u');
+    await sidebarRefreshed(untracked.client, native);
+    const readOnly = focused('env-opens-read-only', [visited('t-r')], 't-r');
+    (readOnly.client as unknown as { writable: boolean }).writable = false;
+    await sidebarRefreshed(readOnly.client, native);
+    await settle();
+    expect([...untracked.dispatched, ...readOnly.dispatched]).toEqual([]);
+    (readOnly.client as unknown as { writable: boolean }).writable = true;
+    await sidebarRefreshed(readOnly.client, native);
+    await settle();
+    expect(payloads(readOnly.dispatched)).toEqual([`t-r:${iso(37_374)}:true`]);
+  });
+
+  test('a view with no thread ends the last one\'s: shown again fifteen minutes on, the thread is opened again', async () => {
+    let now = NOW;
+    setRuntimeClock(() => now);
+    const { client, dispatched } = focused('env-opens-draft', [visited('t-d')], 't-d');
+    await sidebarRefreshed(client, native);
+    Object.assign(client, { threadId: '' }); // ⌘N: a draft
+    await sidebarRefreshed(client, native);
+    now += 15 * 60_000;
+    Object.assign(client, { threadId: 't-d' });
+    await sidebarRefreshed(client, native);
+    await settle();
+    expect(payloads(dispatched)).toEqual([`t-d:${iso(37_374)}:true`, `t-d:${iso(37_374)}:true`]);
+  });
+
+  test('the open is stamped with the later of the last sidebar snapshot\'s time and the last command\'s', async () => {
+    setRuntimeClock(() => Number.NaN); // the data runtime: no clock of its own
+    const { client } = focused('env-opens-stamp', [visited('t-s1'), visited('t-s2')], '');
+    const helpers = { projectIdentity: () => ({ projectMark: 'P', projectInk: 'ink', projectSurface: 'surface' }), providerBadge: () => ({ providerBadge: '', providerBadgeColor: '' }) };
+    const openedAt = (id: string) => threadSearchSubject({ id }, null, null, 'env-opens-stamp').opens?.openedAt;
+    sidebarSnapshot(client, NOW + 60_000, helpers); // the root's minute clock
+    Object.assign(client, { threadId: 't-s1' });
+    await sidebarRefreshed(client, native);
+    expect(openedAt('t-s1')).toBe(NOW + 60_000);
+    adoptCommandTime(client, NOW + 90_000); // a sidebar command's window time, later than the last snapshot
+    sidebarSnapshot(client, NOW, helpers); // an older snapshot time never lowers it
+    Object.assign(client, { threadId: 't-s2' });
+    await sidebarRefreshed(client, native);
+    expect(openedAt('t-s2')).toBe(NOW + 90_000);
   });
 });

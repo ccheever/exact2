@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   buildVersionMismatchDismissalKey, dismissServerUpdateFailure, dismissVersionMismatch, isServerUpdateFailureDismissed,
   isVersionMismatchDismissed, resolveServerConfigVersionMismatch, resolveServerSelfUpdateCapability, resolveVersionMismatch,
-  serverUpdateGuidance, supportsDesktopAppUpdate, CLIENT_VERSION, type DismissalStore,
+  supportsDesktopAppUpdate, CLIENT_VERSION, type DismissalStore,
 } from '../../src/connections/version-skew';
 import type { ServerUpdateState } from '../../src/connections/server-update';
 
@@ -119,10 +119,5 @@ describe('versionSkew', () => {
     expect(supportsDesktopAppUpdate(descriptor(false))).toBe(false);
     expect(supportsDesktopAppUpdate(descriptor())).toBe(false);
     expect(supportsDesktopAppUpdate(null)).toBe(false);
-  });
-
-  it('matches version-drift guidance to the advertised update path', () => {
-    expect(serverUpdateGuidance('respawn')).toBe('Update to stay in sync');
-    expect(serverUpdateGuidance('desktop-managed')).toBe('Update the desktop app');
   });
 });

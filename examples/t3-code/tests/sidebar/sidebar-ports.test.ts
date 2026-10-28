@@ -47,7 +47,7 @@ const native = { available: true, watch() {}, later: async (request: Obj) => { n
 const strip = (payloads: Obj[]) => payloads.map(({ commandId: _id, ...rest }) => rest);
 
 describe('f68e24fb41: commands left running do not hold the thread', () => {
-  test('a commands-only roster reads ready and shows the unseen completion; subagents, monitors and unknown work still wait', () => {
+  test('a commands-only roster reads ready and shows the unseen completion; subagents, background tasks, unknown work and awaited work wait', () => {
     const base = { latestRunId: 'r', status: 'completed', latestRunCompletedAt: iso(-60_000) };
     const devServer = shell('a', { ...base, pendingBackgroundTasks: [{ id: 't', kind: 'command' }] });
     expect(shellRuntime(devServer)?.status).toBe('completed');
@@ -56,11 +56,14 @@ describe('f68e24fb41: commands left running do not hold the thread', () => {
     const visited = lastVisited(devServer, iso(-120_000));
     expect(unseenCompletion(devServer, visited)).toBe(true);
     expect(topStatus(sidebarStatus(devServer), false, true)).toMatchObject({ label: 'Done', icon: 'circle-check', color: 'light-dark(#007a55, #00d492)' });
-    for (const kind of ['subagent', 'monitor', 'background_task', 'something-new']) {
-      const held = shell('b', { ...base, pendingBackgroundTasks: [{ id: 't', kind: 'command' }, { id: 'u', kind }] });
+    // A command or monitor holds only when the agent awaits it; a kind this build does not know holds, as the reference
+    // decodes it as a background task.
+    for (const task of [{ kind: 'subagent' }, { kind: 'background_task' }, { kind: 'something-new' }, { kind: 'monitor', awaited: true }, { kind: 'command', awaited: true }]) {
+      const held = shell('b', { ...base, pendingBackgroundTasks: [{ id: 't', kind: 'command' }, { id: 'u', ...task }] });
       expect(sidebarStatus(held)).toBe('waiting');
       expect(isWorkingThread(held)).toBe(true);
     }
+    expect(sidebarStatus(shell('b', { ...base, pendingBackgroundTasks: [{ id: 'u', kind: 'monitor' }] }))).toBe('ready');
     // A failed run outranks the roster either way.
     expect(sidebarStatus(shell('c', { latestRunId: 'r', status: 'failed', pendingBackgroundTasks: [{ id: 'u', kind: 'subagent' }] }))).toBe('failed');
   });

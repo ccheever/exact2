@@ -488,7 +488,8 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     const tracked = fake([shell('a', { updatedAt: iso(-10), lastVisitedAt: iso(-60_000) })], { threadId: 'a' });
     visitOpenThread(tracked.client, native); visitOpenThread(tracked.client, native);
     return new Promise<void>(resolve => setTimeout(() => {
-      expect(strip(tracked.dispatched)).toEqual([{ type: 'thread.visit', threadId: 'a', visitedAt: iso(-10) }]);
+      // The first visit carries `opened` too unless the window opened this thread minutes ago (visit-open-thread.test.ts).
+      expect(strip(tracked.dispatched).map(({ opened: _opened, ...visit }) => visit)).toEqual([{ type: 'thread.visit', threadId: 'a', visitedAt: iso(-10) }]);
       const local = fake([shell('b', { updatedAt: iso(-5) })], { threadId: 'b', caps: { threadVisitedTracking: false } });
       visitOpenThread(local.client, native);
       expect(sidebarPrefs(local.client).visited.b).toBe(iso(-5));

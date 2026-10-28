@@ -31,10 +31,12 @@ export function capabilities(config: Obj): Caps {
 
 const terminal = (status: string) => ['completed', 'interrupted', 'failed', 'cancelled', 'rolled_back'].includes(status);
 /**
- * backgroundWorkHoldsCompletion: subagents, monitors and unknown work wake the
- * agent; commands it left running (a dev server) do not hold the thread.
+ * backgroundWorkHoldsCompletion: subagents and background tasks hold the thread, and so does a kind this build does not
+ * know, which the reference decodes as a background task. Commands and monitors are as often a dev server or its
+ * watchdog as a wait, so they hold only when the agent marks them `awaited`.
  */
-export const backgroundHolds = (thread: Obj): boolean => arr(thread.pendingBackgroundTasks).some(task => str(task.kind) !== 'command');
+export const backgroundHolds = (thread: Obj): boolean =>
+  arr(thread.pendingBackgroundTasks).some(task => task.awaited === true || (task.kind !== 'command' && task.kind !== 'monitor'));
 /** models.ts shellRuntime: idle parks only the roster that holds the run's completion. */
 export function shellRuntime(thread: Obj): Runtime | null {
   const park = backgroundHolds(thread) && thread.status !== 'failed';

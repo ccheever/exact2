@@ -174,13 +174,15 @@ const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural
 const joinWithAnd = (parts: string[]) => parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 /**
  * presentPendingBackgroundWork: what a thread with no active turn still runs.
- * Subagent descriptions read as display names; only work that wakes the agent
- * (anything but a command, backgroundWorkHoldsCompletion) is "waiting".
+ * Subagent descriptions read as display names; only work the agent waits on is
+ * "waiting" (backgroundWorkHoldsCompletion): a subagent or a background task, or
+ * a command or monitor the agent marked `awaited`, since either is as often a
+ * dev server or its watchdog as a wait.
  */
 export type NoticeSegment = { key: string; label: string; threadId: string; aria: string; last: boolean };
 export function presentBackgroundWork(tasks: Obj[]): { title: string; description: string; waiting: boolean; segments: NoticeSegment[] } | null {
   if (!tasks.length) return null;
-  const waiting = tasks.some(task => task.kind !== 'command');
+  const waiting = tasks.some(task => task.awaited === true || (task.kind !== 'command' && task.kind !== 'monitor'));
   const kind = (task: Obj) => BACKGROUND_KINDS[str(task.kind)] ?? BACKGROUND_KINDS.background_task!;
   const items = tasks.map(task => {
     const description = str(task.description).trim(), label = task.kind === 'subagent' ? subagentTitle(description).trim() : description;

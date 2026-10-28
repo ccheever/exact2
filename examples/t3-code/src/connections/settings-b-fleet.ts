@@ -27,6 +27,7 @@ import { providerSetupEvent } from '../providers/provider-setup';
 import { fleetSetupHost } from '../providers/codex-fleet-host'; // a background computer's Codex setup streams
 import { fleetPortsEvent, fleetPortsPass } from '../sidebar/legacy-sidebar-ports'; // a background environment's discovered ports
 import { sessionHasLegacyPermissions, sessionPermissions } from './remote-scopes';
+import { SESSION_STATE_KEY } from '../transport/transport-session';
 import { accessFleetPass } from './auth-access';
 import { syncProjectFavicons } from '../sidebar/sidebar-glyph';
 import { announceHostFreezes, type FreezeSource } from './host-freeze';
@@ -219,8 +220,11 @@ export class EnvironmentFleet {
 
   private async bootstrap(remote: Native, entry: FleetEntry): Promise<void> {
     const generation = entry.generation;
-    const auth = await readSessionState(request => bridgeReply(remote, { ...request, generation: entry.generation }), entry.generation);
-    entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth);
+    // The grants come in on their own (readSession files them under `session-state`: a first 6 s wait, then 12, 24, 48
+    // and 60 s on a timeout), as the reference's per-environment session atom reads them: the config and the shell do not
+    // wait. A new connection keeps the last grants until its own land (the atom's stale-while-revalidate), so a
+    // reconnect does not leave the environment read-only meanwhile.
+    entry.subscriptions[SESSION_STATE_KEY] = str((await this.call(remote, entry, { op: 'readSession' })).id);
     entry.config = await this.call(remote, entry, { op: 'request', method: 'server.getConfig', payload: {} });
     entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // hub sources, as the focused client asks
     entry.shell = applyShell(initialShell(), await this.call(remote, entry, { op: 'http', path: '/api/orchestration/shell' }));
@@ -268,6 +272,12 @@ export class EnvironmentFleet {
         if (num(event.generation, -1) === entry.generation && (codexHandoffEvent(event) || providerSetupEvent(fleetSetupHost(entry), event))) { this.revision++; continue; } // codex-handoff-events.ts, codex-fleet-host.ts
         const key = str(event.key), item = obj(event.value);
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;
+        if (key === SESSION_STATE_KEY) {
+          // The session read's grants; a failed read grants nothing (sessionHasScope reads a failure as no scope).
+          const auth = item._replyError === undefined ? obj(item._reply) : {};
+          entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth); this.revision++;
+          continue;
+        }
         if (key === 'device-state') {
           // A failed stream keeps its last state; one due again subscribes on the next pass.
           if (item._retryDue) { entry.subscriptions[key] = ''; entry.deviceAttempted = false; continue; }
@@ -387,24 +397,6 @@ export function fleetRunningTerminalIds(environmentId: string, threadId: string,
 export function fleetDeviceStates(source: EnvironmentFleet = fleet): { environmentId: string; state: Obj }[] {
   return [...source.entries.values()].flatMap(entry => entry.phase === 'connected' && entry.synchronized === entry.generation && entry.deviceState
     ? [{ environmentId: entry.environmentId, state: entry.deviceState }] : []);
-}
-
-export const SESSION_STATE_TIMEOUT_MS = 6_000;
-export const MAX_SESSION_STATE_TIMEOUT_MS = 60_000;
-/**
- * fetchEnvironmentSessionState: the session read waits 6 s, and a timeout asks again at double the time up to 60 s,
- * since it says nothing about grants: failing would show a busy host as read-only. The transport ends the read at
- * `timeoutMs` and reports it with reason `timeout`; any other failure ends the bootstrap.
- */
-export async function readSessionState(call: (request: Obj) => Promise<{ ok: boolean; generation: number; value?: unknown; error?: { kind: string; message: string; reason?: string } }>, generation: number): Promise<Obj> {
-  for (let timeoutMs = SESSION_STATE_TIMEOUT_MS; ; timeoutMs = Math.min(timeoutMs * 2, MAX_SESSION_STATE_TIMEOUT_MS)) {
-    const reply = await call({ op: 'http', path: '/api/auth/session', timeoutMs });
-    if (reply.ok) {
-      if (reply.generation !== generation) throw new Error('The connection changed.');
-      return obj(reply.value);
-    }
-    if (reply.error?.reason !== 'timeout' || timeoutMs >= MAX_SESSION_STATE_TIMEOUT_MS) throw new Error(reply.error?.message ?? 'The connection failed.');
-  }
 }
 
 /** The app's one fleet: background environments outlive any single answer. */
