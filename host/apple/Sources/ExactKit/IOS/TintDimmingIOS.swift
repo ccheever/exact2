@@ -69,9 +69,12 @@ extension NodeView {
     var restingTint: UIColor {
         var current: UIView? = self, port: Viewport?
         while let view = current {
-            // An ancestor's accent in this node's appearance, as its dynamic tint resolves here (`applyAccentTint`)
-            if let node = view as? NodeView, node.style["accent_color"]?.namesTint != true,
-               let accent = node.channels("accent_color", dark: drawsDark) { return TextEngine.color(accent) }
+            // Resolve an ancestor's accent in each appearance, as its dynamic tint does (`applyAccentTint`)
+            if let node = view as? NodeView, node.style["accent_color"]?.namesTint != true, node.channels("accent_color", dark: false) != nil {
+                return UIColor { [weak node] traits in
+                    node?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
+                }
+            }
             if port == nil { port = view as? Viewport }
             current = view.superview
         }
@@ -90,7 +93,7 @@ extension NodeView {
     /// The tint a symbol inherits as this node paints it (`inheritedTint`): on a face Exact draws
     /// while UIKit dims tints, the tint as it rests greyed at its own alpha; else `paintedTint`
     var inheritedInk: UIColor {
-        dimsItsPaint ? UIColor(cgColor: dimmedWithTint(restingTint.cgColor, key: "tint_color")) : paintedTint
+        dimsItsPaint ? UIColor(cgColor: dimmedWithTint(restingTint.resolvedColor(with: traitCollection).cgColor, key: "tint_color")) : paintedTint
     }
 
     /// The colour of row `key` as this node paints it now: greyed while it dims its paint
@@ -124,6 +127,13 @@ extension NodeView {
     /// The tint row `row` resolves `@tint` by for a colour Exact hands UIKit (`undimmedChannels`)
     func undimmedTint(for row: BatchValue) -> UIColor? {
         row.namesTint ? (tintAdjustmentMode == .dimmed ? restingTint : viewTint) : nil
+    }
+
+    /// Inks the symbol view in its node's ink and keeps UIKit from dimming it, as the ink is already the
+    /// node's, dimmed or not
+    func inkSymbolView() {
+        symbolView?.tintColor = drawnSymbolInk
+        symbolView?.tintAdjustmentMode = .normal
     }
 
     /// The tint this node inherits, undimmed: what a face UIKit draws takes (`symbolConfiguration`)

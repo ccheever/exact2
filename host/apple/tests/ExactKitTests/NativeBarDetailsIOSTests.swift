@@ -43,6 +43,12 @@ final class NativeBarDetailsIOSTests: XCTestCase {
         nav.tint(list)
         XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), .red)
         XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), .green)
+        // A tint of its own that names the tint takes the tablist's accent at rest, each appearance its side
+        list.applyStyle(["accent_color": [[0, 0, 255, 255], [255, 255, 0, 255]], "written": ["accent_color"]])
+        tab.applyStyle(["tint_color": ["sys": "@tint", "c": [0, 0, 255, 255]], "written": ["tint_color"]])
+        nav.tint(list)
+        XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), .blue, "the accent's light side")
+        XCTAssertEqual(controller.tabBar.tintColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), .yellow, "the accent's dark side")
     }
 
     func testAnOwnTintEqualToTheAccentReplacesItsLiveResolver() throws {

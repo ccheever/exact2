@@ -564,8 +564,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // The symbol's size when the kernel's measurer could not say
             presenter?.queueIntrinsicSize(self, generation: generation, SymbolMeasure.size(name, points: points, weight: weight))
         }
-        // Keep UIKit from dimming the ink: it is already this node's, dimmed or not (TintDimmingIOS.swift)
-        symbolView?.tintColor = drawnSymbolInk; symbolView?.tintAdjustmentMode = .normal
+        inkSymbolView()
         symbolView?.preferredSymbolConfiguration = symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight))
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()

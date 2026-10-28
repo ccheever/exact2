@@ -1308,7 +1308,7 @@ extension NavigationHost {
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)
-        let image = i.badge?.image ?? i.chip?.image(tint: presenter.viewport.tintColor) ?? i.symbol.flatMap { FaceSymbol.image($0, points: FaceSymbol.barItemPoints) }
+        let image = i.badge?.image ?? i.chip?.image(tint: (presenter.viewport as? Viewport)?.restingTint ?? presenter.viewport.tintColor) ?? i.symbol.flatMap { FaceSymbol.image($0, points: FaceSymbol.barItemPoints) }
         let item: UIBarButtonItem
         if i.menu, let button = presenter.views[i.id] {
             // A pull-down: UIKit opens it on tap (`MenuHost.pullDown`).
