@@ -88,6 +88,8 @@ shape NoticeMachine
 shape PreparingImage
   id: string
   name: string
+  // The taken image as an `app:/` copy for its thumbnail; "" until it is made.
+  source: string
 // An attachment the queued edit keeps.
 shape QueueEditAttachment
   id: string

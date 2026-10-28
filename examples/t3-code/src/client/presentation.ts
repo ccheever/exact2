@@ -21,7 +21,7 @@ import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from '../diff/diff';
 import { composerSnapshot } from '../composer/composer-presentation';
 import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
-import { displayModelName, triggerModelName } from '../composer/composer-controls-model';
+import { triggerModelName } from '../composer/composer-controls-model';
 import { resolveModelShortName } from './model-short-name';
 import { pickerCatalog, withJumpLabels } from '../composer/model-catalog';
 import { effectiveShortcut } from '../shell/shortcut-labels'; // the rows' ⌘1–⌘9
@@ -166,7 +166,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     // ProviderModelPicker: the trigger's accessible name is the full name (triggerLabel); its text is the name said on
     // the model's provider (triggerTitle: the catalog's shortName, else model-short-name.ts), and an unavailable
     // model's Unavailable badge follows it.
-    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? `${displayModelName(currentModel)}${currentModel.isUnavailable === true ? ' (Unavailable)' : ''}` : selectedModel || 'Choose model',
+    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? `${triggerModelName({ ...currentModel, shortName: '' })}${currentModel.isUnavailable === true ? ' (Unavailable)' : ''}` : selectedModel || 'Choose model',
     modelShortLabel: currentModel ? triggerModelName({ ...currentModel, shortName: resolveModelShortName(currentModel, str(selectedProvider?.driver)) ?? '' }) : selectedModel || 'Choose model',
     modelUnavailable: currentModel?.isUnavailable === true,
     composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,

@@ -79,19 +79,23 @@ export function queuedEdit(client: T3Client): QueuedEditing | undefined {
 }
 
 /**
- * Whether the edit's run left the queue. The open thread's projection decides; elsewhere the shell tells a run that
- * started or a thread that was deleted (the reference watches the thread's detail; this client follows one thread, so a
- * run removed from another client settles once its thread is open again). Unknown reads as still queued.
+ * Whether the edit's run left the queue (makeQueuedRunsAtom). A deleted thread has no runs: the shell reports its removal
+ * (`thread.removed`, which drops the row) or marks it deleted. Absence alone is not deletion, since an archived thread
+ * leaves the shell with its queue intact. Otherwise the open thread's projection decides, and elsewhere the shell tells
+ * a run that started (the reference watches the thread's detail; this client follows one thread, so a queued run that
+ * another client removes settles once its thread is open again). Unknown reads as still queued.
  */
 function runLeftQueue(client: T3Client, edit: QueuedEditing): boolean {
   if (client.environmentId !== edit.environmentId) return false;
+  if (client.removedThreadIds.has(edit.threadId)) return true;
+  const shell = client.shell.threads.find(thread => thread.id === edit.threadId);
+  if (shell && shell.deletedAt != null) return true;
   if (client.threadId === edit.threadId) {
     if (!client.thread || str(obj(client.projection.thread).id) !== edit.threadId) return false;
     return !arr(client.projection.runs).some(run => run.id === edit.runId && run.status === 'queued');
   }
-  const shell = client.shell.threads.find(thread => thread.id === edit.threadId);
   if (!shell) return false;
-  return shell.deletedAt != null || shell.activeRunId === edit.runId || (shell.latestRunId === edit.runId && shell.latestRunStartedAt != null);
+  return shell.activeRunId === edit.runId || (shell.latestRunId === edit.runId && shell.latestRunStartedAt != null);
 }
 /** Each edit whose run left the queue ends once, wherever the user is: a changed edit is kept or discarded with a toast. */
 export function settleQueuedEdits(client: T3Client): void {

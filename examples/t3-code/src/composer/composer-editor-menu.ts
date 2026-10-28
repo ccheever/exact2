@@ -3,6 +3,7 @@
 // the ranking, labels and empty states are tested without the native editor.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { COMPOSER_CITATION } from './composer-source-chips';
+import { foldSearchQuery, rankSearchItems, scoreThreadSearch, threadSearchSubject } from '../palette/palette-search';
 
 export type EditorTrigger = { kind: string; query: string; start: number; end: number };
 
@@ -224,16 +225,18 @@ export function pathRows(entries: Obj[]): MenuRow[] {
   });
 }
 
-/** matchComposerThreadItems: titled threads of this environment, newest first, five at most, without subagent threads. */
-export function threadRows(threads: Obj[], excludeThreadId: string, query: string): MenuRow[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return [];
-  return threads
-    .filter(thread => str(thread.id) !== excludeThreadId && !thread.archivedAt && obj(thread.lineage).relationshipToParent !== 'subagent'
-      && str(thread.title).toLowerCase().includes(needle))
-    .sort((a, b) => str(b.updatedAt).localeCompare(str(a.updatedAt)))
+/**
+ * matchComposerThreadItems: this environment's threads matched and ranked as ⌘K ranks them (recency as of `now`, no
+ * picks), five at most, without the open thread, archived threads or subagent threads. `environmentId` keys this
+ * client's own opens.
+ */
+export function threadRows(threads: Obj[], excludeThreadId: string, query: string, now: number, environmentId = ''): MenuRow[] {
+  const folded = foldSearchQuery(query);
+  if (!folded) return [];
+  const candidates = threads.filter(thread => str(thread.id) !== excludeThreadId && !thread.archivedAt && obj(thread.lineage).relationshipToParent !== 'subagent');
+  return rankSearchItems(candidates, (thread, options) => scoreThreadSearch(folded, threadSearchSubject(thread, null, null, environmentId), now, { ...options, picks: false }))
     .slice(0, 5)
-    .map(thread => row({ id: `thread:${str(thread.id)}`, type: 'thread', label: str(thread.title), description: 'Thread', icon: 'messages-square',
+    .map(({ item: thread }) => row({ id: `thread:${str(thread.id)}`, type: 'thread', label: str(thread.title), description: 'Thread', icon: 'messages-square',
       iconLight: '#71717a', iconDark: '#a1a1a1' }));
 }
 

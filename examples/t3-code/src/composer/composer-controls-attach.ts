@@ -18,7 +18,8 @@ import { pushToast } from '../shell/toast';
 import { acceptAttachedFile, appendChipLinks, attachStagingLimit, imageChipLink, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments, reservedAttachmentsIn } from './composer-editor-attach';
 import { fileChipLink, holdDraftFiles, pasteAsTextArmed, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
-import { classifyAttachment, handleSource, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
+import { classifyAttachment, handleSource, previewSource, releasePreview, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
+import { wakeShell } from '../client/command-waits';
 import { uuid } from '../transport/transport-wire';
 import { requestPresentation } from './requests';
 import { composerFieldOwner } from './auto-balance-owner';
@@ -47,9 +48,10 @@ export function questionRefuses(client: T3Client): boolean {
 }
 
 // preparingComposerImages: images taken into a draft and still being prepared (a large screenshot takes a moment to
-// re-encode), by attachment key. The strip shows each at once, under the id its image will take; it holds its slot
-// until the image joins the draft, and removing its tile cancels it.
-type Preparing = { id: string; name: string };
+// re-encode), by attachment key. The strip shows each at once, under the id its image will take, as a thumbnail of its
+// source (`source`, an `app:/` copy; '' until the copy is made, when the tile shows the name); it holds its slot until
+// the image joins the draft, and removing its tile cancels it.
+type Preparing = { id: string; name: string; source: string };
 const preparing = new WeakMap<T3Client, Map<string, Preparing[]>>();
 function preparingIn(client: T3Client, key: string): Preparing[] { return preparing.get(client)?.get(key) ?? []; }
 function setPreparing(client: T3Client, key: string, images: Preparing[]): void {
@@ -99,7 +101,18 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
   // Held from staging until the files join the draft, so an answer cannot leave between the two.
   const release = holdStaging(client, target.key);
   const imageIds = sources.map(source => classifyAttachment(source.name, source.type) === 'image' ? uuid() : '');
-  setPreparing(client, target.key, [...preparingIn(client, target.key), ...sources.flatMap((source, at) => imageIds[at] ? [{ id: imageIds[at]!, name: source.name }] : [])]);
+  setPreparing(client, target.key, [...preparingIn(client, target.key), ...sources.flatMap((source, at) => imageIds[at] ? [{ id: imageIds[at]!, name: source.name, source: '' }] : [])]);
+  // ComposerImageThumbnail: each tile shows its source once a copy the window can draw exists.
+  const previews = sources.map(async (source, at) => {
+    const id = imageIds[at];
+    if (!id) return '';
+    const path = await previewSource(source, id);
+    if (path && preparingIn(client, target.key).some(image => image.id === id)) {
+      setPreparing(client, target.key, preparingIn(client, target.key).map(image => image.id === id ? { ...image, source: path } : image));
+      await wakeShell(native);
+    }
+    return path;
+  });
   let folders: Obj[] = [];
   try {
     const staged = await stageFiles(client, native, sources, target, imageIds);
@@ -110,6 +123,7 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
   } finally {
     setPreparing(client, target.key, preparingIn(client, target.key).filter(image => !imageIds.includes(image.id)));
     release();
+    for (const path of await Promise.all(previews)) await releasePreview(path);
   }
   if (folders.length) {
     const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote';

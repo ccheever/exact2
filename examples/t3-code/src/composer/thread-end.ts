@@ -2,8 +2,8 @@
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef: chat/ThreadNow.tsx,
 // chat/ThreadActivityBanners.tsx (childInputNowItem, backgroundWorkNowItem, goalNowItem),
 // chat/QueuedRunsControl.tsx, threadSync.ts and ChatView.tsx (timelineFooter, scrollToEndSummary).
-// The timeline appends these rows after its status line (thread-status-line.ts) and draws them
-// with thread-end.contract; the rows are `Message`s, so each field below names its role.
+// threadEndRows is the timeline's footer and thread-end.contract draws its rows; the rows are
+// `Message`s, so each field below names its role.
 import { arr, obj, str, type Activity, type Message } from '../client/domain';
 import { activeRun } from '../client/protocol';
 import type { T3Client } from '../client/client';
@@ -155,6 +155,16 @@ export function queuedTurnRows(client: T3Client): Message[] {
   });
   if (collapsible) rows.push({ id: `queued-more:${client.threadId}`, kind: 'queued-more', title: full ? 'Show fewer' : `Show all ${items.length} queued`, body: '', expanded: full });
   return rows;
+}
+
+/**
+ * The timeline's footer (ChatView timelineFooter): `before` (the pending handoff), what the thread is doing now, the
+ * status line, then the queued turns. While the thread's detail loads there is no status line or queue yet, and the
+ * footer is ThreadNow's sync line ("Loading messages..."): the timeline asks for it before it has a thread. Call it
+ * once a snapshot (syncStatus).
+ */
+export function threadEndRows(client: T3Client, before: Message[], status: Message | null): Message[] {
+  return [...before, ...threadNowRows(client), ...(status ? [status] : []), ...queuedTurnRows(client)];
 }
 
 /** scrollToEndSummary: what waits at the end of the timeline while it is out of view ("Subagent waiting · 2 queued"). */

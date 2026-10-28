@@ -247,6 +247,15 @@ export async function refreshComposerWorkspace(client: T3Client, native: Native 
   if (!native?.available || !client.ready) return { key, retry: false, wake };
   return cache(client).discovery.refresh(key, (method, payload) => client.restAccess(native).request(method, payload, true));
 }
+// useComposerMenuItems' `now`: thread mentions rank by recency as of when the composer mounted, here the clock when
+// the draft's @ menu first listed threads.
+const mentionClocks = new WeakMap<T3Client, Map<string, number>>();
+function mentionClock(client: T3Client, now: number): number {
+  const clocks = mentionClocks.get(client) ?? new Map<string, number>();
+  mentionClocks.set(client, clocks);
+  if (!clocks.has(client.draftKey)) clocks.set(client.draftKey, now);
+  return clocks.get(client.draftKey)!;
+}
 async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer' | 'foldLimit'>> {
   const entry = cache(client);
   const stash: ComposerStash = { ...stashView(client.local, now), menuOpen: entry.stashOpen && stashView(client.local, now).count > 0, keyStash: commandChord(client, 'composer.stash', 'Meta+S') };
@@ -302,7 +311,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     if (search === 'loading') loading = true;
     else { rows = pullRequestRows(search.entries, client.projectId, repository, trigger.query, search.providers ?? [], arr(obj(client.projection.thread).pullRequests ?? client.shell.threads.find(thread => thread.id === client.threadId)?.pullRequests)); prFailed = search.failed; }
   } else if (trigger.kind === 'path') {
-    const threads = threadRows(client.shell.threads, client.threadId, trigger.query);
+    const threads = threadRows(client.shell.threads, client.threadId, trigger.query, mentionClock(client, now), client.environmentId);
     const query = trigger.query.trim();
     let entries: Obj[] = [];
     if (query && cwd && native?.available) {

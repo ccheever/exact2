@@ -171,6 +171,27 @@ async function stageImage(fs: StageFiles, source: AttachSource, size: number, id
   }
 }
 
+/**
+ * PreparingComposerImage's `file`: the taken image as its preparing tile shows it, an `app:/` path (a picked image is a
+ * copy already; a dropped or pasted one is copied), or '' when it cannot be copied.
+ */
+export async function previewSource(source: AttachSource, imageId: string): Promise<string> {
+  if (source.path.startsWith('app:/')) return source.path;
+  const fs = files(), dir = `${SCRATCH}/preview-${imageId}`, to = `${dir}/${scratchName(source.name)}`;
+  try {
+    await mkdir(fs, dir);
+    await fs.copyFile(source.path, to);
+    return to;
+  } catch { return ''; }
+}
+/** A copy `previewSource` made, removed once its tile is gone (a picked image's copy stays with the picker's). */
+export async function releasePreview(path: string): Promise<void> {
+  if (!path.startsWith(`${SCRATCH}/preview-`)) return;
+  const fs = files();
+  await fs.rm(path).catch(() => undefined);
+  await fs.rm(path.slice(0, path.lastIndexOf('/'))).catch(() => undefined);
+}
+
 /** A plain file: copied into composer-files/ when the server takes files of its size (`fileLimit`, 0 when it takes none). */
 async function stageFile(fs: StageFiles, source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
   const name = source.name, mimeType = fileAttachmentMimeType(name, source.type);

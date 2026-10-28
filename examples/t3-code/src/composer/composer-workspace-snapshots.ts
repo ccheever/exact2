@@ -50,7 +50,8 @@ export class WorkspaceDiscovery {
     this.now = now;
     if (this.seen && (this.seen.prompt !== wake.prompt || this.seen.config !== wake.config)) this.wake++;
     this.seen = wake;
-    if (shown && !this.shown) this.attempts.clear();
+    // Mounting again starts over, failures too: the reference drops a cwd's state with its last subscriber.
+    if (shown && !this.shown) { this.attempts.clear(); this.failures.clear(); }
     this.shown = shown;
     const instanceId = str(provider.instanceId);
     if (!shown || !environment || !instanceId || !cwd) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
@@ -65,7 +66,8 @@ export class WorkspaceDiscovery {
       this.attempts.set(base, attempt);
     }
     attempt.observedComplete = complete;
-    if (complete) attempt.complete = true;
+    // A complete snapshot, by reply or by subscription, ends the failure count.
+    if (complete) { attempt.complete = true; this.failures.delete(base); }
     this.selected = attempt;
     // After its last allowed failure a scan waits out the TTL from its request.
     const exhausted = (this.failures.get(base) ?? 0) >= WORKSPACE_SNAPSHOT_MAX_ATTEMPTS && recent;

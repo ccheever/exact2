@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { arr, obj, type Obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
 import { toasts } from '../../src/shell/toast';
-import { endSummary, queuedTurnRows, threadNowRows } from '../../src/composer/thread-end';
+import { endSummary, queuedTurnRows, threadEndRows, threadNowRows } from '../../src/composer/thread-end';
 import { queuedEdit } from '../../src/composer/composer-controls-queue';
 import { opened } from '../support/composer-controls-fixture';
 
@@ -107,6 +107,23 @@ describe('the queued edit (makeQueuedRunEditStore)', () => {
       .toEqual(['Your unsaved edit in “Thread t1” was kept in the composer.']);
     expect(client.local.drafts[`${client.environmentId}:t1`]).toBe('changed while queued');
   });
+  test('a thread deleted while its edit is open elsewhere ends the edit; one that leaves the shell otherwise keeps it', async () => {
+    const context = await queue(1), { client, native, disk, command } = context;
+    await command('cclocal:queued-edit', 'q1');
+    await command('draft', '', 'changed while queued');
+    await go(context, 't2');
+    // Archived: the shell drops the row, and the archive keeps the queue, so the edit stays.
+    native.emit('shell', { kind: 'thread.updated', sequence: client.shell.sequence + 1, location: 'archive', thread: { ...client.shell.threads.find(thread => thread.id === 't1'), archivedAt: '2026-10-28T00:00:00.000Z' } });
+    await client.refresh(native, disk);
+    snapshot(client);
+    expect(toasts(client).filter(toast => toast.title === 'Queued message is no longer queued')).toHaveLength(0);
+    // Deleted (thread.removed): the edit ends once, with its toast.
+    native.emit('shell', { kind: 'thread.removed', sequence: client.shell.sequence + 1, location: 'archive', threadId: 't1' });
+    await client.refresh(native, disk);
+    snapshot(client);
+    snapshot(client);
+    expect(toasts(client).filter(toast => toast.title === 'Queued message is no longer queued')).toHaveLength(1);
+  });
   test('a save keeps its claim until it finishes, and a stale save never clears a newer edit', async () => {
     const { client, native, command } = await queue(2);
     let release: () => void = () => {};
@@ -135,12 +152,20 @@ describe('the queued edit (makeQueuedRunEditStore)', () => {
 });
 
 describe('what the thread is doing (ThreadNow)', () => {
-  test('a loading thread says so on the next snapshot, with the sync icon', async () => {
+  test('while a thread loads, the footer is its sync line from the next snapshot on', async () => {
     const context = await opened(), { client } = context;
     await go(context, 't2');
+    // The timeline asks for the footer before it has the thread's detail (thread-status-line.ts: no status, no handoff).
     client.thread = null;
-    expect(threadNowRows(client)).toEqual([]);
-    expect(threadNowRows(client)[0]).toMatchObject({ id: 'thread-sync:t2', kind: 'thread-now', icon: 'refresh-cw', status: 'status', title: 'Loading messages...' });
+    expect(threadEndRows(client, [], null)).toEqual([]);
+    expect(threadEndRows(client, [], null)).toMatchObject([{ id: 'thread-sync:t2', kind: 'thread-now', icon: 'refresh-cw', status: 'status', title: 'Loading messages...' }]);
+  });
+  test('the footer: the pending handoff, what the thread is doing, the status line, then the queue', async () => {
+    const { client } = await queue(1);
+    Object.assign(client.shell.threads.find(thread => thread.id === 't1')!, { goal: { objective: 'Fix parser', status: 'active' } });
+    const handoff = { id: 'pending-handoff:t1', kind: 'handoff', title: 'Context handoff pending', body: '' };
+    const status = { id: 'status:t1', kind: 'status', title: 'Working', body: '' };
+    expect(threadEndRows(client, [handoff], status).map(row => row.kind)).toEqual(['handoff', 'thread-now', 'status', 'queued']);
   });
   test('a cut line offers its details, measured from its probes against its laid-out width', async () => {
     const { client } = await opened();
@@ -155,6 +180,19 @@ describe('what the thread is doing (ThreadNow)', () => {
 });
 
 describe('notices above the composer (ComposerBannerStack)', () => {
+  test("the machine's notice comes before a usage limit; an open question leaves only the machine's", async () => {
+    const { client } = await opened();
+    const now = Date.parse('2026-10-20T12:00:00.000Z'), reset = new Date(now + 30 * 60_000).toISOString();
+    snapshot(client, now);
+    Object.assign(client.shell.threads[0]!, { status: 'failed', lastErrorClass: 'usage_limit', usageLimitResetAt: reset, latestRunId: 'r9', updatedAt: new Date(now - 60_000).toISOString(),
+      limitRecovery: { runId: 'r9', resetAt: reset, snooze: false } });
+    client.connection = 'offline';
+    expect(snapshot(client, now).composer.notices.map(notice => [notice.group, notice.title, notice.stacked])).toEqual([
+      ['environment', expect.any(String), false], ['attention', 'Usage limit reached', true]]);
+    client.thread!.projection.runtimeRequests = [{ id: 'ask', kind: 'user_input', status: 'pending', createdAt: '2026-10-03T01:00:00.000Z' }];
+    client.thread!.projection.turnItems = [{ type: 'user_input_request', requestId: 'ask', questions: [{ id: 'q', header: 'Pick', question: 'Which?', options: [{ label: 'A' }] }] }];
+    expect(snapshot(client, now).composer.notices.map(notice => notice.group)).toEqual(['environment']);
+  });
   test('machine notices come first, every card after the first joins it, and an open question leaves only machine problems', async () => {
     const { client, native, disk } = await opened();
     client.connection = 'offline';

@@ -9,6 +9,7 @@ import { formatSubagentStatus, selectionEffort, subagentBar } from '../../src/co
 import { subagentTraits } from '../../src/sidebar/subagent-card';
 import { formatDuration } from '../../src/timeline/timeline-worklog';
 import { opened } from '../support/composer-controls-fixture';
+import { contractComponent } from '../support/contract-action-fixture';
 
 describe('provider subagent bar', () => {
   test('durations and status lines read as the reference formats them', () => {
@@ -83,5 +84,21 @@ describe('Stop on the waiting-on-background-work notice', () => {
   });
   test('with no pending work and no active run, only pull request watches stop', async () => {
     expect(await stop([run('r1', 'completed')], [])).toEqual([{ type: 'thread.pull-request.watch', commandId: 'c1', threadId: 't1', host: 'github.com', repository: 'o/r', number: 7, watching: false }]);
+  });
+});
+
+// ProviderSubagentComposerBar at 7c3b3b3605ef (60b35a1ee0): container widths on the bar's own frame.
+describe('the subagent bar by its width', () => {
+  const bar = contractComponent('src/composer/composer-controls.contract', 'SubagentBar');
+  const at = (subagentWidth: number) => ({ data: { providerDriver: '', composer: { subagentWidth, subagentParent: 't1', subagentEffort: '' } } });
+  test('under 560pt the status takes its own line at 12pt', () => {
+    expect([0, 559, 560].map(width => bar.derives({ over: false }, at(width)).narrow)).toEqual([false, true, false]);
+  });
+  test('under 640pt "Runs on its own" is for VoiceOver only; under 320pt "Open parent" is its icon', () => {
+    const hidden = 'text "Runs on its own" position="absolute"', shown = 'text "Runs on its own" font-size';
+    expect([639, 640].map(width => [bar.drawn(hidden, { over: false }, at(width)), bar.drawn(shown, { over: false }, at(width))])).toEqual([[true, false], [false, true]]);
+    expect([319, 320].map(width => bar.drawn('text "Open parent"', { over: false }, at(width)))).toEqual([false, true]);
+    // Unmeasured (0), the bar is drawn wide.
+    expect(bar.drawn(shown, { over: false }, at(0))).toBe(true);
   });
 });

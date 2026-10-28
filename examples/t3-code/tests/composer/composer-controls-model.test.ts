@@ -34,6 +34,17 @@ describe('the name you would say out loud (modelShortName.test.ts)', () => {
     expect(triggerModelName(gemini, 'cursor')).toBe('Gemini 3.1 Pro');
     expect(triggerModelName({ slug: 'x', name: 'Claude Opus 4.5', shortName: 'Opus' }, 'claudeAgent')).toBe('Opus');
     expect(displayModelName({ slug: 'x', name: 'Claude Opus 4.5', shortName: 'Opus' })).toBe('Claude Opus 4.5');
+    // A caller that names no provider keeps the full name (or the server's shortName): its label does not change.
+    expect(triggerModelName({ slug: 'x', name: 'Claude Sonnet 5.5' })).toBe('Claude Sonnet 5.5');
+    expect(triggerModelName({ slug: 'x', name: 'Claude Sonnet 5.5', shortName: 'Sonnet' })).toBe('Sonnet');
+  });
+  test('the trigger on an Antigravity model says "3.1 Pro", its accessible name the full name', async () => {
+    const { client } = await opened();
+    const providers = client.config.providers as Obj[], claude = providers.find(provider => provider.instanceId === 'claude')!;
+    providers.push({ ...claude, instanceId: 'antigravity', driver: 'antigravity', displayName: 'Antigravity',
+      models: [{ slug: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', isDefault: true, capabilities: { optionDescriptors: [] } }] });
+    client.providerId = 'antigravity'; client.modelId = 'gemini-3.1-pro';
+    expect(snapshot(client)).toMatchObject({ modelShortLabel: '3.1 Pro', modelLabel: 'Gemini 3.1 Pro' });
   });
 });
 
@@ -57,8 +68,10 @@ describe('subagent model names (4f7760e6a0)', () => {
     expect(resolveSelectableModel('cursor', 'opus-4.6', claudeModels)).toBe('claude-opus-4-6');
     expect(resolveSelectableModel('claudeAgent', 'unknown', claudeModels)).toBe('');
     expect(reportedModelLabel('claudeAgent', 'claude-haiku-4-5-20251001', claudeModels)).toBe('Haiku 4.5');
-    // modelShortName: the vendor prefix and the family go; "Sonnet" still names the model.
-    expect(triggerModelName(claudeModels[2]!)).toBe('Sonnet');
+    // modelShortName on an unknown driver: the vendor prefix and the family go; "Sonnet" still names the model. With no
+    // driver named, only the sub-provider qualifier goes.
+    expect(triggerModelName(claudeModels[2]!, '')).toBe('Sonnet');
+    expect(triggerModelName(claudeModels[2]!)).toBe('Claude Sonnet');
     expect(reportedModelLabel('claudeAgent', 'claude-sonnet-4-6', claudeModels)).toBe('Claude Sonnet 4.6');
     expect(formatModelSlugName('gpt-6-astra')).toBe('GPT-6-Astra');
     expect(formatModelSlugName('openai/gpt-5.4-mini')).toBe('openai/GPT-5.4-Mini');

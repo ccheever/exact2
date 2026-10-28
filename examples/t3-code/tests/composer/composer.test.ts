@@ -157,3 +157,21 @@ describe('model picker catalog', () => {
     expect([...favoriteKeys([JSON.stringify(['a', 'b']), 'not json'])]).toEqual(['a:b']);
   });
 });
+
+// ChatComposer's ariaLabel at 7c3b3b3605ef: "Message <thread title>", a draft's thread being "New thread"
+// (buildLocalDraftThread), so switching threads lands focus on a field that names it.
+describe('the field names its thread', () => {
+  test('"Message <thread title>"; on a new draft "Message New thread"', async () => {
+    const { opened } = await import('../support/composer-controls-fixture');
+    const { snapshot } = await import('../../src/client/presentation');
+    const { appText } = await import('../support/app-files');
+    const { value } = await import('../support/contract-action-fixture');
+    const labels = appText('src/composer/composer.contract').split('\n').filter(line => line.includes('textarea id="composer"')).map(line => /aria-label=(`[^`]*`)/.exec(line)![1]!);
+    expect(labels).toHaveLength(2);
+    const { client } = await opened();
+    for (const label of labels) expect(value(label, { data: snapshot(client) })).toBe(`Message ${snapshot(client).threadTitle}`);
+    client.threadId = '';
+    client.thread = null;
+    for (const label of labels) expect(value(label, { data: snapshot(client) })).toBe('Message New thread');
+  });
+});

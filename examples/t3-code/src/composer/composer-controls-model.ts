@@ -78,9 +78,13 @@ const withoutQualifier = (name: string, subProvider: unknown) => {
 };
 /** getDisplayModelName: the full name, minus a leading sub-provider qualifier (picker rows, tooltips, accessible names). */
 export function displayModelName(model: Obj): string { return withoutQualifier(str(model.name), model.subProvider); }
-/** getTriggerDisplayModelName: the short name on the driver's families when there is one, minus the qualifier. */
-export function triggerModelName(model: Obj, driver = ''): string {
-  return withoutQualifier(resolveModelShortName(model, driver) || str(model.name), model.subProvider);
+/**
+ * getTriggerDisplayModelName: the server's `shortName`, else the spoken name on `driver`'s families, minus the
+ * qualifier. Without a driver it finds no spoken name: callers that do not name the provider keep the full name.
+ */
+export function triggerModelName(model: Obj, driver?: string): string {
+  const short = driver === undefined ? str(model.shortName) : resolveModelShortName(model, driver);
+  return withoutQualifier(short || str(model.name), model.subProvider);
 }
 
 /** The read-only bar's model label: a reported dated id or alias resolves to its catalog entry, by its spoken name. */

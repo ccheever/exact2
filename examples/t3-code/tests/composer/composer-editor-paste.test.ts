@@ -176,6 +176,22 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(client.local.snapshotReleases).toContain(cancelled!.id);
     void store;
   });
+  test('a preparing tile shows a thumbnail of the image it takes, an app copy removed once the image is in', async () => {
+    const { client, native } = await opened();
+    const { fs, store } = memoryFiles({ 'doc:/1/shot.png': png(4, 3, 64) });
+    let release: () => void = () => {};
+    const readFile = fs.readFile;
+    fs.readFile = async (path: string) => { if (path.startsWith('doc:')) await new Promise<void>(resolve => { release = resolve; }); return readFile(path); };
+    const taking = attachIncoming(client, native, 'paste', incoming(['doc:/1/shot.png']));
+    for (let turn = 0; turn < 5; turn++) await new Promise(resolve => setTimeout(resolve, 0));
+    const [tile] = preparingImages(client);
+    expect(tile!.source).toBe(`app:/tmp/composer-stage/preview-${tile!.id}/shot.png`);
+    expect(store.get(tile!.source)).toEqual(png(4, 3, 64));
+    release();
+    await taking;
+    expect(preparingImages(client)).toEqual([]);
+    expect(store.has(tile!.source)).toBe(false);
+  });
   test('what cannot be attached is named, as addComposerAttachments reports it', async () => {
     const { client, native } = await opened();
     memoryFiles({ 'doc:/1/layers.psd': text('8BPS'), 'doc:/2/broken.png': text('X'), 'doc:/3/empty.txt': new Uint8Array() });

@@ -48,6 +48,25 @@ describe('workspace provider discovery', () => {
     expect(discovery.state('env', 1, partial, '/gone', wake, true, now + 60_000).needed).toBe(false);
     expect(discovery.state('env', 1, partial, '/gone', wake, true, now + 3 + 300_000).needed).toBe(true);
   });
+  test('the failure count starts over when the composer mounts again or a complete snapshot arrives (providerSkills.ts)', async () => {
+    const now = Date.parse('2026-10-25T00:00:00Z'), failing = async () => { throw new Error('no such directory'); };
+    const state = (discovery: WorkspaceDiscovery, provider: Obj, cwd: string, at: number, shown = true) => discovery.state('env', 1, provider, cwd, { prompt: '', config: provider }, shown, at);
+    const exhaust = async (discovery: WorkspaceDiscovery, cwd: string) => {
+      for (const attempt of [1, 2, 3]) await discovery.refresh(state(discovery, partial, cwd, now + attempt).key, failing);
+    };
+    // Mounted again after its last failure: the next failure is the first of three.
+    const remounted = new WorkspaceDiscovery();
+    await exhaust(remounted, '/gone');
+    state(remounted, partial, '/gone', now + 10, false);
+    expect((await remounted.refresh(state(remounted, partial, '/gone', now + 11).key, failing)).retry).toBe(true);
+    // A complete snapshot by subscription: once it goes stale, a failure is again the first of three.
+    const subscribed = new WorkspaceDiscovery(), current = { ...complete, workspaceSnapshots: [{ ...complete.workspaceSnapshots[0], checkedAt: new Date(now + 10).toISOString() }] };
+    await exhaust(subscribed, '/repo');
+    state(subscribed, current, '/repo', now + 10);
+    const stale = state(subscribed, partial, '/repo', now + 3 + 300_001);
+    expect(stale.needed).toBe(true);
+    expect((await subscribed.refresh(stale.key, failing)).retry).toBe(true);
+  });
   test('retries failures and keeps delimiter-containing keys distinct', async () => {
     const discovery = new WorkspaceDiscovery();
     const first = discovery.state('a:b', 1, { instanceId: 'c' }, '/repo');
