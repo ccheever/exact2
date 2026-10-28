@@ -106,8 +106,10 @@ public enum WakeStore {
         center.addObserver(forName: Notification.Name("exact.wakes.ready"), object: nil, queue: .main) { _ in
             for a in arrivals where !a.offered { offer(a) }
             if !readied { readied = true; TransferCarrier.ready() }
+            RegionCarrier.ready()
         }
         TransferCarrier.install()
+        RegionCarrier.install()
         #if os(iOS)
         for suffix in ["refresh", "processing.network", "processing.network-power"] where permitted(suffix) {
             let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: "\(bundle).\(suffix)", using: .main) { task in
@@ -156,7 +158,7 @@ public enum WakeStore {
             return boot()
         }
         log("wakes: a \(a.kind) wake was taken by no package: \(packages.keys.sorted().joined(separator: ", "))")
-        for r in a.due where r.kind != "transfer" && requests[r.package + " " + r.key] == nil { requests[r.package + " " + r.key] = r }
+        for r in a.due where r.kind != "transfer" && r.kind != "region" && requests[r.package + " " + r.key] == nil { requests[r.package + " " + r.key] = r }
         keep()
         finish(a, false)
     }
@@ -164,6 +166,14 @@ public enum WakeStore {
     /// Transfers' endings, by package and registration id: a wake of kind `transfer` (D10).
     static func transfer(_ due: [(String, String)], complete: @escaping (Bool) -> Void) {
         let a = Arrival(kind: "transfer", due: due.map { Request(package: $0.0, key: $0.1, kind: "transfer", at: now(), network: false, power: false) },
+                        complete: complete)
+        arrivals.append(a)
+        offer(a)
+    }
+
+    /// Regions' crossings, by package and region name: a wake of kind `region` (LLP 1133.021 D14).
+    static func region(_ due: [(String, String)], complete: @escaping (Bool) -> Void) {
+        let a = Arrival(kind: "region", due: due.map { Request(package: $0.0, key: $0.1, kind: "region", at: now(), network: false, power: false) },
                         complete: complete)
         arrivals.append(a)
         offer(a)

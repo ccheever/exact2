@@ -793,6 +793,7 @@ extension Agent {
         // What the click will reach, by the window's own hit test: a part's landing reads it (AgentParts.swift).
         PartLanding.view = win.contentView?.superview?.hitTest(p) ?? win.contentView?.hitTest(p)
         PartLanding.delivered = true
+        PartLanding.point = p
         for clicks in 1...count {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()

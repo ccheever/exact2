@@ -410,6 +410,13 @@ extension ExactExtensions {
                     return work.cancel
                 }
                 return module.after(ms, body).stop
+            },
+            regions: ExactRegions { op, args in
+                let box = NSMutableDictionary(dictionary: args)
+                box["op"] = op
+                box["package"] = name
+                NotificationCenter.default.post(name: Notification.Name("exact.regions"), object: box)
+                return box["reply"]
             })
     }
 
