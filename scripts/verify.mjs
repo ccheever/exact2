@@ -1293,14 +1293,14 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   return { lines: out, problems, exit: failedTests || broken ? 1 : 0, full: grouped ? full : [] };
 }
 
-async function deviceMain(argv, emitJSON) {
+async function deviceMain(argv, emitJSON, declined) {
   const args = guardFlags('verify', argv);
   const value = (flag) => args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined;
   const json = args.includes('--json'), sim = value('--sim'), copyTo = value('--shots');
   const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1].filter((i) => i > 0));
-  if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return 2; }
+  if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return declined(2); }
   const host = args.find((a, i) => !a.startsWith('-') && !flagged.has(i)) ?? 'web';
-  if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return 2; }
+  if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return declined(2); }
   if (sim) process.env.EXACT_SIM = sim; // as the driver names it (devices.mjs `simulator`)
   const started = Date.now();
   const { resolveApp } = await import('./app.mjs');
@@ -1311,7 +1311,7 @@ async function deviceMain(argv, emitJSON) {
   // answering there (the builder's dev server) is refused before the build: never stopped, never written to; so is
   // an entry that does not read DB (LLP 1116.008 D1), which could only be run on its own database.
   const server = appServer(app.dir), owned = server && !server.why;
-  const refuse = (line) => { if (json) emitJSON({ host, server: { error: line }, problems: 1, exit: 1 }); else console.error(`verify: ${line}`); return 1; };
+  const refuse = (line) => { if (json) emitJSON({ host, server: { error: line }, problems: 1, exit: 1 }); else console.error(`verify: ${line}`); return declined(1); };
   if (server?.refusal) return refuse(server.refusal);
   // (A test run that holds the port's turn is waited for when the server starts.)
   if (owned && await answering(server.url) && !(await holderOf(server.port))) return refuse(heldLine(server));
@@ -1423,14 +1423,16 @@ async function deviceMain(argv, emitJSON) {
   return r.exit;
 }
 
-// Both runs contribute to the exit status, including when the device build or drive fails.
+// Both runs contribute to the exit status, including when the device build or drive fails. A refusal (a bad flag,
+// a server verify will not start or write to) stops both: it is one line and nothing runs (LLP 1116.008 D1).
 async function main(argv) {
   const args = guardFlags('verify', argv), json = args.includes('--json');
   const { resolveApp } = await import('./app.mjs');
   const app = resolveApp(args.includes('--app') ? args[args.indexOf('--app') + 1] : undefined);
-  let device = null, code;
-  try { code = await deviceMain(args, result => { device = result; }); }
+  let device = null, code, refused = false;
+  try { code = await deviceMain(args, result => { device = result; }, (exit) => { refused = true; return exit; }); }
   catch (e) { code = 1; device = { error: e.message, exit: 1 }; if (!json) console.error(`verify: ${e.message}`); }
+  if (refused) { if (json && device) console.log(JSON.stringify(device)); return code; }
   console.error('verify: checking properties and scripts with contract verify');
   const semantics = await new Promise(resolveResult => {
     let output = '';
