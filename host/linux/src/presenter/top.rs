@@ -592,8 +592,8 @@ impl<D: DataSource> Presenter<D> {
         ))
     }
 
-    /// Row `index` chosen; `point`, where a pointer chose it, in the page.
-    fn choose(&mut self, index: usize, now_ms: f64, point: Option<(f32, f32)>) {
+    /// Row `index` chosen; `pressed`, where a pointer chose it, in the page.
+    fn choose(&mut self, index: usize, now_ms: f64, pressed: Option<(f32, f32)>) {
         let Some(open) = &self.top.open else {
             return;
         };
@@ -610,7 +610,7 @@ impl<D: DataSource> Presenter<D> {
             .contains(&EventKind::Press)
             && !row.cancel
         {
-            let (x, y) = point.unwrap_or_default();
+            let (x, y) = pressed.unwrap_or_default();
             let press = Event::pressed(exact_runner::MouseEvent {
                 client_x: x.into(),
                 client_y: y.into(),
