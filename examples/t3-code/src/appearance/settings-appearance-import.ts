@@ -6,7 +6,7 @@
 import type { T3Client } from '../client/client';
 import { ClientError, type Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
-import { parseThemeFile, themeIdFromName, toHex, type CustomTheme } from './settings-themes';
+import { parseThemeFile, readableThemeColorOn, themeIdFromName, toHex, type CustomTheme } from './settings-themes';
 import { STANDARD, updateFamily } from './settings-appearance-editor';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
@@ -93,6 +93,13 @@ export function convertVsCodeTheme(value: unknown, taken: string[]): CustomTheme
     if (contrast(fallback, surface) >= 4.5) return fallback;
     return lum(surface) < 0.179 ? '#ffffff' : '#000000';
   };
+  // Status colours also fill controls such as destructive buttons, which carry white text, so a dim one is lightened
+  // along its hue rather than replaced by readable's black or white. One hidden in the canvas has no hue to keep, so
+  // the derived colour stands in.
+  const readableStatus = (fallback: string, ...keys: string[]) => {
+    const specified = pick(canvas, ...keys);
+    return readableThemeColorOn(specified && standsApart(specified, canvas) ? specified : fallback, canvas, 4.5);
+  };
   const sidebar = pick(canvas, 'sideBar.background', 'activityBar.background') ?? derived.sidebar!;
   const terminal = pick(canvas, 'terminal.background', 'panel.background') ?? derived.terminalBackground!;
   const roles: Record<string, string> = { ...derived, canvas, chrome: canvas, toolbar: canvas,
@@ -100,8 +107,8 @@ export function convertVsCodeTheme(value: unknown, taken: string[]): CustomTheme
     surface: pick(canvas, 'editorWidget.background') ?? derived.surface!, surfaceRaised,
     surfaceOverlay: pick(canvas, 'menu.background', 'quickInput.background', 'dropdown.background') ?? derived.surfaceOverlay!,
     border: pick(canvas, 'panel.border', 'editorGroup.border', 'contrastBorder') ?? derived.border!, input,
-    placeholder: readable(surfaceRaised, derived.placeholder!, 'input.placeholderForeground'), error: readable(canvas, derived.error!, 'editorError.foreground', 'errorForeground'),
-    warning: readable(canvas, derived.warning!, 'editorWarning.foreground'), accentSurface: pick(canvas, 'list.activeSelectionBackground', 'list.hoverBackground') ?? derived.accentSurface!,
+    placeholder: readable(surfaceRaised, derived.placeholder!, 'input.placeholderForeground'), error: readableStatus(derived.error!, 'editorError.foreground', 'errorForeground'),
+    warning: readableStatus(derived.warning!, 'editorWarning.foreground'), accentSurface: pick(canvas, 'list.activeSelectionBackground', 'list.hoverBackground') ?? derived.accentSurface!,
     codeBackground: pick(canvas, 'textCodeBlock.background') ?? derived.codeBackground!, sidebar, sidebarForeground: readable(sidebar, derived.sidebarForeground!, 'sideBar.foreground'),
     sidebarBorder: pick(sidebar, 'sideBar.border') ?? derived.sidebarBorder!, sidebarRowHover: pick(sidebar, 'list.hoverBackground') ?? derived.sidebarRowHover!,
     sidebarRowActive: pick(sidebar, 'list.inactiveSelectionBackground', 'list.hoverBackground') ?? derived.sidebarRowActive!,
@@ -254,7 +261,7 @@ export type ThemeFileRead = { kind: 'single'; json: string; fileName: string } |
 /**
  * readThemeFiles: one file fills the editor for review (its size checked first); several import
  * as a batch, each oversized one as "<file>: too large" and each unparsable one as
- * "<file>: <reason>", joined with " — " by the caller.
+ * "<file>: <reason>", joined with "; " by the caller (ThemeImportDialog.tsx).
  */
 export function readThemeFiles(files: PickedThemeFile[], taken: string[]): ThemeFileRead {
   if (files.length === 1) {
@@ -296,7 +303,7 @@ export async function themeImportCommand(client: T3Client, native: Native | null
     const result = readThemeFiles(files, taken);
     if (result.kind === 'single') { state.json = result.json; state.fileName = result.fileName; return ''; }
     if (result.themes.length) addManyThemes(client, result.themes);
-    if (result.failures.length) throw new ClientError(result.failures.join(' — '));
+    if (result.failures.length) throw new ClientError(result.failures.join('; '));
     resetImport(client);
     return '';
   }

@@ -314,7 +314,7 @@ component ChatColumn
         // loads the pane stays blank (hideEmptyPlaceholder: threadDetailLoading).
         column flex=1 min-height=0 width="100%" padding-right=laneInset padding-bottom=(overlaid ? data.composerReserved : 0) box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
           if not data.threadLoading and not data.running
-            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #a1a1a14d)" testId="empty-timeline-hint"
+            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="empty-timeline-hint"
       if data.messages.length > 0
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
@@ -388,7 +388,7 @@ component ChatColumn
       if fileDrag and not overHeader
         column position="absolute" top=60 left=8 right=8 bottom=8 z-index=40 pointer-events="none" border-radius="1rem" border-width=2 border-style="dashed" border-color="light-dark(#1b4ed899, #346bf199)" background-color="light-dark(#1b4ed809, #346bf109)" align-items="center" justify-content="center" box-sizing="border-box" testId="chat-drop-overlay"
           row role="status" gap="0.5rem" align-items="center" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-radius="9999px" border-width=1 border-style="solid" border-color="light-dark(#1b4ed840, #346bf140)" background-color="light-dark(#fcfcfcf2, #000000f2)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a"
-            svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#1b4ed8, #346bf1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+            svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#1b4ed8, #346bf1)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
               path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
             text "Drop files to attach" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
 
@@ -541,7 +541,7 @@ component PagesCover
     // Usage opens as the large modal over the page that opened it (AppRouteModal label "Usage", 3faeb9e6f9 #24847).
     if pageCover and utilityPage == "usage"
       AppRouteModal(label="Usage", modalId="usage-modal", viewportWidth=viewport.width, canvas="light-dark(#fcfcfc, #000000)", border="light-dark(#e4e4e7, #ffffff14)", backdrop="light-dark(#fcfcfc99, #000000a3)", inert=modal, first="usage-environment", last="close-usage", close=pageBack)
-        UsagePage(page=usage, keys=usageShortcuts, scheme=scheme, wide=(routeModalWidth(viewport.width) - 60 >= 896), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
+        UsagePage(page=usage, keys=usageShortcuts, scheme=scheme, wide=(routeModalWidth(viewport.width) - 30 >= 896), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
     // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
     // A pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
     if pageCover and utilityPage == "usage" and usageConfirmOpen
