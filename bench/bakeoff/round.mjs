@@ -1,5 +1,5 @@
 // A bake-off round: pin exact2, build every pair, probe every app's scrolling, grade every pair, report.
-//   bun bench/bakeoff/round.mjs <name> [build|feel|grade|report|all] [--specs a,b] [--parallel 6] [--rev <commit>]
+//   bun bench/bakeoff/round.mjs <name> [build|feel|grade|report|tidy|all] [--specs a,b] [--parallel 6] [--rev <commit>]
 // The round lives in ~/bakeoff/rounds/<name> (apps and logs are large); `report` copies its records, feel results,
 // grades and summary into bench/bakeoff/results/<name>/.
 import { spawn, spawnSync } from 'node:child_process';
@@ -10,7 +10,7 @@ import { resolve } from 'node:path';
 const HERE = resolve(new URL('.', import.meta.url).pathname);
 const REPO = resolve(HERE, '../..');
 const [name, phase = 'all', ...rest] = process.argv.slice(2);
-if (!name) { console.error('usage: round.mjs <name> [build|feel|grade|report|all] [--specs a,b] [--parallel n] [--rev commit]'); process.exit(2); }
+if (!name) { console.error('usage: round.mjs <name> [build|feel|grade|report|tidy|all] [--specs a,b] [--parallel n] [--rev commit]'); process.exit(2); }
 const opt = Object.fromEntries(rest.reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1]]] : a), []));
 const pairs = JSON.parse(readFileSync(resolve(HERE, 'pairs.json'), 'utf8'));
 const specs = opt.specs ? opt.specs.split(',') : Object.keys(pairs);
@@ -137,8 +137,23 @@ function report() {
   }
 }
 
+/** A graded round's Exact build trees (several GB an app; the round's `built/` keeps each app) and every pin but the
+ * round's own: nine rounds of them filled the disk. Sources, logs, records, probes and grades stay. */
+function tidy() {
+  for (const d of existsSync(resolve(ROUND, 'apps')) ? readdirSync(resolve(ROUND, 'apps')) : []) rmSync(resolve(ROUND, 'apps', d, 'target'), { recursive: true, force: true });
+  const own = (() => { try { return readFileSync(resolve(ROUND, 'pin.txt'), 'utf8').split('\n')[0]; } catch { return null; } })();
+  const pins = resolve(homedir(), 'bakeoff/pins');
+  for (const rev of existsSync(pins) ? readdirSync(pins) : []) {
+    if (rev === own) continue;
+    if (spawnSync('git', ['-C', REPO, 'worktree', 'remove', '--force', resolve(pins, rev)]).status !== 0) rmSync(resolve(pins, rev), { recursive: true, force: true });
+  }
+  spawnSync('git', ['-C', REPO, 'worktree', 'prune']);
+  say('tidied: build trees and older pins removed');
+}
+
 if (phase === 'build' || phase === 'all') await build();
 if (phase === 'feel' || phase === 'all') await feel();
 if (phase === 'grade' || phase === 'all') await grade();
 if (phase === 'report' || phase === 'all') report();
+if (phase === 'tidy' || phase === 'all') tidy();
 say(`${phase} done`);
