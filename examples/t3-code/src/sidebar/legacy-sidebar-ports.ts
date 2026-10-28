@@ -12,9 +12,9 @@ import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
 import { openUrlInPreview } from '../browser/browser-links';
-import { browserHistory } from '../browser/browser-history';
+import { recordVisit } from '../browser/browser-history-record';
 import { navigationNow } from '../browser/browser-navigation';
-import { SIDEBAR_DISCOVERED_SERVERS_KEY, discoveredServers, environmentHostname, preparedConnection, readDiscoveredServers, resolveDiscoveredServerUrl,
+import { SIDEBAR_DISCOVERED_SERVERS_KEY, discoveredServers, preparedConnection, readDiscoveredServers, resolveDiscoveredServerUrl,
   watchDiscoveredServers, type DiscoveredLocalServer } from '../browser/browser-targets';
 import { subscriptionSerial } from '../details/shell-vcs';
 import { fleet, parseFleetThreadId, type EnvironmentFleet, type FleetEntry } from '../connections/settings-b-fleet';
@@ -95,7 +95,7 @@ const pendingOpens = new WeakMap<T3Client, { environmentId: string; threadId: st
 async function openBeside(client: T3Client, native: Native, ref: { environmentId: string; threadId: string }, url: string): Promise<void> {
   try {
     await openUrlInPreview(client, native, ref, resolveDiscoveredServerUrl(ref.environmentId, url, preparedConnection(client)));
-    browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client));
+    recordVisit(client, ref, url, navigationNow(client));
   } catch (error) {
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Unable to open preview', description: error instanceof Error && error.message ? error.message : 'The preview could not be opened.', stacked: true });

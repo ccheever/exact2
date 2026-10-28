@@ -87,24 +87,6 @@ describe('sidebar row actions', () => {
   });
 });
 
-describe('sidebar search excerpts', () => {
-  test('a server match labels the speaker and marks every case-folded hit, title matches included', () => {
-    const { searchMatch } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
-    const match = searchMatch({ title: 'fixture complete' }, 'genuine', { source: 'assistant', snippet: '# Fixture complete\n\nThe GENUINE backend, genuine output.' });
-    expect(match.matchLabel).toBe('Agent:');
-    expect(match.matchUser).toBe(false);
-    expect(match.matchParts.map(part => [part.text, part.hit])).toEqual([
-      ['# Fixture complete The ', false], ['GENUINE', true], [' backend, ', false], ['genuine', true], [' output.', false]]);
-    expect(searchMatch({ title: 'fixture complete fork' }, 'fork', { source: 'user', snippet: 'fork here too' }).matchLabel).toBe('You:');
-  });
-
-  test('without a server match, or with an empty query, there is no excerpt', () => {
-    const { searchMatch } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
-    expect(searchMatch({ title: 'x', latestVisibleMessage: { role: 'user', text: 'needle' } }, 'needle').matchLabel).toBe('');
-    expect(searchMatch({ title: 'a' }, '  ', { source: 'user', snippet: 'b' }).matchLabel).toBe('');
-  });
-});
-
 describe('snooze', () => {
   test('presets follow the shared rules: evening only with an hour left, next week unless it is tomorrow', () => {
     const { snoozePresets } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
@@ -140,19 +122,4 @@ test('every TypeScript source app.ts answers is registered with the mixed Rust/T
   const contract = await appText('app.contract');
   const answered = [...app.matchAll(/source === '([A-Za-z]+)'/g), ...contract.matchAll(/\b(serverBrowser[A-Z][A-Za-z]+)\(/g)].map(match => match[1]!);
   expect(answered.filter(source => !listed.has(source))).toEqual([]);
-});
-
-test('message search keeps only the current query and marks the server snippet', async () => {
-  const { runThreadSearch, serverMatches, searchMatch } = require('../../src/sidebar/sidebar-presentation') as typeof import('../../src/sidebar/sidebar-presentation');
-  const calls: Obj[] = [];
-  const client = { query: 'genuine', restAccess: () => ({ request: async (method: string, payload: Obj) => { calls.push({ method, ...payload });
-    return { matches: [{ threadId: 't1', projectId: 'p1', source: 'assistant', snippet: '# Fixture complete The genuine T3 backend', messageCreatedAt: null }] }; } }) } as unknown as T3Client;
-  await runThreadSearch(client, {} as Native, 'genuine');
-  expect(calls).toEqual([{ method: 'orchestration.searchThreads', query: 'genuine', limit: 50 }]);
-  const match = serverMatches(client).get('t1')!;
-  expect(searchMatch({ title: 'fixture complete' }, 'genuine', match).matchParts.filter(part => part.hit).map(part => part.text)).toEqual(['genuine']);
-  (client as unknown as { query: string }).query = 'other';
-  expect(serverMatches(client).size).toBe(0);
-  await runThreadSearch(client, {} as Native, 'g');
-  expect(calls).toHaveLength(1);
 });

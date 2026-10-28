@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
-import { InboxReturnTracker, WORKING_EXIT_GRACE_MS } from '../../src/sidebar/thread-inbox';
+import { InboxReturnTracker } from '../../src/sidebar/thread-inbox';
+import { WORKING_EXIT_GRACE_MS } from '../../src/shell/shell-notify';
 import { sortByReturn } from '../../src/sidebar/sidebar-model';
 import { partition, sidebarSnapshot } from '../../src/sidebar/sidebar-view';
 import { sidebarLocal } from '../../src/sidebar/sidebar-commands';

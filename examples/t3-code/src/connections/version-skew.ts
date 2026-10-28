@@ -6,8 +6,6 @@
 // `versionMismatchDismissals`) instead of localStorage, so a store is passed in
 // (a module store stands in for tests); the failed-attempt WeakSet keys by the
 // attempt the native update job numbers, since its state is rebuilt on each read.
-// `serverUpdateGuidance` stays while the composer's update notice reads it
-// (server-update-notices.ts); the reference dropped it with that notice.
 import { obj, str } from '../client/domain';
 import { manualServerUpdateCommand, type ServerInstallation } from './server-installation';
 
@@ -82,10 +80,6 @@ export function resolveServerSelfUpdateCapability(config: unknown): string | nul
 export function supportsDesktopAppUpdate(config: unknown): boolean { return capabilitiesOf(config).desktopAppUpdate === true; }
 /** The server can recover opted-in running turns after its self-update restart. */
 export function supportsServerUpdateThreadContinuation(config: unknown): boolean { return capabilitiesOf(config).serverUpdateThreadContinuation === true; }
-
-export function serverUpdateGuidance(capability: string): string {
-  return capability === 'desktop-managed' ? 'Update the desktop app' : 'Update to stay in sync';
-}
 
 export function buildVersionMismatchDismissalKey(environmentId: string, mismatch: Pick<VersionMismatch, 'clientVersion' | 'serverVersion'>): string {
   return `${environmentId}:${mismatch.clientVersion}:${mismatch.serverVersion}`;
