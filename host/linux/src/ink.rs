@@ -228,6 +228,21 @@ impl Ink {
 }
 
 impl Backend for Ink {
+    #[cfg(windows)]
+    fn attach_window(
+        &mut self,
+        window: exact_ink::device::d3d11::Window,
+        size: [u32; 2],
+    ) -> std::result::Result<bool, String> {
+        if let Selected::D3d11(device) = &mut self.device {
+            device
+                .attach_window(window, size)
+                .map_err(|e| e.to_string())?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     fn name(&self) -> &'static str {
         "ink"
     }
@@ -548,6 +563,24 @@ impl Backend for Ink {
         if target == FrameTarget::Geometry {
             Ok(None)
         } else {
+            #[cfg(windows)]
+            if target == FrameTarget::Window
+                && matches!(&self.device, Selected::D3d11(d) if d.has_window())
+            {
+                if let Some(e) = &self.error {
+                    return Err(e.clone());
+                }
+                while !self.groups.is_empty() {
+                    self.close_group().map_err(|e| e.to_string())?;
+                }
+                let texture = self.flush().map_err(|e| e.to_string())?;
+                if let Selected::D3d11(device) = &mut self.device {
+                    let present_ms = device.present(texture).map_err(|e| e.to_string())?;
+                    self.last_ms = (self.layer_ms, present_ms);
+                }
+                self.update_statistics();
+                return Ok(None);
+            }
             self.finish().map(Some)
         }
     }

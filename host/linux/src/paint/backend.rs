@@ -61,6 +61,15 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
+    /// Attach the carrier's owned window when the device can present directly.
+    #[cfg(windows)]
+    fn attach_window(
+        &mut self,
+        _window: exact_ink::device::d3d11::Window,
+        _size: [u32; 2],
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
     /// The selected backend's name.
     fn name(&self) -> &'static str;
     /// Whether geometry queries must draw through this backend to keep its
@@ -291,6 +300,15 @@ pub trait Backend {
 }
 
 impl super::Painter {
+    #[cfg(windows)]
+    pub(crate) fn attach_window(
+        &mut self,
+        window: exact_ink::device::d3d11::Window,
+        size: [u32; 2],
+    ) -> Result<bool, String> {
+        self.backend.attach_window(window, size)
+    }
+
     /// Release idle renderer storage while preserving kept rows.
     pub fn trim(&mut self) {
         self.backend.trim();

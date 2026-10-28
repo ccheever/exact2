@@ -4,6 +4,9 @@
 use crate::instance::{Frame, TextureId};
 use std::fmt;
 
+#[cfg(windows)]
+pub mod d3d11;
+
 #[cfg(exact_ink_metal)]
 pub mod metal;
 mod selected;
@@ -171,5 +174,12 @@ pub fn process_usage() -> std::io::Result<[f64; 5]> {
             usage.ri_phys_footprint as f64,
             usage.ri_lifetime_max_phys_footprint as f64,
         ])
+    }
+}
+
+#[cfg(windows)]
+impl From<windows::core::Error> for Error {
+    fn from(error: windows::core::Error) -> Self {
+        Self::Device(error.to_string())
     }
 }

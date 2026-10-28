@@ -29,5 +29,15 @@ wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"]
 web-time = "1"
 wasm-bindgen-futures = "0.4"
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Threading",
+    "Win32_System_LibraryLoader", "Win32_System_Com", "Win32_System_Ole",
+    "Win32_UI_Controls_RichEdit", "Win32_UI_Input_Ime", "Win32_UI_WindowsAndMessaging",
+] }
+
 [build-dependencies]
 naga = { version = "30", features = ["wgsl-in", "msl-out", "hlsl-out", "spv-out", "glsl-out"] }
