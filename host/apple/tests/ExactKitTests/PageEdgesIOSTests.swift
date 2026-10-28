@@ -262,6 +262,10 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertEqual(shortDragTop, beforeDrag + expanded - collapsed, accuracy: 0.5,
                        "the offset follows the same native snap instead of returning to the top")
         XCTAssertEqual(filter.convert(filter.bounds, to: route.view).minY, route.view.safeAreaInsets.top + 8, accuracy: 1)
+        // A route that clips to its own box (`overflow="hidden"` at `inset=0`) keeps its bars: no band passes its edge.
+        route.node.clipsToBounds = true
+        defer { route.node.clipsToBounds = false }
+        XCTAssertEqual(ControlBars(p).bars(of: list, in: route.node, top: true)?.isEmpty, false)
     }
 
     func testLargeTitleRidersRequireBothEdgesAndTheBarsPaintOrder() throws {

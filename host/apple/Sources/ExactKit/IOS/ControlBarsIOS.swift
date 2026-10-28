@@ -102,7 +102,7 @@ final class ControlBars {
     /// level from `s` up to `c`, the box's shown in-flow siblings on that
     /// side, every one a bar placed wholly beyond it, which spans its parent's
     /// width and fills what they leave; a box with none is at its parent's
-    /// edge. None of the parents clips, transforms, scrolls or hides. Empty
+    /// edge. No parent transforms, scrolls or hides, and none below `c` clips. Empty
     /// when nothing is between them; nil when anything else is.
     func bars(of s: NodeView, in c: NodeView, top: Bool) -> [NodeView]? {
         var x = s, found: [NodeView] = []
@@ -110,7 +110,9 @@ final class ControlBars {
             var up = x.superview
             // Between nodes, a host view that clips (a clip box) or scrolls cuts the band off.
             while let v = up, !(v is NodeView) { if v is UIScrollView || v.clipsToBounds || v.layer.mask != nil { return nil }; up = v.superview }
-            guard let p = up as? NodeView, !p.isHidden, !p.clipsToBounds, p.clipPath == nil, p.layer.mask == nil, p.transform.isIdentity,
+            // The container clipping to its own box cuts nothing off: no band reaches past it (a route
+            // written `overflow="hidden"` at `inset=0`, which looks the same on the web).
+            guard let p = up as? NodeView, !p.isHidden, !p.clipsToBounds || p === c, p.clipPath == nil, p.layer.mask == nil, p.transform.isIdentity,
                   p.scrollView == nil || p === c else { return nil }
             let k = children(of: p)
             guard let i = k.at[ObjectIdentifier(x)] else { return nil }
