@@ -36,5 +36,9 @@
             <!-- The app manifest's `shortcuts` (app/build.gradle.kts writes the list; LLP 1133.023 D3). -->
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/exact_shortcuts" />
         </activity>
+        <!-- The app's files as content URIs an intent carries under a read grant (LLP 1133.024 D22 item 2): a mail's
+             attachments. Unexported: only a URI the app granted opens. -->
+        <provider android:name="dev.exact.canvas.Files" android:authorities="${applicationId}.exact.files"
+            android:exported="false" android:grantUriPermissions="true" />
     </application>
 </manifest>

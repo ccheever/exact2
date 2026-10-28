@@ -13,11 +13,12 @@ use monthLongName, savedScroll, paletteColor, Time, Viewport from "./models.cont
 use Clock, Month, Agenda, Event, StickerDrag, DragTarget, Landing from "./models.contract"
 use Library, Result, DragInput, boundedMonth, edgeSpeed from "./models.contract"
 use scrollSlot, magnitude, keyStep from "./models.contract"
-use DeviceAgenda, DeviceDays, GuestList, GuestsAdded, Export, ActivityDays, ActivityAgenda from "./models.contract"
-use MyCalendars, MyActivity, guestName, guestEmail from "./device.contract"
+use DeviceAgenda, DeviceDays, GuestList, GuestPhones, Invitation, GuestsAdded, Export, ActivityDays, ActivityAgenda from "./models.contract"
+use MyCalendars, MyActivity, guestName, guestEmail, guestTel from "./device.contract"
 use calendarStatus, showEventEditor, calendarEvents, calendars, CalendarStatus, CalendarEvent, EventEditorResult from "@exact/calendar"
 use healthStatus, requestHealthAuthorization, healthStatistics, healthWorkouts, HealthStatus from "@exact/health"
 use selectContacts, getContactProperties, ContactSelection, ContactProperties from "@exact/contacts"
+use composeEmail, composeMessage, composeStatus, ComposeStatus, ComposeResult from "@exact/compose"
 
 // One calendar: shared state and actions, with layout chosen by viewport width.
 
@@ -98,6 +99,13 @@ component Calendar
   state guestRevision = 0
   resource guests = calendarGuests(editId, guestRevision) as shape GuestList
   resource export = calendarExport(editId, revision) as shape Export
+  // The guests' mail and message composers (LLP 1133.024 D16): the
+  // invitation's `.ics` written to the app's temporary directory, then
+  // attached, or shared where this host's mail carries no attachment.
+  resource composer = composeStatus() as shape ComposeStatus else empty(available=false, email=false, emailAttachments=false, emailCopiesWithAttachments=false, message=false, messageSubject=false, messageAttachments=false)
+  resource phones = calendarGuestPhones(editId, guestRevision) as shape GuestPhones
+  mutation invitation as shape Invitation then didWriteInvitation
+  mutation composed as shape ComposeResult
   mutation invited as shape ContactSelection then didInvite
   mutation guestsAdded as shape GuestsAdded then didAddGuests
   mutation exported as shape EventEditorResult
@@ -804,16 +812,31 @@ component Calendar
     openURL("app-settings:")
   action invite
     if editId != "" and not busy
-      send invited = selectContacts(properties=["name", "email"], multiple=true)
+      send invited = selectContacts(properties=["name", "email", "tel"], multiple=true)
   action didInvite
     match invited
       case some(picked)
         if editId != "" and picked.contacts.length > 0
-          send guestsAdded = addGuests(editId, picked.contacts.map((c) => guestName(c)).join("\n"), picked.contacts.map((c) => guestEmail(c)).join("\n"))
+          send guestsAdded = addGuests(editId, picked.contacts.map((c) => guestName(c)).join("\n"), picked.contacts.map((c) => guestEmail(c)).join("\n"), picked.contacts.map((c) => guestTel(c)).join("\n"))
       case none
         error = ""
   action didAddGuests
     guestRevision = guestRevision + 1
+  action emailGuests
+    if editId != "" and not busy
+      send invitation = writeInvitation(editId, title, notes, time.epochAtZero + performanceNow())
+  action didWriteInvitation
+    match invitation
+      case some(written)
+        if written.path != "" and composer.emailAttachments
+          send composed = composeEmail(to=guests.guests.map((g) => g.email).filter((e) => e != ""), subject=title, body=`${title}\n${export.allDay ? export.start.slice(0, 10) : export.start.replaceAll("T", " ").slice(0, 16)}`, attachments=[written.path])
+        if written.path != "" and not composer.emailAttachments
+          share(title=title, files=[written.path])
+      case none
+        error = ""
+  action textGuests
+    if editId != "" and phones.tels.length > 0 and not busy
+      send composed = composeMessage(to=phones.tels, body=`${title}\n${export.allDay ? export.start.slice(0, 10) : export.start.replaceAll("T", " ").slice(0, 16)}`)
   action addToCalendar
     if editId != "" and export.start != ""
       send exported = showEventEditor(event=CalendarEvent(id=none, uid=none, calendarId=none, title=title, description=(notes == "" ? none : some(notes)), start=export.start, timeZone=(export.allDay ? none : some(time.timeZone)), duration=export.duration, showWithoutTime=export.allDay, location=none, url=none, status="confirmed", freeBusyStatus="busy", recurrenceId=none, utcStart=none, utcEnd=none, apple=none))
@@ -1084,4 +1107,4 @@ component Calendar
             box id="calendar-drag-landing-face" testId="calendar-drag-landing-face" position="absolute" left=0 top=0 width=landingWidth height=20 box-sizing="border-box" padding-left=(dragKind == "todo" ? 18 : 6) padding-right=6 overflow="hidden" display="flex" align-items="center" justify-content=(dragKind == "plan" ? "center" : "flex-start") opacity=(landed ? 1 : 0) transition=(viewport.prefersReducedMotion ? "none" : "opacity 150ms ease-out")
               text dragTitle text-decoration-line=(dragCompleted ? "line-through" : "none") opacity=(dragCompleted ? 0.5 : 1) position=(dragKind == "plan" ? "absolute" : "relative") left=(dragKind == "plan" ? 0 : "auto") right=(dragKind == "plan" ? 0 : "auto") top=(dragKind == "plan" ? 7 : "auto") text-align=(dragKind == "plan" ? "center" : "left") line-height="12px" font-size=11 font-weight=500 color=(dragKind == "plan" and theme == 0 ? paletteColor(theme, dragColor) : (theme == 0 ? "#292934" : themeInk)) padding-left=(dragKind == "plan" ? 3 : 0) padding-right=(dragKind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="clip" overflow="hidden"
       Themes(themeOpen=themeOpen, themeClosing=themeClosing, compact=compact, theme=theme, viewport=viewport, themeBorder=themeBorder, themeSurface=themeSurface, themeInk=themeInk, themeMuted=themeMuted, themeField=themeField, themeAccent=themeAccent, hovered=hovered, closeThemes=closeThemes, keepThemes=keepThemes, chooseTheme=chooseTheme, hoverOn=hoverOn)
-      Editor(editorOpen=editorOpen, editorClosing=editorClosing, compact=compact, busy=busy, editorReady=editorReady, opening=opening, libraryReady=libraryReady, allDay=allDay, confirmDelete=confirmDelete, editorKind=editorKind, editorLabel=editorLabel, editId=editId, title=title, notes=notes, startDate=startDate, endDate=endDate, startTime=startTime, endTime=endTime, color=color, error=error, themeSurface=themeSurface, themeInk=themeInk, themeMuted=themeMuted, themeField=themeField, themeBorder=themeBorder, themeAccent=themeAccent, sheetOffset=sheetOffset, viewport=viewport, opened=opened, refocusEditor=refocusEditor, setKind=setKind, retryEvent=retryEvent, writeTitle=writeTitle, save=save, editorKey=editorKey, writeNotes=writeNotes, toggleAllDay=toggleAllDay, writeStartDate=writeStartDate, writeStartTime=writeStartTime, writeEndDate=writeEndDate, writeEndTime=writeEndTime, pickColor=pickColor, keepEvent=keepEvent, remove=remove, askDelete=askDelete, closeEditor=closeEditor, panSheet=panSheet, releaseSheet=releaseSheet, guests=guests.guests, canInvite=contactFields.properties.includes("name"), canAdd=calStatus.editor, calendarNote=(match exported { case some(r) => (r.action == "saved" ? "Added to your calendar" : (r.action == "unknown" ? "Opened in your calendar app" : "")), case none => "" }), invite=invite, addToCalendar=addToCalendar)
+      Editor(editorOpen=editorOpen, editorClosing=editorClosing, compact=compact, busy=busy, editorReady=editorReady, opening=opening, libraryReady=libraryReady, allDay=allDay, confirmDelete=confirmDelete, editorKind=editorKind, editorLabel=editorLabel, editId=editId, title=title, notes=notes, startDate=startDate, endDate=endDate, startTime=startTime, endTime=endTime, color=color, error=error, themeSurface=themeSurface, themeInk=themeInk, themeMuted=themeMuted, themeField=themeField, themeBorder=themeBorder, themeAccent=themeAccent, sheetOffset=sheetOffset, viewport=viewport, opened=opened, refocusEditor=refocusEditor, setKind=setKind, retryEvent=retryEvent, writeTitle=writeTitle, save=save, editorKey=editorKey, writeNotes=writeNotes, toggleAllDay=toggleAllDay, writeStartDate=writeStartDate, writeStartTime=writeStartTime, writeEndDate=writeEndDate, writeEndTime=writeEndTime, pickColor=pickColor, keepEvent=keepEvent, remove=remove, askDelete=askDelete, closeEditor=closeEditor, panSheet=panSheet, releaseSheet=releaseSheet, guests=guests.guests, canInvite=contactFields.properties.includes("name"), canAdd=calStatus.editor, calendarNote=(match exported { case some(r) => (r.action == "saved" ? "Added to your calendar" : (r.action == "unknown" ? "Opened in your calendar app" : "")), case none => "" }), invite=invite, addToCalendar=addToCalendar, canEmail=(composer.email and guests.guests.map((g) => g.email != "").includes(true)), canText=(composer.message and phones.tels.length > 0), emailGuests=emailGuests, textGuests=textGuests)

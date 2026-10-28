@@ -789,10 +789,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         if (given(args, arg) && !granted(line)) return `grant-missing (${arg}= needs ${[line].flat().join(" or ")})`;
       }
     }
-    // A path option is the app's own file, within its `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4).
+    // A path option is the app's own file, within its `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4); each
+    // of a list's (LLP 1133.024 D16).
     for (const [option, path] of Object.entries(sub.paths ?? {})) {
-      const given = args?.[option], capability = `fs.${path.access}`;
-      if (typeof given === "string" && !(appPath(given) && coversPath(appGrantSet(), capability, given))) return `grant-missing (${option}=${given} needs ${capability})`;
+      const capability = `fs.${path.access}`;
+      for (const given of [args?.[option]].flat()) {
+        if (typeof given === "string" && !(appPath(given) && coversPath(appGrantSet(), capability, given))) return `grant-missing (${option}=${given} needs ${capability})`;
+      }
     }
     const applies = !sub.when || Object.entries(sub.when).every(([k, v]) => args?.[k] === v);
     // `{whenAny, is: "app"}`: only a call giving one of those options is held to `app` (LLP 1133.012 D12 item 5).

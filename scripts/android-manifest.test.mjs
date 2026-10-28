@@ -121,3 +121,11 @@ test("device's normal permission is declared, and a runtime one refused", () => 
   assert.deepEqual(fragmentPermissions(impl(undefined)), []);
   assert.throws(() => fragmentPermissions(impl({ permissions: ['android.permission.ACCESS_FINE_LOCATION'] })), (e) => e.message.includes('ACCESS_FINE_LOCATION') && e.message.includes('normal permissions only'));
 });
+
+test('a query with a data scheme: SENDTO mailto: and smsto: only (LLP 1133.024 D22 item 6)', () => {
+  const xml = manifestFragment(impl({ queries: [{ action: 'android.intent.action.SENDTO', scheme: 'mailto' }, { action: 'android.intent.action.SENDTO', scheme: 'smsto' }] }));
+  assert.match(xml, /<intent><action android:name="android\.intent\.action\.SENDTO" \/><data android:scheme="mailto" \/><\/intent>/);
+  assert.match(xml, /<data android:scheme="smsto" \/>/);
+  assert.throws(() => manifestFragment(impl({ queries: [{ action: 'android.intent.action.SENDTO', scheme: 'https' }] })), /not on the list/);
+  assert.throws(() => manifestFragment(impl({ queries: [{ action: 'android.intent.action.VIEW', scheme: 'mailto' }] })), /not on the list/);
+});

@@ -180,8 +180,13 @@ fn shapes(json: &Value, span: Span) -> Result<Vec<ShapeDecl>, String> {
 fn fields(map: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
     map.iter()
         .map(|(name, ty)| {
-            // A path option (LLP 1133.009 D10 item 4) is a string to Contract.
+            // A path option (LLP 1133.009 D10 item 4) is a string to Contract;
+            // a list of them (`"list": true`, LLP 1133.024 D16: a mail's
+            // attachments) an optional list of strings.
             let ty = match ty {
+                Value::Object(_) if ty["type"] == "path" && ty["list"] == true => {
+                    "option<string[]>"
+                }
                 Value::Object(_) if ty["type"] == "path" && ty["optional"] == true => {
                     "option<string>"
                 }

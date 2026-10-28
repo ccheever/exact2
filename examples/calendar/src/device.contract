@@ -3,6 +3,7 @@ use ContactInfo from "@exact/contacts"
 
 // A picked contact as a guest: the copy the app keeps (LLP 1133.018 D4).
 fn guestName(c: ContactInfo): string = match c.name { case some(n) => n.join(" "), case none => "" }
+fn guestTel(c: ContactInfo): string = match c.tel { case some(t) => (match first(t) { case some(x) => x, case none => "" }), case none => "" }
 fn guestEmail(c: ContactInfo): string = match c.email { case some(e) => (match first(e) { case some(x) => x, case none => "" }), case none => "" }
 
 // The person's calendars in the inspector (LLP 1133.018 §11): a switch, shown
@@ -41,9 +42,12 @@ component MyCalendars
             if agenda.events.length == 0 and agenda.error != "unread"
               text (agenda.error == "" ? "Nothing in your calendars" : "Your calendars can’t be read now.") testId="my-calendars-empty" font-size=12 color=muted
 
-// An item's guests and the editor's two calendar actions: Invite…, which
-// opens the system's contact picker where the target has one, and Add to
-// Calendar…, which opens the system's calendar editor with the item filled in.
+// An item's guests and the editor's calendar actions: Invite…, which opens
+// the system's contact picker where the target has one; Add to Calendar…,
+// which opens the system's calendar editor with the item filled in; and,
+// once there are guests, the system's mail composer with the item's
+// invitation attached and its message composer to their phones
+// (LLP 1133.024 D16).
 component Guests
   props
     guests: Guest[]
@@ -55,6 +59,10 @@ component Guests
     muted: string
     invite: action
     addToCalendar: action
+    canEmail: bool
+    canText: bool
+    emailGuests: action
+    textGuests: action
   view
     column testId="guests" gap=6
       if guests.length > 0
@@ -64,6 +72,10 @@ component Guests
           button "Invite…" press=invite disabled=disabled testId="invite" aria-label="Invite guests from Contacts"
         if canAdd
           button "Add to Calendar…" press=addToCalendar disabled=disabled testId="add-to-calendar" aria-label="Add to Calendar"
+        if canEmail
+          button "Email the Invitation…" press=emailGuests disabled=disabled testId="email-invitation" aria-label="Email the invitation to the guests"
+        if canText
+          button "Text the Guests…" press=textGuests disabled=disabled testId="text-guests" aria-label="Text the guests"
       if note != ""
         text note testId="add-to-calendar-result" aria-live="polite" font-size=12 color=muted
 

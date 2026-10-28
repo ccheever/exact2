@@ -1,0 +1,160 @@
+{
+  "kind": "interface",
+  "name": "@exact/compose",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "ComposeStatus": {
+      "available": "bool",
+      "email": "bool",
+      "emailAttachments": "bool",
+      "emailCopiesWithAttachments": "bool",
+      "message": "bool",
+      "messageSubject": "bool",
+      "messageAttachments": "bool"
+    },
+    "ComposeResult": {
+      "action": "enum<sent|saved|cancelled|failed|opened>"
+    }
+  },
+  "names": [
+    {
+      "source": "composeStatus",
+      "live": true,
+      "answers": "ComposeStatus",
+      "sync": {
+        "name": "composeStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "email": true,
+          "emailAttachments": true,
+          "emailCopiesWithAttachments": true,
+          "message": true,
+          "messageSubject": true,
+          "messageAttachments": true
+        },
+        "targets": {
+          "web": {
+            "available": true,
+            "email": true,
+            "emailAttachments": false,
+            "emailCopiesWithAttachments": false,
+            "message": false,
+            "messageSubject": false,
+            "messageAttachments": false
+          },
+          "macos": {
+            "available": true,
+            "email": true,
+            "emailAttachments": true,
+            "emailCopiesWithAttachments": false,
+            "message": true,
+            "messageSubject": false,
+            "messageAttachments": true
+          },
+          "windows": {
+            "available": true,
+            "email": true,
+            "emailAttachments": false,
+            "emailCopiesWithAttachments": false,
+            "message": false,
+            "messageSubject": false,
+            "messageAttachments": false
+          },
+          "linux": {
+            "available": false,
+            "email": false,
+            "emailAttachments": false,
+            "emailCopiesWithAttachments": false,
+            "message": false,
+            "messageSubject": false,
+            "messageAttachments": false
+          },
+          "tvos": {
+            "available": false,
+            "email": false,
+            "emailAttachments": false,
+            "emailCopiesWithAttachments": false,
+            "message": false,
+            "messageSubject": false,
+            "messageAttachments": false
+          }
+        }
+      }
+    },
+    {
+      "send": "composeEmail",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "to": "option<string[]>",
+        "cc": "option<string[]>",
+        "bcc": "option<string[]>",
+        "subject": "option<string>",
+        "body": "option<string>",
+        "attachments": {
+          "type": "path",
+          "access": "read",
+          "list": true
+        }
+      },
+      "answers": "ComposeResult",
+      "substitute": {
+        "choose": {
+          "ticket": "compose",
+          "choices": [
+            "sent",
+            "saved",
+            "cancelled",
+            "failed",
+            "opened"
+          ],
+          "typed": false
+        },
+        "unsupported": [
+          "linux",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "send": "composeMessage",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "to": "option<string[]>",
+        "body": "option<string>",
+        "subject": "option<string>",
+        "attachments": {
+          "type": "path",
+          "access": "read",
+          "list": true
+        }
+      },
+      "answers": "ComposeResult",
+      "substitute": {
+        "choose": {
+          "ticket": "compose",
+          "choices": [
+            "sent",
+            "cancelled",
+            "failed",
+            "opened"
+          ],
+          "typed": false
+        },
+        "unsupported": [
+          "web",
+          "windows",
+          "linux",
+          "tvos"
+        ]
+      }
+    }
+  ]
+}

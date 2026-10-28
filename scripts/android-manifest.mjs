@@ -8,7 +8,8 @@
 //   "manifest": {
 //     "receivers": [{"name": "<class>", "directBootAware": true, "actions": ["android.intent.action.BOOT_COMPLETED"]}],
 //     "services": [{"name": "<class>", "directBootAware": true, "foregroundServiceType": "systemExempted"}],
-//     "queries": [{"package": "com.google.android.apps.healthdata"}, {"action": "android.intent.action.TTS_SERVICE"}],
+//     "queries": [{"package": "com.google.android.apps.healthdata"}, {"action": "android.intent.action.TTS_SERVICE"},
+//                 {"action": "android.intent.action.SENDTO", "scheme": "mailto"}],
 //     "activities": [{"name": "<class>", "actions": ["androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"]}],
 //     "aliases": [{"name": "<class>", "targetActivity": "<an activity above>", "action": "android.intent.action.VIEW_PERMISSION_USAGE",
 //                  "category": "android.intent.category.HEALTH_PERMISSIONS"}],
@@ -47,6 +48,10 @@ export const QUERY_PACKAGES = new Set(['com.google.android.apps.healthdata']);
  * targeting API 30 and later (LLP 1133.012 D12 item 3). */
 export const QUERY_ACTIONS = new Set(['android.speech.RecognitionService', 'android.intent.action.TTS_SERVICE']);
 
+/** The activity intents, by action and data scheme, a fragment may make visible: the mail and message composers'
+ * (LLP 1133.024 D22 item 6), whether one resolves being `composeStatus`. */
+export const QUERY_SCHEMES = { 'android.intent.action.SENDTO': new Set(['mailto', 'smsto']) };
+
 /** The actions an activity may answer: Health Connect's request to show the app's privacy policy. */
 export const ACTIVITY_ACTIONS = new Set(['androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE']);
 
@@ -78,7 +83,7 @@ export function fragmentPermissions(bound) {
 const FIELDS = {
   receivers: new Set(['name', 'directBootAware', 'actions']),
   services: new Set(['name', 'directBootAware', 'foregroundServiceType']),
-  queries: new Set(['package', 'action']),
+  queries: new Set(['package', 'action', 'scheme']),
   activities: new Set(['name', 'actions']),
   aliases: new Set(['name', 'targetActivity', 'action', 'category']),
 };
@@ -138,10 +143,14 @@ export function manifestFragment(bound, { privacyPolicy = null } = {}) {
       for (const c of list) {
         for (const key of Object.keys(c ?? {})) if (!FIELDS[kind].has(key)) refuse(`gives a ${ONE[kind]} "${key}", which the list does not allow`);
         if (kind === 'queries') {
-          if (c == null || typeof c !== 'object' || Array.isArray(c) || Object.keys(c).length !== 1) refuse('gives a query without exactly one of package or action');
+          const keys = Object.keys(c ?? {}).sort().join();
+          if (c == null || typeof c !== 'object' || Array.isArray(c) || !['package', 'action', 'action,scheme'].includes(keys)) refuse('gives a query without exactly one of package or action (with a scheme or not)');
           if (Object.hasOwn(c, 'package')) {
             listed(QUERY_PACKAGES, c.package, 'a query the package');
             queries.add(`        <package android:name="${c.package}" />`);
+          } else if (Object.hasOwn(c, 'scheme')) {
+            if (!QUERY_SCHEMES[c.action]?.has(c.scheme)) refuse(`gives a query the action ${JSON.stringify(c.action)} with the scheme ${JSON.stringify(c.scheme)}, which is not on the list`);
+            queries.add(`        <intent><action android:name="${c.action}" /><data android:scheme="${c.scheme}" /></intent>`);
           } else {
             listed(QUERY_ACTIONS, c.action, 'a query the action');
             queries.add(`        <intent><action android:name="${c.action}" /></intent>`);

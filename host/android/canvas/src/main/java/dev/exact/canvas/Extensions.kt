@@ -180,6 +180,10 @@ class ExtensionContext internal constructor(val application: Context, private va
      * scratch tree under the agent. Admission checked the path against the calling source's grants. */
     fun file(path: String): java.io.File? = try { Native.appFile(path)?.let { java.io.File(it) } } catch (e: UnsatisfiedLinkError) { null }
 
+    /** A content URI for the file an admitted `app:/` path names, which an intent may carry with a read grant
+     * (`FLAG_GRANT_READ_URI_PERMISSION`), or null when it names none ([Files], LLP 1133.024 D22 item 2). */
+    fun contentUri(path: String): android.net.Uri? = file(path)?.let { Files.uri(application, it) }
+
     /** Whether the activity is resumed: a prompt shows only over a resumed activity (LLP 1133.010 D8). */
     val resumed: Boolean get() = Extensions.resumedNow
 

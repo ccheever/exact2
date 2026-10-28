@@ -30,8 +30,10 @@ pub const APP: &str = "com.exact.calendar";
 /// workouts, read only while "Show my activity" is on (LLP 1133.026 §12).
 /// Contacts need no line: the guests are picked, and a pick is the app's
 /// copy (D4).
+/// The invitation a mail attaches is written to, and read from, the app's
+/// temporary directory (LLP 1133.024 D16).
 pub const GRANTS: &str =
-    "sqlite.open app:/data/calendar.db\ndevice.calendar calendarPurpose\ndevice.health-read healthPurpose";
+    "sqlite.open app:/data/calendar.db\ndevice.calendar calendarPurpose\ndevice.health-read healthPurpose\nfs.write app:/tmp\nfs.read app:/tmp";
 
 /// A local calendar. Wrap this in `exact_data_host::Storage` in native hosts.
 /// Loading summaries is asynchronous; settled month and agenda queries do no I/O.
@@ -363,6 +365,8 @@ impl Calendar {
             "calendarActivityDays" | "calendarActivityAgenda" => Ok(activity::unread(source)),
             "calendarGuests" => Ok(Value::record(vec![Value::list(Vec::new())])),
             "addGuests" => Ok(Value::record(vec![Value::Number(0.0), Value::str("")])),
+            "calendarGuestPhones" => Ok(Value::record(vec![Value::list(Vec::new())])),
+            "writeInvitation" => Ok(Value::record(vec![Value::str(""), Value::str("")])),
             "loadCalendar" => Ok(self.library("")),
             "calendarEvent" => Ok(self.opened(text(args, 0).map_err(invalid)?, "", "")),
             _ => Err(DataError::UnknownSource(source.into())),
@@ -432,7 +436,18 @@ impl DataSource for Calendar {
             "addGuests" => {
                 store.observe_external_read();
                 let at = |i| text(args, i).map_err(DataError::Unavailable);
-                Ok(guests::add(self, at(0)?, at(1)?, at(2)?))
+                Ok(guests::add(self, at(0)?, at(1)?, at(2)?, at(3)?))
+            }
+            "calendarGuestPhones" => {
+                store.observe_external_read();
+                Ok(guests::read_phones(
+                    text(args, 0).map_err(DataError::Unavailable)?,
+                ))
+            }
+            "writeInvitation" => {
+                let at = |i| text(args, i).map_err(DataError::Unavailable);
+                let now = number(args, 3).map_err(DataError::Unavailable)?;
+                Ok(guests::write_invitation(self, at(0)?, at(1)?, at(2)?, now))
             }
             "calendarEvent" => {
                 let id = text(args, 0).map_err(DataError::Unavailable)?;
@@ -469,7 +484,15 @@ impl DataSource for Calendar {
                 Ok(activity::parse(&mut self.activity, source, args, outcome))
             }
             "calendarGuests" => Ok(guests::parse_read(outcome)),
-            "addGuests" => Ok(guests::parse_add(outcome)),
+            "addGuests" => {
+                let at = |i| text(args, i).map_err(DataError::Unavailable);
+                Ok(guests::parse_add(at(1)?, at(2)?, at(3)?, outcome))
+            }
+            "calendarGuestPhones" => Ok(guests::parse_phones(outcome)),
+            "writeInvitation" => Ok(guests::parse_invitation(
+                text(args, 0).map_err(DataError::Unavailable)?,
+                outcome,
+            )),
             "calendarEvent" => {
                 let id = text(args, 0).map_err(DataError::Unavailable)?;
                 let result = exact_data::storage::response(outcome).and_then(|reply| {

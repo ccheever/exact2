@@ -1,0 +1,26 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/compose@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "Compose.swift"
+    ]
+  },
+  "frameworks": {
+    "MessageUI": {
+      "ios": "17.0"
+    }
+  },
+  "artifacts": [],
+  "class": "ComposeModule"
+}

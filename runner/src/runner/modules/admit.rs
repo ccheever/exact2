@@ -905,15 +905,19 @@ impl<D: DataSource> Runner<D> {
             }
         }
         // A path option is the app's own file, within the calling source's
-        // `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4).
+        // `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4); each of a
+        // list's (LLP 1133.024 D16).
         for (option, path) in sub["paths"].as_object().into_iter().flatten() {
-            let Some(given) = args[option].as_str() else {
-                continue;
+            let given: Vec<&str> = match &args[option] {
+                Json::String(one) => vec![one],
+                Json::Array(list) => list.iter().filter_map(Json::as_str).collect(),
+                _ => continue,
             };
             let capability = format!("fs.{}", path["access"].as_str().unwrap_or("read"));
-            if !crate::save_file::plain_app_path(given)
-                || !crate::save_file::covered(self.data.grants(), &capability, given)
-            {
+            if let Some(given) = given.into_iter().find(|given| {
+                !crate::save_file::plain_app_path(given)
+                    || !crate::save_file::covered(self.data.grants(), &capability, given)
+            }) {
                 return Err(format!(
                     "grant-missing ({option}={given} needs {capability})"
                 ));

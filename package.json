@@ -61,6 +61,7 @@
     "@exact/geocoding": "workspace:*",
     "@exact/geofencing": "workspace:*",
     "@exact/in-app-browser": "workspace:*",
+    "@exact/compose": "workspace:*",
     "@exact/device": "workspace:*"
   }
 }

@@ -11,6 +11,9 @@ use exact_runner::{Answer, Outcome};
 use serde_json::json;
 
 const TABLE: &str = "CREATE TABLE IF NOT EXISTS guests (schedule_id TEXT NOT NULL,position INTEGER NOT NULL,name TEXT NOT NULL,email TEXT NOT NULL,PRIMARY KEY(schedule_id,position))";
+/// A guest's phone number, by the guest's position: a table of its own, so a
+/// `guests` table made before phones were picked keeps its schema.
+const PHONES: &str = "CREATE TABLE IF NOT EXISTS guest_phones (schedule_id TEXT NOT NULL,position INTEGER NOT NULL,tel TEXT NOT NULL,PRIMARY KEY(schedule_id,position))";
 
 fn list(guests: Vec<(String, String)>) -> Value {
     Value::record(vec![Value::list(
@@ -54,30 +57,176 @@ pub(crate) fn parse_read(outcome: Outcome) -> Answer {
     Answer::Now(list(guests.unwrap_or_default()))
 }
 
-/// `addGuests(id, names, emails)`: each name and email, one per line, after
-/// the item's guests.
-pub(crate) fn add(calendar: &Calendar, id: &str, names: &str, emails: &str) -> Answer {
+/// `addGuests(id, names, emails, tels)`: each name, email and phone number,
+/// one per line, after the item's guests.
+pub(crate) fn add(calendar: &Calendar, id: &str, names: &str, emails: &str, tels: &str) -> Answer {
     if !calendar.has_event(id) {
         return Answer::Now(added(0, "This item no longer exists."));
     }
     let emails: Vec<&str> = emails.split('\n').collect();
-    let mut commands = vec![execute(TABLE, json!([]))];
+    let tels: Vec<&str> = tels.split('\n').collect();
+    let mut commands = vec![execute(TABLE, json!([])), execute(PHONES, json!([]))];
     for (i, name) in names.split('\n').enumerate() {
-        let email = emails.get(i).copied().unwrap_or_default();
-        if name.is_empty() && email.is_empty() {
+        let (email, tel) = (
+            emails.get(i).copied().unwrap_or_default(),
+            tels.get(i).copied().unwrap_or_default(),
+        );
+        if name.is_empty() && email.is_empty() && tel.is_empty() {
             continue;
         }
         commands.push(execute(
             "INSERT INTO guests(schedule_id,position,name,email) VALUES(?,(SELECT COALESCE(MAX(position),-1)+1 FROM guests WHERE schedule_id = ?),?,?)",
             json!([id, id, name, email]),
         ));
+        if !tel.is_empty() {
+            commands.push(execute(
+                "INSERT INTO guest_phones(schedule_id,position,tel) VALUES(?,(SELECT MAX(position) FROM guests WHERE schedule_id = ?),?)",
+                json!([id, id, tel]),
+            ));
+        }
     }
     sql(true, commands)
 }
 
-pub(crate) fn parse_add(outcome: Outcome) -> Answer {
+/// `calendarGuestPhones(id, revision)`: the guests' phone numbers, in the
+/// order added. Before the first phone there is no table, which reads as none.
+pub(crate) fn read_phones(id: &str) -> Answer {
+    if id.is_empty() {
+        return Answer::Now(phones(Vec::new()));
+    }
+    sql(
+        false,
+        vec![query(
+            "SELECT tel FROM guest_phones WHERE schedule_id = ? ORDER BY position",
+            json!([id]),
+        )],
+    )
+}
+
+fn phones(tels: Vec<String>) -> Value {
+    Value::record(vec![Value::list(
+        tels.iter().map(|t| Value::str(t)).collect(),
+    )])
+}
+
+pub(crate) fn parse_phones(outcome: Outcome) -> Answer {
+    let tels = data_storage::response(outcome).and_then(|reply| {
+        Ok(rows(&reply)?
+            .iter()
+            .map(|r| r[0].as_str().unwrap_or_default().to_owned())
+            .collect())
+    });
+    Answer::Now(phones(tels.unwrap_or_default()))
+}
+
+/// Where the invitation to item `id` is written: the app's temporary
+/// directory, which the next launch empties.
+fn invitation_path(id: &str) -> String {
+    let safe: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("app:/tmp/invite-{safe}.ics")
+}
+
+/// `writeInvitation(id, title, notes, now)`: the item as an iCalendar event
+/// (RFC 5545 §3.6.1) in a file a mail can attach; `now`, epoch ms, is its
+/// `DTSTAMP`.
+pub(crate) fn write_invitation(
+    calendar: &Calendar,
+    id: &str,
+    title: &str,
+    notes: &str,
+    now: f64,
+) -> Answer {
+    let Some((all_day, start, end, start_time, end_time)) = calendar.span(id) else {
+        return Answer::Now(invitation("", "This item no longer exists."));
+    };
+    let date = |day: i32| dates::iso(day).replace('-', "");
+    let time = |minutes: u16| dates::time(minutes).replace(':', "");
+    let now = now.max(0.0) as i64;
+    let stamp = format!(
+        "{}T{}{:02}Z",
+        date((now / 86_400_000) as i32),
+        time(((now % 86_400_000) / 60_000) as u16),
+        (now % 60_000) / 1000
+    );
+    let (from, to) = if all_day {
+        (
+            format!("DTSTART;VALUE=DATE:{}", date(start)),
+            format!("DTEND;VALUE=DATE:{}", date(end + 1)),
+        )
+    } else {
+        (
+            format!("DTSTART:{}T{}00", date(start), time(start_time)),
+            format!("DTEND:{}T{}00", date(end), time(end_time)),
+        )
+    };
+    let lines = [
+        "BEGIN:VCALENDAR".to_owned(),
+        "VERSION:2.0".into(),
+        "PRODID:-//exact2//Calendar example//EN".into(),
+        "METHOD:PUBLISH".into(),
+        "BEGIN:VEVENT".into(),
+        format!("UID:{id}@{}", crate::APP),
+        format!("DTSTAMP:{stamp}"),
+        from,
+        to,
+        format!("SUMMARY:{}", ics_text(title)),
+    ];
+    let mut lines = lines.to_vec();
+    if !notes.is_empty() {
+        lines.push(format!("DESCRIPTION:{}", ics_text(notes)));
+    }
+    lines.extend(["END:VEVENT".into(), "END:VCALENDAR".into()]);
+    let path = invitation_path(id);
+    Answer::Later(data_storage::request(
+        "fs.writeFile",
+        json!({"path": path, "text": lines.join("\r\n") + "\r\n"}),
+    ))
+}
+
+/// RFC 5545 §3.3.11's TEXT escapes.
+fn ics_text(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace('\n', "\\n")
+}
+
+fn invitation(path: &str, message: &str) -> Value {
+    Value::record(vec![Value::str(path), Value::str(message)])
+}
+
+pub(crate) fn parse_invitation(id: &str, outcome: Outcome) -> Answer {
     Answer::Now(match data_storage::response(outcome) {
-        Ok(reply) => added(reply.as_array().map_or(1, Vec::len) - 1, ""),
+        Ok(_) => invitation(&invitation_path(id), ""),
+        Err(message) => invitation("", &message),
+    })
+}
+
+/// How many guests `addGuests` adds: each line with a name, an email or a phone.
+fn adding(names: &str, emails: &str, tels: &str) -> usize {
+    let (emails, tels): (Vec<&str>, Vec<&str>) =
+        (emails.split('\n').collect(), tels.split('\n').collect());
+    (names.split('\n').enumerate())
+        .filter(|(i, name)| {
+            !name.is_empty()
+                || emails.get(*i).is_some_and(|e| !e.is_empty())
+                || tels.get(*i).is_some_and(|t| !t.is_empty())
+        })
+        .count()
+}
+
+pub(crate) fn parse_add(names: &str, emails: &str, tels: &str, outcome: Outcome) -> Answer {
+    Answer::Now(match data_storage::response(outcome) {
+        Ok(_) => added(adding(names, emails, tels), ""),
         Err(message) => added(0, &message),
     })
 }
