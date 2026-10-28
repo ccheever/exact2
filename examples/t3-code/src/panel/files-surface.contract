@@ -25,6 +25,7 @@ use MediaFrame from "../media/media-frame.contract"
 use PreviewImage, ImageActions from "./preview-image.contract"
 use MermaidFileView from "./mermaid-file.contract"
 use FileSurfaceFailure from "./file-surface-chrome.contract"
+use AttachmentBody from "./pr-attachment.contract"
 use PanelIcon from "./panel-icons.contract"
 use SidebarMenuCard, SidebarMenuItem from "../sidebar/sidebar-row.contract"
 use SidebarMenuRow from "../sidebar/sidebar-shapes.contract"
@@ -70,7 +71,7 @@ component FilesSurface
       row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch"
         if files.path != "" and files.preview != ""
           column flex=1 min-width=0 min-height=0 overflow="hidden"
-            FilePreview(family=family, files=files, documents=documents, scheme=scheme, local=local)
+            FilePreview(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
         if files.showExplorer
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" testId="files-explorer"
             FilesExplorer(files=files, sheet=sheet, still=still, local=local, searchFocus=searchFocus)
@@ -302,12 +303,20 @@ component FilePreview
     files: FilesView
     documents: ChatDocument[]
     scheme: string
+    // In a sheet the attachment body's row is FILE_SURFACE_SUBHEADER_CLASS's 40pt over a hairline, not the inline 28pt.
+    sheet: bool
     local: action
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
   // The picture's failure is the image body's own (PreviewImage).
   action imageFailed(message: string)
     let ignored = message
+  // A document's body sends its controls as Files' own (`surface-files-att-*`); the rest go on to the window.
+  action attLocal(op: string, id: string, value: string)
+    if op.startsWith("surface-linked-att-")
+      local(`surface-files-att-${op.slice(19)}`, id, value)
+    else
+      local(op, id, value)
   // diff-review: the open comment draft's text (FilePreviewPanel's annotation draft).
   state draftText = ""
   action editDraft(text: string)
@@ -392,6 +401,9 @@ component FilePreview
         // One player per file: FilePreviewPanel keys WorkspaceAudioPreview by environment, thread and path.
         for shown in [files.fileKey] key=shown
           FilesAudio(url=files.url, label=files.path, failed=local("surface-files-audio-error", files.url))
+    // FilePreviewPanel's AttachmentFilePreview under "File": a document, or a file read as binary.
+    if files.preview == "attachment"
+      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=sheet, local=attLocal, actionIds="")
     if files.preview == "audio-error"
       FileSurfaceFailure(message="Unable to load audio.", canRetry=true, retry=local("surface-files-audio-retry", files.absolutePath, ""), testId="file-audio-failed")
     // A rendered HTML page or a PDF (always rendered), as an attachment's (BrowserDocumentFrame, media-frame.contract).
