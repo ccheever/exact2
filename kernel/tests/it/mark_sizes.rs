@@ -205,10 +205,11 @@ fn a_mark_holds_a_shared_size_by_the_kind_it_reported_as() {
     ops.extend(control(2, "checkbox"));
     ops.extend(control(3, "radio"));
     ops.extend(control(4, "checkbox"));
+    ops.extend(control(5, "radio"));
     ops.extend([
         Op::SetChildren {
             id: 1,
-            children: vec![2, 3, 4],
+            children: vec![2, 3, 4, 5],
         },
         Op::AttachRoot { id: 1 },
     ]);
@@ -245,5 +246,10 @@ fn a_mark_holds_a_shared_size_by_the_kind_it_reported_as() {
         size(&kernel, 4),
         (22.0, 22.0),
         "its report again, as a checkbox, holds it"
+    );
+    assert_eq!(
+        size(&kernel, 5),
+        (13.0, 13.0),
+        "and is no radio's report any more (round 2's re-check, Grok)"
     );
 }

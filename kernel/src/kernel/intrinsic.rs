@@ -24,8 +24,18 @@ impl Kernel {
             .slot_of(view)
             .ok_or(LayoutError::UnknownView(view))?;
         if self.arena.intrinsic(slot) == size {
-            // (the same size again, perhaps now as another kind: the report's key is its kind's now)
-            self.note_mark_report(slot, size);
+            // The same size again, perhaps now as another kind: withdrawn from
+            // the kind it was reported as, and reported as the kind it is now.
+            if let Some(size) = size {
+                let now = crate::control::mark_key(&self.arena, slot);
+                if self.arena.mark_reports.get(&slot).copied() != now {
+                    self.mark_withdrawn(slot);
+                    self.note_mark_report(slot, Some(size));
+                    if now.is_some() {
+                        self.mark_reported(slot, size);
+                    }
+                }
+            }
             return Ok(());
         }
         let tablist = matches!(
@@ -98,9 +108,10 @@ impl Kernel {
     /// The key a mark's report is made under, kept while it stands; none for
     /// a withdrawn report or one of a node that is no mark.
     fn note_mark_report(&mut self, slot: u32, size: Option<(f32, f32)>) {
-        match (size, crate::control::mark_key(&self.arena, slot)) {
-            (Some(_), Some(key)) => self.arena.mark_reports.insert(slot, key),
-            _ => self.arena.mark_reports.remove(&slot),
+        // (the key only for a report: a host's repeated withdrawals resolve no font size)
+        match size.and_then(|_| crate::control::mark_key(&self.arena, slot)) {
+            Some(key) => self.arena.mark_reports.insert(slot, key),
+            None => self.arena.mark_reports.remove(&slot),
         };
     }
 
