@@ -150,6 +150,7 @@ pub fn row(
                 .child(text(13., FontWeight::SEMIBOLD, 0x3c3c43, cx).child(quote.author.clone()))
                 .child(
                     text(13., FontWeight::NORMAL, 0x3c3c43, cx)
+                        .text_ellipsis()
                         .line_clamp(2)
                         .child(quote.excerpt.clone()),
                 ),
@@ -188,11 +189,13 @@ pub fn row(
                         )
                         .child(
                             text(15., FontWeight::SEMIBOLD, 0, cx)
+                                .text_ellipsis()
                                 .line_clamp(2)
                                 .child(link.title.clone()),
                         )
                         .child(
                             text(13., FontWeight::NORMAL, 0x3c3c43, cx)
+                                .text_ellipsis()
                                 .line_clamp(2)
                                 .child(link.description.clone()),
                         ),
