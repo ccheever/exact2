@@ -25,7 +25,6 @@ function chat() {
   const scope: Env = { ...anchorFns, ...minimapFns, TimelineAnchor, min: Math.min, max: Math.max, composerOwner: A, commandPending: false, jumpRequest: 1,
     canvas: { ready: false }, conversationWidth: 1024, rem: 16,
     data: { messages: rowsOf('a'), minimap: [], citing: false, threadId: 't-a', look: { chatMax: 768 } },
-    shell: { findOpening: false },
     citeScrolled: () => {}, restScrolled: () => {}, restGesture: () => {}, scrollIntoView: (...args: unknown[]) => calls.push(args), frame: () => ({ unavailable: false }) };
   const now = () => ({ ...scope, ...column.derives(state, scope) });
   const c = {
@@ -68,15 +67,6 @@ describe('each thread keeps its own place', () => {
     expect(c.calls).toEqual([['transcript', 'a2', { offset: 234, behavior: 'instant' }]]);
     c.switchTo(B);
     expect(c.calls.at(-1)).toEqual(['transcript', 'b3', { offset: 300, behavior: 'instant' }]);
-  });
-  // T3 Code 7c3b3b3605ef (#24343): a ⌘K message result's find, at its message, is shown instead of the remembered spot.
-  test('a thread a message result opens with find does not return to its remembered row', () => {
-    const c = chat();
-    c.open(A); c.scroll(1234, 'a2', 234);
-    c.switchTo(B);
-    (c.scope.shell as Env).findOpening = true;
-    c.switchTo(A);
-    expect(c.calls).toEqual([]);
   });
   test('rows prepended above (history) keep the saved row and offset, not the old scroll offset', () => {
     const c = chat();

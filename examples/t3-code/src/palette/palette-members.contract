@@ -187,7 +187,7 @@ members T3Code
       rightPanelAt = op == "thread-pull-requests" ? shell.panel.key : rightPanelAt
     if (op == "flow" or op == "open-project" or op == "finder" or op == "open-file" or op == "thread" or op == "new-thread" or op == "thread-pull-requests") and not paletteBusy
       paletteBusy = true
-      send paletteChanged = paletteCommand(op == "flow" ? arg : (op == "finder" ? "pick-folder" : op), op == "flow" ? arg2 : arg, op == "open-file" ? arg2 : (op == "thread" ? `${wallTime.epochAtZero + performanceNow()} ${paletteThreadQuery}${arg2 != "" ? "\n" + arg2 : ""}` : palettePage))
+      send paletteChanged = paletteCommand(op == "flow" ? arg : (op == "finder" ? "pick-folder" : op), op == "flow" ? arg2 : arg, op == "open-file" ? arg2 : (op == "thread" ? `${wallTime.epochAtZero + performanceNow()} ${paletteThreadQuery}` : palettePage))
   action paletteDone
     paletteBusy = false
     match paletteChanged

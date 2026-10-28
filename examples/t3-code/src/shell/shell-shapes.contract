@@ -132,9 +132,6 @@ shape ShellView
   highlightPending: bool // a Files / attachment code text waits for its Shiki tokens
   // The screen reader's live regions (announce.ts, live-regions.contract).
   announce: AnnounceView
-  // A ⌘K message result's find is opening in the open thread: its transcript skips the remembered position
-  // (thread-find-requests.ts).
-  findOpening: bool
 shape AnnounceView
   thread: string
   background: string

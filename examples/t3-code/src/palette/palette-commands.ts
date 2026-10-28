@@ -14,6 +14,8 @@ import { sortedThreads } from './palette';
 import { activeTarget } from './palette-files';
 import { favoriteEditor } from '../shell/keyboard-dispatch';
 import { openFavoriteHere } from '../connections/remote-open'; // remote Open: an SSH environment's workspace opens over SSH
+import { announce } from '../shell/announce';
+import { EDITOR_DEFINITIONS } from '../shared/editors';
 import { lastEditor } from '../details/shell-details';
 import { linkPullRequest } from './palette-linkpr';
 import { linkFromPicker } from '../pull-requests/pages-pr-links';
@@ -23,10 +25,11 @@ import { cloneTracking } from '../client/live-streams';
 import { letGo } from '../client/let-go';
 import { composerNow } from '../composer/composer-controls';
 import { claimThreadOpen, pickedQuery } from './palette-search';
-import { targetOf } from '../sidebar/sidebar-commands';
-import { requestThreadFind } from '../shared/thread-find-requests';
-import { addTarget, targetRequest, type AddEnvironment } from './palette-environments';
-import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { addTarget, chooseNewProjectEnvironment, newProjectEnvironments, targetRequest, type AddEnvironment } from './palette-environments';
+import { fleet, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { environmentCall } from '../pull-requests/pages-pr-environments';
+import { findWhenShown } from '../sidebar/sidebar-search';
+import { shownMessageMatch } from './palette-view';
 
 export type PaletteResult = { revision: number; ok: boolean; close: boolean; page: string; query: string; project: string; thread: string; message: string };
 const message = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
@@ -69,45 +72,40 @@ async function createProject(client: T3Client, native: Native, storage: Files, t
 
 /**
  * CommandPaletteThreadItems runThread: a thread picked from a search counts as opened by this client at the pick's moment,
- * for Recent Threads and the use boost. `pick` is "<moment in epoch ms> <query>", the query being the root page's search
- * ("" for other rows); the open thread is no pick.
+ * for Recent Threads and the use boost, and its server records the open with its query (`thread.visit` with `opened`
+ * and `searchQuery`), which ranks the thread first when that query is typed again. `id` is the row's (a background
+ * environment's thread is `fleet:<environment>:<id>`); `pick` is "<moment in epoch ms> <query>", the query being the
+ * root page's search ("" for other rows); the open thread is no pick. A message row opens find at its message once its
+ * thread shows, as its run calls openThreadFindOnQuery.
  */
-function claimPick(client: T3Client, threadId: string, pick: string): void {
+async function pickThread(client: T3Client, native: Native | null | undefined, id: string, pick: string, source: EnvironmentFleet): Promise<void> {
   const space = pick.indexOf(' '), at = Number(pick.slice(0, space)), query = pick.slice(space + 1);
-  if (space > 0 && Number.isFinite(at) && query.trim().length > 0 && !query.startsWith('>') && threadId !== client.threadId) claimThreadOpen(client.environmentId, threadId, at);
-}
-/**
- * runThread's visit (T3 Code 7c3b3b3605ef): a pick for a query tells the thread's server it was opened with that query,
- * so search ranks it first for the query next time (`thread.visit` `opened`, `searchQuery`; a visited-tracking server,
- * whose shells carry `lastVisitedAt`). The open thread is no pick. A failed visit is not shown.
- */
-function visitPick(client: T3Client, native: Native, id: string, pick: string): void {
-  const space = pick.indexOf(' '), query = pick.slice(space + 1);
-  if (space <= 0 || !query.trim() || query.startsWith('>')) return;
-  const target = targetOf(client, id);
-  if (!target || target.thread.lastVisitedAt === undefined || (target.environmentId === client.environmentId && target.threadId === client.threadId)) return;
-  void target.send(native, { type: 'thread.visit', visitedAt: str(target.thread.updatedAt), opened: true, searchQuery: pickedQuery(query) }).catch(error => { if (letGo(error)) throw error; });
-}
-/** A message result's pick also carries its find (palette.ts messageItems), which opens once the thread shows. */
-function requestPickedFind(client: T3Client, id: string, pick: string, find: string): void {
-  const target = targetOf(client, id), at = Number(pick.slice(0, pick.indexOf(' ')));
-  let request: Obj;
-  try { request = obj(JSON.parse(find)); } catch { return; }
-  if (!target || !Number.isFinite(at) || !str(request.query)) return;
-  const start = obj(request.start);
-  requestThreadFind(client, `${target.environmentId}:${target.threadId}`, { query: str(request.query), ...(str(start.entryId) ? { start: { entryId: str(start.entryId), occurrence: Number(start.occurrence) || 0 } } : {}) }, at);
+  const message = shownMessageMatch(client, id, query);
+  if (message) findWhenShown(client, id, message.match, message.query);
+  if (space <= 0 || !Number.isFinite(at) || query.trim().length === 0 || query.startsWith('>') || id === client.threadId) return;
+  const ref = parseFleetThreadId(id), environmentId = ref?.environmentId ?? client.environmentId, threadId = ref?.threadId ?? id;
+  claimThreadOpen(environmentId, threadId, at);
+  // A server that keeps no visits sends no `lastVisitedAt`. The open goes whether or not this client already claimed it,
+  // and the pick does not wait for its reply (upstream's `void visitThread(…)`): a request with a `deliver` key returns
+  // once the transport has sent it, and the reply lands in the inbox, where nothing reads it. A refused send is dropped,
+  // as visitThread's reportFailure: false drops it.
+  const threads = ref ? [...source.entries.values()].find(entry => entry.environmentId === environmentId)?.shell.threads ?? [] : client.shell.threads;
+  const thread = threads.find(entry => entry.id === threadId);
+  if (!thread || thread.lastVisitedAt === undefined || !native?.available) return;
+  try {
+    const [commandId] = await client.ids(native, 1);
+    const visit = { op: 'request', method: 'orchestration.dispatchCommand', deliver: `palette-visit:${commandId}`,
+      payload: { type: 'thread.visit', commandId, threadId, visitedAt: str(thread.updatedAt), opened: true, searchQuery: pickedQuery(query) } };
+    await (ref ? environmentCall(client, native, environmentId, visit, true, source) : client.call(native, visit, client.generation, true));
+  } catch (error) {
+    if (letGo(error)) throw error;
+  }
 }
 
 export async function paletteCommand(client: T3Client, native: Native | null | undefined, storage: Files, op: string, id: string, value: string, source: EnvironmentFleet = fleet): Promise<PaletteResult> {
   // A thread row and New thread in <project>: the palette closes and the window navigates. A thread row's `value` is its
-  // pick (claimPick), and a message result's adds its find after a newline (requestPickedFind).
-  if (op === 'thread') {
-    const newline = value.indexOf('\n'), pick = newline >= 0 ? value.slice(0, newline) : value;
-    claimPick(client, id, pick);
-    if (native?.available) visitPick(client, native, id, pick);
-    if (newline >= 0) requestPickedFind(client, id, pick, value.slice(newline + 1));
-    return done(client, '', id);
-  }
+  // pick (pickThread).
+  if (op === 'thread') { await pickThread(client, native, id, value, source); return done(client, '', id); }
   if (op === 'new-thread') return done(client, id);
   if (!native?.available) return stay(client, false, 'Open this app on macOS to connect to T3 Code.');
   const flow = flowOf(client);
@@ -118,6 +116,11 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'open-project') return openProject(client, id);
     if (op === 'publish-host') { if (newProjectPublishTargets(flow.discovery?.value ?? null).some(target => target.definition.kind === id)) flow.publishKind = id; return stay(client); }
     if (op === 'toggle-publish') { flow.publish = !flow.publish; return stay(client); }
+    // switchNewProjectEnvironment: New project moves to the chosen environment, its name and options kept.
+    if (op === 'new-project-environment') {
+      if (newProjectEnvironments(client, source).some(option => option.environmentId === id)) chooseNewProjectEnvironment(client, value, id);
+      return stay(client);
+    }
     // ProjectFilePicker / ProjectContentSearchDialog: rightPanelStore.openFile (panel-surfaces.ts); Open Favorite stays the editor.
     if (op === 'open-file') { await openFileSurface(client, native, id, Number(value) || 0); client.revision++; return done(client); }
     if (op === 'thread-pull-requests') { await openSurface(client, native, 'pull-requests'); client.revision++; return done(client); }
@@ -157,8 +160,9 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       const name = id.trim();
       if (!name) return stay(client);
       const targets = newProjectPublishTargets(flow.discovery?.value ?? null);
-      const publishTarget = flow.publish ? targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0] : null;
-      if (flow.publish && !publishTarget) throw new Error('No ready host can publish this repository.');
+      // getNewProjectPublishTarget: the chosen host, else the first ready one. With none (an environment chosen since
+      // whose hosts are not ready) the project is made unpublished, as publishTo null makes it.
+      const publishTarget = flow.publish ? targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0] ?? null : null;
       let created: Obj;
       try { created = await request('projects.createNew', { name }, true); }
       catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not create the project', description: message(error) }); return stay(client, false, message(error)); }
@@ -281,7 +285,12 @@ async function restartSession(client: T3Client, native: Native, storage: Files, 
  */
 async function openInEditor(client: T3Client, native: Native, op: string, id: string, line: string): Promise<PaletteResult> {
   const editor = favoriteEditor(client.config, lastEditor(client)); // the last-used editor (t3-code.json)
-  if (op === 'open-favorite') { if (id) await openFavoriteHere(client, native, id, editor); return done(client); }
+  if (op === 'open-favorite') {
+    // useOpenFavoriteEditorShortcut: a screen reader hears which editor took the workspace (editorLabelForPlatform).
+    const opened = id ? await openFavoriteHere(client, native, id, editor, lastEditor(client)) : '';
+    if (opened) announce(client, `Opened in ${EDITOR_DEFINITIONS.find(entry => entry.id === opened)?.label ?? 'Editor'}`);
+    return done(client);
+  }
   const target = activeTarget(client);
   const path = op === 'open-file' ? (target ? `${target.cwd.replace(/\/+$/, '')}/${id}` : '') : id;
   if (!path) throw new Error('Open a project to open its files.');

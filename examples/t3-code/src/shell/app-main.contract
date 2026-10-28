@@ -231,15 +231,15 @@ component ChatColumn
     if anchor.owner == composerOwner and not commandPending and (end or turnIds.includes(key))
       anchor = TimelineAnchor(owner=composerOwner, key=key, offset=e.firstVisibleOffset, top=e.scrollTop, end=end)
   // The transcript of `owner` is laid out (the keyed marker beside the list mounted; intersect= reports on mount):
-  // the thread left keeps its position, and this one returns to its own unless it was left at the end, a citation
-  // places it (citation-source.ts), or a ⌘K message result's find opens at its message (shell.findOpening).
+  // the thread left keeps its position, and this one returns to its own unless it was left at the end or a citation
+  // places it (citation-source.ts).
   action transcriptOpened(owner: string, entry: IntersectionObserverEntry)
     if owner == composerOwner
       let kept = anchorKept(anchors, anchor)
       let saved = anchorOf(kept, owner)
       anchors = kept
       anchor = saved
-      let restore = not saved.end and not data.citing and not shell.findOpening
+      let restore = not saved.end and not data.citing
       fallbackTop = saved.top
       fallbackJump = restore and not turnIds.includes(saved.key) ? jumpRequest : -1
       if restore and not turnIds.includes(saved.key)
