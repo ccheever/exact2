@@ -5,7 +5,8 @@ afterEach(resetPrimary);
 import { defaultBranchCopy, featureBranchUnavailableReason, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, publishReadiness, quickAction, quickActionIcon,
   requiresDefaultBranchConfirmation, sortedPublishProviders, terminology } from '../../src/details/git-logic';
 import { GIT_ACTION_KEY, gitActionEvent, gitCardView, gitCommand, gitLocal, gitState, transportActionId } from '../../src/details/git-actions';
-import { branchLocal, branchState, includeRef, originLabel, startFromOrigin } from '../../src/details/git-branch';
+import { branchLocal, branchState, cardBranchView, includeRef, originLabel, startFromOrigin } from '../../src/details/git-branch';
+import { gitChatLocal } from '../../src/details/git-route';
 import { toasts } from '../../src/shell/toast';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
@@ -232,7 +233,7 @@ describe('the card\'s Git rows (GitActionsControl panel)', () => {
     const branchFill = () => rows.attribute('testId="details-branch" ', 'background-color', state, scope);
     const groupFill = () => rows.attribute('testId="details-git-group"', 'background-color', state, scope);
     expect([branchFill(), groupFill()]).toEqual([clear, clear]);
-    rows.call('branchToggled', state, {}, [{ newState: 'open' }]);
+    rows.call('branchToggled', state, { local: () => undefined }, [{ newState: 'open' }]);
     rows.call('gitMenuToggled', state, {}, [{ newState: 'open' }]);
     expect([state.branchOpen, state.gitMenuOpen, branchFill(), groupFill()]).toEqual([true, true, fill, fill]);
     rows.call('branchToggled', state, {}, [{ newState: 'closed' }]);
@@ -261,6 +262,29 @@ describe('branch picker (BranchToolbarBranchSelector)', () => {
     branchLocal(client, 'query', '', 'feat');
     branchLocal(client, 'open', 'branch', '');
     expect(branchState(client)).toMatchObject({ open: 'branch', query: '' });
+  });
+  test('the branch popover showing refreshes the workspace\'s local status, unawaited (handleOpenChange)', async () => {
+    const asked: [string, Obj][] = [];
+    const client = { local: { composerControls: {} }, threadId: 't', draftKey: 'env:new:p1', ready: true, generation: 1, config: { settings: {} }, projection: { thread: {} }, shell: { projects: [], threads: [] },
+      restAccess: () => ({ read: async () => ({ refs: [{ name: 'main', isDefault: true, current: true }], totalCount: 1, nextCursor: null }),
+        request: async (method: string, input: Obj) => { asked.push([method, input]); return new Promise(() => {}); } }) } as unknown as T3Client;
+    const native = { available: true } as unknown as Native;
+    await gitChatLocal(client, native, 'opened', '', '');
+    expect(asked).toEqual([]); // no row drawn yet: no workspace to refresh
+    // The card draws the branch row for its workspace (BranchToolbarBranchSelector's branchCwd), then the popover shows.
+    await cardBranchView(client, native, '/repo/worktree', '/repo', true);
+    expect(await gitChatLocal(client, native, 'opened', '', '')).toBe('');
+    expect(asked).toEqual([['vcs.refreshStatus', { cwd: '/repo/worktree', localOnly: true }]]);
+    // A workspace that is no repository draws no row: nothing to refresh.
+    await cardBranchView(client, native, '/elsewhere', '/elsewhere', false);
+    await gitChatLocal(client, native, 'opened', '', '');
+    expect(asked).toHaveLength(1);
+    // GitBranchPicker's popover reports its showing; closing asks nothing.
+    const rows = contractComponent('git.contract', 'GitRows'), state = rows.state(), sent: unknown[][] = [];
+    const scope = { local: (...args: unknown[]) => sent.push(args) };
+    rows.call('branchToggled', state, scope, [{ newState: 'open' }]);
+    rows.call('branchToggled', state, scope, [{ newState: 'closed' }]);
+    expect(sent).toEqual([['git-opened', '', '']]);
   });
   test('a new worktree starts from remote by default, and the label says so', () => {
     const client = { local: { composerControls: { contexts: { 'env:new:p1': { envMode: 'worktree', branch: '', worktreePath: '' } } } }, threadId: '', draftKey: 'env:new:p1', projectId: 'p1',

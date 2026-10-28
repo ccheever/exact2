@@ -99,6 +99,8 @@ component GitRows
   state gitMenuOpen = false
   action branchToggled(e: ToggleEvent)
     branchOpen = e.newState == "open"
+    if e.newState == "open"
+      local("git-opened", "", "")
   action gitMenuToggled(e: ToggleEvent)
     gitMenuOpen = e.newState == "open"
   derive menuItems = details.git.menu.filter((item) => not item.disabled).map((item) => KmItem(id=`details-git-menu-${item.id}`, label=item.label))

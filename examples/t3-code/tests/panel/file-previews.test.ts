@@ -574,7 +574,7 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
     expect(new URL(changed.url).searchParams.get('workspace-revision')).toBe('["cmd-a",null]');
   });
 
-  test('an image and a PDF carry the workspace revision in their URL, so a change loads them again; a video keeps its URL', async () => {
+  test('an image, a video and a PDF carry the workspace revision in their URL, so a change loads them again (a playing video holds)', async () => {
     const { client, projection } = filesClient();
     const files = memoryAppFiles();
     const server = serveAssets(() => ({ body: '%PDF-1.4' }));
@@ -588,7 +588,10 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
       projection.visibleTurnItems.push({ item: { id: 'cmd-m', type: 'file_change', status: 'completed' } });
       const imageAfter = await filesView(client, native, surface('photo.png'), 1000);
       expect(new URL(imageAfter.media.url).searchParams.get('workspace-revision')).toBe('["cmd-m",null]');
-      expect((await filesView(client, native, surface('clip.mp4'), 1000)).media.url).toBe(video.media.url);
+      // A server that reports no file revision: the video is signed again and names the workspace's, which its player
+      // takes once playback pauses (media-actions.contract FilesVideo).
+      const videoAfter = (await filesView(client, native, surface('clip.mp4'), 1000)).media;
+      expect([videoAfter.url === video.media.url, new URL(videoAfter.url).searchParams.get('workspace-revision'), videoAfter.revision]).toEqual([false, '["cmd-m",null]', '["cmd-m",null]']);
       // The frame loads the new revision itself (BrowserDocumentFrame's documentKey); no copy is written.
       const pdfAfter = await filesView(client, native, surface('report.pdf'), 1000);
       expect([pdfAfter.preview, new URL(pdfAfter.url).searchParams.get('workspace-revision'), files.size]).toEqual(['pdf', '["cmd-m",null]', 0]);
