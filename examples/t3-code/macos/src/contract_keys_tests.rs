@@ -1,6 +1,6 @@
 //! What moved from the module's native readers and menu
 //! construction into the compiled plan, read from the plan as the host reads it.
-//! The window's root removes the standard tab items by `menuRemove`, the surface
+//! The window's root removes the host's menu items the reference bar lacks by `menuRemove`, the surface
 //! launcher's available rows declare their letters as `accessibilityKeyShortcuts`
 //! (the native launcher's key re-post is gone), a sidebar row's press carries its own click modifiers
 //! (T3Sidebar's click monitor is gone), and the keybinding recorder is a Contract
@@ -183,12 +183,15 @@ fn prop(runner: &Runner<Replies>, test_id: &str, name: &str) -> Option<String> {
 }
 
 #[test]
-fn the_windows_root_removes_the_standard_tab_items() {
+fn the_windows_root_removes_the_host_items_the_reference_bar_lacks() {
     let mut host = host();
     let runner = host.runner_mut();
     assert_eq!(
         prop(runner, "t3-code", "menuRemove").as_deref(),
-        Some("show-tab-bar show-all-tabs")
+        Some(concat!(
+            "show-tab-bar show-all-tabs develop back paste-and-match-style find ",
+            "spelling-and-grammar substitutions transformations app-help"
+        ))
     );
 }
 
