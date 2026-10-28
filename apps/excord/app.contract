@@ -4,7 +4,8 @@
 // is one resource, `loadWindow`, answering one contiguous run of at most 300 messages around `anchor`
 // ("" is the live tail).
 // Paging moves the anchor a page ahead of the reader (`scrolled`, with `reachstart` and `reachend`
-// behind it); a jump replaces the window and places its target with `scrollIntoView`.
+// behind it, and `leadOlder`, which keeps 100 rows above a reader reading back as each page lands); a
+// jump replaces the window and places its target with `scrollIntoView`.
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, MediaPreferences, Place, Viewport, Page, noAnswers, channelOf, connected, draftOf, withDraft, placeOf, piece, keyOf, Time, typingDot from "./shapes.contract"
 use MessageLanguage, Translated, withTranslated, pendingLineOf from "./translate.contract"
 use translatorAvailability, createTranslator, translate, createLanguageDetector, TranslatorAvailability, TranslatorInfo, TranslatorResult, LanguageDetectorInfo from "@exact/translation"

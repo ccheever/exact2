@@ -963,8 +963,8 @@ export function channelVersion(s: Store, channelId: string): number { return s.v
 /** Read the version used by guild, channel, DM and unread sidebar resources. */
 export function sidebarVersion(s: Store): number { return s.sidebarRevision; }
 
-/** A window's most rows: 200, plus the two pages a fling's lead loads ahead (300), so a landing page is never
- * shed from the window it lands in. */
+/** A window's most rows: 200, raised by two pages for a fling's lead (F1), so a page that lands while the reader
+ * is within the lead's 100 rows of the top is never shed from the window it lands in. */
 export const WINDOW_CAP = 300;
 function windowLimit(limit: number): number {
   if (!Number.isFinite(limit) || limit < 1) throw new RangeError('Window limit must be positive');

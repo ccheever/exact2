@@ -880,6 +880,33 @@ test('a history page in flight is aborted by leaving or switching channels, and 
   } finally { fetchSpy.mockRestore(); }
 });
 
+test('an abort while a page\'s body is still arriving gives the route\'s slot back, so the next page goes out', async () => {
+  const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
+  live.token = 'a'.repeat(60);
+  let asked = 0;
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(((_url: string, init: RequestInit) => {
+    asked++;
+    // The headers are in; the body fails when the request is aborted.
+    const body = new ReadableStream({ start(controller) {
+      init.signal!.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+    } });
+    return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
+  }) as any);
+  try {
+    view(live, 'A');
+    const first = page(live, 'A', { before: '900', limit: 50 });
+    await Bun.sleep(0);
+    view(live, 'B');
+    await expect(first).resolves.toBeUndefined();
+    view(live, 'A');
+    const second = page(live, 'A', { before: '900', limit: 50 });
+    await Bun.sleep(0);
+    expect(asked).toBe(2);
+    view(live, '');
+    await expect(second).resolves.toBeUndefined();
+  } finally { fetchSpy.mockRestore(); }
+});
+
 // Lock Excord (LLP 1133.010 §9): no answer carries the token, and a launch that begins locked answers nothing of
 // the account, so the gateway opens nothing, until the person passes the check.
 test('a locked launch answers no token and is not ready until unlocked; a dropped token signs the person out', async () => {
