@@ -39,11 +39,15 @@ const ACCEPT: &str = "image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5";
 /// A download's bounds, Apple's (`RasterDownloads.configuration`): 15 s
 /// without a response or a read, 30 s for the whole load from when it is
 /// asked for (waiting for a thread and redirects included), and the
-/// encoded-byte cap.
+/// encoded-byte cap. A picture that fills the screen (a viewer's full-size
+/// original, megabytes on a phone's network) has `urgent` for the whole load
+/// instead: at 3 Mbit/s a 12 MB photo takes 32 s alone. Its per-read bound is
+/// the same 15 s: a connection that sends nothing for that long is gone.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Policy {
     pub request: Duration,
     pub whole: Duration,
+    pub urgent: Duration,
     pub limit: u64,
     /// The bodies kept after their sources go, so a list scrolled back
     /// finds its pictures without fetching them again.
@@ -54,6 +58,7 @@ impl Default for Policy {
         Self {
             request: Duration::from_secs(15),
             whole: Duration::from_secs(30),
+            urgent: Duration::from_secs(120),
             limit: MAX_ENCODED_BYTES,
             cache: SESSION_BYTES,
         }
@@ -62,15 +67,27 @@ impl Default for Policy {
 
 /// Why a source did not load: the refusal the raster pipeline records, and
 /// the words the log gives it (Apple's `error` message).
+/// `transient`: one that asking again may mend (the network, a timeout, the
+/// server's 5xx, 408 or 429), which a picture still on screen asks again for
+/// (`image.rs`); not a 4xx, a bad URL or a body over the cap.
 #[derive(Clone, Debug)]
 pub(super) struct Failure {
     pub refusal: Refusal,
     pub message: String,
+    pub transient: bool,
 }
 fn failed(message: impl Into<String>) -> Failure {
     Failure {
         refusal: Refusal::DecodeFailed,
         message: message.into(),
+        transient: true,
+    }
+}
+/// [`failed`], for good: asking again changes nothing.
+fn refused(message: impl Into<String>) -> Failure {
+    Failure {
+        transient: false,
+        ..failed(message)
     }
 }
 
@@ -190,9 +207,13 @@ impl Downloads {
     /// Load `url`: from the cache at once, else on a download thread, which
     /// calls `wake` once the outcome is set. Refused while as many downloads
     /// wait or run as the raster pipeline lets sources wait for a header.
+    /// An `urgent` one (a picture that fills the screen) goes ahead of those
+    /// waiting, the others keeping their order, and has the longer whole-load
+    /// bound ([`Policy`]).
     pub fn load(
         self: &Arc<Self>,
         url: &str,
+        urgent: bool,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<Arc<Load>, Refusal> {
         let cached = self.cache.lock().unwrap().get(url);
@@ -201,7 +222,12 @@ impl Downloads {
                 controller: AbortController::new(),
                 outcome: Mutex::new(outcome),
                 wake: Box::new(wake),
-                whole: Instant::now() + self.policy.whole,
+                whole: Instant::now()
+                    + if urgent {
+                        self.policy.urgent
+                    } else {
+                        self.policy.whole
+                    },
                 idle: Mutex::new(None),
             })
         };
@@ -218,10 +244,15 @@ impl Downloads {
         }
         let load = load(None);
         self.clock.watch(&load);
-        queue.push_back(Job {
+        let job = Job {
             load: Arc::downgrade(&load),
             url: url.to_owned(),
-        });
+        };
+        if urgent {
+            queue.push_front(job);
+        } else {
+            queue.push_back(job);
+        }
         self.queued.notify_one();
         Ok(load)
     }
@@ -305,7 +336,7 @@ impl Downloads {
                 load.progress(self.policy.request);
             }
         };
-        let mut url = clean(&job.url).ok_or_else(|| failed("not an http or https URL"))?;
+        let mut url = clean(&job.url).ok_or_else(|| refused("not an http or https URL"))?;
         let mut redirects = 0;
         let mut response = loop {
             self.fetches.fetch_add(1, Ordering::Relaxed);
@@ -329,20 +360,27 @@ impl Downloads {
             };
             redirects += 1;
             if redirects > MAX_REDIRECTS {
-                return Err(failed("too many redirects"));
+                return Err(refused("too many redirects"));
             }
             url = url
                 .join(location)
                 .ok()
                 .and_then(|next| clean(next.as_str()))
-                .ok_or_else(|| failed(format!("a redirect to {location}")))?;
+                .ok_or_else(|| refused(format!("a redirect to {location}")))?;
         };
         if !(200..300).contains(&response.status) {
-            return Err(failed(format!("HTTP {}", response.status)));
+            let message = format!("HTTP {}", response.status);
+            let transient = response.status >= 500 || matches!(response.status, 408 | 429);
+            return Err(if transient {
+                failed(message)
+            } else {
+                refused(message)
+            });
         }
         let over = || Failure {
             refusal: Refusal::EncodedLimit,
             message: format!("over {} encoded bytes", self.policy.limit),
+            transient: false,
         };
         let declared =
             (response.headers.get("content-length")).and_then(|n| n.trim().parse::<u64>().ok());

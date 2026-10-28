@@ -562,9 +562,11 @@ impl<D: DataSource> Presenter<D> {
     /// (`pads.rs`): when a loop wakes. An agent's jump steps only to the
     /// runner's, and the pads' land at the turn after it.
     pub fn wake_due_ms(&self) -> Option<f64> {
+        let now = self.host.now();
         self.timer_due_ms()
             .into_iter()
             .chain(crate::pads::due())
+            .chain(self.image_retry_due_in_ms().map(|ms| now + ms))
             .reduce(f64::min)
     }
 

@@ -153,7 +153,7 @@ fn fetched(downloads: &Arc<Downloads>, url: &str) -> Outcome {
     let (tx, rx) = mpsc::channel();
     let tx = Mutex::new(tx);
     let load = downloads
-        .load(url, move || {
+        .load(url, false, move || {
             let _ = tx.lock().unwrap().send(());
         })
         .unwrap();
@@ -191,7 +191,7 @@ fn a_body_and_a_redirect_load_and_the_cache_answers_again() {
     assert_eq!(bytes(&first), picture);
     assert_eq!(downloads.fetches.load(Ordering::Relaxed), 1);
     // Asked again, the body is the cache's: settled at once, not fetched.
-    let again = downloads.load(&url, || {}).unwrap();
+    let again = downloads.load(&url, false, || {}).unwrap();
     assert!(again.settled());
     assert_eq!(downloads.fetches.load(Ordering::Relaxed), 1);
     assert_eq!(downloads.cached_bytes(), (picture.len() + url.len()) as u64);
@@ -321,7 +321,9 @@ fn a_dropped_load_closes_its_connection() {
     let (stalls, arrivals, closes) = stalls();
     let origin = serve(move |_, _| stalls.answer(100_000, 100));
     let downloads = Downloads::new(Policy::default());
-    let load = downloads.load(&format!("{origin}/slow"), || {}).unwrap();
+    let load = downloads
+        .load(&format!("{origin}/slow"), false, || {})
+        .unwrap();
     arrivals
         .recv_timeout(SETTLED)
         .expect("the request reaches the server");
@@ -465,4 +467,129 @@ fn a_source_changed_mid_load_keeps_the_old_picture_until_the_new_one_lands() {
         shown(images).is_some_and(|(source, _)| source == last)
     });
     assert_eq!(shown(&images), Some((last, (5, 2))));
+}
+
+#[test]
+fn a_failure_says_whether_asking_again_may_mend_it() {
+    let origin = serve(|path, _| match path {
+        "/busy" => Answer::Status(503),
+        "/slow-down" => Answer::Status(429),
+        "/big" => Answer::Body(vec![7; 5000]),
+        "/silent" => Answer::Silent,
+        _ => Answer::Status(404),
+    });
+    let downloads = Downloads::new(Policy {
+        request: Duration::from_millis(300),
+        whole: Duration::from_secs(2),
+        limit: 4096,
+        ..Policy::default()
+    });
+    for (path, transient) in [
+        ("/busy", true),
+        ("/slow-down", true),
+        ("/silent", true),
+        ("/gone", false),
+        ("/big", false),
+    ] {
+        let failure = fetched(&downloads, &format!("{origin}{path}")).unwrap_err();
+        assert_eq!(failure.transient, transient, "{path}: {}", failure.message);
+    }
+    let failure = fetched(&downloads, "ftp://example.invalid/a.png").unwrap_err();
+    assert!(!failure.transient, "{}", failure.message);
+}
+
+#[test]
+fn a_picture_that_fills_the_screen_is_downloaded_ahead_of_those_waiting() {
+    let (stalls, arrivals, _closes) = stalls();
+    let origin = serve(move |_, _| stalls.answer(100_000, 100));
+    let downloads = Downloads::new(Policy::default());
+    // Every download thread busy.
+    let busy: Vec<_> = (0..THREADS)
+        .map(|n| {
+            downloads
+                .load(&format!("{origin}/busy{n}"), false, || {})
+                .unwrap()
+        })
+        .collect();
+    for _ in 0..THREADS {
+        arrivals
+            .recv_timeout(SETTLED)
+            .expect("each thread takes one");
+    }
+    let a = downloads
+        .load(&format!("{origin}/a"), false, || {})
+        .unwrap();
+    let b = downloads
+        .load(&format!("{origin}/b"), false, || {})
+        .unwrap();
+    let viewer = downloads
+        .load(&format!("{origin}/viewer"), true, || {})
+        .unwrap();
+    let c = downloads
+        .load(&format!("{origin}/c"), false, || {})
+        .unwrap();
+    let order: Vec<String> = downloads
+        .queue
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|j| j.url.rsplit('/').next().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        order,
+        ["viewer", "a", "b", "c"],
+        "the viewer's first, the others in their order"
+    );
+    drop((busy, a, b, viewer, c));
+}
+
+#[test]
+fn a_picture_on_screen_asks_again_for_a_failed_download_and_shows_it() {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = asked.clone();
+    let origin = serve(move |path, _| match path {
+        // Busy for the first two asks, then the picture.
+        "/flaky.png" if count.fetch_add(1, Ordering::SeqCst) < 2 => Answer::Status(503),
+        "/flaky.png" => Answer::Body(png(7, 5, [0, 120, 0, 255])),
+        "/dead.png" => Answer::Status(503),
+        _ => Answer::Status(404),
+    });
+    let url = format!("{origin}/flaky.png");
+    let k = kernel(&url);
+    let mut images = images();
+    images.sync(&k, &k.roots());
+    let started = Instant::now();
+    while shown(&images).is_none() {
+        assert!(
+            started.elapsed() < SETTLED,
+            "the picture is asked again until it shows"
+        );
+        images.poll();
+        images.sync(&k, &k.roots());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(shown(&images), Some((url, (7, 5))));
+    assert_eq!(asked.load(Ordering::SeqCst), 3);
+
+    // A URL that never mends is asked once and then six times more a showing, and not while it is off screen.
+    let dead = format!("{origin}/dead.png");
+    let k = kernel(&dead);
+    let mut images = self::images();
+    images.sync(&k, &k.roots());
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(3) {
+        images.poll();
+        images.sync(&k, &k.roots());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        images.views[&1].retries,
+        crate::image::RETRY_AFTER.len(),
+        "then it waits for the next showing"
+    );
+    assert_eq!(images.retry_due_in(), None);
+    // Off screen: nothing more is asked; shown again, it starts over.
+    images.sync_visible(&k, &k.roots(), 1., |_| false);
+    assert_eq!(images.views[&1].retries, 0);
+    assert_eq!(images.retry_due_in(), None);
 }

@@ -18,7 +18,17 @@ impl<D: DataSource> Presenter<D> {
     pub fn poll_images(&mut self) -> bool {
         self.images.paint_with(self.brush.text.clone());
         let reports = self.images.poll();
+        // A picture's time to ask again for a failed download has come: the
+        // next paint's sync asks (`Images::sync_visible`).
+        if self.images.retry_due_in().is_some_and(|d| d.is_zero()) {
+            self.dirty = true;
+        }
         self.apply_reports(reports)
+    }
+
+    /// Milliseconds until a picture on screen asks again for a failed download.
+    pub(crate) fn image_retry_due_in_ms(&self) -> Option<f64> {
+        self.images.retry_due_in().map(|d| d.as_secs_f64() * 1000.0)
     }
 
     /// Wait for every load in flight (bounded).
@@ -112,6 +122,7 @@ impl<D: DataSource> Presenter<D> {
             })
             .collect();
         let viewport = self.viewport;
+        self.images.screen = (viewport.0 * self.brush.scale, viewport.1 * self.brush.scale);
         self.images.paint_with(self.brush.text.clone());
         let reports = self
             .images

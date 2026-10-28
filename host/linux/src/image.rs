@@ -77,7 +77,36 @@ struct View {
     resized: bool,
     /// The request is for a part of the picture.
     part: bool,
+    /// How many times this showing has asked again for a URL whose download
+    /// failed in a way asking again may mend, and when it next does
+    /// ([`RETRY_AFTER`]): from nothing whenever it leaves the screen or its
+    /// source changes.
+    retries: usize,
+    retry_at: Option<Instant>,
 }
+
+/// When a picture on screen whose download failed (the network, a timeout, a
+/// 5xx) is asked for again, after each failure: six times a showing, about a
+/// minute in all, then not until it shows again (a dead URL never polls).
+#[cfg(not(test))]
+pub(crate) const RETRY_AFTER: [Duration; 6] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+    Duration::from_secs(30),
+];
+/// (The same steps in milliseconds, for the tests.)
+#[cfg(test)]
+pub(crate) const RETRY_AFTER: [Duration; 6] = [
+    Duration::from_millis(10),
+    Duration::from_millis(20),
+    Duration::from_millis(40),
+    Duration::from_millis(80),
+    Duration::from_millis(160),
+    Duration::from_millis(300),
+];
 
 /// One generation's bounded live demand, sharing its budget with replacements.
 pub struct Images {
@@ -113,6 +142,9 @@ pub struct Images {
     pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
     /// Pictures of a package's scheme, which no file holds (`package.rs`).
     package: package::Pictures,
+    /// The screen in device pixels, as the presenter last said: a picture
+    /// that fills it is downloaded first.
+    pub(crate) screen: (f32, f32),
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -143,6 +175,7 @@ impl Images {
             order: None,
             box_index: None,
             package: package::Pictures::default(),
+            screen: (0., 0.),
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
@@ -253,6 +286,8 @@ impl Images {
                 object_fit: node.style.object_fit,
                 resized: false,
                 part: false,
+                retries: 0,
+                retry_at: None,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
             view.fit = plain_box(node.style).then_some(node.style.object_fit);
@@ -282,6 +317,9 @@ impl Images {
             // Only a picture loads by whether it shows: a symbol's never asked.
             self.pictures = true;
             view.visible = visible(*id);
+            if !view.visible {
+                (view.retries, view.retry_at) = (0, None);
+            }
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
             }
@@ -334,6 +372,7 @@ impl Images {
                 view.source = source.to_owned();
                 view.source_id = None;
                 view.refusal = None;
+                (view.retries, view.retry_at) = (0, None);
                 // The old lease, bitmap and natural size stay until acceptance.
                 if source.is_empty() {
                     view.lease = None;
@@ -402,10 +441,24 @@ impl Images {
             {
                 continue;
             }
+            // Its download failed and its time to ask again has come: the
+            // failed source is let go of, and asked for anew below.
+            if let Some(source) = view.source_id.as_ref().map(|s| s.id) {
+                if view.retry_at.is_some_and(|at| Instant::now() >= at) {
+                    self.backend.evict(source);
+                    view.source_id = None;
+                    view.retry_at = None;
+                    view.retries += 1;
+                }
+            }
             if view.source_id.is_none() {
+                // A picture that fills the screen (a viewer's) is downloaded first.
+                let urgent = self.screen.0 > 0.
+                    && view.desired.0 >= self.screen.0 * 0.9
+                    && view.desired.1 >= self.screen.1 * 0.5;
                 match self
                     .backend
-                    .source(self.generation, &view.source, &self.assets)
+                    .source(self.generation, &view.source, &self.assets, urgent)
                 {
                     Ok(source) => {
                         view.source_id = Some(source);
@@ -422,6 +475,16 @@ impl Images {
                 Some(Prepared::Ready(header)) => header,
                 Some(Prepared::Failed(e)) => {
                     view.refusal = Some(e);
+                    // Still on screen, and asking again may mend it: asked
+                    // again after the next of RETRY_AFTER.
+                    if view.visible
+                        && view.retry_at.is_none()
+                        && view.retries < RETRY_AFTER.len()
+                        && remote::is_remote(&view.source)
+                        && self.backend.transient(source)
+                    {
+                        view.retry_at = Some(Instant::now() + RETRY_AFTER[view.retries]);
+                    }
                     continue;
                 }
                 _ => continue,
@@ -630,6 +693,17 @@ impl Images {
                 }
         })
     }
+    /// How long until a picture on screen asks again for a download that
+    /// failed: a turn is owed then (`turn_due_ms`, `wake_due_ms`).
+    pub fn retry_due_in(&self) -> Option<Duration> {
+        let now = Instant::now();
+        (self.views.values())
+            .filter(|v| v.visible)
+            .filter_map(|v| v.retry_at)
+            .min()
+            .map(|at| at.saturating_duration_since(now))
+    }
+
     /// Wait only for metadata/integrity; decode capacity never rejects activation.
     pub(crate) fn prepare_metadata(
         &mut self,
