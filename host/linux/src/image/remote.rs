@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Whether `name` is fetched rather than read: an `http:` or `https:` URL.
 pub(super) fn is_remote(name: &str) -> bool {
@@ -69,18 +69,21 @@ impl Default for Policy {
 /// the words the log gives it (Apple's `error` message).
 /// `transient`: one that asking again may mend (the network, a timeout, the
 /// server's 5xx, 408 or 429), which a picture still on screen asks again for
-/// (`image.rs`); not a 4xx, a bad URL or a body over the cap.
+/// (`image.rs`); not a 4xx, a bad URL or a body over the cap. `after`: not
+/// asked again before this, a 429's or 503's `Retry-After`.
 #[derive(Clone, Debug)]
 pub(super) struct Failure {
     pub refusal: Refusal,
     pub message: String,
     pub transient: bool,
+    pub after: Option<Instant>,
 }
 fn failed(message: impl Into<String>) -> Failure {
     Failure {
         refusal: Refusal::DecodeFailed,
         message: message.into(),
         transient: true,
+        after: None,
     }
 }
 /// [`failed`], for good: asking again changes nothing.
@@ -430,16 +433,32 @@ impl Downloads {
         if !(200..300).contains(&response.status) {
             let message = format!("HTTP {}", response.status);
             let transient = response.status >= 500 || matches!(response.status, 408 | 429);
-            return Err(if transient {
-                failed(message)
-            } else {
-                refused(message)
-            });
+            if !transient {
+                return Err(refused(message));
+            }
+            // Discord's CDN, and the person's own account: never asked again
+            // sooner than the server says.
+            // One that asks for longer than a showing waits, or that cannot be
+            // read, is not asked again until the picture is shown anew.
+            let asked = matches!(response.status, 429 | 503)
+                .then(|| response.headers.get("retry-after"))
+                .flatten();
+            return Err(
+                match asked.map(|value| retry_after(value, SystemTime::now())) {
+                    None => failed(message),
+                    Some(Some(wait)) => Failure {
+                        after: Some(Instant::now() + wait),
+                        ..failed(message)
+                    },
+                    Some(None) => refused(format!("{message}, retry after {}", asked.unwrap())),
+                },
+            );
         }
         let over = || Failure {
             refusal: Refusal::EncodedLimit,
             message: format!("over {} encoded bytes", self.policy.limit),
             transient: false,
+            after: None,
         };
         let declared =
             (response.headers.get("content-length")).and_then(|n| n.trim().parse::<u64>().ok());
@@ -482,6 +501,55 @@ impl Downloads {
 fn queue_urgent(queue: &mut VecDeque<Job>, job: Job) {
     let at = queue.iter().position(|j| !j.urgent).unwrap_or(queue.len());
     queue.insert(at, job);
+}
+
+/// The longest `Retry-After` a picture on screen waits out (its retries take
+/// about a minute in all, `image.rs`).
+const MOST_RETRY_AFTER: Duration = Duration::from_secs(300);
+
+/// How long a `Retry-After` header asks to wait, at `now`: delta-seconds or an
+/// IMF-fixdate (RFC 9110 §10.2.3); `None` past [`MOST_RETRY_AFTER`] or when
+/// it cannot be read.
+pub(super) fn retry_after(value: &str, now: SystemTime) -> Option<Duration> {
+    let value = value.trim();
+    let wait = if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        Duration::from_secs(value.parse().ok()?)
+    } else {
+        imf_fixdate(value)?.duration_since(now).unwrap_or_default()
+    };
+    (wait <= MOST_RETRY_AFTER).then_some(wait)
+}
+
+/// `Sun, 06 Nov 1994 08:49:37 GMT`.
+fn imf_fixdate(value: &str) -> Option<SystemTime> {
+    let parts: Vec<&str> = value.split_ascii_whitespace().collect();
+    let [_, day, month, year, time, "GMT"] = parts[..] else {
+        return None;
+    };
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let month = MONTHS.iter().position(|m| *m == month)? as i64 + 1;
+    let (day, year): (i64, i64) = (day.parse().ok()?, year.parse().ok()?);
+    let hms: Vec<i64> = time
+        .split(':')
+        .map(|n| n.parse().ok())
+        .collect::<Option<_>>()?;
+    let [h, m, s] = hms[..] else {
+        return None;
+    };
+    if !(1..=31).contains(&day) || year < 1970 || h > 23 || m > 59 || s > 60 {
+        return None;
+    }
+    // Days since 1970-01-01 (Howard Hinnant's days_from_civil).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = u64::try_from(days * 86_400 + h * 3600 + m * 60 + s).ok()?;
+    Some(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
 }
 
 /// A download thread's count in `running`, given back however it ends.

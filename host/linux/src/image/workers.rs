@@ -29,8 +29,9 @@ pub(super) struct SourceOwner {
     prepared: Mutex<Prepared>,
     /// A URL's download: the body a worker reads once it is settled.
     remote: Option<Arc<remote::Load>>,
-    /// Its download failed in a way asking again may mend (`Failure::transient`).
-    transient: std::sync::atomic::AtomicBool,
+    /// Its download failed in a way asking again may mend (`Failure::transient`):
+    /// not before this (the server's `Retry-After`, if it gave one).
+    transient: Mutex<Option<std::time::Instant>>,
 }
 impl SourceOwner {
     /// The file it reads, when it is one (not an update's bytes): a URL's
@@ -62,6 +63,7 @@ impl SourceOwner {
             refusal,
             message: message.clone(),
             transient: false,
+            after: None,
         };
         let Some(body) = self.remote.as_ref().and_then(|load| load.release(failure)) else {
             return;
@@ -240,16 +242,12 @@ impl Backend {
         let prepared = *source.prepared.lock().unwrap();
         Some(prepared)
     }
-    /// Whether source `id`'s download failed in a way asking again may mend.
-    pub fn transient(&self, id: u64) -> bool {
-        (self
-            .state
-            .lock()
-            .unwrap()
-            .sources
-            .get(&id)
-            .and_then(Weak::upgrade))
-        .is_some_and(|s| s.transient.load(std::sync::atomic::Ordering::Relaxed))
+    /// Whether source `id`'s download failed in a way asking again may mend:
+    /// the earliest it may be asked again, if so.
+    pub fn transient(&self, id: u64) -> Option<std::time::Instant> {
+        let source = (self.state.lock().unwrap().sources.get(&id)).and_then(Weak::upgrade)?;
+        let after = *source.transient.lock().unwrap();
+        after
     }
     /// `source`'s download, if it still waits for a thread, goes first: its
     /// picture now fills the screen ([`remote::Downloads::promote`]).
@@ -365,7 +363,9 @@ impl Backend {
             // log's, once for the source.
             Some(Err(failure)) => {
                 eprintln!("exact: image {}: {}", source.name, failure.message);
-                (source.transient).store(failure.transient, std::sync::atomic::Ordering::Relaxed);
+                *source.transient.lock().unwrap() = failure
+                    .transient
+                    .then(|| failure.after.unwrap_or_else(std::time::Instant::now));
                 Err(failure.refusal)
             }
             _ => open(source)

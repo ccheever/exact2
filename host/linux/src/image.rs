@@ -513,14 +513,16 @@ impl Images {
                 Some(Prepared::Failed(e)) => {
                     view.refusal = Some(e);
                     // Still on screen, and asking again may mend it: asked
-                    // again after the next of RETRY_AFTER.
-                    if view.on_screen
+                    // again after the next of RETRY_AFTER, and never before
+                    // the server's Retry-After.
+                    if let Some(after) = (view.on_screen
                         && view.retry_at.is_none()
                         && view.retries < RETRY_AFTER.len()
-                        && remote::is_remote(&view.source)
-                        && self.backend.transient(source)
+                        && remote::is_remote(&view.source))
+                    .then(|| self.backend.transient(source))
+                    .flatten()
                     {
-                        view.retry_at = Some(Instant::now() + RETRY_AFTER[view.retries]);
+                        view.retry_at = Some(after.max(Instant::now() + RETRY_AFTER[view.retries]));
                     }
                     continue;
                 }

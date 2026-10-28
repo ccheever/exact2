@@ -16,6 +16,8 @@ enum Answer {
     Body(Vec<u8>),
     /// A status with no body.
     Status(u16),
+    /// A status with no body that says when to ask again (`Retry-After`).
+    RetryAfter(u16, String),
     /// A status that declares a body of this length and sends none.
     Declared(u16, u64),
     /// A 302 to this location.
@@ -78,6 +80,10 @@ fn respond(mut stream: TcpStream, answer: &dyn Fn(&str, &str) -> Answer) {
         Answer::Status(status) => {
             stream.write_all(&head(&format!("{status} Nope"), "Content-Length: 0\r\n"))
         }
+        Answer::RetryAfter(status, after) => stream.write_all(&head(
+            &format!("{status} Nope"),
+            &format!("Retry-After: {after}\r\nContent-Length: 0\r\n"),
+        )),
         Answer::Declared(status, len) => stream.write_all(&head(
             &format!("{status} Nope"),
             &format!("Content-Length: {len}\r\n"),
@@ -788,4 +794,85 @@ fn a_view_that_joined_a_retry_never_cancels_it_with_its_own_older_deadline() {
         2,
         "the first view's retry served both; the second's deadline cancelled nothing"
     );
+}
+
+#[test]
+fn a_retry_after_is_read_as_seconds_or_a_date_and_bounded() {
+    use super::retry_after;
+    use std::time::SystemTime;
+    // 1994-11-06 08:49:37 UTC.
+    let at = SystemTime::UNIX_EPOCH + Duration::from_secs(784_111_777);
+    assert_eq!(retry_after(" 7 ", at), Some(Duration::from_secs(7)));
+    assert_eq!(retry_after("300", at), Some(Duration::from_secs(300)));
+    assert_eq!(retry_after("301", at), None, "longer than a showing waits");
+    let date = "Sun, 06 Nov 1994 08:50:07 GMT";
+    assert_eq!(retry_after(date, at), Some(Duration::from_secs(30)));
+    let past = "Sun, 06 Nov 1994 08:49:00 GMT";
+    assert_eq!(retry_after(past, at), Some(Duration::ZERO));
+    let later = "Sun, 06 Nov 1994 09:49:37 GMT";
+    assert_eq!(retry_after(later, at), None);
+    for unread in [
+        "",
+        "-1",
+        "1.5",
+        "soon",
+        "Sun, 06 Nov 1994 08:49:37 PST",
+        "Sun, 06 Foo 1994 08:49:37 GMT",
+    ] {
+        assert_eq!(retry_after(unread, at), None, "{unread:?}");
+    }
+}
+
+#[test]
+fn a_picture_on_screen_is_never_asked_again_sooner_than_its_server_says() {
+    let asks = Arc::new(Mutex::new(Vec::<(String, Instant)>::new()));
+    let log = asks.clone();
+    let origin = serve(move |path, _| {
+        let mut asks = log.lock().unwrap();
+        let first = !asks.iter().any(|(p, _)| p == path);
+        asks.push((path.to_owned(), Instant::now()));
+        match path {
+            "/later.png" if first => Answer::RetryAfter(429, "1".into()),
+            "/later.png" => Answer::Body(png(4, 4, [9, 9, 9, 255])),
+            // Longer than a showing waits: not asked again in this one.
+            _ => Answer::RetryAfter(503, "600".into()),
+        }
+    });
+    let url = format!("{origin}/later.png");
+    let k = kernel(&url);
+    let mut images = images();
+    images.sync(&k, &k.roots());
+    let started = Instant::now();
+    while shown(&images).is_none() {
+        assert!(started.elapsed() < SETTLED, "it shows after its wait");
+        images.poll();
+        images.sync(&k, &k.roots());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let times: Vec<Instant> = asks.lock().unwrap().iter().map(|(_, at)| *at).collect();
+    assert_eq!(times.len(), 2);
+    assert!(
+        times[1] - times[0] >= Duration::from_secs(1),
+        "asked again after {:?}",
+        times[1] - times[0]
+    );
+
+    let long = format!("{origin}/long.png");
+    let k = kernel(&long);
+    let mut images = self::images();
+    images.sync(&k, &k.roots());
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_millis(800) {
+        images.poll();
+        images.sync(&k, &k.roots());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let long_asks = asks
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(p, _)| p == "/long.png")
+        .count();
+    assert_eq!(long_asks, 1);
+    assert_eq!(images.retry_due_in(), None);
 }
