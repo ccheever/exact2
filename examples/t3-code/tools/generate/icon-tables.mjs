@@ -85,7 +85,7 @@ export const TIMELINE_ICON = [
 export const PANEL_ICON = [
   'earth', 'chevrons-up-down', 'chevrons-down-up', 'wrap-text', 'folder-tree', ['code', 'code-xml'],
   ['table', 'table-2'], 'eye', 'eye-off', 'ellipsis', 'arrow-up-right', 'link', 'link-2', 'unlink-2', 'plus',
-  'refresh-cw', 'loader', 'smartphone', 'check', 'circle-alert', 'layers', 'x', 'arrow-left',
+  'refresh-cw', 'loader', 'smartphone', 'check', 'circle-alert', 'layers', 'x', 'arrow-left', 'minus', 'scan', 'maximize',
 ];
 
 /** provider-icons.contract PvIcon: the Providers and Connections settings routes. */

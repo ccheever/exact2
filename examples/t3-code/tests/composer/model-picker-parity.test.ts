@@ -108,13 +108,13 @@ describe('the first nine rows a person can choose show their jump shortcut', () 
 
 describe('a rail button names its state and the provider\'s message', () => {
   test('describeUnavailableInstance and the locked-thread tooltip', () => {
-    expect(railLabel(codexError, false)).toBe('Codex — Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.');
+    expect(railLabel(codexError, false)).toBe('Codex: Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.');
     expect(railLabel(claude, false)).toBe('Claude');
-    expect(railLabel({ ...claude, status: 'warning', message: ' Rate limited. ' }, false)).toBe('Claude — Limited. Rate limited.');
-    expect(railLabel({ ...claude, status: 'checking', message: '' }, false)).toBe('Claude — Not ready.');
-    expect(railLabel({ ...claude, enabled: false }, false)).toBe('Claude — Disabled in settings.');
+    expect(railLabel({ ...claude, status: 'warning', message: ' Rate limited. ' }, false)).toBe('Claude: Limited. Rate limited.');
+    expect(railLabel({ ...claude, status: 'checking', message: '' }, false)).toBe('Claude: Not ready.');
+    expect(railLabel({ ...claude, enabled: false }, false)).toBe('Claude: Disabled in settings.');
     expect(railLabel(claude, true)).toBe('Claude is unavailable in this thread. Start a new thread to switch providers.');
-    expect(modelCatalog(client(), '', '').providers.map(rail => rail.label)).toEqual(['Codex — Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.', 'Claude']);
+    expect(modelCatalog(client(), '', '').providers.map(rail => rail.label)).toEqual(['Codex: Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.', 'Claude']);
   });
 });
 

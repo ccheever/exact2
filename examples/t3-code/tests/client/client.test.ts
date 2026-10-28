@@ -846,7 +846,7 @@ describe('streams and requests', () => {
     approval.responseCapability.type = 'not_resumable'; question.responseCapability.type = 'not_resumable';
     expect(reasons().every(item => item.responseReason.startsWith('Provider process is gone'))).toBe(true);
     approval.responseCapability.type = 'message';
-    expect(reasons()[0].responseReason).toContain('interrupt or restart the run');
+    expect(reasons()[0].responseReason).toContain('Interrupt or restart the run');
   });
   test('diff uses checkpoint ordinal and exposes read-only unified lines', async () => {
     const { client, native, command } = await opened();

@@ -29,7 +29,11 @@ export function serveAssets(answer: (url: string, range: string | null) => Asset
 export function memoryAppFiles(files: Map<string, Uint8Array> = new Map()) {
   adoptAppFiles({ fs: {
     async readFile(path: string) { const bytes = files.get(path); if (!bytes) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return bytes.slice().buffer; },
-    async writeFile(path: string, bytes: Uint8Array) { files.set(path, new Uint8Array(bytes)); },
+    // As the native host: a write takes bytes and refuses anything else.
+    async writeFile(path: string, bytes: Uint8Array | ArrayBuffer) {
+      if (!(bytes instanceof Uint8Array) && !(bytes instanceof ArrayBuffer)) throw new TypeError('invalid argument: fs writes require an ArrayBuffer or typed array');
+      files.set(path, new Uint8Array(bytes));
+    },
     async copyFile(from: string, to: string) { const bytes = files.get(from); if (!bytes) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); files.set(to, bytes.slice()); },
     async mkdir() {},
     async rm(path: string) { files.delete(path); },

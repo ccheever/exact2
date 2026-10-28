@@ -1,6 +1,6 @@
 // composer-editor-mentions.ts, composer-logic.ts and citation spacing at T3 Code 9c161462c9;
-// composerInlineTokens.ts (decorators), composerTrigger.ts (path words) and the provider's skill
-// chips (ComposerPromptEditorTiptap.tsx composerSkillMeta) at 74541bab17.
+// composerInlineTokens.ts (decorators) and the provider's skill chips (ComposerPromptEditorTiptap.tsx
+// composerSkillMeta) at 74541bab17; composerTrigger.ts (path words, currency amounts) at 7c3b3b3605ef.
 import { codeAt, composerMarkdown, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown';
 import type { ComposerEdit } from './composer-markdown-edit';
@@ -109,6 +109,14 @@ export function composerCharacterDeletion(value: string, selection: ComposerRang
   return { start, end, text: '', selection: { start, end: start } };
 }
 
+/**
+ * isCurrencyAmountQuery: `$5`, `€9.99` and `$10k` are money, not skills. Matches the amounts the inline skill tokens
+ * already refuse, plus the punctuation prose puts after one (`$10k.`, `($5)`).
+ */
+export function isCurrencyAmountQuery(query: string): boolean {
+  return /^\.?[0-9][0-9,._]*(?:[kKmMbBtT]|[eE][0-9]+)?[.,;:!?)]*$/.test(query);
+}
+
 export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerTrigger | null {
   if (!Number.isInteger(cursor) || cursor < 0 || cursor > value.length || chips.some(chip => cursor > chip.start && cursor < chip.end)) return null;
   if (styling && codeAt(composerMarkdown(value, { blockOrigins }).blocks, { start: cursor, end: cursor })) return null;
@@ -120,6 +128,7 @@ export function composerTrigger(value: string, cursor: number, chips = composerC
   const pr = /^#([\p{L}\p{N}][\p{L}\p{N}_-]*)?$/u.exec(token);
   if (pr) return { kind: 'pull-request', query: pr[1] ?? '', start: tokenStart, end: cursor };
   const skill = /^\p{Sc}/u.exec(token);
+  if (skill && isCurrencyAmountQuery(token.slice(skill[0].length))) return null;
   if (skill) return { kind: 'skill', query: token.slice(skill[0].length), start: tokenStart, end: cursor };
   return token.startsWith('@') ? { kind: 'path', query: token.slice(1), start: tokenStart, end: cursor } : null;
 }
