@@ -116,6 +116,7 @@ mod midi;
 mod migrate;
 mod miswiring;
 mod module_alarms;
+mod module_clipboard;
 mod module_events;
 mod module_geocoding;
 mod module_geofencing;

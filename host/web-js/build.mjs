@@ -372,7 +372,7 @@ const grants = ts ? developmentLocalNetwork(String(tsModule.grants ?? '')) : '';
 if (ts) {
   const expected = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
   const problems = [
-    ...['__exact_backend_source.json', '__exact_backend_warning.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
+    ...['__exact_backend_source.json', '__exact_backend_warning.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_binding.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...tsModule.exported.includes('draw') !== tsModule.exported.includes('surfaces') ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
     ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json's "app": { "id" } is ${expected} (its top-level "id" is the web manifest's, another field): make the two the same`] : [],

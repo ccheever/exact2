@@ -83,6 +83,10 @@ public final class ExactPackageContext {
     /// The session's id, unique in the process: what a process object
     /// shared by sessions (a capture, a photo output) keys its consumers by.
     public let session: String
+    /// The host's own id for the session, which what the host keeps for it
+    /// is named by: under the agent, the private pasteboard its `copyText`
+    /// and @exact/clipboard write (LLP 1133.006 §7).
+    public let hostSession: String
     /// Who made the call being answered now (`app`, `tool`, `wake`): set by
     /// the host before each `later`, read by an implementation at its entry,
     /// as a capture's first lease is refused to a tool's read (LLP 1133.009 D6).
@@ -124,7 +128,7 @@ public final class ExactPackageContext {
     /// The host's region carrier (LLP 1133.021 D14).
     public let regions: ExactRegions
 
-    public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
+    public init(agent: Bool, session: String, hostSession: String = "", changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
                 tracks: ExactTracks = ExactTracks(), file: @escaping (String) -> URL? = { _ in nil },
                 audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil },
@@ -146,7 +150,7 @@ public final class ExactPackageContext {
                 regions: ExactRegions = ExactRegions { _, _ in nil },
                 expireWake: @escaping (String) -> Void = { _ in },
                 state: @escaping ([String: Any]) -> Void = { _ in }) {
-        self.agent = agent; self.session = session
+        self.agent = agent; self.session = session; self.hostSession = hostSession
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; viewFn = view; invokeFn = invoke

@@ -1078,6 +1078,7 @@ fn bake_in(
         "__exact_backend_source.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
+        "__exact_binding.mjs",
         "__exact_paths.json",
         "__exact_declarations.json",
         "__exact_packages.json",
@@ -1198,10 +1199,7 @@ fn bake_in(
         entry.push_str(CANVAS_ENTRY);
     }
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
-    write_changed(
-        &stage.join("__exact_config.mjs"),
-        resident::CONFIG.as_bytes(),
-    )?;
+    resident::write_config(stage)?;
     write_changed(
         &stage.join("__exact_paths.json"),
         serde_json::json!({"app": app, "mounts": mounts(&app)?})
@@ -1403,10 +1401,7 @@ catch (error) { process.stderr.write(String(error?.message ?? error)); process.e
 "#;
 
 fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
-    write_changed(
-        &stage.join("__exact_config.mjs"),
-        resident::CONFIG.as_bytes(),
-    )?;
+    resident::write_config(stage)?;
     // Configure, then check as the resident and web producers check: the
     // compiler's resolved graph, package declarations included, stays inside
     // the capture and the configured libraries (`typescript.mjs` `check`).
