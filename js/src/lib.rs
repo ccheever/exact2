@@ -79,6 +79,8 @@ pub use exact_js_value::{from_json, to_json, Shape};
 pub use exact_runner::Placement;
 pub use native::{Changed, LaterHandler, NativeModule, NativeReply};
 pub use paired::{Bytecode, Paired};
+#[doc(hidden)]
+pub use storage::CompressionHold;
 
 use door::{c_string, host_door};
 use engine::{Engine, HostFn};
@@ -93,7 +95,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::Arc;
 use std::time::Instant;
-use turn::TurnClock;
+use turn::{TurnClock, TurnTime};
 use watch::{Watch, Watched};
 use wire::outcome_to_json;
 
@@ -274,7 +276,8 @@ struct HostState {
 pub struct Module {
     bytecode: Bytecode,
     snapshot: bool,
-    snapshot_deadline: Option<Instant>,
+    /// A snapshot's deadline, and the time it left when the snapshot was prepared.
+    snapshot_deadline: Option<(Instant, std::time::Duration)>,
     app_id: String,
     grants: String,
     revision: std::sync::OnceLock<String>, // the bytecode's SHA-256, when first asked
@@ -307,9 +310,12 @@ pub struct Module {
     /// Deliveries and new answers so far: what a waiting answer waits for.
     progress: u64,
     budget_ms: f64,
+    turn_time: TurnTime,
     max_heap: u32,
-    /// How long a storage step is waited for (tests shorten it).
+    /// How long a storage step is waited for: a snapshot's deadline shortens it.
     storage_wait: std::time::Duration,
+    /// Where a test holds compressions (`Module::hold_compressions`).
+    compression_hold: Option<std::sync::Arc<storage::Gate>>,
     document_owner: u64,
     logs: Vec<String>,
     overruns: u32,
@@ -387,8 +393,10 @@ impl Module {
             waiters: Vec::new(),
             progress: 0,
             budget_ms: DEFAULT_BUDGET_MS,
+            turn_time: TurnTime::default(),
             max_heap: DEFAULT_MAX_HEAP,
             storage_wait: storage::WAIT,
+            compression_hold: None,
             document_owner: 0,
             logs: Vec::new(),
             overruns: 0,
@@ -453,6 +461,7 @@ impl Module {
         let native_factory = template.native_factory;
         let plan = template.plan.as_ref().map(Plan::encode);
         let budget_ms = template.budget_ms;
+        let turn_time = template.turn_time.fresh();
         let max_heap = template.max_heap;
         let document_owner = template.document_owner;
         let agent_seed = template.agent_seed;
@@ -471,6 +480,7 @@ impl Module {
                 module = module.with_native(factory);
             }
             module.set_budget_ms(budget_ms);
+            module.turn_time = turn_time;
             module.set_max_heap(max_heap);
             module.set_document_owner(document_owner);
             if let Some(paths) = directories {
@@ -596,6 +606,7 @@ impl Module {
             &io,
             self.storage_wait,
             self.document_owner,
+            self.compression_hold.clone(),
         )?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
@@ -711,14 +722,6 @@ impl Module {
     /// over it is `Unavailable` and the resource keeps its last value.
     pub fn set_budget_ms(&mut self, ms: f64) {
         self.budget_ms = ms;
-    }
-
-    /// How long a storage step is waited for before the answer fails
-    /// (30 s), from the next [`Module::load`]. For tests of what giving up
-    /// does (LLP 1069.002 A1.5).
-    #[doc(hidden)]
-    pub fn set_storage_wait(&mut self, wait: std::time::Duration) {
-        self.storage_wait = wait;
     }
 
     /// Native storage operations started and not yet returned: a test of
@@ -951,11 +954,9 @@ impl Module {
             _ => "",
         };
         let started = Instant::now();
-        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
-            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
-        });
+        let budget_ms = self.turn_budget_ms(started);
         // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
-        let clock = TurnClock::start();
+        let clock = TurnClock::start(&self.turn_time);
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
@@ -1140,11 +1141,9 @@ impl Module {
         }
         let payload = serde_json::json!({ "answer": json(answer, &sig.result)?, "writes": list });
         let started = Instant::now();
-        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
-            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
-        });
+        let budget_ms = self.turn_budget_ms(started);
         // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
-        let clock = TurnClock::start();
+        let clock = TurnClock::start(&self.turn_time);
         let engine = self.engine.as_mut().expect("checked above");
         let text = engine
             .call(
@@ -1239,11 +1238,9 @@ impl Module {
             self.host.socket_buffered = socket::snapshot(&self.streams, store);
         }
         let started = Instant::now();
-        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
-            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
-        });
+        let budget_ms = self.turn_budget_ms(started);
         // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
-        let clock = TurnClock::start();
+        let clock = TurnClock::start(&self.turn_time);
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             if ticket == WAITING || ticket == TIMER {
@@ -1385,11 +1382,9 @@ impl Module {
         self.host.answer_ops.clear();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
-        let budget_ms = self.snapshot_deadline.map_or(self.budget_ms, |deadline| {
-            deadline.saturating_duration_since(started).as_secs_f64() * 1e3
-        });
+        let budget_ms = self.turn_budget_ms(started);
         // (its own time on this thread's CPU clock, a wall backstop beside it: turn.rs)
-        let clock = TurnClock::start();
+        let clock = TurnClock::start(&self.turn_time);
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked by resume");
             let text = engine

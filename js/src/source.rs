@@ -29,12 +29,13 @@ impl DataSource for Module {
         )
         .map_err(DataError::Unavailable)?;
         self.bytecode = admitted.bytecode.clone();
-        self.snapshot_deadline = Some(deadline);
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        self.snapshot_deadline = Some((deadline, left));
         self.revision = Default::default();
         self.snapshot = true;
         self.native_factory = None;
         self.native_slot = Default::default();
-        self.storage_wait = deadline.saturating_duration_since(std::time::Instant::now());
+        self.storage_wait = left;
         Ok(())
     }
 
