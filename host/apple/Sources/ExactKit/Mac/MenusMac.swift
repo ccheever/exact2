@@ -42,8 +42,7 @@ final class MenuHost: NSObject {
         var menu: NSMenu?
         /// AppKit's popover, while one shows it (PopoversMac.swift).
         var native: NativePopover?
-        /// Whether its author wrote what keeps it painted (`MenuHost.selectsPainted`).
-        var selectsPainted: Bool
+        var hasFallbacks: Bool
         var focusedItem: NSMenuItem?
         var tracking = false
         /// An alertdialog presented as a menu: what each action showed.
@@ -54,7 +53,7 @@ final class MenuHost: NSObject {
             parent = popover.superview
             index = parent?.subviews.firstIndex(of: popover) ?? 0
             frame = popover.frame; value = popover.props["popover"]
-            selectsPainted = MenuHost.selectsPainted(popover)
+            hasFallbacks = popover.style["position_try_fallbacks"] != nil
             selection = ((previous as? NSTextField)?.currentEditor() as? NSTextView)?.selectedRange()
                 ?? (previous as? NSTextView)?.selectedRange()
         }
@@ -536,6 +535,7 @@ final class MenuHost: NSObject {
                   entry.menu == nil || (entry.confirmation.map(valid) ?? isMenuShaped(entry.popover))
             else { close(entry.popover); continue }
             syncPresentation(entry)
+            entry.native?.repoint()
         }
         revalidate()
         var changed = false

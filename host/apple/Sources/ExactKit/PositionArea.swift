@@ -336,8 +336,11 @@ enum PositionArea {
     /// the viewport's top-left (`clientX`/`clientY`'s space, LLP 1021 D2):
     /// past its margin, as CSS places a fixed box by its insets; an axis with
     /// none at its margin. Nil when it writes neither, and its invoker places
-    /// it. A percentage is of the viewport, `viewport` big.
+    /// it; nil too under an authored `position-area`, which CSS lets win (the
+    /// insets then offset the box in its cell, which no host here does). A
+    /// percentage is of the viewport, `viewport` big.
     static func inset(of popover: NodeView, viewport: CGSize) -> CGPoint? {
+        guard of(popover) == "none" else { return nil }
         let left = popover.style["left"]?.length(basis: viewport.width)
         let top = popover.style["top"]?.length(basis: viewport.height)
         guard left != nil || top != nil else { return nil }

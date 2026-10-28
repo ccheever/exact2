@@ -580,7 +580,16 @@ impl<D: DataSource> Presenter<D> {
     /// A person chose row `index`: the surface closes, then the row's
     /// `press` runs (an alert's cancel has none), then the menu it opens,
     /// where it opens one, takes the first one's place.
-    fn choose(&mut self, index: usize, now_ms: f64) {
+    /// A point of the open surface's own space in the page's, where its
+    /// row's `MouseEvent` has `clientX`/`clientY` (LLP 1021 D2).
+    fn surface_client(&self, (x, y): (f32, f32)) -> Option<(f32, f32)> {
+        let frame = self.top.open.as_ref()?.frame;
+        let [px, py, ..] = self.chrome().frame;
+        Some((frame[0] as f32 + x - px, frame[1] as f32 + y - py))
+    }
+
+    /// Row `index` chosen; `point`, where a pointer chose it, in the page.
+    fn choose(&mut self, index: usize, now_ms: f64, point: Option<(f32, f32)>) {
         let Some(open) = &self.top.open else {
             return;
         };
@@ -597,7 +606,13 @@ impl<D: DataSource> Presenter<D> {
             .contains(&EventKind::Press)
             && !row.cancel
         {
-            let error = self.host.dispatch_at(row.node, Event::Press, now_ms);
+            let (x, y) = point.unwrap_or_default();
+            let press = Event::pressed(exact_runner::MouseEvent {
+                client_x: x.into(),
+                client_y: y.into(),
+                held: self.modifiers(),
+            });
+            let error = self.host.dispatch_at(row.node, press, now_ms);
             if let Some(e) = error.or(self.after_commit()) {
                 eprintln!("exact: {e}");
             }
@@ -676,7 +691,8 @@ impl<D: DataSource> Presenter<D> {
             self.executor.notify();
         }
         if let Some(index) = chosen {
-            self.choose(index, now_ms);
+            let point = self.surface_client((x, y));
+            self.choose(index, now_ms, point);
         }
     }
 
@@ -734,7 +750,7 @@ impl<D: DataSource> Presenter<D> {
             "Home" | "End" if self.top.overlay.enabled => self.surface_edge(name == "End"),
             "Enter" | " " => {
                 if let Some(index) = self.top.open.as_ref().and_then(|open| open.focused) {
-                    self.choose(index, now_ms);
+                    self.choose(index, now_ms, None);
                 }
             }
             _ => {}
@@ -865,7 +881,10 @@ impl<D: DataSource> Presenter<D> {
                 "view {id} is disabled in the open surface (view {pop})"
             )),
             (Some(index), _) => {
-                self.choose(index, now);
+                // The agent's tap is a pointer's, at the row's middle.
+                let (x, y, w, h) = open.layout.targets[index].rect;
+                let point = self.surface_client((x + w / 2., y + h / 2.));
+                self.choose(index, now, point);
                 Ok(format!("{{\"tapped\":{id},\"surface\":{serial}}}"))
             }
             (None, _) if outside => {

@@ -1130,6 +1130,7 @@ impl<D: DataSource> Presenter<D> {
                     {
                         self.focus_for_press(hit, (x, y), now_ms, self.contact_is_direct());
                     }
+                    self.press_point = Some((x, y));
                     self.activate(id, now_ms);
                 }
             }

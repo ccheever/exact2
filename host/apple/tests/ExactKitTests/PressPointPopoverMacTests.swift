@@ -35,10 +35,10 @@ final class PressPointPopoverMacTests: XCTestCase {
     private var fixture: SheetFixture?
     override func tearDown() { fixture?.close(); fixture = nil; super.tearDown() }
 
-    private func make() throws -> SheetFixture {
+    private func make(painted: Bool = true) throws -> SheetFixture {
         let f = try SheetFixture(page: Self.page, size: CGSize(width: 400, height: 420))
         fixture = f
-        f.presenter.menus.painted = true
+        f.presenter.menus.painted = painted
         f.window.orderFrontRegardless()
         f.settle()
         return f
@@ -76,6 +76,35 @@ final class PressPointPopoverMacTests: XCTestCase {
         let far = try opened(f, "pop")
         XCTAssertEqual(far.maxX, 330, accuracy: 0.5); XCTAssertEqual(far.maxY, 380, accuracy: 0.5)
         XCTAssertTrue(CGRect(origin: .zero, size: f.presenter.clientSize).contains(far), "\(far)")
+        f.presenter.menus.close(pop); f.settle()
+    }
+
+    /// AppKit's popover, as a hand-built app shows one at a click: pointed at
+    /// a 1×1 rectangle at the press, and pointed again where the insets move
+    /// while it shows; from a key, at its invoker, the same popover.
+    func testAppKitsPopoverPointsAtThePress() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent's chrome keeps it painted")
+        let f = try make(painted: false)
+        let open = try f.node("open"), pop = try f.node("pop")
+        func pointed() throws -> CGPoint {
+            let end = Date().addingTimeInterval(3)
+            while !f.presenter.menus.isOpen(pop), Date() < end { f.settle() }
+            let entry = try XCTUnwrap(f.presenter.menus.entries.first { $0.popover === pop })
+            let native = try XCTUnwrap(entry.native, "AppKit's popover shows it")
+            let view = try XCTUnwrap(native.positioning?.view)
+            return f.presenter.client(view.convert(native.popover.positioningRect.origin, to: nil))
+        }
+        try click(f, open, at: CGPoint(x: 70, y: 38))
+        var at = try pointed()
+        XCTAssertEqual(at.x, 70, accuracy: 0.5); XCTAssertEqual(at.y, 38, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(f.presenter.menus.entries.first { $0.popover === pop }?.native).popover.positioningRect.size, CGSize(width: 1, height: 1))
+        try click(f, open, at: CGPoint(x: 120, y: 60)) // open already: only the insets move
+        at = try pointed()
+        XCTAssertEqual(at.x, 120, accuracy: 0.5); XCTAssertEqual(at.y, 60, accuracy: 0.5)
+        f.presenter.menus.close(pop); f.settle()
+        f.presenter.press(open.id); f.settle()
+        at = try pointed()
+        XCTAssertEqual(at.x, 40, accuracy: 0.5, "the invoker's rectangle")
         f.presenter.menus.close(pop); f.settle()
     }
 
@@ -118,15 +147,16 @@ final class PressPointPopoverMacTests: XCTestCase {
     }
 
     /// A menu whose author wrote `left` and `top` pops up at that point, not
-    /// at its invoker (`popUpPoint`), and is no AppKit popover when it is not one.
+    /// at its invoker (`popUpPoint`), unless it also wrote a `position-area`.
     func testAMenuPopsUpAtItsInsets() throws {
         let f = try make()
         let open = try f.node("open"), menu = try f.node("menu"), pop = try f.node("pop")
         let at = f.presenter.menus.popUpPoint(NSMenu(), menu, in: open)
         let want = f.presenter.point(fromClient: CGPoint(x: 30, y: 8), in: open)
         XCTAssertEqual(at.x, want.x, accuracy: 0.5); XCTAssertEqual(at.y, want.y, accuracy: 0.5)
-        XCTAssertTrue(MenuHost.selectsPainted(menu))
-        XCTAssertFalse(MenuHost.selectsPainted(pop), "its insets are auto until a click says where")
+        // Under an authored `position-area` CSS lets the area win: no point.
+        f.presenter.apply(wireBatch([["op": "style", "id": Int(menu.id), "style": ["position_area": "top", "left": 30.0, "top": 8.0]]]))
+        XCTAssertNil(PositionArea.inset(of: menu, viewport: f.presenter.clientSize))
     }
 }
 #endif

@@ -879,9 +879,9 @@ component App
   its grey subtitle: `text "Name"` then `text "A to Z"`. Side by side they stay one title.
 - An `hr` between rows starts a section; `destructive=true` paints a row red.
 - At the click, as Electron's `Menu.popup({x, y})`: the button's `press` action takes
-  `e: MouseEvent`, keeps `e.clientX`, `e.clientY` (both 0 from a key: keep none), and calls
-  `showPopover("menu", source="button")`; the popover writes them as `left` and `top` (`auto`
-  when none) with `margin=0`. iOS keeps the menu on its invoker (LLP 1021 D2).
+  `e: MouseEvent`, keeps `e.clientX`, `e.clientY` (both 0 from a key; then leave the insets
+  `auto`), and calls `showPopover("menu", source="button")`; the popover writes them as `left`
+  and `top` with `margin=0` and no `position-area`. iOS keeps the menu on its invoker (LLP 1021 D2).
 
 A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextmenu`, then
 taps the item. A row whose `popovertarget` names another menu is its submenu.

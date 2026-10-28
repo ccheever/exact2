@@ -120,8 +120,8 @@ The kernel lays the popover subtree out on every commit regardless of
 visibility — a hidden layer, anchored: top-left at the invoker's
 bottom-left by default, sized by content. Authored `position-area` and
 `position-try-fallbacks` follow the placement amendment below; an authored
-`left` or `top` places the popover at that viewport point instead ("At the
-press point", below). The host shows
+`left` or `top`, with no authored `position-area`, places the popover at that
+viewport point instead ("At the press point", below). The host shows
 and hides it; opening is **no relayout**, the instant-menu
 property, and the same discipline as scroll offset (LLP 1008: host state,
 never plan state). Light dismiss, the one-auto-popover rule, and Escape
@@ -588,8 +588,9 @@ the platform's placement. A fitting choice survives resize and invoker movement;
 changing the area, fallback list, margins or size clears it. An overflowing choice tries the list
 again, preserving the current option if none fits. Logical areas, `flip-x`,
 `flip-y`, area-dependent sizing,
-nonzero insets alongside an area (an authored `left` or `top` replaces the
-area: "At the press point", below) and non-default self-alignment, full scroll-offset bookkeeping,
+nonzero insets alongside an authored area (CSS lets the area win and the
+insets offset the box in its cell; without an area, an authored `left` or
+`top` places it: "At the press point", below) and non-default self-alignment, full scroll-offset bookkeeping,
 and general Linux popover presentation remain outside this slice. `anchor-name`,
 `position-anchor`, named `@position-try` rules and `position-visibility` are
 not admitted by this work.
@@ -694,23 +695,28 @@ tap carries its point as any node's does (on the Mac, the press AppKit's
 button tracked; on iOS, the touch that lifted). An agent's `tap` is a
 pointer's press at its point.
 
-A popover whose author wrote `left` or `top` is placed by them, not by its
-invoker: its border box's top-left at the inset past its margin, as CSS places
-a fixed box; an axis with no inset is at its margin. `position-area` does not
-apply to it. It opens as each host opens a context menu at the pointer (§5.1):
+A popover whose author wrote `left` or `top`, and no `position-area`, is placed
+by them, not by its invoker: its border box's top-left at the inset past its
+margin, as CSS places a fixed box; an axis with no inset is at its margin.
+Where its author also wrote a `position-area`, CSS lets the area win, the
+insets offsetting the box in its cell; every host then places it by the area
+against its invoker, as before. The press itself is the platform's
+presentation at a point (§5.1):
 
 | Host | placed |
 |---|---|
-| Web (both targets), neutral look | `position-area: none`; the base option is the authored insets, and where it does not fit it opens up or toward the start from the point (`--exact-inset-start`, `-up`, `-up-start`, as a context menu's fallbacks; `navigation.js` leaves the insets on it as `--exact-inset-x`, `-y` while open). The shell's look is plain CSS. |
+| Web (both targets), neutral look | `position-area: none`; the base option is the authored insets, and where it does not fit it opens up or toward the start from the point (`--exact-inset-start`, `-up`, `-up-start`, as a context menu's fallbacks; `navigation.js` leaves the insets on it as `--exact-inset-x`, `-y` while open, and again as they change). An authored `position-try-fallbacks` replaces these flips, and `none` turns them off. An authored `right` or `bottom` leaves the popover to plain CSS: no point is kept. |
+| Web, the shell's look (LLP 1116 D1) | plain CSS: the user agent's `[popover] { inset: 0; margin: auto }` stays, so the author writes `margin=0` (and `right`, `bottom` `auto`) for the box to sit at the point, as on a page without Exact |
 | macOS, menu-shaped | an `NSMenu` popped up with its top-left at the point (`popUp(positioning:at:in:)`); AppKit keeps it on screen |
-| macOS, any other | painted in the page's top layer: AppKit's popover can only point an arrow at a rectangle, so an inset selects the painted layer as fallbacks do. At the point, the other way from it on an axis without room, held in the window where neither way fits (`PositionArea.at`) |
+| macOS, any other | AppKit's `NSPopover`, pointed at a 1×1 rectangle at the point, as a hand-built app points one at a click; a key's press (no insets) points it at its invoker, the same popover. Only an authored `position-try-fallbacks` keeps it painted, as before; there, and under the agent's chrome, it goes to the point, the other way from it on an axis without room, held in the window where neither way fits (`PositionArea.at`) |
+| macOS, toolbar items, segments, sidebar rows | their presses carry no point (0, 0): a toolbar item's pull-down hangs from its item, as AppKit's does, and the others are controls AppKit tracks |
 | iOS, painted (the agent's lift) | as the Mac's painted layer |
-| iOS, `UIMenu` and sheets | declared: attached to the invoker. UIKit has no public API that presents a menu at a point from a tap; a hand-built pull-down attaches to its button. |
-| Linux and Windows (windowed), Android | the context menu's path at the point: the shell menu hangs from it, the neutral surface is held in the window (`area::at_point`) |
+| iOS, `UIMenu` and sheets | declared: attached to the invoker. No public API presents a pull-down `UIMenu` at an arbitrary point (`UIEditMenuInteraction` presents the edit menu at one, which is another menu), and the HIG's pull-down buttons hang their menus from the button. |
+| Linux and Windows (windowed), Android | the context menu's path at the point: the shell menu hangs from it, the neutral surface is held in the window (`area::at_point`). Each pointer path (a click, a finger's activation, a row of the shell's menu) carries its own point; a header item the shell's bar draws carries none, its popover hanging from the item |
 | Terminal | at its insets, as every top-layer box there (`Kernel::top_layer_origin`) |
 
-Only `left` and `top` are read by the native hosts; `right` and `bottom` on a
-popover are still not. The kernel lays the popover out in the viewport's
+The native hosts read a popover's `left` and `top` only; they ignore its
+`right` and `bottom`. The kernel lays the popover out in the viewport's
 block, as one with no area.
 
 **D3 — menu-shaped popovers may present natively.** A popover whose

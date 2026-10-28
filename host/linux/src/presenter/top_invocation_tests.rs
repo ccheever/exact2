@@ -253,7 +253,7 @@ fn dialog_opened_from_a_menu_restores_focus_after_escape_and_text_scaling() {
         assert!(p.display_complete(&frame));
         let trigger = id(&p, "native-cmd");
         invoke(&mut p, "native-cmd");
-        p.choose(3, 1.);
+        p.choose(3, 1., None);
         assert_eq!(open(&p).as_deref(), Some("dpm"));
         if scale {
             for factor in [2.25, 1.] {

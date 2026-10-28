@@ -932,13 +932,12 @@ impl<D: DataSource> Presenter<D> {
             .is_some_and(|view| self.canvas_pointer(view, "down", 1, x, y, at))
     }
 
-    /// A press's event: the modifiers held, and a pointer's point (the
-    /// keyboard's press has none, as a browser's synthetic click is at 0, 0).
-    pub(crate) fn press_event(&self, pointer: bool) -> Event {
-        let (client_x, client_y) = pointer
-            .then_some(self.press_point)
-            .flatten()
-            .unwrap_or_default();
+    /// A press's event: the modifiers held, and the point the pointer path
+    /// that sent it left (`press_point`), taken so no later press reads it.
+    /// A key's press has none, as a browser's synthetic click is at 0, 0.
+    pub(crate) fn press_event(&mut self, pointer: bool) -> Event {
+        let point = self.press_point.take();
+        let (client_x, client_y) = point.filter(|_| pointer).unwrap_or_default();
         Event::pressed(exact_runner::MouseEvent {
             client_x: client_x.into(),
             client_y: client_y.into(),

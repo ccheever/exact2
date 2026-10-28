@@ -1,8 +1,8 @@
 // A popover opened at the press (LLP 1021 D2): its author reads the click's `clientX`/`clientY` and writes them as
 // its `left`/`top`, as a page without Electron's `Menu.popup({x, y})` does. In the neutral look its invoker no longer
 // places it (neutral.css's `position-area` gives way), and where the point leaves too little room it opens the
-// other way from it, as a context menu at the pointer does (navigation.js `insetAt`). One with no inset still opens
-// at its invoker. Chrome is the oracle; the page's stylesheet is a default build's (look.mjs).
+// other way from it, as a context menu at the pointer does (navigation.js `insetAt`), from where the insets are as
+// they change. One with no inset still opens at its invoker, and one with an authored `position-area` is placed by it. Chrome is the oracle; the page's stylesheet is a default build's (look.mjs).
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
@@ -55,5 +55,17 @@ test('chromium: a popover whose author wrote left and top opens at that point, a
     await tab.mouse.click(580, 380);
     const [, , right, bottom] = await box();
     expect([right, bottom]).toEqual([580, 380]);
+    // Insets the author moves while it is open move the point it flips from too.
+    await tab.mouse.click(560, 375);
+    await tab.waitForFunction(() => document.getElementById('menu').matches(':popover-open'));
+    await tab.evaluate(() => { const m = document.getElementById('menu'); m.style.left = '590px'; m.style.top = '395px'; });
+    await tab.waitForFunction(() => document.getElementById('menu').style.getPropertyValue('--exact-inset-x') === '590px');
+    const [, , movedRight, movedBottom] = await box();
+    expect([movedRight, movedBottom]).toEqual([590, 395]);
+    // With an authored position-area, CSS's: the area places it, and no point is left to flip from.
+    await tab.evaluate(() => { const m = document.getElementById('menu'); m.style.setProperty('position-area', 'top'); });
+    await tab.mouse.click(560, 375);
+    await tab.waitForFunction(() => document.getElementById('menu').matches(':popover-open'));
+    expect(await tab.evaluate(() => document.getElementById('menu').style.getPropertyValue('--exact-inset-x'))).toBe('');
   } finally { await browser.close(); }
 }, 30000);
