@@ -686,9 +686,15 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// Walk `id` and what is under it into the tree.
-    fn access_walk(&self, b: &mut Build, id: ViewId, mut scope: Scope) {
-        let kernel = self.host.kernel();
-        let Some(node) = kernel.node(id) else { return };
+    fn access_walk(&self, b: &mut Build, id: ViewId, scope: Scope) {
+        let Some(node) = self.host.kernel().node(id) else {
+            return;
+        };
+        self.access_walk_node(b, node, scope);
+    }
+
+    fn access_walk_node(&self, b: &mut Build, node: NodeRef<'_>, mut scope: Scope) {
+        let id = node.id;
         let (hidden, inert) = self.host.route_visibility(id);
         if hidden
             || inert
@@ -871,10 +877,8 @@ impl<D: DataSource> Presenter<D> {
             Some(hash) => rowed(hash),
             None => (id & 0x3fff_ffff) as i32,
         };
-        for (index, child) in node.children().into_iter().enumerate() {
-            let key = kernel
-                .node(child)
-                .and_then(|n| n.props.str(PropId::ListItemKey));
+        for (index, child) in node.child_nodes().enumerate() {
+            let key = child.props.str(PropId::ListItemKey);
             let mut under = scope;
             under.hash = match key.filter(|key| !key.is_empty()) {
                 Some(key) => Some(row_hash(own, key)),
@@ -882,7 +886,7 @@ impl<D: DataSource> Presenter<D> {
                     .hash
                     .map(|hash| fnv(hash, &(index as u32).to_le_bytes())),
             };
-            self.access_walk(b, child, under);
+            self.access_walk_node(b, child, under);
         }
     }
 
