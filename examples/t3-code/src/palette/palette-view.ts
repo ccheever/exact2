@@ -2,23 +2,30 @@
 import type { T3Client } from '../client/client';
 import { arr, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
-import { closedView, commandView, threadJumpChords, type PaletteView } from './palette';
+import { closedView, commandView, rootFallback, threadJumpChords, type PaletteView } from './palette';
 import { addProjectView, isBrowseQuery } from './palette-add';
 import { contentSearchView, filePickerView } from './palette-files';
 import { linkPullRequestView, resetLinkDialog } from './palette-linkpr';
 import { linkedThreadItems, threadPickerView } from '../pull-requests/pages-pr-links';
+import { messageSearchTokens } from './palette-search';
 
+/** THREAD_SEARCH_QUERY_MAX_LENGTH: a pasted wall of text searches by its start rather than failing the request. */
+const THREAD_SEARCH_QUERY_MAX_LENGTH = 200;
 const searches = new WeakMap<T3Client, { key: string; matches: Obj[] }>();
-/** useThreadSearch: orchestration.searchThreads for 2–200 characters, newest query only. */
+/**
+ * useThreadSearch: orchestration.searchThreads, newest query only, once the query holds a word the server can match
+ * messages by (three or more letters, or two Chinese, Japanese or Korean characters). One match per thread, in the
+ * server's order.
+ */
 async function threadMatches(client: T3Client, native: Native | null | undefined, query: string): Promise<{ matches: Map<string, Obj>; query: string }> {
-  const needle = query.trim();
+  const needle = query.trim().slice(0, THREAD_SEARCH_QUERY_MAX_LENGTH).trim();
   const result = new Map<string, Obj>();
-  if (!native?.available || !client.ready || needle.length < 2 || needle.length > 200 || needle.startsWith('>')) return { matches: result, query: needle };
+  if (!native?.available || !client.ready || needle.startsWith('>') || messageSearchTokens(needle).long.length === 0) return { matches: result, query: needle };
   const key = `${client.generation}:${needle}`;
   let hit = searches.get(client);
   if (!hit || hit.key !== key) {
     let matches: Obj[] = [];
-    try { matches = arr((await client.restAccess(native).request('orchestration.searchThreads', { query: needle, limit: 50 })).matches); }
+    try { matches = arr((await client.restAccess(native).request('orchestration.searchThreads', { query: needle })).matches); }
     catch { matches = []; }
     hit = { key, matches };
     searches.set(client, hit);
@@ -47,7 +54,11 @@ async function paletteViewOf(client: T3Client, native: Native | null | undefined
   // The command palette's own field (CommandPalette.tsx handleKeyDown) takes the thread.jump.N chords; the file
   // picker, content search, Link pull request and the thread picker are other dialogs.
   const jumpKeys = threadJumpChords(client);
-  if (isAddProjectPage(page) || (page === '' && isBrowseQuery(query))) return { ...await addProjectView(client, native, { page, query, highlighted }), jumpKeys };
+  // A list page (Environments, Sources) where nothing matches the query searches the root (filterCommandPaletteGroups allOptions).
+  if (isAddProjectPage(page) || (page === '' && isBrowseQuery(query))) {
+    const fallback = page !== '' && !isBrowseQuery(query) ? rootFallback(client, query, now, scheme) : undefined;
+    return { ...await addProjectView(client, native, { page, query, highlighted, ...(fallback ? { fallback } : {}) }), jumpKeys };
+  }
   // The panel's thread picker, and the linked threads' search (the root page, opened on the pull request's URL).
   if (page === 'pr-link-thread') return threadPickerView(client, query, false);
   const linkedThreads = linkedThreadItems(client, page, query), root = page.startsWith('pr-linked|') ? '' : page;

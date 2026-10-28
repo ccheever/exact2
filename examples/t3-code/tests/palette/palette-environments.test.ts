@@ -9,6 +9,7 @@ import type { Files, Native } from '../../src/client/protocol';
 import { addProjectView } from '../../src/palette/palette-add';
 import { paletteCommand } from '../../src/palette/palette-commands';
 import { commandView, rootActions } from '../../src/palette/palette';
+import { paletteView } from '../../src/palette/palette-view';
 import { environmentOptionLabel } from '../../src/palette/palette-environments';
 import { fleet, environmentKey, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { primary, type PrimaryTarget } from '../../src/connections/local-primary';
@@ -111,6 +112,17 @@ describe('Add project: the Environments step', () => {
     expect(add(c)).toMatchObject({ op: 'page', arg: 'add-project' });
     c.connection = 'disconnected';
     expect(add(c)).toMatchObject({ op: 'settings', arg: 'connections' });
+  });
+
+  test('Environments and Sources, where nothing matches the query, list the root\'s results', async () => {
+    const c = threeEnvironments(), native = new Fake();
+    // The groups shown, each with its first row.
+    const shown = async (page: string, query: string) => (await paletteView(c, native, [true, 'command', page, query, '', false, 0, 'dark'])).rows
+      .filter(row => row.header).map(row => [row.header, row.title]);
+    expect(await shown('add-project', 'third')).toEqual([['Environments', 'Lane Third']]);
+    expect(await shown('add-project', 'usage')).toEqual([['Actions', 'Open usage'], ['Settings', 'Usage providers']]);
+    expect(await shown('add-project/env:env-second', 'git url')).toEqual([['Sources', 'Git URL']]);
+    expect(await shown('add-project/env:env-second', 'usage')).toEqual([['Actions', 'Open usage'], ['Settings', 'Usage providers']]);
   });
 
   test('resolveEnvironmentOptionLabel: a generic primary label reads "This device"', () => {
