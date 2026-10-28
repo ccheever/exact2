@@ -10,16 +10,16 @@ import { visiblePullRequests } from '../panel/shell-pr';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
-import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
+import { beginQueuedEdit, cancelQueuedEdit, removeQueuedEditAttachment, toggleQueueShownInFull } from './composer-controls-queue';
 import { copyBranchName, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
-import { attachIncoming, type IncomingFiles } from './composer-controls-attach';
+import { attachIncoming, cancelPreparingImage, type IncomingFiles } from './composer-controls-attach';
 import { foldPaste, heldPaste } from './composer-editor-files';
 import { uuid } from '../transport/transport-wire';
 import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from '../client/client';
-import { dismissResumeCompaction, keepsFullHistory, setKeepFullHistory } from './composer-controls-resume';
+import { keepsFullHistory, setKeepFullHistory } from './composer-controls-resume';
 import { dispatchSelection } from './composer-ultrathink'; // modelOptionsForDispatch
 import { composerSelection } from './composer-provider-selection';
 import { composerNow, clearStaged, nextTurnCommands, planFollowUp, proposedPlanTitle, requireProvider, resumeState, stagedFor,
@@ -226,29 +226,17 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId, runId: str(run.id), holdQueue: true }, 'Stop background work');
     return '';
   }
-  if (op === 'queued-key') {
-    // The grip's ↑/↓: move before the previous row, or after the next one (QueuedRunsControl onKeyDown).
-    if (value !== 'ArrowUp' && value !== 'ArrowDown') return '';
-    const queued = queueState(requireThread(client)).queued.map(entry => str(entry.run.id)), index = queued.indexOf(id);
-    if (index < 0 || (value === 'ArrowUp' ? index === 0 : index === queued.length - 1)) return '';
-    return composerCommand(client, native, storage, 'queued-reorder', id, value === 'ArrowUp' ? queued[index - 1]! : queued[index + 2] ?? '');
-  }
-  if (op === 'queued-drop') {
-    // The grip's drag (QueuedRunsControl onDrop): a move to the insertion line, unless that is where it already is.
-    const move = queuedDrop(client, id);
-    return move ? composerCommand(client, native, storage, 'queued-reorder', move.runId, move.before) : '';
-  }
-  if (op === 'queued-remove' || op === 'queued-steer' || op === 'queued-reorder') {
+  if (op === 'queued-remove' || op === 'queued-steer') {
     const projection = requireThread(client), threadId = client.threadId;
     const run = arr(projection.runs).find(entry => entry.id === id && entry.status === 'queued');
     if (!run) throw new ClientError('That queued message already started or was removed.');
     const [commandId] = await access.ids(1);
     if (op === 'queued-remove') await access.dispatch(storage, { type: 'queued-run.cancel', commandId, threadId, runId: id }, 'Remove queued message');
-    else if (op === 'queued-steer') {
+    else {
       const target = activeRun(projection);
       if (!target) throw new ClientError('There is no active run to steer');
       await access.dispatch(storage, { type: 'queued-message.promote-to-steer', commandId, threadId, queuedRunId: id, targetRunId: str(target.id) }, 'Steer queued message');
-    } else await access.dispatch(storage, { type: 'queued-run.reorder', commandId, threadId, runId: id, beforeRunId: value || null }, 'Reorder queued message');
+    }
     return '';
   }
   throw new ClientError(`Unknown composer action: ${op}`);
@@ -277,9 +265,10 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op.startsWith('usage-')) return usageLocal(client, _native, op, id);
   if (op.startsWith('feedback-')) return feedbackLocal(client, _native, op, id);
   if (op === 'queued-cancel') { cancelQueuedEdit(client); return ''; }
+  if (op === 'queued-show-all') { toggleQueueShownInFull(client); return ''; } // "Show all N queued" / "Show fewer"
+  if (op === 'preparing-image-cancel') { cancelPreparingImage(client, id); return ''; } // a preparing tile's Remove
   if (op === 'queued-attachment-remove') { removeQueuedEditAttachment(client, id); return ''; }
   if (op === 'compact-full') { setKeepFullHistory(client, !keepsFullHistory(client)); return ''; } // the Compact chip's toggle
-  if (op === 'resume-compaction-dismiss') { dismissResumeCompaction(client, id); return ''; }
   if (op === 'dismiss-woke') { await acknowledgeWoke(client, id || client.threadId, _native, value); return ''; }
   throw new ClientError(`Unknown composer action: ${op}`);
 }

@@ -4,14 +4,15 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { requestPresentation } from './requests';
 import type { T3Client } from '../client/client';
-import { footerLayout, traitsDisplay, primaryAction, composerNotices, noticeRank, syncStatus, tasksProgress, providerControl, contextMeter, compactChip } from './composer-controls-view';
+import { footerLayout, traitsDisplay, primaryAction, composerNotices, providerControl, contextMeter, compactChip } from './composer-controls-view';
 import { planFollowUp, noteNow } from './composer-controls';
-import { queuedView } from './composer-controls-queue';
+import { queuedEditView, settleQueuedEdits } from './composer-controls-queue';
+import { endSummary, threadNowProbes } from './thread-end';
 import { subagentBar } from './composer-controls-subagent';
-import { attachOffered } from './composer-controls-attach';
+import { attachOffered, preparingImages } from './composer-controls-attach';
 import { fanoutSelections, fanoutView } from './composer-controls-fanout';
 import { composerSelection } from './composer-provider-selection';
-import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
+import { chordGlyphs, displayModelName, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
 import { composerRequiresModifier, sendChords, sendCommandChords } from './composer-editor-intent';
 import { layoutFrames } from '../shell/layout-frames';
 import { draftHoldsCommandEnter } from '../diff/diff';
@@ -27,7 +28,7 @@ import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefaul
 import { ultrathinkFrame } from './composer-ultrathink';
 import { acpInstanceIcon } from './acp-instance-icon'; // the trigger's ACP agent mark
 import { overflowMenu } from './composer-overflow';
-import { usageConfirm } from './composer-controls-usage'; // the reset credit confirm
+import { usageConfirm, usageResetClock } from './composer-controls-usage'; // the reset credit confirm and the reset's clock
 import { stripLabelsCompact, stripLabelTexts } from './context-strip'; // the context strip's labels or icons
 import type { ComposerNotice, FooterSteps } from './composer-controls-view';
 
@@ -46,8 +47,8 @@ type ComposerSource = {
   local: { drafts: Record<string, string>; deviceSettings: { planModeEnabled: boolean } };
   /** The composer's draft (T3Client.draft); the ultrathink flow reads it. */
   draft?: string;
-  /** composer-provider-selection.ts: the project defaults and whether the catalog arrived. */
-  shell?: { projects: Obj[] }; configLive?: boolean;
+  /** composer-provider-selection.ts: the project defaults and whether the catalog arrived; the field's name: the thread rows' titles. */
+  shell?: { projects: Obj[]; threads?: Obj[] }; configLive?: boolean;
 };
 
 /**
@@ -155,6 +156,15 @@ export function controlsWidth(presentation: Obj): number {
 
 // The last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
 const footerSteps = new WeakMap<object, FooterSteps>();
+/**
+ * ChatComposer's ariaLabel: "Message <title>" by the title the shell carries (ChatView's serverThread; the detail's until
+ * the shell lists it), "Message New thread" on a draft (buildLocalDraftThread), "Message" with neither.
+ */
+function fieldLabel(client: ComposerSource): string {
+  const shellTitle = client.threadId ? str(client.shell?.threads?.find(thread => thread.id === client.threadId)?.title) : '';
+  const title = client.threadId ? shellTitle || str(obj(client.projection.thread).title) : 'New thread';
+  return title ? `Message ${title}` : 'Message';
+}
 export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
   const keyContext = { terminalOpen: requests.terminalOpen === true }; // ChatComposer: the real terminalOpen, terminalFocus false
   const providers = arr(client.config.providers);
@@ -176,8 +186,10 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const runtime = runtimes.find(option => option.mode === client.runtimeMode) ?? runtimes[0] ?? runtimeModes[0]!;
   const planVisible = client.local.deviceSettings.planModeEnabled && !!provider && provider.showInteractionModeToggle !== false;
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
-  // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
-  const modelTitle = model ? triggerModelName(model) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
+  // getTriggerDisplayModelName (the spoken name) for the footer's layout; the tooltip is the full name with the picker's
+  // shortcut (ProviderModelPicker triggerTooltipContent). The trigger's text and accessible name are the snapshot's.
+  const modelTitle = model ? triggerModelName(model, str(provider?.driver)) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
+  const modelLabel = model ? `${displayModelName(model)}${model.isUnavailable === true ? ' (Unavailable)' : ''}` : modelTitle;
   const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
     runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
@@ -190,7 +202,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
       projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
-    modelTip: modelShortcut ? `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''} · ${modelShortcut}` : `${modelTitle}${model?.isUnavailable === true ? ' (Unavailable)' : ''}`,
+    modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel, fieldLabel: fieldLabel(client),
     traitsLabel: display.label,
     providerIcon: acpInstanceIcon(client.config, provider),
     ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
@@ -244,23 +256,17 @@ export function withNoticeDetails<T extends ComposerNotice>(client: T3Client, no
 /** The snapshot's `composer` row: request state comes from the requests projection. */
 export function composerSnapshot(client: T3Client, now = 0) {
   noteNow(client, now);
+  settleQueuedEdits(client);
   const requests = requestPresentation(client);
   const question = requests.questions[0];
   const phase = client.threadId ? threadPhase(client.projection) : 'disconnected';
   const view = composerView(client, { approval: requests.approvals.length > 0, question: !!question,
     choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question, terminalOpen: terminalOpen(client) });
-  const tasks = tasksProgress(client), sync = syncStatus(client);
-  // The activity row (sync, else the running turn's tasks unless a request blocks the drawer) is the stack's
-  // first activity item (ChatComposer bannerStackItems): urgent, warning and error notices go before it.
-  const activity = sync ? 'sync' : tasks.tasksTotal > 0 && !requests.approvals.length && !question ? 'tasks' : '';
-  const ranked = composerNotices(client, now), after = ranked.findIndex(notice => noticeRank(notice) > 0);
-  const activityAt = !activity ? -1 : after < 0 ? ranked.length : after, activityFront = activityAt === 0;
-  // `activityBefore`: the stacked activity strip floats just before this notice; `activityLast`: after every notice.
+  // ComposerBannerStack: each notice an attached card; consecutive cards join edge to edge (`stacked`).
   const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
-  const notices = withNoticeDetails(client, ranked, rootFontSize).map((notice, index) => ({ ...notice, front: !activityFront && index === 0, activityBefore: !activityFront && index === activityAt,
+  const notices = withNoticeDetails(client, composerNotices(client, now), rootFontSize).map((notice, index) => ({ ...notice, stacked: index > 0,
     titleDetails: noticeTitleDetails(client.presentation, notice, rootFontSize) }));
-  const activityLast = !!activity && !activityFront && activityAt === ranked.length;
-  const queue = queuedView(client), action = primaryAction(client, phase);
+  const queue = queuedEditView(client), action = primaryAction(client, phase);
   if (queue.queueEditing) Object.assign(action, { sendLabel: 'Update queued message', sendIcon: 'check', sendTooltip: 'Update queued message', sendRunning: true });
   // A send that compacts first says so (ComposerPrimaryActions submitLabel, submitTooltip).
   const compact = compactChip(client, now, !!queue.queueEditing);
@@ -268,13 +274,13 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const chosen = composerSelection(client, !!fanoutSelections(client));
   const modelId = chosen.entry ? chosen.model : client.modelId;
   const model = arr((chosen.provider ?? arr(client.config.providers).find(entry => entry.instanceId === client.providerId))?.models).find(entry => entry.slug === modelId);
-  // A provider-native subagent thread mounts no composer: the bar stands alone, without its dock.
-  const bar = subagentBar(client, now);
+  // A provider-native subagent thread mounts no composer: the bar stands alone, without notices.
+  const subagentFrame = layoutFrames(client).subagent, bar = subagentBar(client, now, Array.isArray(subagentFrame) ? Number(subagentFrame[2]) || 0 : 0);
   // Several models for a new thread: the trigger names them (allModelNames), with the picker's shortcut.
   const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, { terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
-  if (bar.subagent) { notices.length = 0; queue.queued = []; }
-  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), ...frameTops(layoutFrames(client)),
+  if (bar.subagent) notices.length = 0;
+  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), ...frameTops(layoutFrames(client)),
     // composer-editor-intent.ts; the focused composer's key action takes these (app.contract composerKeyEvent). A focused
     // Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut), and Annotate's
     // editor too (browser-annotation.ts): the set is empty, or without ⌘↩, then.
@@ -282,11 +288,16 @@ export function composerSnapshot(client: T3Client, now = 0) {
     sendCommandChords: sendCommandChords(client.config, phase === 'running', !client.threadId, terminalOpen(client), composerRequiresModifier(client.local.deviceSettings.sendShortcut, client.draft)),
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
-    // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
+    // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes, and the texts the notices
+    // and the timeline's end lines measure by.
     ...composerMenus(client.presentation, view, runOnLabels(environmentView(client)),
-      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500))]),
+      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500)), ...threadNowProbes(client)]),
     stripCompact: stripLabelsCompact(client, rootFontSize),
-    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client) }, rootFontSize);
+    // ScrollToEndButton's summary: what waits at the end of the timeline while it is out of view.
+    endSummary: endSummary(client),
+    // Images taken into the draft and still being prepared: their tiles show at once, disabled (preparingComposerImages).
+    preparingImages: preparingImages(client),
+    notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), ...usageResetClock(client, now) }, rootFontSize);
 }
 
 /**

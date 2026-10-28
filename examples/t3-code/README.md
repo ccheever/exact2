@@ -124,9 +124,10 @@ or use the embedded server ("This machine"). Configure and authenticate at least
 T3 Code. This client implements orchestration protocol 2 and requires the server's
 `serverResolvedCommandContext` capability for writes. A server on another protocol is listed as
 outdated or newer; one that can update itself offers **Update** in Settings › Connections. A
-connected server older than this client shows "Server update available" above the composer (and
-a warning in the thread details card); its Update streams the update's progress, waits for the
-server to come back on the new version and shares that state with Settings › Connections
+connected server older than this client shows a warning in the thread details card, and the
+sidebar's update pill offers its update; a notice above the composer appears only while the update
+runs or after it failed. Update streams the update's progress, waits for the server to come back
+on the new version and shares that state with Settings › Connections
 (`server-update.ts`). The sidebar's Update button combines one-click provider and remote server
 updates in one confirmation, with per-machine progress and Retry. Provider installers finish
 before servers restart; a slow server keeps its own progress without holding up the other
@@ -180,12 +181,13 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   supersedes it (`workspace-retry.ts`, 737993303d). Code colouring follows Shiki for
   every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
   import lines and keyword-named members (`ts-statements.ts`).
-- Composer: send, stop, queue and steer while running (queued rows reorder by drag),
+- Composer: send, stop, queue and steer while running (queued messages wait at the end of the
+  timeline, with Send now, edit and remove),
   model picker with search and favourites, reasoning and runtime options, Plan/Build,
   slash and @ menus, file and image attachments (videos as first-frame tiles that play in
   an expanded preview; removing an image the prompt references asks first and removes
   every reference), stash, multi-model drafts that start one worktree thread per model,
-  the resume-with-less-context banner, `/usage-limits` (each account's windows as bars with
+  the Compact chip for a stale Claude session, `/usage-limits` (each account's windows as bars with
   pace and countdown, Manage usage, banked reset credits with "Use reset" behind a confirm;
   `usage-limits.ts`, `usage-bars.contract`) and Codex `/feedback [reason]` (uploads the
   thread with a banner, Copy ID and two local rows; `composer-feedback.ts`). Both long

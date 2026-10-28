@@ -343,15 +343,15 @@ describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () 
   test('once the dropped-on thread is open, its queued files join its composer: images to the shelf, files as chips', async () => {
     const { client, native, ops } = rig({ threadId: 'thread-2', editorApplies: true });
     observeComposer(client, '');
-    memoryFiles({ 'doc:/1/notes.txt': text('notes'), 'doc:/2/shot.png': png(4, 3), 'doc:/3/raw.tiff': text('II*') });
+    memoryFiles({ 'doc:/1/notes.txt': text('notes'), 'doc:/2/shot.png': png(4, 3), 'doc:/3/layers.psd': text('8BPS') });
     await dropOn(client, 'fleet:local:thread-9', ['doc:/1/notes.txt']);
-    await dropOn(client, 'fleet:local:thread-2', ['doc:/1/notes.txt', 'doc:/2/shot.png', 'doc:/3/raw.tiff']);
+    await dropOn(client, 'fleet:local:thread-2', ['doc:/1/notes.txt', 'doc:/2/shot.png', 'doc:/3/layers.psd']);
     expect(await takeRowDrops(client, native)).toBe(true);
     expect(draftFiles(client.local).map(file => [file.name, file.draftKey])).toEqual([['notes.txt', 'local:thread-2']]);
     expect(client.local.snapshotDrafts['local:thread-2']?.map(image => image.name)).toEqual(['shot.png']);
     expect(opsOf(ops, 'editorInsert')[0]).toMatchObject({ owner: client.snapshotOwner });
     expect(client.local.drafts['local:thread-2']).toContain('notes.txt');
-    expect(client.error).toBe("'raw.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
+    expect(client.error).toBe("'layers.psd' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
     expect(rowDropKeys(client)).toEqual(['fleet:local:thread-9']);
   });
   test('a pending question that takes no attachments refuses a row drop, as any attachment (addDroppedFiles)', async () => {

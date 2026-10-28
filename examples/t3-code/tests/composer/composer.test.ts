@@ -110,7 +110,7 @@ describe('model picker catalog', () => {
     const c = two();
     c.local.favoriteModels = [JSON.stringify(['other', 'm-b'])];
     const catalog = pickerCatalog(c, 'other', '', badge);
-    expect(catalog.models.map(row => [row.kind, row.name, row.index])).toEqual([['model', 'Beta', 0], ['model', 'Mini S', 1], ['legacy', 'Legacy models', 2], ['legacy-model', 'Old', 3]]);
+    expect(catalog.models.map(row => [row.kind, row.name, row.index])).toEqual([['model', 'Beta', 0], ['model', 'Mini', 1], ['legacy', 'Legacy models', 2], ['legacy-model', 'Old', 3]]);
     expect(catalog.models[2]!.label).toBe('1 models');
     expect(catalog).toMatchObject({ count: 4, legacyCount: 1 });
     expect(catalog.models[1]!.isNew).toBe(true);
@@ -155,5 +155,25 @@ describe('model picker catalog', () => {
     expect(pickerReady({ enabled: true, status: 'ready', availability: 'unavailable' })).toBe(false);
     expect(pickerReady({ enabled: false, status: 'ready' })).toBe(false);
     expect([...favoriteKeys([JSON.stringify(['a', 'b']), 'not json'])]).toEqual(['a:b']);
+  });
+});
+
+// ChatComposer's ariaLabel at 7c3b3b3605ef: "Message <thread title>" by the shell's title (ChatView's serverThread), a
+// draft's thread being "New thread" (buildLocalDraftThread), so switching threads lands focus on a field that names it.
+describe('the field names its thread', () => {
+  test('"Message <title>" from the shell, also while the thread loads; on a new draft "Message New thread"', async () => {
+    const { opened } = await import('../support/composer-controls-fixture');
+    const { snapshot } = await import('../../src/client/presentation');
+    const { appText } = await import('../support/app-files');
+    const labels = appText('src/composer/composer.contract').split('\n').filter(line => line.includes('textarea id="composer"'));
+    expect(labels.every(line => line.includes('aria-label=data.composer.fieldLabel'))).toBe(true);
+    const { client } = await opened();
+    const title = String(client.shell.threads.find(thread => thread.id === client.threadId)!.title);
+    expect(snapshot(client).composer.fieldLabel).toBe(`Message ${title}`);
+    // Its detail still loading: the shell already has the title.
+    client.thread = null;
+    expect(snapshot(client).composer.fieldLabel).toBe(`Message ${title}`);
+    client.threadId = '';
+    expect(snapshot(client).composer.fieldLabel).toBe('Message New thread');
   });
 });
