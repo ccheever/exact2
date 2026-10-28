@@ -37,6 +37,7 @@ component Excord
   state away = false
   state endGap = 0
   state settling = false
+  state endSeen = false
   state topKey = ""
   state leadHeld = false
   state topOffset = 0
@@ -181,8 +182,7 @@ component Excord
   state dmsShownCount = 100
   derive recentDms = dms.slice(0, dmsShownCount).concat(dms.slice(dmsShownCount).filter(c => c.unread > 0 or c.mentions > 0 or c.id == open))
   derive dmMentions = sum(dms.map(c => c.mentions))
-  // The browser tab's title, as Discord's: what mentions the reader, then the channel on screen; locked,
-  // the app's name alone.
+  // The browser tab's title, as Discord's: what mentions the reader, then the channel on screen; locked, the app's name alone.
   derive mentionTotal = dmMentions + sum(guilds.map(g => g.mentions))
   derive pageTitle = locked ? "Excord" : `${mentionTotal > 0 ? `(${mentionTotal}) ` : guilds.map(g => g.unread).includes(true) or dmUnread ? "• " : ""}Excord${reading and chan.name != "" ? ` | ${chan.guild != "" ? "#" : "@"}${chan.name}` : ""}`
   derive guild = dmsShown ? Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) : match first(guilds.filter(g => g.id == server).concat(guilds)) { case some(g) => g, case none => Guild(id="", name="", icon="", acronym="", unread=false, mentions=0) }
@@ -235,8 +235,7 @@ component Excord
   mutation recorded as shape Ack then identifyNow
   mutation identified as shape Ack
   mutation typed as shape Ack
-  // The lists' versions leave out the channel on screen (`live.ts`), so its row is read again when
-  // another takes its place.
+  // The lists' versions leave out the channel on screen (`live.ts`), so its row is read again when another takes its place.
   mutation joined as shape Ack refreshes categories, dms
   // A token kept re-asks the session and the gateway, which then connects with it.
   mutation signedIn as shape Ack refreshes session, gateway then afterSignIn
@@ -343,12 +342,11 @@ component Excord
     after(1, digestNow)
   task traffic when live and open != ""
     every(2500, trafficTick)
-  task scrollQuiet when scrolling key=scrollTick
+  task scrollQuiet when (scrolling and not settling) or (settling and not endSeen) key=`${scrollTick}/${endGap}/${target}`
     after(200, scrollSettled)
   task unhighlight when highlight != "" and target == "" key=highlight
     after(2500, clearHighlight)
-  // A jump, a restored place or a return to the present lands once the window
-  // holding it has.
+  // A jump, a restored place or a return to the present lands once the window holding it has.
   task land when target != "" and current and not pending(win) key=target
     after(1, landJump)
   // A message arriving while the reader is within a row of the end is followed
@@ -610,15 +608,9 @@ component Excord
     topKey = k
     leadHeld = false
     topOffset = e.firstVisibleOffset
-  // A send's return to the end settles at a scrollend that finds the list there;
-  // momentum that carried it off is undone once the live window is in.
   action scrollEnded
+    endSeen = true
     scrollSettled()
-    if settling and target == ""
-      if endGap > 0.5
-        scrollIntoView("transcript", lastKey, offset=1000000, behavior="instant")
-      else
-        settling = false
   action older
     if win.hasBefore and current and target == ""
       anchor = win.firstId
@@ -816,8 +808,7 @@ component Excord
           send sent = postMessage(r.channel, r.key)
       case none
         aimed = aimed
-  // Discord reads the channel up to the reader's own message, so a sent message leaves the bar nothing
-  // to count.
+  // Discord reads the channel up to the reader's own message, so a sent message leaves the bar nothing to count.
   action afterSent
     match sent
       case some(r)
@@ -1108,9 +1099,18 @@ component Excord
     picked = picked.filter(p => p.path != path)
   action composerFocus(on: bool)
     composing = on
+  // A send's return to the end settles once the list is still and finds it there (momentum that carried it off is
+  // undone first). Still is its scrollend where the host has one (`endSeen`; it alone decides, however late); with none,
+  // 200 ms with no report (`scrollQuiet`: restarted by each report, armed by the send, its landing and a correction).
   action scrollSettled
     scrolling = false
     hoverKey = pointerKey
+    if settling and target == ""
+      if endGap > 0.5
+        scrollIntoView("transcript", lastKey, offset=1000000, behavior="instant")
+        endGap = 0
+      else
+        settling = false
   action hoverRow(key: string, on: bool)
     let over = on ? key : (pointerKey == key ? "" : pointerKey)
     pointerKey = over

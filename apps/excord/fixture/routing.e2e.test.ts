@@ -48,8 +48,30 @@ afterAll(async () => {
 });
 
 // A page of the app at `path`, its agent adapter loaded (`?agent`), and its steps.
-async function app(path = '/', viewport = { width: 420, height: 900 }) {
+async function app(path = '/', viewport = { width: 420, height: 900 }, { scrollend = true } = {}) {
   const context = await browser.newContext({ viewport });
+  // A host that never delivers `scrollend` (Windows' painted presenter): the page's listeners for it are
+  // never added, so the app sees every scroll and no scroll's end.
+  if (!scrollend) await context.addInitScript(() => {
+    const add = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function (type: string, ...rest: any[]) {
+      if (type !== 'scrollend') return add.call(this, type, ...rest);
+    } as typeof add;
+  });
+  // Otherwise the page's scrollend listeners can be held (`holdEnds()`) and let go (`releaseEnds()`), as iOS holds
+  // scrollend while a finger tracks and a Mac while a trackpad gesture is live: what they deliver later, in order.
+  else await context.addInitScript(() => {
+    const g = globalThis as any, add = EventTarget.prototype.addEventListener;
+    g.heldEnds = []; g.endsSeen = 0;
+    EventTarget.prototype.addEventListener = function (type: string, listener: any, ...rest: any[]) {
+      if (type !== 'scrollend' || typeof listener !== 'function') return add.call(this, type, listener, ...rest);
+      return add.call(this, type, function (this: any, e: Event) {
+        if (g.holding) g.heldEnds.push(() => listener.call(this, e)); else { g.endsSeen++; listener.call(this, e); }
+      }, ...rest);
+    } as typeof add;
+    g.holdEnds = () => { g.holding = true; };
+    g.releaseEnds = () => { g.holding = false; for (const f of g.heldEnds.splice(0)) { g.endsSeen++; f(); } };
+  });
   const page = await context.newPage();
   // A scratch store of its own (`storage`, as `agent.mjs --storage`): the gateway keeps its identify record there.
   await page.goto(`${base}${path}?agent&storage=excord-routing-${process.pid}-${++pages}&epoch=${EPOCH}`);
@@ -64,7 +86,7 @@ async function app(path = '/', viewport = { width: 420, height: 900 }) {
   };
   const bag = async () => { const s = await step({ op: 'state' }); return { ...s.resources, ...s.derives, ...s.slots }; };
   return {
-    page, bag,
+    page, bag, step,
     close: () => context.close(),
     // `clock +<ms> [real]`: real time passing with the clock a step at a time, as `agent.mjs` does it (the
     // gateway's READY and the data module's clock run on it); else the clock alone.
@@ -429,5 +451,201 @@ test.skipIf(!built)('a typed channel address at launch opens that channel', asyn
     await a.settle();
     const s = await a.bag();
     expect([s.open, s.chan.name, s.onScreen]).toEqual([RANDOM, 'random', RANDOM]);
+  } finally { await a.close(); }
+}, 120_000);
+
+// A send from history returns the reader to the end and settles there; on a host with no `scrollend`
+// the settling still ends once the list is quiet, so reading back afterwards is away from the end again.
+test.skipIf(!built)('with no scrollend, a send from history settles, and reading back is away again', async () => {
+  const a = await app('/', undefined, { scrollend: false });
+  try {
+    await a.plus(1500, true);
+    await a.settle();
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    await a.tap('mark-read');
+    const into = async (key: string) => {
+      const tree = await a.step({ op: 'tree' });
+      const transcript = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'transcript');
+      await a.step({ op: 'tap', id: transcript.id, into: { key } });
+      await a.step({ op: 'clock', land: true });
+      await a.data();
+      await a.settle();
+    };
+    await into('1562755578936174328');
+    expect((await a.bag()).away).toBe(true);
+    const tree = await a.step({ op: 'tree' });
+    const composer = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'composer');
+    // The composer typed into as a person does (the page's own input events).
+    const field = (await a.page.evaluateHandle((v: number) => (globalThis as any).exact.views.get(v), composer.id)).asElement();
+    await field.click();
+    await a.page.keyboard.type('back to the end');
+    await a.step({ op: 'clock', land: true });
+    await a.settle();
+    expect((await a.bag()).draft).toBe('back to the end');
+    await a.tap('send');
+    await a.data();
+    await a.settle();
+    // The list quiet well past the 200 ms the app waits for (`scrollQuiet`).
+    await a.plus(1000, true);
+    await a.settle();
+    let s = await a.bag();
+    expect([s.anchor, s.away, s.settling]).toEqual(['', false, false]);
+    expect(await atEnd(a, s)).toEqual([true, true]);
+    await into('1562755578936174328');
+    s = await a.bag();
+    expect([s.away, s.settling]).toEqual([true, false]);
+  } finally { await a.close(); }
+}, 120_000);
+
+// The transcript's real geometry: scrolled to its content's end within a pixel, and the newest row (`message-<key>`,
+// its element id) on screen.
+async function atEnd(a: Awaited<ReturnType<typeof app>>, s: any) {
+  const tree = await a.step({ op: 'tree' });
+  const transcript = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'transcript');
+  return a.page.evaluate(([list, key]: any) => {
+    let port = (globalThis as any).exact.views.get(list);
+    while (port && port.scrollHeight <= port.clientHeight) port = port.firstElementChild;
+    const r = document.getElementById(`message-${key}`)?.getBoundingClientRect(), p = port?.getBoundingClientRect();
+    return [!!port && Math.abs(port.scrollHeight - port.clientHeight - port.scrollTop) <= 1,
+      !!r && !!p && r.bottom > p.top && r.top < p.bottom];
+  }, [transcript.id, s.lastKey]);
+}
+
+// A send from history, then the reader's slow wheel over the list: a step every 50 ms for 750 ms, Return sending
+// at the fourth step, the list wheeled on from where the send puts it. The quiet path (`scrollQuiet`, 200 ms) is
+// restarted by every scroll report, so it never acts while the list moves.
+async function sendThenWheel(a: Awaited<ReturnType<typeof app>>) {
+  await a.plus(1500, true);
+  await a.settle();
+  await a.tap('channel-general');
+  await a.data();
+  await a.settle();
+  await a.tap('mark-read');
+  const tree = await a.step({ op: 'tree' });
+  const transcript = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'transcript');
+  await a.step({ op: 'tap', id: transcript.id, into: { key: '1562755578936174328' } });
+  await a.step({ op: 'clock', land: true });
+  await a.data();
+  await a.settle();
+  expect((await a.bag()).away).toBe(true);
+  const composer = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'composer');
+  const field = (await a.page.evaluateHandle((v: number) => (globalThis as any).exact.views.get(v), composer.id)).asElement();
+  await field.click();
+  await a.page.keyboard.type('back to the end');
+  await a.step({ op: 'clock', land: true });
+  const list = (await a.page.evaluateHandle((v: number) => (globalThis as any).exact.views.get(v), transcript.id)).asElement();
+  const box = await list.boundingBox();
+  const cdp = await a.page.context().newCDPSession(a.page);
+  const seen: { settling: boolean, away: boolean, gap: number }[] = [];
+  for (let i = 0; i < 15; i++) {
+    // A wheel step as the agent's carrier sends one (Input.dispatchMouseEvent).
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: box.x + box.width / 2, y: box.y + box.height / 2, deltaX: 0, deltaY: -120 });
+    if (i === 3) await a.page.keyboard.press('Enter');
+    await a.plus(50, true);
+    const s = await a.bag();
+    seen.push({ settling: s.settling, away: s.away, gap: s.endGap });
+  }
+  // From the send's landing at the end, the list only moves on with the wheel: never put back while it moves.
+  const landed = seen.findIndex((m, i) => i >= 3 && m.gap === 0);
+  const moving = seen.slice(landed + 1);
+  expect([landed >= 3, moving.length >= 8]).toEqual([true, true]);
+  expect(moving.every((m, i) => i === 0 || m.gap >= moving[i - 1].gap)).toBe(true);
+  expect(moving[moving.length - 1].gap).toBeGreaterThan(0);
+  return moving;
+}
+
+test.skipIf(!built)('with no scrollend, a slow scroll after a send from history is not cut short', async () => {
+  const a = await app('/', undefined, { scrollend: false });
+  try {
+    const moving = await sendThenWheel(a);
+    // Settling the whole time it moves; once still, the list goes back to the end and settles there.
+    expect(moving.map(m => m.settling)).toEqual(moving.map(() => true));
+    await a.plus(1000, true);
+    await a.settle();
+    const s = await a.bag();
+    expect([s.settling, s.away, s.anchor]).toEqual([false, false, '']);
+    expect(await atEnd(a, s)).toEqual([true, true]);
+  } finally { await a.close(); }
+}, 120_000);
+
+test.skipIf(!built)('with scrollend, a send settles at its landing\'s scrollend and the reader\'s scroll after it is theirs', async () => {
+  const a = await app();
+  try {
+    const moving = await sendThenWheel(a);
+    // The landing's scrollend found the list at the end: settled, and the wheel after it carries the reader off.
+    expect(moving.map(m => m.settling)).toEqual(moving.map(() => false));
+    await a.plus(1000, true);
+    await a.settle();
+    const s = await a.bag();
+    expect([s.settling, s.away, s.endGap >= moving[moving.length - 1].gap]).toEqual([false, true, true]);
+  } finally { await a.close(); }
+}, 120_000);
+
+
+// Where the host delivers scrollend it alone ends a send's settling, however long it holds it (here, held from the
+// send on, as iOS does under a tracking finger): no quiet settles it, through a still stretch of 600 ms (three
+// times the quiet) and a slow wheel carrying the list off the end; it settles after the held scrollend arrives.
+test.skipIf(!built)('with scrollend, a send from history settles only at its scrollend, however late', async () => {
+  const a = await app();
+  try {
+    await a.plus(1500, true);
+    await a.settle();
+    await a.tap('channel-general');
+    await a.data();
+    await a.settle();
+    await a.tap('mark-read');
+    const tree = await a.step({ op: 'tree' });
+    const transcript = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'transcript');
+    await a.step({ op: 'tap', id: transcript.id, into: { key: '1562755578936174328' } });
+    await a.step({ op: 'clock', land: true });
+    await a.data();
+    await a.settle();
+    expect((await a.bag()).away).toBe(true);
+    const composer = tree.nodes.find((n: any) => !n.inactive && n.props?.testId === 'composer');
+    const field = (await a.page.evaluateHandle((v: number) => (globalThis as any).exact.views.get(v), composer.id)).asElement();
+    await field.click();
+    await a.page.keyboard.type('back to the end');
+    await a.step({ op: 'clock', land: true });
+    const list = (await a.page.evaluateHandle((v: number) => (globalThis as any).exact.views.get(v), transcript.id)).asElement();
+    const box = await list.boundingBox();
+    const cdp = await a.page.context().newCDPSession(a.page);
+    const seen: { at: string, settling: boolean, away: boolean, gap: number, ends: number }[] = [];
+    const look = async (at: string) => {
+      const s = await a.bag();
+      seen.push({ at, settling: s.settling, away: s.away, gap: s.endGap, ends: await a.page.evaluate(() => (globalThis as any).endsSeen) });
+    };
+    await a.page.evaluate(() => (globalThis as any).holdEnds());
+    await a.page.keyboard.press('Enter');
+    await a.data();
+    await a.plus(50, true);
+    await look('sent');
+    await a.plus(600, true);
+    await look('still');
+    for (let i = 0; i < 8; i++) {
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: box.x + box.width / 2, y: box.y + box.height / 2, deltaX: 0, deltaY: -120 });
+      await a.plus(50, true);
+      await look(`wheel ${i}`);
+    }
+    await a.plus(600, true);
+    await look('still again');
+    const held = seen.length;
+    await a.page.evaluate(() => (globalThis as any).releaseEnds());
+    for (let i = 0; i < 10; i++) {
+      await a.plus(100, true);
+      await look(`released ${i}`);
+    }
+    await a.settle();
+    const s = await a.bag();
+    // While scrollend is held: settling throughout, never away, nothing delivered; the wheel carried the list off.
+    expect(seen.slice(0, held).map(m => [m.at, m.settling, m.away])).toEqual(seen.slice(0, held).map(m => [m.at, true, false]));
+    expect(seen[held - 1].gap).toBeGreaterThan(0);
+    const before = seen[held - 1].ends;
+    // Settled only after the held scrollend arrived, the list back at the end.
+    const settled = seen.findIndex(m => !m.settling);
+    expect([settled >= held, settled >= 0 && seen[settled].ends > before]).toEqual([true, true]);
+    expect([s.settling, s.away]).toEqual([false, false]);
+    expect(await atEnd(a, s)).toEqual([true, true]);
   } finally { await a.close(); }
 }, 120_000);
