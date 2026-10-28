@@ -942,3 +942,15 @@ fn a_url_whose_server_said_when_to_ask_again_is_not_fetched_sooner_by_a_new_sour
     let huge = fetched(&downloads, &format!("{origin}/huge.png")).unwrap_err();
     assert!(huge.after.unwrap() > Instant::now() + Duration::from_secs(86_400));
 }
+
+#[test]
+fn an_errors_links_lose_their_queries() {
+    use super::without_queries;
+    assert_eq!(
+        without_queries("a redirect to https://cdn.example/a.png?ex=1&is=2&hm=3 now"),
+        "a redirect to https://cdn.example/a.png now"
+    );
+    assert_eq!(without_queries("ftp://h/p#frag"), "ftp://h/p");
+    assert_eq!(without_queries("HTTP 404"), "HTTP 404");
+    assert_eq!(without_queries("why? because"), "why? because");
+}

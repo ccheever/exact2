@@ -18,6 +18,21 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
+/// `text` with every link in it (a word with `://`) cut at its query or
+/// fragment: a CDN's links carry signatures (Discord's `ex`, `is`, `hm`), and
+/// an image's `error` and the log quote only the host and path.
+pub(crate) fn without_queries(text: &str) -> String {
+    text.split_inclusive(char::is_whitespace)
+        .map(|word| match word.find("://").and(word.find(['?', '#'])) {
+            Some(cut) => {
+                let space = &word[word.trim_end().len()..];
+                format!("{}{space}", &word[..cut])
+            }
+            None => word.to_owned(),
+        })
+        .collect()
+}
+
 /// Whether `name` is fetched rather than read: an `http:` or `https:` URL.
 pub(super) fn is_remote(name: &str) -> bool {
     name.split_once(':').is_some_and(|(scheme, _)| {

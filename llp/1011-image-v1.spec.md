@@ -130,9 +130,8 @@ which is the declared deviation. One source string works on every host, so a
 data module never tells hosts apart to choose one.
 
 **`load` and `error` (2026-10-06, #121).** An `image` hears HTML `<img>`'s
-two events on the web, macOS and iOS, each once
-per source; Linux, Android and Windows send `load` too, at the same point (from
-2026-10-28), and not yet `error`: `load=` when the picture is ready, with no payload (`iframe`'s `load` is the same event; the compiler admits `load` on
+two events on every host, each once per source (Linux, Android and Windows
+from 2026-10-28): `load=` when the picture is ready, with no payload (`iframe`'s `load` is the same event; the compiler admits `load` on
 those two tags and on a native module), and `error=` when the source does not
 load, with the error's `message`, as a media element's `error` carries one.
 The message is the host's reason where it has one (§4) and a fixed text where
@@ -390,9 +389,13 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   or an unchanged source shown again (one changed and changed back between
   two of the presenter's image syncs, the commits of one turn, counts as
   unchanged); the handler runs with nothing the clock owes run before it,
-  on the node and source checked; they send no `error` yet (LLP 1011.001): a
-  failed download, or a body this host cannot decode, is a line on stderr
-  (`exact: image <url>: HTTP 404`). Linux and Windows decode PNG and SVG
+  on the node and source checked. They send `error` by Apple's rule
+  (below, "Retries"): once a source assignment, when its failure is final,
+  with the reason (`HTTP 404`, the transport's error, `not an image this
+  host decodes`, the core's refusal, Apple's names), never after its `load`,
+  and nothing is asked for that assignment after it. The reason, and the
+  line on stderr (`exact: image <url>: HTTP 404`), quote a link without its
+  query or fragment (a CDN's signature), on every native host. Linux and Windows decode PNG and SVG
   bodies; a JPEG, GIF or WebP body fails there as a bundled one does, and
   Android's platform decoder reads all three (`image/jpeg.rs`).
 - **Events:** the loader sends a node that hears it the source's `load`
@@ -437,7 +440,7 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
     off-screen `<img>`'s `error` at once. Here, though, a picture off screen
     never had its retries, and an `error` sent then would be wrong for one
     the next showing loads; it would also end the assignment. Linux, Android
-    and Windows will send `error` by the same rule (LLP 1011's open item).
+    and Windows send `error` by the same rule.
 - **Symbols** use a noninteractive, decorative `UIImageView` / `NSImageView`
   inside the existing kernel-owned image leaf. Native symbol configuration uses
   computed font size and the nearest of nine CSS weights; native tint updates

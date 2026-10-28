@@ -252,8 +252,9 @@ private final class RasterBackend: @unchecked Sendable {
             input = try fetched?.get() ?? RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
             metadata = try input!.metadata()
         } catch {
-            failure = error is RasterFailure || error is RasterHTTPStatus || error is RasterEmptyResponse
-                ? String(describing: error) : error.localizedDescription
+            // (A link the reason quotes loses its query: a CDN's signature.)
+            failure = RasterRetry.withoutQueries(error is RasterFailure || error is RasterHTTPStatus || error is RasterEmptyResponse
+                ? String(describing: error) : error.localizedDescription)
             // A download's only: a header that fails to read fails again.
             if RasterInput.remote(source.name) != nil, input == nil, RasterRetry.transient(error) {
                 transient = (error as? RasterHTTPStatus)?.retryAfter ?? .now()

@@ -1756,16 +1756,15 @@ usual. Keep a picked photo by copying it to
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
 
-An `image` hears HTML `<img>`'s two events, once per source, on the web, macOS and
-iOS (Linux, Android and Windows send `load` and not yet `error`): `load=` when the picture
+An `image` hears HTML `<img>`'s two events, once per source, on every host: `load=` when the picture
 is ready (no payload), and `error=` when it does not
 load, with a `message` that says why (`error=failed` runs `action failed(message:
-string)`; `error=failed("icon")` passes `"icon"` before it). On macOS and iOS the
+string)`; `error=failed("icon")` passes `"icon"` before it). Natively the
 message is the reason (`HTTP 404`, `Could not connect to the server.`, `not an image
-format this host decodes`); the browser gives none, so the web says `the image did
+format this host decodes`), and a link it quotes has no query; the browser gives none, so the web says `the image did
 not load`. On every native host a download that asking again may mend (the network, a lookup, TLS, a timeout, the spool,
 a 5xx, 408 or 429, an empty body) is asked again while the picture is on screen, after 1, 2, 4, 8, 16 and 30 s
-and never sooner than `Retry-After`, so on macOS and iOS its `error` comes once those are spent (about a minute of
+and never sooner than `Retry-After`, so its `error` comes once those are spent (about a minute of
 waits, plus the downloads and any `Retry-After`), and one that fails off screen errs only after it has shown ([LLP 1011](../llp/1011-image-v1.spec.md) §4). A symbol fires neither. What each host's fetch of an `http(s)` source
 sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
 `Referer`, follow redirects to any host (within App Transport Security), take any

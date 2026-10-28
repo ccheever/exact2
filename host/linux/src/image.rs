@@ -87,21 +87,71 @@ struct View {
     /// source changes.
     retries: usize,
     retry_at: Option<Instant>,
-    /// Its source's `load` has been sent: once a source, at its first picture.
-    load_sent: bool,
-    /// Counts its source's assignments: a load waiting is for one of them.
+    /// Its source's `load` or `error` has been sent: once a source assignment
+    /// (LLP 1011 §4). `errored`: an `error`, after which it is not asked again.
+    settled: bool,
+    errored: bool,
+    /// Counts its source's assignments: an event waiting is for one of them.
     assignment: u64,
 }
+impl View {
+    /// This assignment's `load` (no `error`) or `error`, if neither has gone.
+    fn settle(&mut self, id: ViewId, error: Option<String>) -> Option<LoadEvent> {
+        if std::mem::replace(&mut self.settled, true) {
+            return None;
+        }
+        if error.is_some() {
+            (self.errored, self.retry_at) = (true, None);
+        }
+        Some(LoadEvent {
+            id,
+            key: self.key.view,
+            source: self.source.clone(),
+            assignment: self.assignment,
+            error,
+        })
+    }
+}
 
-/// A source's first picture has landed: its view's `load`, waiting for the
-/// presenter, which sends it if the view is still that node (`key`, packed)
-/// with that source, assigned that time.
+/// The core's refusal as an image's `error` says it (Apple's names).
+fn refusal_text(refusal: Refusal) -> &'static str {
+    match refusal {
+        Refusal::Overflow => "overflow",
+        Refusal::InvalidDimensions => "invalid dimensions",
+        Refusal::EncodedLimit => "encoded limit",
+        Refusal::HeaderLimit => "header limit",
+        Refusal::SourcePixels => "source pixels",
+        Refusal::TooLarge => "too large",
+        Refusal::Budget => "budget",
+        Refusal::QueueFull => "queue full",
+        Refusal::SubscriberLimit => "subscriber limit",
+        Refusal::ConflictingMetadata => "conflicting metadata",
+        Refusal::Paused => "paused",
+        Refusal::Shutdown => "shutdown",
+        Refusal::Stale => "stale",
+        Refusal::ActualExceedsReservation => "actual exceeds reservation",
+        Refusal::DecodeFailed => "decode failed",
+    }
+}
+/// A refusal that asking again in a later pass may get past: no `error`.
+fn passing(refusal: Refusal) -> bool {
+    matches!(
+        refusal,
+        Refusal::Budget | Refusal::QueueFull | Refusal::Paused | Refusal::Shutdown | Refusal::Stale
+    )
+}
+
+/// A source's first picture has landed, or it failed for good: its view's
+/// `load`, or its `error` with the reason, waiting for the presenter, which
+/// sends it if the view is still that node (`key`, packed) with that source,
+/// assigned that time.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LoadEvent {
     pub id: ViewId,
     pub key: u64,
     pub source: String,
     pub assignment: u64,
+    pub error: Option<String>,
 }
 
 /// When a picture on screen whose download failed (the network, a timeout, a
@@ -327,7 +377,8 @@ impl Images {
                 part: false,
                 retries: 0,
                 retry_at: None,
-                load_sent: false,
+                settled: false,
+                errored: false,
                 assignment: 0,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
@@ -418,7 +469,7 @@ impl Images {
                 view.source_id = None;
                 view.refusal = None;
                 (view.retries, view.retry_at) = (0, None);
-                view.load_sent = false;
+                (view.settled, view.errored) = (false, false);
                 view.assignment += 1;
                 self.load_events.retain(|e| e.id != *id);
                 // The old lease, bitmap and natural size stay until acceptance.
@@ -484,9 +535,11 @@ impl Images {
         let mut reports = Vec::new();
         let scale = self.scale;
         for (id, view) in &mut self.views {
+            // (An `error` ends its source assignment: nothing more is asked.)
             if view.source.is_empty()
                 || view.symbol_size.is_some()
                 || self.package.serves(&view.source)
+                || view.errored
             {
                 continue;
             }
@@ -529,6 +582,10 @@ impl Images {
                     }
                     Err(e) => {
                         view.refusal = Some(e);
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
                         continue;
                     }
                 }
@@ -556,6 +613,19 @@ impl Images {
                         } else {
                             view.retry_at = Some(after.max(now + RETRY_AFTER[view.retries]));
                         }
+                    }
+                    // Its `error`, once its failure is final: at once if asking
+                    // again cannot mend it; else once a showing's retries are
+                    // spent on screen (off screen it waits until it has shown).
+                    let transient =
+                        remote::is_remote(&view.source) && self.backend.transient(source).is_some();
+                    let spent = view.on_screen
+                        && view.retry_at.is_none()
+                        && view.retries >= RETRY_AFTER.len();
+                    if !transient || spent {
+                        let message = self.backend.message(source);
+                        let message = message.unwrap_or_else(|| refusal_text(e).into());
+                        self.load_events.extend(view.settle(*id, Some(message)));
                     }
                     continue;
                 }
@@ -595,14 +665,7 @@ impl Images {
                                 view.lease = Some(lease);
                                 view.accepted = Some(request);
                                 view.displayed_source = view.source.clone();
-                                if !std::mem::replace(&mut view.load_sent, true) {
-                                    self.load_events.push(LoadEvent {
-                                        id: *id,
-                                        key: view.key.view,
-                                        source: view.source.clone(),
-                                        assignment: view.assignment,
-                                    });
-                                }
+                                self.load_events.extend(view.settle(*id, None));
                             }
                         }
                     }
@@ -610,6 +673,11 @@ impl Images {
                         view.refusal = Some(e);
                         self.backend.cancel(request);
                         view.request = None;
+                        // A decode that fails for good (others are asked again below).
+                        if e == Refusal::DecodeFailed {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
                         continue;
                     }
                     Some(RequestStatus::WaitingBudget) => {
@@ -647,6 +715,10 @@ impl Images {
                     Ok(plan) => plan,
                     Err(e) => {
                         view.refusal = Some(e);
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
                         continue;
                     }
                 };
@@ -718,14 +790,7 @@ impl Images {
                                     view.lease = Some(lease);
                                     view.accepted = Some(request);
                                     view.displayed_source = view.source.clone();
-                                    if !std::mem::replace(&mut view.load_sent, true) {
-                                        self.load_events.push(LoadEvent {
-                                            id: *id,
-                                            key: view.key.view,
-                                            source: view.source.clone(),
-                                            assignment: view.assignment,
-                                        });
-                                    }
+                                    self.load_events.extend(view.settle(*id, None));
                                 }
                             }
                         }

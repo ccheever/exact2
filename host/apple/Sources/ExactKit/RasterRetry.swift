@@ -72,6 +72,23 @@ enum RasterRetry {
         return formatter
     }()
 
+    /// `text` with every link in it (a word with `://`) cut at its query or
+    /// fragment: a CDN's links carry signatures (Discord's `ex`, `is`, `hm`),
+    /// and an image's `error` quotes only the host and path (the Linux host's
+    /// `remote::without_queries`).
+    static func withoutQueries(_ text: String) -> String {
+        var out = "", word = ""
+        func flush() {
+            if word.contains("://"), let cut = word.firstIndex(where: { $0 == "?" || $0 == "#" }) { word = String(word[..<cut]) }
+            out += word; word = ""
+        }
+        for character in text {
+            if character.isWhitespace { flush(); out.append(character) } else { word.append(character) }
+        }
+        flush()
+        return out
+    }
+
     /// A box on screen at least 90% of its window's width and half its height
     /// (a viewer's picture): its download goes first, with the longer bound.
     static func fills(_ box: CGRect, window: CGRect) -> Bool {
