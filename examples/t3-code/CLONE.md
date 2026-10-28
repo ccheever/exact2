@@ -165,7 +165,21 @@ The preserved 64-character draft reaches the real environment once and receives
 restart. All 3,727 mobile tests, strict TypeScript, boot and the native build pass.
 Independent source review finds no introduced correctness blocker. Its redundant
 comment is removed. Delivery still performs its existing full-config comparisons.
-A refreshed full POC drive and signed TestFlight build remain to be completed.
+A fresh normal-build drive at `7c1a11570` opens the real project, creates a
+mobile thread on `main`, and receives `POC_REFRESH_OK`. Follow-ups reach the
+provider. Stop displays Run interrupted, and the server confirms interruption
+with no active run. After ordinary restart, the saved environment, conversation,
+and interrupted state return. The numbered output checks arrived as complete
+responses, so this refresh does not independently repeat the earlier growing-text
+acceptance. Keep that verification open.
+Signed archive `1.0.0 (20261028202307)` contains that clean pushed source and excludes
+the held native editor unit. Signature, store provisioning, identity, version and
+source-stamp checks pass. The held files and original Git index restore exactly.
+Its IPA SHA-256 is `f9b4ba61b9484d2c5163aa3940cab221195a5addf59340e07f20392dec11c85e`.
+[EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/5acee506-6607-48d9-8e54-12b1f62fa043)
+uses that exact IPA and the existing internal Team (Expo) group. Upload is queued;
+Apple processing and tester availability are not yet verified for this build.
+This is a POC maintenance build. Phone and iPad parity remain incomplete.
 The inactive native NewTask editor prerequisite reserves eight final-source slots
 and retains teardown receipts until explicit acknowledgment. Its actual UIKit
 fixture passes 86 checks, including text/chip source recovery, repeated reads,
