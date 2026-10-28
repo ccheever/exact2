@@ -286,12 +286,12 @@ final class NodePoolIOSTests: XCTestCase {
     }
     /// A carousel row: a title (`base + 1`) and an inner list (`base + 2`)
     /// of cards `base + 10 * k` (k = 1, 2), each a box holding an image.
-    private func carouselOps(_ base: Int, y: Double) -> [[String: Any]] {
+    private func carouselOps(_ base: Int, y: Double, kind: String = "list") -> [[String: Any]] {
         let list = base + 2, cards = [base + 10, base + 20]
         var ops: [[String: Any]] = [
             ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
             ["op": "create", "id": base + 1, "kind": "text", "props": ["text": "Row \(base)"], "style": ["font_size": 15.0]],
-            ["op": "create", "id": list, "kind": "list", "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": list, "kind": kind, "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
         ]
         for (i, card) in cards.enumerated() {
             ops += [["op": "create", "id": card, "kind": "view", "props": ["testId": "card-\(card)"]],
@@ -346,6 +346,14 @@ final class NodePoolIOSTests: XCTestCase {
     /// mounts every card) parks with its row, and a row of its shape takes
     /// it back, with its cards.
     func testARowHoldingAPlainInnerListPoolsAndItsCardsAreReused() throws {
+        try plainInnerListPools(kind: "list")
+    }
+    /// A `scroll` carousel whose content overflows, as a feed post's: its
+    /// row parks with it as with a list.
+    func testARowHoldingAScrollingCarouselPoolsAndItsCardsAreReused() throws {
+        try plainInnerListPools(kind: "scroll")
+    }
+    private func plainInnerListPools(kind: String) throws {
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
@@ -354,7 +362,7 @@ final class NodePoolIOSTests: XCTestCase {
                                               "rows": [["view": row, "root": row, "epoch": 1]], "correction": NSNull()]]]
         }
         p.apply(wireBatch([outer(100), ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
-            + carouselOps(100, y: 0)
+            + carouselOps(100, y: 0, kind: kind)
             + [["op": "children", "id": 1, "ids": [100]], ["op": "roots", "ids": [1]],
                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
                ["op": "content", "id": 1, "w": 300.0, "h": 5000.0]]))
@@ -364,7 +372,7 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertFalse(p.collections.owns(102), "the inner list is not a collection")
         scroll.contentOffset = CGPoint(x: 240, y: 0)
 
-        p.apply(wireBatch([outer(200)] + destroy(carouselIDs(100)) + carouselOps(200, y: 140)
+        p.apply(wireBatch([outer(200)] + destroy(carouselIDs(100)) + carouselOps(200, y: 140, kind: kind)
             + [["op": "children", "id": 1, "ids": [200]]]))
         XCTAssertTrue(p.views[200] === row, "the row's view came back")
         XCTAssertTrue(p.views[202] === list && list.scroll === scroll, "its inner list's, with its scroll view")
