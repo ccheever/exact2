@@ -118,6 +118,34 @@ test('--archive --embed does not stop after embed staging; plain --embed builds 
   assert.equal(appleEmbedOnly(['--device', '--archive', 'out.ipa']), false);
 });
 
+for (const framework of ['ExactMIDI', 'ExactWeb']) test.skipIf(!tools)(`${framework} frameworks seal their timing manifest and replace pre-manifest signed caches`, () => inDir(dir => {
+  const app = { id: 'test.timing', manifest: {} }, product = resolve(dir, 'libexact_timing.dylib'), source = resolve(dir, 'timing.c');
+  writeFileSync(source, 'int timing_fixture(void){return 42;}\n');
+  const cc = spawnSync('xcrun', ['--sdk', 'iphonesimulator', 'clang', '-target', 'arm64-apple-ios17.0-simulator', '-dynamiclib', source, '-o', product], { encoding: 'utf8' });
+  assert.equal(cc.status, 0, cc.stderr);
+  const options = { app, framework, platform: 'iPhoneSimulator' };
+  const signed = signedGpuProduct(product, options), container = dirname(signed), manifest = resolve(container, 'PrivacyInfo.xcprivacy');
+  const read = () => JSON.parse(spawnSync('plutil', ['-convert', 'json', '-o', '-', manifest], { encoding: 'utf8' }).stdout);
+  const expected = { NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [], NSPrivacyAccessedAPITypes: [{ NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] }] };
+  const verify = () => assert.equal(spawnSync('codesign', ['--verify', '--deep', '--strict', container]).status, 0);
+  assert.deepEqual(read(), expected);
+  verify();
+  const record = `${container}.source`, current = JSON.parse(readFileSync(record, 'utf8'));
+  assert.deepEqual(current.at(-1), expected);
+  // Reproduce a valid signed cache from before manifests were part of its identity.
+  rmSync(manifest);
+  assert.equal(spawnSync('codesign', ['--force', '--sign', '-', '--timestamp=none', container]).status, 0);
+  verify();
+  writeFileSync(record, JSON.stringify(current.slice(0, -1)));
+  assert.equal(signedGpuProduct(product, options), signed);
+  assert.deepEqual(read(), expected);
+  verify();
+  const bytes = readFileSync(signed);
+  assert.equal(signedGpuProduct(product, options), signed);
+  assert.deepEqual(readFileSync(signed), bytes, 'a warm manifest-aware cache preserves the signed binary');
+  assert.deepEqual(read(), expected);
+}), 60000);
+
 test.skipIf(!tools)('GPU archives hash the signed framework binary, including declared modules', () => inDir(dir => {
   const app = { id: 'test.gpu', manifest: {} };
   const digests = new Map();

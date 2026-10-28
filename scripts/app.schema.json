@@ -671,6 +671,11 @@
           "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",
           "properties": {
+            "privacyManifest": {
+              "type": "string",
+              "minLength": 1,
+              "description": "An .xcprivacy property list inside the app, relative to app.json. Baked into the app's binary identity and copied before signing, with Exact's own required-reason declarations. Native modules carry the app's declarations in their framework; audit all app and third-party code. Changing this file requires a new binary."
+            },
             "icon": {
               "type": "string",
               "minLength": 1,

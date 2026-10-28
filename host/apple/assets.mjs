@@ -14,6 +14,108 @@ const run = (cmd, args, opts = {}) => {
   return r;
 };
 
+/** The app supplies its own declarations; Exact's runtime declares elapsed-event
+ * timing, app preferences, emoji keyboard selection, and metadata for its
+ * container and user-opened files.
+ * https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api */
+const runtimePrivacy = {
+  NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [],
+  NSPrivacyAccessedAPITypes: [
+    ['FileTimestamp', ['C617.1', '3B52.1']], ['SystemBootTime', ['35F9.1']], ['UserDefaults', ['CA92.1']],
+    ['ActiveKeyboards', ['54BD.1']],
+  ].map(([category, reasons]) => ({ NSPrivacyAccessedAPIType: `NSPrivacyAccessedAPICategory${category}`, NSPrivacyAccessedAPITypeReasons: reasons })),
+};
+// MIDI uses elapsed event times and timer deadlines; iOS web automation
+// measures click intervals without exposing raw system uptime.
+const timingPrivacy = {
+  NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [],
+  NSPrivacyAccessedAPITypes: [{ NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] }],
+};
+// Apple's schema values, independent of whether a declaration truthfully describes the code.
+// https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype
+const privacyReasons = new Map([
+  ['FileTimestamp', ['DDA9.1', 'C617.1', '3B52.1', '0A2A.1']],
+  ['SystemBootTime', ['35F9.1', '8FFB.1', '3D61.1']],
+  ['DiskSpace', ['85F4.1', 'E174.1', '7D9E.1', 'B728.1']],
+  ['ActiveKeyboards', ['3EC4.1', '54BD.1']],
+  ['UserDefaults', ['CA92.1', '1C8F.1', 'C56D.1', 'AC6B.1']],
+].map(([category, reasons]) => [`NSPrivacyAccessedAPICategory${category}`, reasons]));
+// https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests
+const privacyDataTypes = new Set([
+  'Name', 'EmailAddress', 'PhoneNumber', 'PhysicalAddress', 'OtherUserContactInfo',
+  'Health', 'Fitness', 'PaymentInfo', 'CreditInfo', 'OtherFinancialInfo',
+  'PreciseLocation', 'CoarseLocation', 'SensitiveInfo', 'Contacts', 'EmailsOrTextMessages',
+  'PhotosorVideos', 'AudioData', 'GameplayContent', 'CustomerSupport', 'OtherUserContent',
+  'BrowsingHistory', 'SearchHistory', 'UserID', 'DeviceID', 'PurchaseHistory',
+  'ProductInteraction', 'AdvertisingData', 'OtherUsageData', 'CrashData', 'PerformanceData',
+  'OtherDiagnosticData', 'EnvironmentScanning', 'Hands', 'Head', 'OtherDataTypes',
+].map(type => `NSPrivacyCollectedDataType${type}`));
+const privacyPurposes = new Set([
+  'ThirdPartyAdvertising', 'DeveloperAdvertising', 'Analytics', 'ProductPersonalization', 'AppFunctionality', 'Other',
+].map(purpose => `NSPrivacyCollectedDataTypePurpose${purpose}`));
+export function iosPrivacyManifest(app) {
+  const src = app.manifest.host?.ios?.privacyManifest;
+  if (!src) return null;
+  const fail = message => { throw new Error(`host.ios.privacyManifest: ${message}`); };
+  const path = resolve(app.dir, src);
+  let inside;
+  try { inside = relative(realpathSync(app.dir), realpathSync(path)); }
+  catch { fail(`${src} does not exist`); }
+  if (isAbsolute(src) || inside === '..' || inside.startsWith('../') || isAbsolute(inside) || !src.endsWith('.xcprivacy') || !lstatSync(realpathSync(path)).isFile()) fail('must be an .xcprivacy file inside the app');
+  const bytes = readFileSync(path);
+  const parsed = spawnSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: bytes, encoding: 'utf8' });
+  if (parsed.status !== 0) fail(`invalid property list: ${parsed.stderr.trim()}`);
+  const configuration = JSON.parse(parsed.stdout), dict = value => value && typeof value === 'object' && !Array.isArray(value);
+  const strings = value => Array.isArray(value) && value.every(item => typeof item === 'string' && item.length > 0);
+  if (!dict(configuration)) fail('the property list must contain a dictionary');
+  if ('NSPrivacyTracking' in configuration && typeof configuration.NSPrivacyTracking !== 'boolean') fail('NSPrivacyTracking must be a boolean');
+  if ('NSPrivacyTrackingDomains' in configuration && !strings(configuration.NSPrivacyTrackingDomains)) fail('NSPrivacyTrackingDomains must be an array of strings');
+  if ('NSPrivacyAccessedAPITypes' in configuration) {
+    if (!Array.isArray(configuration.NSPrivacyAccessedAPITypes)) fail('NSPrivacyAccessedAPITypes must be an array');
+    for (const [index, item] of configuration.NSPrivacyAccessedAPITypes.entries()) {
+      const key = `NSPrivacyAccessedAPITypes[${index}]`;
+      if (!dict(item)) fail(`${key} must be a dictionary`);
+      const approved = privacyReasons.get(item.NSPrivacyAccessedAPIType);
+      if (!approved) fail(`${key}.NSPrivacyAccessedAPIType: unknown category ${JSON.stringify(item.NSPrivacyAccessedAPIType)}`);
+      if (!strings(item.NSPrivacyAccessedAPITypeReasons) || !item.NSPrivacyAccessedAPITypeReasons.length) fail(`${key}.NSPrivacyAccessedAPITypeReasons must be a nonempty array of strings`);
+      for (const reason of item.NSPrivacyAccessedAPITypeReasons) {
+        if (!approved.includes(reason)) fail(`${key}.NSPrivacyAccessedAPITypeReasons: ${JSON.stringify(reason)} is not approved for ${item.NSPrivacyAccessedAPIType}`);
+      }
+    }
+  }
+  if ('NSPrivacyCollectedDataTypes' in configuration) {
+    if (!Array.isArray(configuration.NSPrivacyCollectedDataTypes)) fail('NSPrivacyCollectedDataTypes must be an array');
+    for (const [index, item] of configuration.NSPrivacyCollectedDataTypes.entries()) {
+      const key = `NSPrivacyCollectedDataTypes[${index}]`;
+      if (!dict(item)) fail(`${key} must be a dictionary`);
+      if (!privacyDataTypes.has(item.NSPrivacyCollectedDataType)) fail(`${key}.NSPrivacyCollectedDataType: unknown data type ${JSON.stringify(item.NSPrivacyCollectedDataType)}`);
+      if (typeof item.NSPrivacyCollectedDataTypeLinked !== 'boolean' || typeof item.NSPrivacyCollectedDataTypeTracking !== 'boolean') fail(`${key} needs linked/tracking booleans`);
+      if (!strings(item.NSPrivacyCollectedDataTypePurposes) || !item.NSPrivacyCollectedDataTypePurposes.length) fail(`${key}.NSPrivacyCollectedDataTypePurposes must be a nonempty array of strings`);
+      for (const purpose of item.NSPrivacyCollectedDataTypePurposes) {
+        if (!privacyPurposes.has(purpose)) fail(`${key}.NSPrivacyCollectedDataTypePurposes: unknown purpose ${JSON.stringify(purpose)}`);
+      }
+    }
+  }
+  return { src, sha256: createHash('sha256').update(bytes).digest('hex'), configuration };
+}
+export function writeIOSPrivacyManifests(bundle, application = null) {
+  const app = application?.configuration ?? {}, categories = new Map();
+  for (const item of [...runtimePrivacy.NSPrivacyAccessedAPITypes, ...(app.NSPrivacyAccessedAPITypes ?? [])]) {
+    const reasons = categories.get(item.NSPrivacyAccessedAPIType) ?? new Set();
+    for (const reason of item.NSPrivacyAccessedAPITypeReasons) reasons.add(reason);
+    categories.set(item.NSPrivacyAccessedAPIType, reasons);
+  }
+  const write = (directory, value) => writeFileSync(resolve(directory, 'PrivacyInfo.xcprivacy'), plistFile(value));
+  write(bundle, { ...runtimePrivacy, ...app, NSPrivacyAccessedAPITypes: [...categories].map(([category, reasons]) => ({ NSPrivacyAccessedAPIType: category, NSPrivacyAccessedAPITypeReasons: [...reasons] })) });
+  const core = resolve(bundle, 'Frameworks/ExactCore.framework'), modules = resolve(bundle, 'Frameworks/ExactModules.framework');
+  if (existsSync(core)) write(core, runtimePrivacy);
+  if (existsSync(modules)) write(modules, { NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [], NSPrivacyAccessedAPITypes: [], ...app });
+  for (const name of ['ExactMIDI', 'ExactWeb']) {
+    const arm = resolve(bundle, `Frameworks/${name}.framework`);
+    if (existsSync(arm)) write(arm, timingPrivacy);
+  }
+}
+
 /** The app icon from the manifest's first square icon of at least 512 px
  * (`icons`, the web manifest's own field): loose PNGs named by
  * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
@@ -576,6 +678,7 @@ export function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS
     CFBundlePackageType: 'FMWK', CFBundleVersion: process.env.EXACT_BUILD_NUMBER ?? '1', CFBundleShortVersionString: process.env.EXACT_VERSION ?? '0.1.0',
     CFBundleSupportedPlatforms: [platform], ...(platform === 'MacOSX' ? { LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0' } : { MinimumOSVersion: app.manifest.host?.ios?.minimumOS ?? '17.0' }),
   }));
+  if (name === 'ExactMIDI' || name === 'ExactWeb' && platform !== 'MacOSX') writeFileSync(resolve(dirname(layout.info), 'PrivacyInfo.xcprivacy'), plistFile(timingPrivacy));
 }
 
 /** The bake's GPU digest (update/src/gpu.rs, `code_digest`): the bytes, less a signed 64-bit
@@ -610,7 +713,8 @@ export function signedGpuProduct(product, { identity = '-', framework = null, ap
   const container = resolve(directory, framework ? `${framework}.framework` : basename(product));
   const signed = framework ? resolve(container, framework) : container, record = `${container}.source`;
   const source = JSON.stringify([createHash('sha256').update(readFileSync(product)).digest('hex'), identity ?? '-',
-    hardened, framework, framework ? [app.id, app.manifest.host?.ios?.minimumOS ?? '17.0', platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0'] : null]);
+    hardened, framework, framework ? [app.id, app.manifest.host?.ios?.minimumOS ?? '17.0', platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0'] : null,
+    ...(framework === 'ExactMIDI' || framework === 'ExactWeb' && platform !== 'MacOSX' ? [timingPrivacy] : [])]);
   // An ad-hoc signature (`-`: every simulator build) names no certificate
   // to require; asked for one, the verification failed, and the copy was
   // signed again by every build, which reran the app's bake and compile.
