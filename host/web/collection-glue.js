@@ -102,12 +102,12 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     // unbuilt rows is not in it (CollectionIOS.swift `rowsToCover`).
     if (ahead > 0) {
       let reached = top, last = null;
-      for (const r of rows) if (r.top <= reached + 0.5 && r.bottom > reached) { reached = r.bottom; last = r.index; }
+      for (const r of rows) if (r.top <= reached + 0.5 && r.bottom >= reached) { reached = r.bottom; last = r.index; }
       if (last === count - 1) return 0;
       shortfall = bottom + ahead - reached;
     } else {
       let reached = bottom, first = null;
-      for (const r of rows.toReversed()) if (r.bottom >= reached - 0.5 && r.top < reached) { reached = r.top; first = r.index; }
+      for (const r of rows.toReversed()) if (r.bottom >= reached - 0.5 && r.top <= reached) { reached = r.top; first = r.index; }
       if (first === 0) return 0;
       shortfall = reached - (top + ahead);
     }

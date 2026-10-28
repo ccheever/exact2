@@ -1303,14 +1303,14 @@ list virtualized=true height=600 keep-mounted=[first(ids), ids.at(-1)]
   the list does not hold is passed over; a repeated key keeps its first row.
   When the set changes, the commit that changes it mounts the rows it now
   names and retires the rows it no longer names unless the window holds them;
-  the revision moves, so the host measures the new rows.
+  when it mounts a row the revision moves, so the host measures it.
 - **Bound.** At most 64 keys, the bound `initial-item-count` has: kept rows
   add at most that many to any window, so a list's first build is at most 128
   rows. Another value (more keys, a non-key) is invalid at computed-value
   time: the list keeps none and the journal says so, as for any refused prop.
   The set is the author's and does not grow as the reader scrolls, so §6.2's
-  memory requirement holds. Kept rows are not counted among the rows a
-  limited report keeps past the window.
+  memory requirement holds. When a limited report caps the rows that linger
+  past the window, kept rows count toward neither the window nor that cap.
 - **Hosts.** The runner owns it (`runner/src/instance/collection/keep.rs`), so
   every host the runner windows for keeps the rows: the Apple hosts, Linux,
   Windows and the wasm web host. A kept row is an ordinary mounted row, a

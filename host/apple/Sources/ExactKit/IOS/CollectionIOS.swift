@@ -381,7 +381,7 @@ extension CollectionHost {
         var shortfall: CGFloat = 0
         if ahead > 0 {
             var reached = port.lowerBound, last: Int?
-            for row in rows where row.frame.lowerBound <= reached + 0.5 && row.frame.upperBound > reached {
+            for row in rows where row.frame.lowerBound <= reached + 0.5 && row.frame.upperBound >= reached {
                 reached = row.frame.upperBound
                 last = row.index
             }
@@ -389,7 +389,7 @@ extension CollectionHost {
             shortfall = port.upperBound + ahead - reached
         } else {
             var reached = port.upperBound, first: Int?
-            for row in rows.reversed() where row.frame.upperBound >= reached - 0.5 && row.frame.lowerBound < reached {
+            for row in rows.reversed() where row.frame.upperBound >= reached - 0.5 && row.frame.lowerBound <= reached {
                 reached = row.frame.lowerBound
                 first = row.index
             }

@@ -923,7 +923,13 @@ function release() {
 // Lists whose kept rows changed in a commit that left their data alone.
 const Remount = new Set();
 function remount() {
-  for (const c of Remount) if (Lists.has(c.view)) { c.realize(true, {}); c.revision++; }
+  for (const c of Remount) if (Lists.has(c.view)) {
+    // The revision moves only when a kept row was not mounted (keep.rs `mounts`).
+    const mounted = new Set(c.mounted.map(m => m.key));
+    const mounts = c.keepKeys.some(k => c.index.pos.has(k) && !mounted.has(k));
+    c.realize(true, {});
+    if (mounts) c.revision++;
+  }
   Remount.clear();
 }
 After.push(() => { remount(); release(); wake(); publish(); });
