@@ -438,21 +438,18 @@ impl Downloads {
             }
             // Discord's CDN, and the person's own account: never asked again
             // sooner than the server says.
-            // One that asks for longer than a showing waits, or that cannot be
-            // read, is not asked again until the picture is shown anew.
-            let asked = matches!(response.status, 429 | 503)
+            // One that cannot be read is the longest a picture on screen waits.
+            let after = matches!(response.status, 429 | 503)
                 .then(|| response.headers.get("retry-after"))
-                .flatten();
-            return Err(
-                match asked.map(|value| retry_after(value, SystemTime::now())) {
-                    None => failed(message),
-                    Some(Some(wait)) => Failure {
-                        after: Some(Instant::now() + wait),
-                        ..failed(message)
-                    },
-                    Some(None) => refused(format!("{message}, retry after {}", asked.unwrap())),
-                },
-            );
+                .flatten()
+                .map(|value| {
+                    Instant::now()
+                        + retry_after(value, SystemTime::now()).unwrap_or(MOST_RETRY_AFTER)
+                });
+            return Err(Failure {
+                after,
+                ..failed(message)
+            });
         }
         let over = || Failure {
             refusal: Refusal::EncodedLimit,
@@ -503,21 +500,19 @@ fn queue_urgent(queue: &mut VecDeque<Job>, job: Job) {
     queue.insert(at, job);
 }
 
-/// The longest `Retry-After` a picture on screen waits out (its retries take
-/// about a minute in all, `image.rs`).
-const MOST_RETRY_AFTER: Duration = Duration::from_secs(300);
+/// The longest a picture on screen waits to ask again (its retries take about
+/// a minute in all, `image.rs`): one whose server asks for longer is not asked
+/// again in a showing that starts sooner.
+pub(super) const MOST_RETRY_AFTER: Duration = Duration::from_secs(300);
 
 /// How long a `Retry-After` header asks to wait, at `now`: delta-seconds or an
-/// IMF-fixdate (RFC 9110 §10.2.3); `None` past [`MOST_RETRY_AFTER`] or when
-/// it cannot be read.
+/// IMF-fixdate (RFC 9110 §10.2.3); `None` when it cannot be read.
 pub(super) fn retry_after(value: &str, now: SystemTime) -> Option<Duration> {
     let value = value.trim();
-    let wait = if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
-        Duration::from_secs(value.parse().ok()?)
-    } else {
-        imf_fixdate(value)?.duration_since(now).unwrap_or_default()
-    };
-    (wait <= MOST_RETRY_AFTER).then_some(wait)
+    if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        return Some(Duration::from_secs(value.parse().ok()?));
+    }
+    Some(imf_fixdate(value)?.duration_since(now).unwrap_or_default())
 }
 
 /// `Sun, 06 Nov 1994 08:49:37 GMT`.

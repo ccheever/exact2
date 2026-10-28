@@ -797,20 +797,20 @@ fn a_view_that_joined_a_retry_never_cancels_it_with_its_own_older_deadline() {
 }
 
 #[test]
-fn a_retry_after_is_read_as_seconds_or_a_date_and_bounded() {
+fn a_retry_after_is_read_as_seconds_or_a_date() {
     use super::retry_after;
     use std::time::SystemTime;
     // 1994-11-06 08:49:37 UTC.
     let at = SystemTime::UNIX_EPOCH + Duration::from_secs(784_111_777);
     assert_eq!(retry_after(" 7 ", at), Some(Duration::from_secs(7)));
     assert_eq!(retry_after("300", at), Some(Duration::from_secs(300)));
-    assert_eq!(retry_after("301", at), None, "longer than a showing waits");
+    assert_eq!(retry_after("600", at), Some(Duration::from_secs(600)));
     let date = "Sun, 06 Nov 1994 08:50:07 GMT";
     assert_eq!(retry_after(date, at), Some(Duration::from_secs(30)));
     let past = "Sun, 06 Nov 1994 08:49:00 GMT";
     assert_eq!(retry_after(past, at), Some(Duration::ZERO));
     let later = "Sun, 06 Nov 1994 09:49:37 GMT";
-    assert_eq!(retry_after(later, at), None);
+    assert_eq!(retry_after(later, at), Some(Duration::from_secs(3600)));
     for unread in [
         "",
         "-1",
