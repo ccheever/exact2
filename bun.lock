@@ -130,6 +130,10 @@
       "name": "@exact/cards",
       "version": "0.1.0",
     },
+    "packages/clipboard": {
+      "name": "@exact/clipboard",
+      "version": "1.0.0",
+    },
     "packages/compose": {
       "name": "@exact/compose",
       "version": "1.0.0",
@@ -339,6 +343,8 @@
     "@exact/camera": ["@exact/camera@workspace:packages/camera"],
 
     "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
+    "@exact/clipboard": ["@exact/clipboard@workspace:packages/clipboard"],
 
     "@exact/compose": ["@exact/compose@workspace:packages/compose"],
 

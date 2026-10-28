@@ -331,6 +331,8 @@ public final class ExactSession {
     /// A host-owned name the agent carrier routes by (D9) and logs carry.
     public let label: String
     let notificationOwnerID = UUID().uuidString
+    /// Under the agent the session's own pasteboard, which `copyText` and @exact/clipboard write, unless `EXACT_DEVICE=real` (LLP 1133.006 §7).
+    var agentPasteboard: String? { ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real" ? "exact.agent.clipboard.\(notificationOwnerID)" : nil }
     public weak var delegate: ExactSessionDelegate?
     public private(set) var state: State = .created {
         didSet { if state != oldValue { let changed = state; app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, didChange: changed) } } }
@@ -1150,10 +1152,11 @@ public final class ExactSession {
                     fputs("exact: copyText: no pasteboard\n", stderr)
                     _ = text
                     #elseif canImport(UIKit)
-                    UIPasteboard.general.string = text
+                    (agentPasteboard.flatMap { UIPasteboard(name: UIPasteboard.Name($0), create: true) } ?? .general).string = text
                     #else
-                    NSPasteboard.general.clearContents()
-                    if !NSPasteboard.general.setString(text, forType: .string) {
+                    let board = agentPasteboard.map { NSPasteboard(name: NSPasteboard.Name($0)) } ?? .general
+                    board.clearContents()
+                    if !board.setString(text, forType: .string) {
                         fputs("exact: copyText failed\n", stderr)
                     }
                     #endif

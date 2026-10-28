@@ -200,6 +200,7 @@ fn captured_module_guard_uses_real_files_and_path_components() {
     std::fs::write(stage.join("nested/file.ts"), "export const n = 1;").unwrap();
     std::fs::write(sibling.join("outside.ts"), "export const n = 2;").unwrap();
     std::fs::write(stage.join("__exact_config.mjs"), super::resident::CONFIG).unwrap();
+    std::fs::write(stage.join("__exact_binding.mjs"), super::resident::BINDING).unwrap();
     let checked = exact_bake::bun()
         .args([
             "--input-type=module",

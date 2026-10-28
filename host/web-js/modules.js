@@ -651,7 +651,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (why) { say(`${row.key}: refused, ${why}`); return Promise.resolve(why.startsWith("person-required") ? { error: "NotAllowedError", message: "person-required" } : { error: "NotAllowedError" }); }
     const failed = checked(row, args);
     if (failed) { say(`${name}: refused: ${failed.error}`); return Promise.resolve(failed); }
-    const real = route(row) === "real" ? viaImplementation(row, args, null, { origin: from }) : null;
+    // An implementation that is its own substitute takes the call under the agent too, told so (LLP 1133.006 D8 item 4).
+    const real = route(row) !== "substitute" ? viaImplementation(row, args, null, { origin: from }) : null;
     if (real) return real.then(r => { if (errorCode(r)) say(`${name}: refused: ${errorCode(r)}`); return errorCode(r) ? r : null; });
     sp.resolveOf(row, args);
     const refused = sp.refusal(row, args);
@@ -809,10 +810,10 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       }
     }
     // A path option is the app's own file, within its `fs.read` or `fs.write` lines (LLP 1133.009 D10 item 4); each
-    // of a list's (LLP 1133.024 D16).
+    // of a list's (LLP 1133.024 D16); a keyed shape's path keys (`keys`), each item's (LLP 1133.006 D8 item 3).
     for (const [option, path] of Object.entries(sub.paths ?? {})) {
-      const capability = `fs.${path.access}`;
-      for (const given of [args?.[option]].flat()) {
+      const capability = `fs.${path.access}`, value = args?.[option];
+      for (const given of path.keys ? [value].flat().flatMap(item => path.keys.map(k => item?.[k])) : [value].flat()) {
         if (typeof given === "string" && !(appPath(given) && coversPath(appGrantSet(), capability, given))) return `grant-missing (${option}=${given} needs ${capability})`;
       }
     }
