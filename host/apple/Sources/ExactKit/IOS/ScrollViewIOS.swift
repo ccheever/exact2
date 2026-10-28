@@ -40,6 +40,11 @@ package class ScrollView: UIScrollView {
     /// tab bar's inset reaches a grid after it opened at its newest row
     /// (r25's photos, at launch and as a viewer closes), and kept, the
     /// offset left that row under the bar.
+    package override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        // PROTO (safe-area design r4 §5.3): the composer's cross-axis term reads this safe area.
+        if let node = superview as? NodeView, node.reach != .zero { SafeReach.reconcile(node) }
+    }
     package override func adjustedContentInsetDidChange() {
         let was = keptInset
         keptInset = adjustedContentInset

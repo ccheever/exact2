@@ -93,11 +93,10 @@ struct SafeReach {
         return reached
     }
 
-    /// Outsets `v`'s frame by `reach` and shifts its bounds origin by as much. A reaching scroller's scroll view
-    /// follows its bounds, and UIKit adjusts its content on the axes it scrolls (`.automatic`; one inside another
-    /// scroller's content `.scrollableAxes`, its main axis bouncing so that it counts while short). UIKit's
-    /// adjustment consumes the safe area it applies, so its content's subviews do not get it again; the rest
-    /// (the cross axis) stays in the content's safe area, where a nested carousel takes it (`reconcile`).
+    /// Outsets `v`'s frame by `reach` and shifts its bounds origin by as much. A reaching scroller's scroll view is
+    /// framed to its outset bounds and UIKit adjusts its content on the axes it scrolls (`.automatic`; one inside
+    /// another scroller's content `.scrollableAxes`). Every setting the pass owns is derived from the current state
+    /// and undone when that state no longer asks for it, so a retained view ends as a cold mount would.
     static func apply(_ reach: UIEdgeInsets, to v: NodeView) {
         if reach != v.reach {
             let base = v.frame.inset(by: v.reach)
@@ -107,27 +106,34 @@ struct SafeReach {
         }
         guard let sv = v.scroll else { return }
         if sv.frame != v.scrollFrame { sv.frame = v.scrollFrame }
+        let nested = Self.nested(v)
         if reach == .zero {
             if let set = v.reachBehavior, sv.contentInsetAdjustmentBehavior == set { sv.contentInsetAdjustmentBehavior = .never }
             v.reachBehavior = nil
         } else {
-            let nested = Self.nested(v)
             let want: UIScrollView.ContentInsetAdjustmentBehavior = nested ? .scrollableAxes : .automatic
-            if sv.contentInsetAdjustmentBehavior == .never || (nested && sv.contentInsetAdjustmentBehavior != want) { sv.contentInsetAdjustmentBehavior = want }
+            // `.always` is another owner's choice (a dialog sheet's scroller); the rest are this pass's or UIKit's default.
+            if sv.contentInsetAdjustmentBehavior != want, sv.contentInsetAdjustmentBehavior != .always { sv.contentInsetAdjustmentBehavior = want }
             v.reachBehavior = sv.contentInsetAdjustmentBehavior
-            let axes = Self.axes(v)
-            if nested, axes.x, !sv.alwaysBounceHorizontal { sv.alwaysBounceHorizontal = true }
         }
         v.fitScroll()
+        // A carousel inside a vertical list bounces along its main axis, from style alone, so that UIKit counts it
+        // scrollable while short; `fitScroll` owns vertical bounce.
+        let bounce = nested && Self.mainAxis(v) == .x && Self.outerMainAxis(v) == .y
+        if bounce != v.reachBounce || (bounce && !sv.alwaysBounceHorizontal) {
+            if bounce { sv.alwaysBounceHorizontal = true } else if v.reachBounce { sv.alwaysBounceHorizontal = false }
+            v.reachBounce = bounce
+        }
         reconcile(v)
     }
 
     /// The content's place on each edge a scroller reaches: UIKit's adjustment where UIKit applies one, and
-    /// `contentInset` for the rest of the scroll view's own safe-area inset there (its cross axis), read from
-    /// UIKit, never computed: the scroll view's `safeAreaInsets` less UIKit's part (`adjustedContentInset` less
-    /// `contentInset`). Called again whenever UIKit's adjustment changes (`adjustedContentInsetDidChange`).
+    /// `contentInset` for the rest of the scroll view's own safe-area inset there, read from UIKit, never computed:
+    /// its `safeAreaInsets` less UIKit's part (`adjustedContentInset` less `contentInset`). Called again whenever
+    /// UIKit's adjustment or the scroll view's safe area changes.
     static func reconcile(_ v: NodeView) {
         guard let sv = v.scroll else { return }
+        if v.reachInsetView != ObjectIdentifier(sv) { v.reachInset = .zero; v.reachInsetView = ObjectIdentifier(sv) }
         let r = v.reach, safe = sv.safeAreaInsets, adj = sv.adjustedContentInset, ci = sv.contentInset
         func part(_ reach: CGFloat, _ safe: CGFloat, _ adjusted: CGFloat, _ content: CGFloat) -> CGFloat {
             reach > 0 ? max(0, safe - (adjusted - content)) : 0
@@ -148,26 +154,45 @@ struct SafeReach {
     }
 
     /// Whether `v` lies in another scroller's scrolled content (the presenter's viewport is no author's).
-    static func nested(_ v: NodeView) -> Bool {
+    static func nested(_ v: NodeView) -> Bool { outer(v) != nil }
+
+    static func outer(_ v: NodeView) -> NodeView? {
         var up = v.superview
         while let u = up {
-            if u is ScrollView, !(u is Viewport) { return true }
+            if u is ScrollView, !(u is Viewport) { return u.superview as? NodeView }
             up = u.superview
         }
-        return false
+        return nil
     }
 
-    /// The axes a scroller scrolls, from what the author wrote and never from how much content it holds: an
-    /// axis whose overflow is `scroll`, or `auto` along its main axis (a row flex container's inline axis,
-    /// otherwise its block axis). Its other axis is its cross axis.
+    static func outerMainAxis(_ v: NodeView) -> Axis? { outer(v).map(mainAxis) }
+
+    enum Axis { case x, y }
+
+    /// A scroller's main axis, from style: the one scrollable axis when the other is `hidden` or `clip`; with both
+    /// scrollable, the inline axis for a row flex container that does not wrap or a column-flowing grid, else the
+    /// block axis.
+    static func mainAxis(_ v: NodeView) -> Axis {
+        let ox = v.style["overflow_x"]?.string ?? "visible", oy = v.style["overflow_y"]?.string ?? "visible"
+        let sx = ox == "scroll" || ox == "auto", sy = oy == "scroll" || oy == "auto"
+        if sx != sy { return sx ? .x : .y }
+        let display = v.style["display"]?.string
+        if display == "flex", !(v.style["flex_direction"]?.string ?? "row").hasPrefix("column"),
+           (v.style["flex_wrap"]?.string ?? "nowrap") == "nowrap" { return .x }
+        if display == "grid", (v.style["grid_auto_flow"]?.string ?? "row").hasPrefix("column") { return .x }
+        return .y
+    }
+
+    /// The axes a scroller scrolls, as UIKit counts them under this configuration: its main axis (it bounces or
+    /// UIKit always adjusts it), an axis whose overflow is `scroll`, and an `auto` axis whose content overflows its
+    /// port, which UIKit then adjusts (consuming that band, so nothing inside reaches along it).
     static func axes(_ v: NodeView) -> (x: Bool, y: Bool) {
         guard let sv = v.scroll else { return (false, false) }
-        let row = v.style["display"]?.string == "flex" && !(v.style["flex_direction"]?.string ?? "row").hasPrefix("column")
-        let x = sv.scrollsX && (v.style["overflow_x"]?.string == "scroll" || row)
-        let y = sv.scrollsY && (v.style["overflow_y"]?.string == "scroll" || !row)
+        let main = mainAxis(v), box = v.boxBounds
+        let x = sv.scrollsX && (main == .x || v.style["overflow_x"]?.string == "scroll" || v.content.width > box.width + 0.5)
+        let y = sv.scrollsY && (main == .y || v.style["overflow_y"]?.string == "scroll" || v.content.height > box.height + 0.5)
         return (x, y)
     }
-
     /// Outsets a leaf that takes its edges, its bounds origin kept.
     static func take(_ take: UIEdgeInsets, to v: NodeView) {
         guard take != v.take else { return }
