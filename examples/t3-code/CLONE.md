@@ -98,7 +98,7 @@ open that same draft preview and Back retains the attachment. Opening first save
 observed text, then rechecks the editor and file; a blocked-save regression covers
 rapid typing and route/file changes before navigation. Stale mounts, token ranges,
 draft text and removed files cannot open it. Other rich context actions and
-photo-library import remain incomplete. Sent Markdown attachments now use the
+new-task photo-library import remain incomplete. Sent Markdown attachments now use the
 workspace file code cards: Preview/Source round trips, horizontal code scrolling,
 and the exact 344-character code-body copy pass on iPhone. Preview parsing accepts
 CRLF/CR while Source retains original newlines. Generic Markdown prose,
@@ -108,8 +108,13 @@ outside the POC TestFlight build.
 The ordinary thread also imports a 567,032-byte PNG through Files. Its restored
 draft opens in Quick Look; sending receives `IMAGE_ATTACHMENT_OK`, and the sent
 image opens after restart. Preview resolution now follows image context to its
-file-backed bytes; removing the reference or file prevents a new preview. Photo
-Library selection remains unverified.
+file-backed bytes; removing the reference or file prevents a new preview.
+Ordinary-chat Photo Library selection is now verified in the normal build. The
+system picker imports the test PNG as `IMG_0007`; its draft and strip preview
+survive restart. Sending it with an explicit message receives `PHOTO_LIBRARY_OK`
+from the real provider. After another restart, the saved conversation opens the
+sent image correctly. Inline image-chip activation still reaches an unsupported
+context action; the attachment strip remains the verified preview path.
 New-task drafts import and preview the same PNG, recover through Home's Unsent
 row after restart, and discard through confirmation. Unsent follows active tasks
 once the live catalogue loads. Current checkout selects `main` correctly. The
