@@ -298,8 +298,10 @@ shape Gateway
   channel: string
   version: number
   history: number
-  // Moves with the member list of the server on screen (`loadMembers`).
+  // Moves with the member list of the server on screen (`loadMembers`); `memberRows` moves only when its
+  // rows do, not with a presence.
   members: number
+  memberRows: number
   retryIn: number
   attempt: number
 

@@ -43,3 +43,28 @@ test('a SYNC replaces its whole range, and a role change or another guild never 
   sync('10', 'a', [], 7);
   expect(ids().filter(id => id !== '-')).toEqual([]);
 });
+
+test('a list\'s rows revision moves with every op but UPDATE, with a new list and with a role', () => {
+  const s = createStore();
+  applyDispatch(s, 'READY', { user: { id: '1' }, guilds: [{ id: '10', channels: [] }] }, 0);
+  const member = (id: string) => ({ member: { user: { id }, roles: [] } });
+  const rows = (id: string, op: object) => {
+    applyDispatch(s, 'GUILD_MEMBER_LIST_UPDATE', { guild_id: '10', id, ops: [op] }, 1);
+    return s.memberLists.get('10')!.rows;
+  };
+  const synced = rows('a', { op: 'SYNC', range: [0, 99], items: [member('2'), member('3')] });
+  expect(synced).toBeGreaterThan(0);
+  expect(rows('a', { op: 'UPDATE', index: 0, item: member('2') })).toBe(synced);
+  const invalidated = rows('a', { op: 'INVALIDATE', range: [0, 99] });
+  expect(invalidated).toBeGreaterThan(synced);
+  const resynced = rows('a', { op: 'SYNC', range: [0, 99], items: [member('2')] });
+  expect(resynced).toBeGreaterThan(invalidated);
+  const inserted = rows('a', { op: 'INSERT', index: 0, item: member('4') });
+  expect(inserted).toBeGreaterThan(resynced);
+  const deleted = rows('a', { op: 'DELETE', index: 0 });
+  expect(deleted).toBeGreaterThan(inserted);
+  const fresh = rows('b', { op: 'UPDATE', index: 0, item: member('5') });
+  expect(fresh).toBeGreaterThan(deleted);
+  applyDispatch(s, 'GUILD_ROLE_UPDATE', { guild_id: '10', role: { id: '20', name: 'Owners', color: 0xff0000 } }, 2);
+  expect(s.memberLists.get('10')!.rows).toBeGreaterThan(fresh);
+});

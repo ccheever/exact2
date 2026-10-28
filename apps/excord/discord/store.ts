@@ -48,7 +48,9 @@ export interface TypingUser { user: User; expiresAtMs: number }
 export interface GuildEmoji { id: string; name: string; animated: boolean; available: boolean }
 /** One row of a member list: a group's header (a hoisted role's id, "online" or "offline") or a member. */
 export type MemberItem = { group: { id: string; count: number } } | { member: DiscordObject };
-export interface MemberList { id: string; items: (MemberItem | undefined)[]; revision: number }
+// `rows` is the revision at which the list's rows last changed: any op but UPDATE (a presence), a new list, or a
+// role (a group's name, a name's colour).
+export interface MemberList { id: string; items: (MemberItem | undefined)[]; revision: number; rows: number }
 interface ReadState { lastReadId: string | null; mentionCount: number }
 interface Entry {
   row: MessageRow; sortId: string; tie: number; run: Run; unanchored?: boolean;
@@ -442,13 +444,16 @@ function setEmojis(s: Store, guildId: string, emojis: DiscordObject[]): void {
 function updateMemberList(s: Store, d: DiscordObject): void {
   const id = String(d.id ?? '');
   let list = s.memberLists.get(d.guild_id);
-  if (!list || list.id !== id) { list = { id, items: [], revision: 0 }; s.memberLists.set(d.guild_id, list); }
+  const fresh = !list || list.id !== id;
+  if (!list || fresh) { list = { id, items: [], revision: 0, rows: 0 }; s.memberLists.set(d.guild_id, list); }
   const items = list.items.slice();
   const take = (item: any): MemberItem | undefined => {
     if (item?.member) { rememberUser(s, item.member.user); return { member: item.member }; }
     return item?.group ? { group: { id: String(item.group.id), count: Number(item.group.count ?? 0) } } : undefined;
   };
+  let moved = fresh;
   for (const op of Array.isArray(d.ops) ? d.ops : []) {
+    if (op.op !== 'UPDATE') moved = true;
     const [from, to] = Array.isArray(op.range) ? op.range.map(Number) : [0, -1];
     if (op.op === 'SYNC') {
       const given = Array.isArray(op.items) ? op.items : [];
@@ -460,7 +465,8 @@ function updateMemberList(s: Store, d: DiscordObject): void {
     else if (op.op === 'UPDATE' && Number.isInteger(op.index)) items[op.index] = take(op.item);
   }
   // Its own revision, not the lists': a presence moving in a large server would otherwise redraw them.
-  s.memberLists.set(d.guild_id, { id, items: items.slice(0, 200), revision: ++s.memberRevision });
+  const revision = ++s.memberRevision;
+  s.memberLists.set(d.guild_id, { id, items: items.slice(0, 200), revision, rows: moved ? revision : list.rows });
 }
 
 function rememberMember(s: Store, guildId: string, member: DiscordObject, c: Changes): void {
@@ -479,9 +485,9 @@ function setRole(s: Store, guildId: string, role: DiscordObject | null, roleId: 
   const roles = ((guild.roles ?? []) as DiscordObject[]).filter(r => r.id !== roleId);
   s.guildMap.set(guildId, { ...guild, roles: role ? [...roles, role] : roles } as Guild);
   c.sidebar = true;
-  // The member list names its groups and colours its names by these roles.
+  // The member list names its groups and colours its names by these roles, so its rows change too.
   const list = s.memberLists.get(guildId);
-  if (list) s.memberLists.set(guildId, { ...list, revision: ++s.memberRevision });
+  if (list) { const revision = ++s.memberRevision; s.memberLists.set(guildId, { ...list, revision, rows: revision }); }
 }
 
 function unreadSignature(s: Store, id: string): string {

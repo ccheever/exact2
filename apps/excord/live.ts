@@ -212,7 +212,7 @@ export interface Upload { path: string; name: string; type: string; size: number
 export interface Snapshot {
   state: string; detail: string; me: string; meName: string; fixture: boolean; queued: number; seq: number; sidebar: number;
   dmList: number; channelList: number; elsewhere: number;
-  channel: string; version: number; history: number; members: number; retryIn: number; attempt: number;
+  channel: string; version: number; history: number; members: number; memberRows: number; retryIn: number; attempt: number;
 }
 
 /** The gateway resource's answer, the same size whatever the account: the connection, the lists'
@@ -227,6 +227,7 @@ export function snapshot(live: Live, state?: string, detail = ''): Snapshot {
     dmList: live.dmList, channelList: live.channelList, elsewhere: live.elsewhere, channel,
     version: channel ? S.channelVersion(store, channel) : 0, history: channel ? live.history.get(channel) ?? 0 : 0,
     members: live.viewing.guild ? store.memberLists.get(live.viewing.guild)?.revision ?? 0 : 0,
+    memberRows: live.viewing.guild ? store.memberLists.get(live.viewing.guild)?.rows ?? 0 : 0,
     retryIn: retry === null ? 0 : Math.max(1, Math.ceil(retry - clock.now)), attempt: live.attempt };
 }
 

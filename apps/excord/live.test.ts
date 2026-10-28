@@ -327,7 +327,7 @@ test('4. the viewed channel subscribes its guild again after a non-resumable rec
 
 test('5. snapshots have fixed keys and only the viewed channel supplies history versions', async () => {
   const app = await rig.app(), peer = await app.dial();
-  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'dmList', 'channelList', 'elsewhere', 'channel', 'version', 'history', 'members', 'retryIn', 'attempt'].sort();
+  const keys = ['state', 'detail', 'me', 'meName', 'fixture', 'queued', 'seq', 'sidebar', 'dmList', 'channelList', 'elsewhere', 'channel', 'version', 'history', 'members', 'memberRows', 'retryIn', 'attempt'].sort();
   expect(Object.keys(peer.snapshots.at(-1)!).sort()).toEqual(keys);
   const channel = rig.fixture.world.generalChannelId;
   const other = rig.fixture.world.guilds[0].channels.find(value => value.id !== channel)!.id;
@@ -335,6 +335,9 @@ test('5. snapshots have fixed keys and only the viewed channel supplies history 
   await rig.control('heartbeat-request', {});
   const before = peer.snapshots.at(-1)!;
   expect(before.channel).toBe(channel);
+  // The open server's member list arrived with the subscription.
+  expect(before.members).toBeGreaterThan(0);
+  expect(before.memberRows).toBeGreaterThan(0);
   expect(await app.ask('inject', [other, 'message', '', EPOCH + 1000])).toEqual({ ok: true, error: '' });
   await rig.drain();
   const elsewhere = peer.snapshots.at(-1)!;
