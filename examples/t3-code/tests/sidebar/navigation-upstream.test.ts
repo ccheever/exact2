@@ -65,6 +65,16 @@ test('a search result shows the sidebar row\'s pull request badge once its terms
   expect(searchPullRequest(client, stack, '#99')).toBeNull();
 });
 
+test('a GitLab result says MR and merge requests, as the host does', async () => {
+  const { client } = await opened();
+  const pending = { branchPullRequest: { number: 12, repository: 'group/project', url: 'https://gitlab.com/group/project/-/merge_requests/12' }, pullRequests: [] };
+  expect(searchPullRequest(client, pending, '#12')).toEqual({ text: '12', icon: 'git-pull-request-arrow', state: '', label: 'MR #12, status pending' });
+  const link = (number: number, base: string) => ({ number, repository: 'group/project', host: 'gitlab.com', url: `https://gitlab.com/group/project/-/merge_requests/${number}`,
+    linkedAt: `2026-10-0${number % 9 + 1}T00:00:00.000Z`, snapshot: { title: `Change ${number}`, state: 'open', isDraft: false, headBranch: `b${number}`, baseBranch: base } });
+  const stack = { id: 't-mr-stack', projectId: 'p1', pullRequests: [link(7, 'main'), link(8, 'b7')] };
+  expect(searchPullRequest(client, stack, '#8')).toEqual({ text: '2', icon: 'layers', state: 'open', label: 'Stack of 2 merge requests, open' });
+});
+
 test('passive VCS reads retain no remote poller lease; active reads do', () => {
   const scopes = new ActivityScopes();
   expect(scopes.retain('e', 'subscribeVcsStatus', { cwd: '/repo', includeRemote: false })).toBeNull();

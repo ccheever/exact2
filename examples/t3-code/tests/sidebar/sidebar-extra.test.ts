@@ -51,18 +51,29 @@ describe('provider update pill (getProviderUpdateSidebarPillView)', () => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
     const client = { config: { providers }, ready: true, environmentId: 'env-local' } as unknown as T3Client;
     const delays: number[] = [];
-    expect(sidebarProviderPill(client, 1_000)).toBeNull();
+    const at = (iso: string, ms = 0) => Date.parse(iso) + ms;
+    expect(sidebarProviderPill(client, at('2026-10-04T10:00:30.000Z'))).toBeNull();
     (client.config as Obj).providers = [provider('codex', { status: 'succeeded', finishedAt: '2026-10-04T10:01:00.000Z' })];
-    expect(sidebarProviderPill(client, 2_000)?.tone).toBe('success');
-    scheduleProviderPill(client, 2_500, delay => delays.push(delay));
-    scheduleProviderPill(client, 2_600, delay => delays.push(delay));
+    const success = sidebarProviderPill(client, at('2026-10-04T10:01:00.000Z', 2_000));
+    // Its three seconds run from when it showed, in window time: the window's clock retires it there.
+    expect(success).toMatchObject({ tone: 'success', until: at('2026-10-04T10:01:00.000Z', 2_000 + SUCCESS_VISIBLE_MS) });
+    scheduleProviderPill(client, at('2026-10-04T10:01:00.000Z', 2_500), delay => delays.push(delay));
+    scheduleProviderPill(client, at('2026-10-04T10:01:00.000Z', 2_600), delay => delays.push(delay));
     expect(delays).toEqual([SUCCESS_VISIBLE_MS - 500 + 50]);
-    expect(sidebarProviderPill(client, 2_000 + SUCCESS_VISIBLE_MS)).toBeNull();
+    expect(sidebarProviderPill(client, at('2026-10-04T10:01:00.000Z', 2_000 + SUCCESS_VISIBLE_MS))).toBeNull();
     (client.config as Obj).providers = [provider('codex', { status: 'failed', finishedAt: '2026-10-04T10:02:00.000Z' })];
-    const failed = sidebarProviderPill(client, 9_000);
+    const failed = sidebarProviderPill(client, at('2026-10-04T10:02:00.000Z', 9_000));
     expect(failed?.tone).toBe('error');
+    expect(failed?.until).toBeUndefined();
     dismissProviderPill(client, failed!.key);
-    expect(sidebarProviderPill(client, 9_000)).toBeNull();
+    expect(sidebarProviderPill(client, at('2026-10-04T10:02:00.000Z', 9_000))).toBeNull();
+  });
+  test('a success seen on a lagging snapshot clock still counts its three seconds from its finish, not before', () => {
+    primaryAt('http://127.0.0.1:16437', 'env-local');
+    const client = { config: { providers: [provider('codex', null)] }, ready: true, environmentId: 'env-local' } as unknown as T3Client;
+    sidebarProviderPill(client, Date.parse('2026-10-04T10:00:00.000Z'));
+    (client.config as Obj).providers = [provider('codex', { status: 'succeeded', finishedAt: '2026-10-04T10:01:00.000Z' })];
+    expect(sidebarProviderPill(client, Date.parse('2026-10-04T10:00:20.000Z'))?.until).toBe(Date.parse('2026-10-04T10:01:03.000Z'));
   });
   test('the pill reads the primary\'s providers only (primaryServerProvidersAtom): a focused remote or no primary shows none', () => {
     const running = [provider('codex', { status: 'running' })];

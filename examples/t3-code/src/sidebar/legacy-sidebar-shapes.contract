@@ -56,6 +56,10 @@ shape LegacyProjectRow
 shape LegacySidebarView
   enabled: bool
   projects: LegacyProjectRow[]
+  // The open row while it is listed, and again while a route change owes its scroll (route-reveal.ts).
+  revealRow: string
+  revealPending: string
+  revealProject: string
   manual: bool
   projectSort: string
   threadSort: string

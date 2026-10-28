@@ -487,7 +487,7 @@ describe('navigation and search', () => {
     // Results whose element their page's owner has yet to draw (the shell, the sidebar).
     const waiting: Record<string, string[]> = {
       access: ['environment-icon', 'network-access', 'tailscale-https', 'connections-environment'],
-      connections: ['local-environment', 'remote-environments', 'pull-request-routing'],
+      connections: ['local-environment', 'remote-environments'],
       'snap-shot': ['snap-shot-enabled', 'snap-shot-accessibility', 'snap-shot-shortcut', 'snap-shot-sound', 'snap-shot-flash', 'snap-shot-animations'],
       appearance: ['separate-fonts'],
     };

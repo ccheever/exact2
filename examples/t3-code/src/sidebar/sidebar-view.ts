@@ -1,4 +1,4 @@
-// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
 import { instanceIconUrl } from '../providers/acp-icons';
 // The sidebar's projection into the snapshot (Sidebar.tsx render): the rows in
 // paint order (collapsed shelves contribute only the open thread, as the
@@ -14,7 +14,7 @@ import { knownSessions } from '../terminal/terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session';
 import { terminalFocused } from '../terminal/terminal-focus';
 import { searchMatch, serverMatches, snoozePresets, threadSearchPending, type SearchPart, type SnoozePreset } from './sidebar-presentation';
-import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, sidebarPrefs, sidebarSession, undoLive } from './sidebar-state';
+import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, sidebarPrefs, sidebarSession, undoLive, undoSummary } from './sidebar-state';
 import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar';
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './sidebar-glyph';
@@ -30,6 +30,7 @@ import { sidebarPrBadge } from '../panel/pr-surface';
 import { branchPrBadge, branchPullRequest } from './sidebar-branch-pr';
 import { notePlaces, rowHoverKey } from './row-hover-key';
 import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // the persisted project order
+import { resolveRouteReveal } from './route-reveal';
 import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup';
 import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow } from './sidebar-menu'; // the row's context popover (exact2 #223)
 import { draftMenuRows } from './draft-rows';
@@ -38,6 +39,11 @@ import { renameHeld } from './sidebar-rename-wait';
 import { pullRequestSearchTerms, rowPullRequestLinks, searchPullRequest } from './search-pull-request';
 import { routeRowThreadId } from './sidebar-lineage';
 import { isScratch, scratchRootOf } from '../composer/scratch-machine';
+import { triggerDisplayModelName } from './model-short-name';
+import { inboxReturns } from './thread-inbox';
+import { autoDirection } from './title-direction';
+import { textDirection } from '../shared/text-direction';
+import { splitForMiddleTruncate } from '../details/middle-truncate';
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
@@ -53,7 +59,7 @@ export const terminalProcessCount = (client: T3Client, threadId: string): number
 export const terminalProcessLabel = (count: number): string => count ? `${count} terminal ${count === 1 ? 'process' : 'processes'} running` : '';
 
 export interface SidebarThread {
-  id: string; title: string; projectName: string; projectMark: string; projectInk: string; projectSurface: string;
+  id: string; title: string; titleDir: string; renameDir: string; branchHead: string; branchTail: string; projectName: string; projectMark: string; projectInk: string; projectSurface: string;
   projectGray: string; projectGraySurface: string; providerDriver: string; providerBadge: string; providerBadgeColor: string; providerName: string;
   /** An ACP Registry instance's agent icon (ProviderInstanceIcon's acpRegistryIconUrl); '' for other drivers. */
   providerIcon: string;
@@ -77,14 +83,22 @@ export interface SidebarView {
   drafts: SidebarDraft[];
   searching: boolean; searchPending: boolean; searchIndex: number; searchSelectedId: string;
   settledCount: number; snoozedCount: number; workingCount: number; ticking: boolean; probes: Probe[];
+  /** The soonest Working grace's end (window time), 0 for none: the root's timer ends it 2 s after it started. */
+  graceUntil: number;
+  /** Non-zero while a grace's start or a return's stamp waits for the window's clock, changing with each new one. */
+  graceOwed: number;
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopes: SidebarScope[];
   scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
-  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number;
+  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number; undoHost: string;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpModifiers: string[];
   calendar: SnoozeCalendar;
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
+  /** A timed provider pill's end (window time; its countdown bar runs to it), 0 for one that stays. */
+  pillUntil: number;
+  /** The open row, while it is listed (each mount of the view scrolls to it), and again while a route change owes it. */
+  revealRow: string; revealPending: string;
 }
 
 const FOREGROUND = 'light-dark(#18181b, #f3f3f3)';
@@ -151,17 +165,21 @@ function threadSortTime(thread: Obj, order: string): number {
 }
 
 export interface Partition { pinned: Obj[]; active: Obj[]; working: Obj[]; snoozed: Obj[]; settled: Obj[] }
+/** The Working shelf's placement tracker of this window (thread-inbox.ts), keyed as the rows are. */
+export const workingInbox = (client: T3Client) => inboxReturns(client, thread => scopedRowKey(client, str(thread.id)));
 /** The five shelves for the current scope, each in its reference order. */
 export function partition(client: T3Client, now: number): Partition {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client);
   const scope = projectScopes(client).find(group => group.key === prefs.scope);
   const working = client.local.clientSettings?.sidebarWorkingShelfEnabled === true;
+  const threads = [...client.shell.threads, ...fleetThreads()];
+  const inbox = workingInbox(client).observe(working ? threads : null, now);
   const result: Partition = { pinned: [], active: [], working: [], snoozed: [], settled: [] };
-  for (const thread of [...client.shell.threads, ...fleetThreads()]) {
+  for (const thread of threads) {
     if (!sidebarVisible(thread) || scope && !scope.ids.has(str(thread.projectId))) continue;
-    result[sectionOf(thread, caps, now, working)].push(thread);
+    result[sectionOf(thread, caps, now, working, inbox.isWorking)].push(thread);
   }
-  return { pinned: sortPinned(result.pinned), active: working ? sortByReturn(result.active) : sortActive(result.active),
+  return { pinned: sortPinned(result.pinned), active: working ? sortByReturn(result.active, inbox.returnedAt) : sortActive(result.active),
     working: sortWorkingThreadsBySend(result.working), snoozed: sortSnoozed(result.snoozed), settled: sortSettled(result.settled) };
 }
 
@@ -292,7 +310,10 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const glyph = background ? projectGlyph(client, background, helpers.projectIdentity, ref!.environmentId)
     : project ? projectGlyph(client, project, helpers.projectIdentity) : projectGlyph(client, { title: projectTitle }, helpers.projectIdentity);
   return {
-    id, title: str(thread.title, 'Untitled thread'), projectName, ...helpers.projectIdentity(projectTitle), ...grayIdentity(helpers.projectIdentity(projectTitle).projectInk),
+    id, title: str(thread.title, 'Untitled thread'), projectName,
+    // A title reads in its majority direction, start-aligned; the rename field follows what is typed, as `dir="auto"`.
+    titleDir: textDirection(str(thread.title, 'Untitled thread')) ?? 'ltr',
+    renameDir: autoDirection(session.renameId === id ? session.renameTitle : str(thread.title, 'Untitled thread')) ?? 'ltr', ...helpers.projectIdentity(projectTitle), ...grayIdentity(helpers.projectIdentity(projectTitle).projectInk),
     providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName), providerIcon: providerIconUrl(instance, obj(environment.settings)),
     terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
@@ -312,7 +333,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     canUnsettle: caps.settlement && section === 'settled', canWake: caps.snooze && section === 'snoozed',
     wakeLabel: section === 'snoozed' && thread.snoozedUntil != null ? snoozeWakeLabel(thread.snoozedUntil, now) : '',
     // ThreadWorktreeIndicator: the row draws FolderGit2 only for a worktree thread; a checkout thread's branch stands alone.
-    woke, branch: str(thread.branch), worktree: str(thread.worktreePath).trim() !== '', draft: !routeThread && !!(client.local.drafts[draftKey] ?? '').trim(),
+    woke, branch: str(thread.branch), ...branchSplit(str(thread.branch)), worktree: str(thread.worktreePath).trim() !== '', draft: !routeThread && !!(client.local.drafts[draftKey] ?? '').trim(),
     jump: extra.jump, renaming: session.renameId === id, multi, regenerating: thread.titleRegeneration != null || session.regenerating.has(id),
     label: [str(thread.title, 'Untitled thread'), pill?.label ?? '', projectName].filter(Boolean).join(', '),
     // A row's hover belongs to its place: a row that moves to another shelf under a still pointer is not hovered.
@@ -332,6 +353,11 @@ export function shortcutLabel(client: T3Client, command: string): string {
   const binding = [...arr(client.config.keybindings)].reverse().find(entry => entry.command === command);
   const shortcut = obj(binding?.shortcut), key = str(shortcut.key);
   return binding && key ? `${shortcut.ctrlKey ? '⌃' : ''}${shortcut.altKey ? '⌥' : ''}${shortcut.shiftKey ? '⇧' : ''}${shortcut.modKey || shortcut.metaKey ? '⌘' : ''}${key.length === 1 ? key.toUpperCase() : key}` : '';
+}
+/** threadUndoLabel: the undo shortcut's label, "⌘Z to undo", or "Undo" without one. */
+export function undoLabel(client: T3Client): string {
+  const shortcut = shortcutLabel(client, 'thread.undo');
+  return shortcut ? `${shortcut} to undo` : 'Undo';
 }
 /**
  * The modifiers of each thread.jump.N shortcut in effect (effectiveShortcutsForCommand: the newest binding whose
@@ -354,10 +380,33 @@ function jumpLabels(client: T3Client, count: number): string[] {
   return Array.from({ length: Math.min(9, count) }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`));
 }
 
+/**
+ * Sidebar.tsx's route reveal, before the shelves are partitioned: a route the project scope hides widens it to all
+ * projects (persisted, the selection cleared), so the new route's first frame lists its row.
+ */
+function revealRoute(client: T3Client, searching: boolean): void {
+  const prefs = sidebarPrefs(client), session = sidebarSession(client), route = routeRowThreadId(client);
+  const scope = prefs.scope ? projectScopes(client).find(group => group.key === prefs.scope) : undefined;
+  const { widensScope } = resolveRouteReveal({ reveal: session.reveal, routeKey: route ? scopedRowKey(client, route) : '', searching, scoped: !!scope,
+    hidden: key => {
+      const thread = [...client.shell.threads, ...fleetThreads()].find(candidate => scopedRowKey(client, str(candidate.id)) === key);
+      return thread && sidebarVisible(thread) ? !scope?.ids.has(str(thread.projectId)) : undefined;
+    } });
+  if (widensScope) { prefs.scope = ''; session.selection = []; session.anchor = ''; }
+}
+/** The open row to scroll to: once for the route (revealPending), once for each mount of the view (revealRow). */
+function revealRows(client: T3Client, rows: { thread: Obj }[], searching: boolean): { revealRow: string; revealPending: string } {
+  const route = routeRowThreadId(client);
+  const revealRow = !searching && route && rows.some(entry => entry.thread.id === route) ? route : '';
+  return { revealRow, revealPending: revealRow && sidebarSession(client).reveal.pendingKey === scopedRowKey(client, revealRow) ? revealRow : '' };
+}
+
 export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarHelpers): { threads: SidebarThread[]; searchFirstId: string; snoozePresets: SnoozePreset[]; sidebar: SidebarView } {
+  // The legacy sidebar keeps its own reveal while it is the one shown (legacy-sidebar-view.ts).
+  const searching = client.query.trim() !== '', reveals = client.local.clientSettings?.legacySidebarEnabled !== true;
+  if (reveals) revealRoute(client, searching);
   const prefs = sidebarPrefs(client), session = sidebarSession(client), parts = partition(client, now);
   const scopes = projectScopes(client), scope = scopes.find(group => group.key === prefs.scope);
-  const searching = client.query.trim() !== '';
   notePlaces(client, parts); // a row's moves count while its shelf is collapsed too
   const rows = searching ? searchRows(client, parts) : renderedRows(client, parts);
   if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchIndex = 0; }
@@ -380,6 +429,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const identity = helpers.projectIdentity(scope ? groupTitle(scope) : '');
   const undo = session.undo, live = undoLive(client);
   const pill = sidebarProviderPill(client, clock(now));
+  const inbox = workingInbox(client), graceUntil = inbox.nextDeadline(), graceOwed = inbox.owed();
   return {
     threads, searchFirstId: searching ? str(rows[searchIndex]?.thread.id) : '',
     snoozePresets: snoozePresets(now, client.local.deviceSettings.timestampFormat),
@@ -387,7 +437,10 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       drafts: searching ? [] : draftRows(client, helpers.projectIdentity),
       searching, searchPending: searching && rows.length === 0 && threadSearchPending(client), searchIndex,
       searchSelectedId: searching ? str(rows[searchIndex]?.thread.id) : '',
-      settledCount: parts.settled.length, snoozedCount: parts.snoozed.length, workingCount: parts.working.length, ticking: threads.some(thread => thread.workingSince > 0), probes: SIDEBAR_PROBES,
+      settledCount: parts.settled.length, snoozedCount: parts.snoozed.length, workingCount: parts.working.length, probes: SIDEBAR_PROBES,
+      // A Working row's label ticks each second, and so does the clock a timed provider pill waits on. The Working
+      // shelf's grace runs on the root's timers (app.contract workingGraceOwed, workingGraceEnds).
+      ticking: threads.some(thread => thread.workingSince > 0) || (pill?.until ?? 0) > 0, graceUntil, graceOwed,
       settledExpanded: prefs.settledExpanded, snoozedExpanded: prefs.snoozedExpanded, workingExpanded: prefs.workingExpanded,
       showMore: prefs.settledExpanded && hidden > 0 ? Math.min(hidden, SETTLED_TAIL_PAGE_COUNT) : 0,
       emptyText: searching || total > 0 || draftRows(client, helpers.projectIdentity).length > 0 ? '' : client.shell.projects.length === 0 ? 'No projects yet' : scope ? `No threads in ${scope.name} yet` : 'No threads yet',
@@ -400,9 +453,11 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
       scopeFirst: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity)[0]?.key ?? '',
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
-      undoText: undo && live ? `${undo.action} ${undo.threadIds.length} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${undo.threadIds.length === 1 ? '' : 's'},` : '', // drafts (upstream 95edeb753b)
+      undoText: undo && live ? `${undoSummary(undo)},` : '', // drafts (upstream 95edeb753b)
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
-      undoLabel: shortcutLabel(client, 'thread.undo') ? `${shortcutLabel(client, 'thread.undo')} to undo` : 'Undo',
+      undoLabel: undoLabel(client),
+      // The first bottom shelf header hosts the notice; while searching or with no rows it heads the footer.
+      undoHost: searching || total === 0 ? '' : parts.working.length > 0 ? 'working' : parts.snoozed.length > 0 ? 'snoozed' : 'settled',
       dialog: session.dialog.kind, dialogTitle: dialogTitle(session.dialog), dialogDescription: dialogDescription(session.dialog),
       dialogMode: session.dialogMode, dialogDate: session.dialogDate, dialogTime: session.dialogTime, dialogAmount: session.dialogAmount, dialogUnit: session.dialogUnit, dialogError: session.dialogError,
       // The date button's text and its calendar popover.
@@ -410,8 +465,9 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
         : snoozeCalendar(session.dialogDate, session.calendarMonth || session.dialogDate.slice(0, 7), localDate(new Date(now)), firstWeekday(), session.calendarFocus, session.calendarFocusSeq),
       dialogReturn: dialogReturn(session.dialog), // Base UI's finalFocus
       jumpModifiers: jumping ? threadJumpModifiers(client) : [],
-      pillKey: pill?.key ?? '', pillTone: pill?.tone ?? '', pillTitle: pill?.title ?? '', pillDescription: pill?.description ?? '', pillDismissible: pill?.dismissible ?? false,
+      pillKey: pill?.key ?? '', pillTone: pill?.tone ?? '', pillTitle: pill?.title ?? '', pillDescription: pill?.description ?? '', pillDismissible: pill?.dismissible ?? false, pillUntil: pill?.until ?? 0,
       sweepEpoch: session.sweepEpoch, // upstream 1826fb55cc
+      ...(reveals ? revealRows(client, rows, searching) : { revealRow: '', revealPending: '' }),
     },
   };
 }
@@ -474,11 +530,18 @@ export function draftRows(client: T3Client, identity: Identity): SidebarDraft[] 
   return rows;
 }
 
-/** SidebarThreadTooltip: environment, model · instance, hand-offs and the last error. */
+/** The branch's head and the tail middle truncation keeps (both '' when it needs no split). */
+function branchSplit(branch: string): { branchHead: string; branchTail: string } {
+  const split = splitForMiddleTruncate(branch);
+  return { branchHead: split?.head ?? '', branchTail: split?.tail ?? '' };
+}
+
+/** SidebarThreadTooltip: environment, model · instance, hand-offs and the last error. The model is the name it is said by
+ * (getTriggerDisplayModelName under the instance's driver), else the selection's slug. */
 function hoverDetails(client: T3Client, thread: Obj, providers: Obj[], instance: Obj | undefined, helpers: SidebarHelpers) {
   const kind = str(thread.fleetMachine) || machineKind(client.config), selection = obj(thread.modelSelection);
   const model = arr(instance?.models).find(entry => entry.slug === selection.model);
-  const modelLabel = str(model?.name, str(selection.model));
+  const modelLabel = model ? triggerDisplayModelName(model, str(instance?.driver)) : str(selection.model);
   const badge = helpers.providerBadge(instance, providers).providerBadge !== '';
   const current = str(selection.instanceId);
   const history = Array.isArray(thread.providerInstanceHistory) ? thread.providerInstanceHistory : [];

@@ -163,7 +163,7 @@ describe('the fleet keeps the primary in the background', () => {
     expect(await dropPrimaryDuplicates(native, [duplicate], new LocalPrimary())).toEqual({ origins: [], focusDropped: false });
   });
 
-  test('a duplicate\'s GitHub sharing trust goes first, as installPlatformRegistration; a failed write keeps the entry', async () => {
+  test('a duplicate\'s pull request sharing trust goes first, as installPlatformRegistration; a failed write keeps the entry', async () => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
     const duplicate = { origin: 'http://192.168.1.20:3773', environmentId: 'env-local', label: 'Paired before', enabled: true };
     const trust = { githubRouting: { [JSON.stringify(['env-local', 'http://192.168.1.20:3773/'])]: 'read', [JSON.stringify(['env-box', 'https://box.example.com/'])]: 'read-write',
