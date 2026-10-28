@@ -30,7 +30,7 @@ require them.
 - The InlineShortcut comparison has no complete verdict. Its cached test
   executable is missing, so another test run needs a fresh build.
 - Live App Store Connect status on October 28 reports POC build
-  `1.0.0 (20261028074348)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
+  `1.0.0 (20261028202307)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
   build is assigned to `Team (Expo)`, with one installed tester and one invited
   tester. External distribution was not extended.
 
@@ -184,9 +184,12 @@ the held native editor unit. Signature, store provisioning, identity, version an
 source-stamp checks pass. The held files and original Git index restore exactly.
 Its IPA SHA-256 is `f9b4ba61b9484d2c5163aa3940cab221195a5addf59340e07f20392dec11c85e`.
 [EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/5acee506-6607-48d9-8e54-12b1f62fa043)
-uses that exact IPA and the existing internal Team (Expo) group. Upload is queued;
-Apple processing and tester availability are not yet verified for this build.
-This is a POC maintenance build. Phone and iPad parity remain incomplete.
+uses that exact IPA and the existing internal Team (Expo) group. Apple processing
+is VALID and internal state is IN_BETA_TESTING. The group lists this exact build,
+with one installed tester and one invited tester; installation of this new build
+by an individual tester is not established. Its App Store Connect build ID is
+`d1ba4f4f-ec9a-449d-9e26-f8a13c3e66f1`. Distribution remains internal TestFlight.
+This POC maintenance build is delivered. Phone and iPad parity remain incomplete.
 The inactive native NewTask editor prerequisite reserves eight final-source slots
 and retains teardown receipts until explicit acknowledgment. Its actual UIKit
 fixture passes 86 checks, including text/chip source recovery, repeated reads,
