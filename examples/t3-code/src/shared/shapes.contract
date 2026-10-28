@@ -464,7 +464,10 @@ shape Snapshot
   canStop: bool
   providerId: string
   modelId: string
+  // The model trigger's accessible name (the full name), its text (the short one) and its Unavailable badge.
   modelLabel: string
+  modelShortLabel: string
+  modelUnavailable: bool
   composerCollapseOnScroll: bool
   planModeEnabled: bool
   composerResting: bool

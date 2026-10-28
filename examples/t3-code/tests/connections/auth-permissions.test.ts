@@ -15,7 +15,7 @@ const accepted = (generation: number, value: Obj = {}) => ({ ok: true, generatio
 function clientFixture(permissions: readonly string[]) {
   const client = new T3Client(), requests: Obj[] = [];
   Object.assign(client, { connection: 'connected', configLive: true, shellLive: true, threadLive: true,
-    generation: 1, environmentId: 'env', projectId: 'project', threadId: 'thread', scopes: [...permissions] });
+    generation: 1, environmentId: 'env', projectId: 'project', threadId: 'thread', scopes: [...permissions], scopesKnown: true });
   client.config = { environment: { capabilities: { serverResolvedCommandContext: true } }, settings: {} };
   client.shell.projects = [{ id: 'project', workspaceRoot: '/fixture' }];
   client.shell.threads = [{ id: 'thread', projectId: 'project' }];

@@ -144,9 +144,7 @@ describe('the send: settings, title seed, provider and permission (ChatView onSe
   });
   test('without orchestration:operate Send is disabled with its reason and no banner shows', async () => {
     const client = new T3Client(), native = new Fake(), disk = storage();
-    const later = native.later.bind(native);
-    native.later = async (input: unknown) => obj(input).op === 'http' && obj(input).path === '/api/auth/session'
-      ? native.ok({ authenticated: true, scopes: ['orchestration:read'] }) : later(input);
+    native.scopes = ['orchestration:read'];
     await client.refresh(native, disk);
     await client.command('select-thread', 't1', '', 0, native, disk);
     await client.refresh(native, disk);
