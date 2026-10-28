@@ -84,7 +84,7 @@ public final class USBModule: ExactPackage {
                 "deviceClass": number(s, "bDeviceClass") ?? 0, "deviceSubclass": number(s, "bDeviceSubClass") ?? 0, "deviceProtocol": number(s, "bDeviceProtocol") ?? 0,
                 "deviceVersionMajor": bcd >> 8, "deviceVersionMinor": (bcd >> 4) & 0xF, "deviceVersionSubminor": bcd & 0xF,
                 "manufacturerName": string(s, "USB Vendor Name") ?? "", "productName": string(s, "USB Product Name") ?? "",
-                "serialNumber": string(s, "USB Serial Number") as Any, "configurations": configurations(s),
+                "serialNumber": string(s, "USB Serial Number") ?? NSNull(), "configuration": number(s, "bConfigurationValue") ?? NSNull(), "configurations": configurations(s),
                 "connected": true, "granted": true,
             ]
             out.append(Found(id: id, record: record, service: s))
@@ -107,12 +107,19 @@ public final class USBModule: ExactPackage {
             let alternate: [String: Any] = [
                 "alternateSetting": number(s, "bAlternateSetting") ?? 0, "interfaceClass": number(s, "bInterfaceClass") ?? 0,
                 "interfaceSubclass": number(s, "bInterfaceSubClass") ?? 0, "interfaceProtocol": number(s, "bInterfaceProtocol") ?? 0,
-                "interfaceName": string(s, "USB Interface Name") as Any, "endpoints": [],
+                "interfaceName": string(s, "USB Interface Name") ?? NSNull(), "endpoints": [],
             ]
             interfaces[n, default: []].append(alternate)
         }
         let list = interfaces.keys.sorted().map { ["interfaceNumber": $0, "alternates": interfaces[$0]!] as [String: Any] }
         return list.isEmpty ? [] : [["configurationValue": value, "configurationName": NSNull(), "interfaces": list]]
+    }
+
+    /// A remembered device not plugged in: its id, every other field empty, `connected` false.
+    private static func gone(_ id: String) -> [String: Any] {
+        var r: [String: Any] = ["id": id, "manufacturerName": "", "productName": "", "serialNumber": NSNull(), "configuration": NSNull(), "configurations": [], "connected": false, "granted": true]
+        for key in ["usbVersionMajor", "usbVersionMinor", "usbVersionSubminor", "deviceClass", "deviceSubclass", "deviceProtocol", "vendorId", "productId", "deviceVersionMajor", "deviceVersionMinor", "deviceVersionSubminor"] { r[key] = 0 }
+        return r
     }
 
     private func matches(_ r: [String: Any], _ filters: [[String: Any]]?) -> Bool {
@@ -153,7 +160,7 @@ public final class USBModule: ExactPackage {
         case "usbStatus": return ["available": true, "attachedList": true, "state": "granted"]
         case "attachedDevices": return list(all.map(\.record).filter { matches($0, args["filters"] as? [[String: Any]]) })
         case "getDevices":
-            return list(remembered.map { id in all.first { $0.id == id }?.record ?? ["id": id, "connected": false, "granted": true, "vendorId": 0, "productId": 0, "configurations": []] })
+            return list(remembered.map { id in all.first { $0.id == id }?.record ?? Self.gone(id) })
         case "open":
             let id = args["device"] as? String ?? ""
             guard let f = all.first(where: { $0.id == id }) else { return ["error": "NotFoundError"] }

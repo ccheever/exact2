@@ -85,6 +85,8 @@ impl App {
                 "exact.json",
                 "web/exact.json",
                 "apple/exact.json",
+                "linux/exact.json",
+                "windows/exact.json",
             ] {
                 if from.join(file).exists() {
                     std::fs::create_dir_all(to.join(file).parent().unwrap()).unwrap();
