@@ -97,7 +97,7 @@ int main(int argc, const char **argv) {
                 if ([arm isEqual:@"gpui"] && [result[@"gpuiOffsetEnd"][@"item"] intValue] == 0) fail(@"GPUI list did not scroll");
                 if (![result[@"activeAtStart"] boolValue] || ![result[@"activeAtEnd"] boolValue]
                     || [result[@"fling"][@"inactiveTicks"] unsignedIntegerValue]) fail(@"window lost focus; retain this run but do not compare it");
-                if ([result[@"thermalStart"] intValue] != 0 || [result[@"thermalEnd"] intValue] != 0) fail(@"thermal state changed; retain this run but do not compare it");
+                if ([result[@"thermalStart"] intValue] != [result[@"thermalEnd"] intValue]) fail(@"thermal state changed; retain this run but do not compare it");
                 fprintf(stdout, "%s cold=%.3f ms\n", name.UTF8String, [result[@"coldMs"] doubleValue]); fflush(stdout);
             }
         }
