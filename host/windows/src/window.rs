@@ -537,7 +537,19 @@ impl<D: DataSource + Default + 'static> App<D> {
             && screen_ready
         {
             let synchronized = exact_ink::device::compositor_sync_process_ms();
-            match p.displayed_process_ms() {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let displayed = loop {
+                let displayed = p.displayed_process_ms();
+                if displayed.is_ok() || Instant::now() >= deadline {
+                    break displayed;
+                }
+                // The composition statistics can lag a DWM sync. Do not accept
+                // an older present as the complete screen's displayed frame.
+                if exact_ink::device::compositor_sync_process_ms().is_err() {
+                    break displayed;
+                }
+            };
+            match displayed {
                 Ok(Some(ms)) => {
                     eprintln!("exact-windows: process to displayed first screen {ms:.3} ms (DXGI)")
                 }
@@ -547,7 +559,9 @@ impl<D: DataSource + Default + 'static> App<D> {
                 Ok(None) => {}
             }
             match synchronized {
-                Ok(ms) => eprintln!("exact-windows: process to first-screen compositor sync {ms:.3} ms (upper bound)"),
+                Ok(ms) => eprintln!(
+                    "exact-windows: process to first-screen compositor sync {ms:.3} ms (DWM proxy)"
+                ),
                 Err(error) => eprintln!("exact-windows: compositor sync: {error}"),
             }
             self.measured_first_screen = true;

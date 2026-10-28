@@ -261,10 +261,12 @@ impl D3d11 {
             let media: IDXGISwapChainMedia = c.swap.cast()?;
             let mut stats = DXGI_FRAME_STATISTICS_MEDIA::default();
             media.GetFrameStatisticsMedia(&mut stats)?;
-            if stats.PresentCount < c.swap.GetLastPresentCount()? || stats.SyncQPCTime == 0 {
-                return Err(Error::Unsupported(
-                    "DXGI has no timestamp for the presented frame",
-                ));
+            let expected = c.swap.GetLastPresentCount()?;
+            if stats.PresentCount < expected || stats.SyncQPCTime == 0 {
+                return Err(Error::Device(format!(
+                    "DXGI has no timestamp for present {expected}: displayed {}, QPC {}",
+                    stats.PresentCount, stats.SyncQPCTime,
+                )));
             }
             let rate = c.device.GetFrameStatistics()?.currentCompositionRate;
             if rate.Numerator == 0 {

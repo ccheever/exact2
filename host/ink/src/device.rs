@@ -185,7 +185,7 @@ impl From<windows::core::Error> for Error {
 }
 
 /// Process age after the calling thread's outstanding updates reach a DWM sync.
-/// This is an upper bound for first display, not a swap-chain frame timestamp.
+/// A synchronization proxy, not a swap-chain frame timestamp.
 #[cfg(windows)]
 pub fn compositor_sync_process_ms() -> Result<f64> {
     use windows::Win32::{
