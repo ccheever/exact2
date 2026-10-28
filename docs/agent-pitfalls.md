@@ -347,6 +347,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   round 30's grader named it. Fix: rows under a screen's own content are a
   `listStyle="plain"` list on the page's white, as the Clock's laps are; keep
   inset-grouped for a list that is the whole screen.
+- **A sideways swipe on a row opens it.** Cause: the row has no swipe actions. A
+  `UITableView` or SwiftUI `List` row with none is selected by a horizontal drag of any
+  length or speed, and one with trailing actions only is selected by a rightward drag;
+  Exact does the same. Graders flag it when the other app's rows swipe (bake-off r28,
+  r29, and r31's podcasts and recipes). Fix: give rows the swipe actions their screen
+  implies, `delete=` or a swipe row (`contract vocab swipe`). (Measured on iOS 27 with
+  the bake-off driver, 2026-10-28.)
 - **A live list hitches once a tick when its data module rebuilds every row.** Cause: an
   `every(1000, step)` that refreshes a resource answering all 260 tickers, each with
   `toLocaleString` prices (Hermes makes a new `Intl.NumberFormat` per call) and a
