@@ -88,7 +88,10 @@ struct SafeReach {
         for edge in [UIRectEdge.top, .left, .bottom, .right] where touches.contains(edge) && !contained.contains(edge) && !takes.contains(edge) {
             // A decorated box covers for what reaches inside it but paints nothing new: the prototype
             // keeps it in its box (the design separates paint from coverage).
-            guard !decorated, surface || below.contains(edge) else { continue }
+            // At an enclosing scroller's padding edge only a nested scroller reaches (UIKit's orthogonal section spans
+            // the collection view); a fill stays inside the padding, as CSS paints it.
+            let padded = (edge == .left && safe.minX > self.safe.minX + pixel) || (edge == .right && safe.maxX < self.safe.maxX - pixel)
+            guard !decorated, (surface && (v.scroll != nil || !padded)) || below.contains(edge) else { continue }
             switch edge {
             case .top: reach.top = r.minY - allocation.minY
             case .left: reach.left = r.minX - allocation.minX

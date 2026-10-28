@@ -20,9 +20,9 @@ column navigationKey="inbox" position="absolute" inset=0 display="flex" flex-dir
     button …
 ```
 
-- **Inset a list's content** with the scroller's own padding. The scroller still reaches the
-  edges, and so do a carousel or a row's fill inside it. `var(--exact-readable-content-inset-left)`
-  and `-right` give a readable width.
+- **Inset a list's content** with the scroller's own padding: the scroller, and a carousel
+  inside it, still span the screen. Rows whose colour should span it too pad themselves
+  instead. `var(--exact-readable-content-inset-left)` and `-right` give a readable width.
 - **A bar the list scrolls under and clears** (a composer, a filter row): put it in flow
   before or after the scroller, holding only controls, with no background colour.
 - **Keep a box off the edges**: a margin on it, or padding on the route's root. A card with
