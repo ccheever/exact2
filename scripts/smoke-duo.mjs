@@ -975,6 +975,8 @@ async function suite({ open: openSession, check: record }, reset) {
   // 4. The sample host: stacked panes follow each pose; middle and trailing columns have independent Back stacks.
   const hostBundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator', host: true }).bundle;
   if (leg('host-navigation') && plans['pushed-title'] && check(existsSync(hostBundle), 'build the host fixture before testing embedded Back: bun host/apple/build.mjs --ios --host')) {
+    // The window rectangle the stacked panes fill fully open, which the columns divide
+    let usable;
     for (const arrangement of ['stacked', 'columns']) {
       const columns = arrangement === 'columns';
       if (columns) { hinge(180); }
@@ -982,10 +984,7 @@ async function suite({ open: openSession, check: record }, reset) {
         ...(columns ? { timing: 'platform', env: { EXACT_HOST_COLUMNS: '3' } } : {}) });
       try {
         const panes = {};
-        const offset = async () => {
-          const id = byTestId(await s.tree(), 'long-scroll').id;
-          return (await s.layout('long-top')).node.scroll.find((port) => port.id === id)?.sy;
-        };
+        const offset = async () => box(await s.layout(), 'long-scroll')?.sy;
         const backInEachSession = async (pose) => {
           for (const chosen of ['a', 'b']) {
             const tag = `${pose}-${chosen}`, before = {};
@@ -1001,10 +1000,12 @@ async function suite({ open: openSession, check: record }, reset) {
               `${tag}: both embedded stacks identify their own Back container`);
             s.session = chosen;
             if (columns) {
-              const clearance = async () => {
-                const layout = await s.layout(), allocation = panes[chosen];
-                check(onGrid(layout.viewport.w, allocation.w) && onGrid(layout.viewport.h, allocation.h),
-                  `${tag}: editing and Back keep the column allocation (${layout.viewport.w}×${layout.viewport.h}, expected ${allocation.w}×${allocation.h})`);
+              // The session keeps its column's size, and the editor's route its column, which a held swipe moves it across
+              const clearance = async (moving = false) => {
+                const layout = await s.layout(), route = (await s.layout('route-edit')).node.space.window, allocation = panes[chosen];
+                check(onGrid(layout.viewport.w, allocation.w) && onGrid(layout.viewport.h, allocation.h)
+                  && onGrid(route.w, allocation.w) && (moving || onGrid(route.x, allocation.x)),
+                `${tag}: editing and Back keep the column allocation (viewport ${layout.viewport.w}×${layout.viewport.h}, route at x ${route.x} ${route.w} wide, expected ${JSON.stringify(allocation)})`);
                 return editorClearance(layout);
               };
               await s.tap('long-open-edit'); await settle(s);
@@ -1015,7 +1016,7 @@ async function suite({ open: openSession, check: record }, reset) {
               const popped = await s.state();
               check(popped.navigation.url === '/long' && popped.slots.query === buttonDraft
                 && JSON.stringify(popped.navigation.stack) === JSON.stringify(before[chosen].state.navigation.stack)
-                && near(await offset(), before[chosen].offset, 0.5), `${tag}: native Back leaves the editor in its own column`);
+                && near(await offset(), before[chosen].offset, 0.5), `${tag}: native Back pops the editor within its own column and restores the destination`);
               for (const [kind, startX] of [['content', 0.2], ['edge', 0.02]]) {
                 await s.tap('long-open-edit'); await settle(s);
                 const draft = `Column ${tag} ${kind}`;
@@ -1027,7 +1028,7 @@ async function suite({ open: openSession, check: record }, reset) {
                 if (softKeyboard) { check((await keyboard(s, true)).reached, `${tag}-${kind}: the column editor raises the keyboard`); }
                 for (const cancel of [true, false]) {
                   await swipeEditorBack(s, startX, cancel, async () => {
-                    const held = await s.state(), sidesNow = await clearance();
+                    const held = await s.state(), sidesNow = await clearance(true);
                     check(held.navigation.transition.interactive && held.navigation.transition.phase === 'in-progress'
                       && held.navigation.url === '/edit' && held.navigation.nativeBack === start.navigation.nativeBack,
                     `${tag}-${kind}: UIKit holds Back in this column's stack`);
@@ -1082,14 +1083,18 @@ async function suite({ open: openSession, check: record }, reset) {
             panes[label] = layout.node.space.window;
             screen = layout.screen;
           }
-          const { a, b } = panes;
-          check(a.w > 0 && a.h > screen.h / 2 && b.w > 0 && b.h > 0 && a.x >= a.w - 0.5
-            && a.x + a.w <= b.x + 0.5 && b.x + b.w <= screen.w + 0.5
-            && near(a.y, b.y) && near(a.h, b.h),
-          `columns: the host allocates distinct middle and trailing panes: ${JSON.stringify(panes)}`);
+          const { a, b } = panes, middle = screen.w / 2;
+          console.log(`  column-back: a ${a.x},${a.y} ${a.w}×${a.h} · b ${b.x},${b.y} ${b.w}×${b.h} · stacked ${usable?.x},${usable?.y} ${usable?.w}×${usable?.h} · screen ${screen.w}×${screen.h}`);
+          // Three equal columns across the stacked panes' width: the native label, then a across the display's middle, then b to the end
+          check(usable && onGrid(a.w, b.w) && near(a.y, b.y) && near(a.h, b.h) && a.h > screen.h / 2 && onGrid(a.x - usable.x, b.x - a.x)
+            && a.x < middle && a.x + a.w > middle && onGrid(b.x + b.w, usable.x + usable.w),
+          `columns: the host lays out equal columns, a across the display's middle and b to the end of the stacked panes' width: ${JSON.stringify({ a, b, usable })}`);
           await backInEachSession('column-back');
         } else {
-          await eachPose(s, 'embedded-back', (_, pose) => backInEachSession(pose));
+          await eachPose(s, 'embedded-back', async (_, pose, deg) => {
+            if (deg === 180) { s.session = 'a'; usable = (await s.layout('app')).node.space.window; }
+            await backInEachSession(pose);
+          });
         }
       } catch (e) { check(false, `${arrangement}-back: ${e.message}`); } finally { await s.close(); }
     }

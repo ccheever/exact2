@@ -95,8 +95,9 @@ final class PaneController: UIViewController {
     }
 }
 
-/// A native header and two independently navigable sessions. The column
-/// arrangement puts a native label before them, leaving session a in the middle.
+/// The root screen holds a native header and two independently navigable
+/// sessions. The column arrangement puts a native label before them, leaving
+/// session a in the middle.
 final class RootController: UIViewController {
     var panes: [String: PaneController] = [:]
     var navs: [String: UINavigationController] = [:]
