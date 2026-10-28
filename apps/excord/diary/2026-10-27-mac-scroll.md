@@ -39,7 +39,13 @@ task: the Mac transcript dropping frames as it scrolls, on a real account
   layouts, 1,755 moves of a row's root). `moved` counts every node whose absolute frame
   changed, so a row shifting in the list counts all its nodes, while the Apple host emits
   only the parent-relative frames that changed (`host/apple/src/layout.rs`): it is not the
-  cost. What his rows cost that the fixture's do not is still to be sampled on his machine.
+  cost.
+- His rows are not heavier than the fixture's: the trace built the same sites, one plain
+  text run a row and few pictures. Each frame that built rows waited on the owner thread
+  about 14 times (`Owner.sync`, the trace's runtime segments): macOS still builds a moving
+  list's rows on main, which iOS stopped doing (LLP 1072 stage 5). Turning that on for
+  macOS took his A/B to no late frame in 600, but the ordering it needs kept failing review
+  (QUEUE, `parked/mac-async-fills`), so the jank stays until it lands.
 
 ### Lean in
 
