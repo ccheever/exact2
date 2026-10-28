@@ -33,10 +33,9 @@ mod tests;
 mod text_host;
 pub use composition::Window;
 
-/// Device creation can overlap font discovery and layout. No immediate-context
-/// call runs concurrently: the worker hands it to the paint thread on join.
-/// @ref LLP 1149 §7; Microsoft's Direct3D 11 multithreading introduction.
-pub struct Preparing(std::thread::JoinHandle<Result<Prepared>>);
+/// The worker transfers the immediate context once, before the paint thread
+/// uses it. A window polls; headless callers may wait. @ref LLP 1149 D6.3.
+pub struct Preparing(std::sync::mpsc::Receiver<Result<Prepared>>);
 
 struct Prepared {
     device: ID3D11Device,
@@ -47,18 +46,39 @@ struct Prepared {
 
 impl Preparing {
     pub fn start(force_warp: bool) -> Result<Self> {
+        Self::with_wake(force_warp, || {})
+    }
+
+    pub fn with_wake(force_warp: bool, wake: impl FnOnce() + Send + 'static) -> Result<Self> {
+        let (send, receive) = std::sync::mpsc::channel();
         std::thread::Builder::new()
             .name("ink-device".into())
-            .spawn(move || Prepared::open(force_warp))
-            .map(Self)
-            .map_err(|e| Error::Device(e.to_string()))
+            .spawn(move || {
+                let result = std::panic::catch_unwind(|| Prepared::open(force_warp))
+                    .unwrap_or_else(|_| Err(Error::Device("device worker panicked".into())));
+                let _ = send.send(result);
+                wake();
+            })
+            .map_err(|e| Error::Device(e.to_string()))?;
+        Ok(Self(receive))
+    }
+
+    pub fn try_finish(&mut self) -> Result<Option<D3d11>> {
+        use std::sync::mpsc::TryRecvError;
+        match self.0.try_recv() {
+            Ok(prepared) => D3d11::from_prepared(prepared?).map(Some),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => {
+                Err(Error::Device("device worker disconnected".into()))
+            }
+        }
     }
 
     pub fn finish(self) -> Result<D3d11> {
         let prepared = self
             .0
-            .join()
-            .map_err(|_| Error::Device("device worker panicked".into()))??;
+            .recv()
+            .map_err(|_| Error::Device("device worker disconnected".into()))??;
         D3d11::from_prepared(prepared)
     }
 }

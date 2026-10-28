@@ -190,7 +190,7 @@ impl<D: DataSource> Presenter<D> {
 /// not permit returning the HWND to GDI. @ref LLP 1149 D5.4.
 pub(crate) struct DirectWindow {
     window: exact_ink::device::d3d11::Window,
-    recovering: bool,
+    pub(crate) recovering: bool,
     retry: exact_ink::device::Retry,
     fallback: Option<(
         exact_ink::device::d3d11::D3d11,

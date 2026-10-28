@@ -143,7 +143,7 @@ impl PainterBoot {
         Ok(ink_backend(ink))
     }
 
-    pub(super) fn selected(choice: PainterChoice) -> Self {
+    pub(crate) fn selected(choice: PainterChoice) -> Self {
         Self {
             choice,
             open: open_backend,
@@ -242,6 +242,55 @@ fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// The carrier must release its GDI surface before this one-way handoff.
+    /// The first composition frame copies the CPU picture. @ref LLP 1149 S2.2.
+    #[cfg(windows)]
+    pub fn migrate_painter_window(
+        &mut self,
+        mut device: exact_ink::device::d3d11::D3d11,
+        window: exact_ink::device::d3d11::Window,
+        pixels: &tiny_skia::Pixmap,
+    ) -> Result<(), String> {
+        use exact_ink::device::Device;
+        let info = device.info();
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            eprintln!(
+                "exact-ink: startup device {:.3} ms, pipelines {:.3} ms, asynchronous",
+                info.device_ms, info.shaders_ms
+            );
+        }
+        let mut direct = crate::surfaces::window::DirectWindow::new(window.clone());
+        let result = (|| {
+            let size = [pixels.width(), pixels.height()];
+            let target = device.create_target(size[0], size[1])?;
+            device.upload_texture(target, [0, 0], size, pixels.data())?;
+            device.attach_window(window, size)?;
+            device.present(target)?;
+            device.retire_texture(target)?;
+            Ok::<_, exact_ink::device::Error>(())
+        })();
+        match result {
+            Ok(()) => {
+                let ink = crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(
+                    Box::new(device),
+                ));
+                let (backend, info) = ink_backend(ink);
+                self.brush.replace_backend(backend);
+                self.painter = info;
+            }
+            Err(ref error) => {
+                // Attachment may already have made GDI unusable. Recovery stays
+                // on composition even when its first present fails.
+                direct.recovering = true;
+                self.last_frame_succeeded = false;
+                self.host.log(format!("ink migration: {error}"));
+            }
+        }
+        self.surfaces.direct_window = Some(direct);
+        self.repaint();
+        result.map_err(|e| e.to_string())
+    }
+
     /// Boot the app under a viewport (points) at a device scale, with its
     /// asset root. The boot error, if any, is reported beside the presenter
     /// (the tree is what booted).
