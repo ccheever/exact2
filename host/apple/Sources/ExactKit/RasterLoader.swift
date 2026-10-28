@@ -368,6 +368,8 @@ private final class RasterBackend: @unchecked Sendable {
     }
     func setPaused(_ paused: Bool) {
         lock.lock(); self.paused = paused
+        // Asked again on resume as its views are then (`urge`).
+        if paused { sources.values.compactMap(\.value).forEach { $0.urgent = false } }
         let cancellations = paused ? sources.values.compactMap(\.value).filter(\.inspecting).map(\.cancellation) : []
         lock.unlock(); cancellations.forEach { $0.cancel() }
     }
@@ -757,6 +759,9 @@ final class RasterLoader {
         if !interest.delivered, Self.fillsScreen(view) { backend.urge(interest.source) }
         // A held picture laid out on or off screen: a pass sees it (`hold`).
         if interest.held || interest.retrying { backend.wake(); return }
+        // A first download laid out large enough to fill the screen: a pass
+        // watches it off screen, or hurries it on (`watching`).
+        if !interest.delivered, !interest.watching, interest.offeredPixel == 0, Self.fillsScreen(view, anywhere: true) { backend.wake() }
         // Laid out on screen, a parked view asks for its picture.
         if interest.parked { if Self.mayShow(view) { backend.wake() }; return }
         guard interest.offeredPixel > 0 else { return }

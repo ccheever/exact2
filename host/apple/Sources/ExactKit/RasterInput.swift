@@ -341,18 +341,22 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        // An answer after the whole load's bound cancelled it keeps that failure.
-        guard failure == nil else { completionHandler(.cancel); return }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             // Discord's CDN, and the person's own account: a 429's or 503's
             // wait is kept, an unreadable one an hour (`RasterRetry`).
             let after = [429, 503].contains(code) ? (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After") : nil
-            failure = RasterHTTPStatus(code: code, retryAfter: after.map {
+            let status = RasterHTTPStatus(code: code, retryAfter: after.map {
                 DispatchTime.now() + (RasterRetry.retryAfter($0, now: Date()) ?? RasterRetry.unreadable)
             })
+            // One after the whole load's bound cancelled it keeps that failure,
+            // though its server's wait is kept for the URL still.
+            if failure != nil, let at = status.retryAfter { RasterDownloads.shared.cool(url, until: at, status) }
+            failure = failure ?? status
             completionHandler(.cancel); return
         }
+        // An answer after the whole load's bound cancelled it keeps that failure.
+        guard failure == nil else { completionHandler(.cancel); return }
         guard response.expectedContentLength <= RasterMetadata.encodedLimit else {
             failure = RasterFailure.encodedLimit; completionHandler(.cancel); return
         }

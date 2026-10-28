@@ -422,8 +422,10 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
     window's width and half its height) downloads first (the task's high
     priority, a hint the per-host scheduling honours without starving the
     others), and its whole load has 120 s from its ask instead of 30 s. One
-    under way when its view grows to fill the screen moves to the longer
-    bound too. Each response and read keeps 15 s.
+    under way when its view grows to fill the screen, or scrolls on to,
+    moves to the longer bound too (Linux moves one still waiting for a
+    thread; one a thread has taken keeps its bound, and its retry asks as
+    urgent). Each response and read keeps 15 s.
   - **The `error` waits for the retries.** A failure that may still be asked
     again on screen sends no `error`: it goes out once that showing's
     retries are spent, or its server's wait passes 5 minutes. A failure

@@ -179,6 +179,27 @@ final class RasterRetryTests: XCTestCase {
         XCTAssertEqual(server.times.count, 1, "within the longer bound, at its first ask")
     }
 
+    /// The same, when its box grows to fill the screen while it downloads off screen.
+    func testAPictureThatGrowsOffScreenThenScrollsOnIsHurried() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root) }
+        RasterRetry.wholeScale = 0.01
+        let server = try ScriptedRasterHTTP(delay: 0.7) { _, _ in .picture }
+        defer { server.stop() }
+        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 2000))
+        scroller.documentView = document; scroller.contentView.postsBoundsChangedNotifications = true
+        presenter.viewport.addSubview(scroller)
+        node.removeFromSuperview(); document.addSubview(node)
+        node.frame = NSRect(x: 0, y: 1500, width: 20, height: 20); node.loadGeneration = 1
+        loader.load(node, source: "\(server.origin)/grows.png", resolver: resolver)
+        settle { server.times.count == 1 }
+        node.frame = NSRect(x: 0, y: 1500, width: 320, height: 200); loader.resized(node); pump(0.02)
+        scroller.contentView.scroll(to: NSPoint(x: 0, y: 1500)); scroller.reflectScrolledClipView(scroller.contentView)
+        settle { node.raster != nil }
+        XCTAssertEqual(server.times.count, 1, "within the longer bound, at its first ask")
+    }
+
     func testARetryAfterIsReadAsSecondsOrADate() {
         let now = Date(timeIntervalSince1970: 784_111_777) // Sun, 06 Nov 1994 08:49:37 GMT
         XCTAssertEqual(RasterRetry.retryAfter(" 7 ", now: now), 7)
