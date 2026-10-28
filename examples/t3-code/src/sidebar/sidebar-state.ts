@@ -1,7 +1,7 @@
 // Sidebar state that is not the server's: persisted UI preferences (the
 // reference keeps them in localStorage and its persisted UI store) and the
 // window's transient sidebar session (rename, selection, paging, dialogs,
-// undo), held beside the client the way sidebar-presentation keeps searches.
+// undo), held beside the client the way sidebar-search keeps searches.
 import { obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { RouteReveal } from './route-reveal';

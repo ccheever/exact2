@@ -38,7 +38,7 @@ function searchState(client: T3Client) {
 /** useConnectedEnvironmentIds: the focused environment and every background one the fleet keeps synchronized. */
 function searchedEnvironments(client: T3Client, native: Native, source: EnvironmentFleet) {
   const environments: { environmentId: string; request: (method: string, payload: Obj) => Promise<unknown> }[] = [];
-  if (client.ready !== false) environments.push({ environmentId: client.environmentId, request: (method, payload) => client.restAccess(native).request(method, payload) });
+  if (client.ready) environments.push({ environmentId: client.environmentId, request: (method, payload) => client.restAccess(native).request(method, payload) });
   for (const entry of source.entries.values()) {
     const access = envAccess(client, native, entry.environmentId, source);
     if (access) environments.push({ environmentId: access.environmentId, request: access.request });
