@@ -38,7 +38,7 @@ style NdOverlay
   position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box"
   background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)"
 style NdPopup
-  width="100%" max-width="28rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #ffffff14)"
+  width="100%" max-width="28rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #ffffff14)"
   background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" position="relative"
 style NdButton
   display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem"
@@ -359,10 +359,10 @@ component PairingRevealDialog
           text reveal.title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
           text reveal.description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
         column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
-          textarea id="pairing-reveal-value" value=reveal.value readonly=true rows=reveal.rows key=first autofocus=true aria-label=reveal.title testId="pairing-reveal-value" width="100%" padding="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" data-editable="yes"
+          textarea id="pairing-reveal-value" value=reveal.value readonly=true rows=reveal.rows key=first autofocus=true aria-label=reveal.title testId="pairing-reveal-value" width="100%" padding="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" data-editable="yes"
           if reveal.qr
             row justify-content="center" padding="1rem" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="light-dark(#f4f4f54d, #ffffff08)"
-              box width="8.25rem" height="8.25rem" position="relative" background-color="#ffffff" role="img" aria-label="Pairing link — scan to open on another device" testId="pairing-reveal-qr"
+              box width="8.25rem" height="8.25rem" position="relative" background-color="#ffffff" role="img" aria-label="Pairing link. Scan to open on another device" testId="pairing-reveal-qr"
                 for cell in reveal.cells key=`${cell.x}:${cell.y}`
                   box position="absolute" left=cell.x top=cell.y width=cell.w height=cell.h background-color="#000000"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"

@@ -4,6 +4,7 @@
 // undo), held beside the client the way sidebar-presentation keeps searches.
 import { obj, str } from '../client/domain';
 import type { T3Client } from '../client/client';
+import type { RouteReveal } from './route-reveal';
 
 export const SETTLED_TAIL_INITIAL_COUNT = 10;
 export const SETTLED_TAIL_PAGE_COUNT = 25;
@@ -60,6 +61,8 @@ export interface SidebarSession {
   calendarMonth: string; calendarFocus: string; calendarFocusSeq: number;
   /** 1826fb55cc: bumped when a row-action sweep is released, which ends the view's sweep. */
   sweepEpoch: number;
+  /** The route the sidebar last saw and the reveal it owes (route-reveal.ts), kept across the sidebar's remounts. */
+  reveal: RouteReveal;
 }
 const sessions = new WeakMap<T3Client, SidebarSession>();
 export function sidebarSession(client: T3Client): SidebarSession {
@@ -68,7 +71,7 @@ export function sidebarSession(client: T3Client): SidebarSession {
     session = { settledVisible: SETTLED_TAIL_INITIAL_COUNT, settledScope: '', searchIndex: 0, searchQuery: '', searchPending: false,
       renameId: '', renameTitle: '', selection: [], anchor: '', dialog: { kind: '', threadIds: [], title: '' },
       undo: null, regenerating: new Set(), busy: new Set(), jumpHints: false, dismissedPill: '', scopeOpen: false, scopeQuery: '', dialogMode: 'date', dialogDate: '', dialogTime: '', dialogAmount: '2', dialogUnit: 'hours', dialogError: '',
-      calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0 };
+      calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0, reveal: { observedKey: '', pendingKey: '' } };
     sessions.set(client, session);
   }
   return session;
@@ -137,6 +140,11 @@ export function adoptCommandTime(client: T3Client, at: number): void {
  * (snoozePresets then returns nothing), so no 1970 value is written (persisted-instants.test.ts).
  */
 export function wall(client: T3Client): number { return clock() + (offsets.get(client) ?? 0); }
+/** threadUndoNoticeSummary: "Settled 2 threads", "Discarded 1 draft". */
+export function undoSummary(undo: UndoEntry): string {
+  const count = undo.threadIds.length;
+  return `${undo.action} ${count} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${count === 1 ? '' : 's'}`;
+}
 /** showThreadUndoNotice: the notice lives five seconds. */
 export function undoLive(client: T3Client): boolean {
   const undo = sidebarSession(client).undo;

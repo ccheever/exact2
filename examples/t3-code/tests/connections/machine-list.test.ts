@@ -27,12 +27,12 @@ test('an environment whose server this client does not support is left out of ba
   expect(balanceSources(rows).map(({ source }) => source.key)).toEqual(['b']);
 });
 
-test('this machine and B: Load balancing and GitHub sharing show This machine first, then B, as the reference', () => {
+test('this machine and B: Load balancing and Pull request sharing show This machine first, then B, as the reference', () => {
   primaryAt(A, 'env-a', 'Mac A');
   const saved = [{ origin: B, environmentId: 'env-b', label: 'Mac B', enabled: true }];
   const page = connectionsProjection(focusB(), saved, new Map([[environmentKey(B, 'env-b'), live(B, 'env-b')], [environmentKey(A, 'env-a'), live(A, 'env-a', true)]]));
   expect(page.machines.map(machine => [machine.label, machine.subtitle, machine.first])).toEqual([['Mac A', 'This machine', true], ['Mac B', 'http://127.0.0.1:14994/', false]]);
-  expect(page).toMatchObject({ loadBalancing: false, loadSummary: 'Off', githubSummary: 'Off' });
+  expect(page).toMatchObject({ loadBalancing: false, loadSummary: 'Off', routingSummary: 'Off' });
   // The primary has no row under Environments.
   expect(page.environments.map(row => row.label)).toEqual(['Mac B']);
   // Switched off: B alone has nothing to balance against.

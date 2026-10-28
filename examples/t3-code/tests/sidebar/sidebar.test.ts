@@ -15,6 +15,7 @@ import { recordTerminalFocus } from '../../src/terminal/terminal-focus';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from '../../src/sidebar/sidebar-commands';
 import { localDate, localTime, resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from '../../src/sidebar/sidebar-state';
 import { titleMenu } from '../../src/shell/shell';
+import { announcements } from '../../src/shell/announce';
 import { resolveSidebarRowThreadId } from '../../src/sidebar/sidebar-lineage';
 import { contractComponent } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
@@ -391,6 +392,32 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     expect(strip(dispatched).map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.settle:a', 'thread.settle:c', 'thread.unsettle:c', 'thread.unsettle:a']);
   });
 
+  test('the undo notice sits on the first bottom shelf header; while searching or with no rows it sits in the footer', async () => {
+    const { client } = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) }), shell('z', { snoozedUntil: iso(3_600_000) })], { threadId: 'a' });
+    await sidebarCommand(client, native, files, 'settle', 'a', '');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ undoText: 'Settled 1 thread,', undoHost: 'snoozed' });
+    (client as unknown as { query: string }).query = 'Thread';
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar.undoHost).toBe('');
+    // With nothing snoozed, Settled is the first bottom shelf.
+    const plain = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) })], { threadId: 'a' });
+    await sidebarCommand(plain.client, native, files, 'settle', 'a', '');
+    expect(sidebarSnapshot(plain.client, NOW, helpers).sidebar.undoHost).toBe('settled');
+  });
+
+  test('the undo notice is announced as "<summary>, ⌘Z to undo" when it changes, and an unspoken one is dropped when it goes', async () => {
+    const { client } = fake([shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) }), shell('c', { createdAt: iso(-3) })], { threadId: 'a' });
+    await sidebarCommand(client, native, files, 'settle', 'a', '');
+    const label = sidebarSnapshot(client, NOW, helpers).sidebar.undoLabel;
+    (client as unknown as { ready: boolean }).ready = false; // no open thread for the announcer to follow
+    announcements(client, 1_000);
+    expect(announcements(client, 1_500).first).toBe(`Settled 1 thread, ${label}`);
+    // A merged notice is a new summary, said again; undoing it drops what has not been said yet.
+    await sidebarCommand(client, native, files, 'settle', 'c', '');
+    await sidebarCommand(client, native, files, 'undo', '', '');
+    announcements(client, 2_000);
+    expect(announcements(client, 2_500)).toMatchObject({ first: `Settled 1 thread, ${label}`, second: '' });
+  });
+
   test('rename trims, warns on empty, skips unchanged; failures and successes surface as toasts', async () => {
     const { client, dispatched } = fake([shell('a', { title: 'Old' })]);
     const session = sidebarSession(client);
@@ -512,8 +539,20 @@ describe('sidebar navigation, drafts and the hover card', () => {
     Object.assign(client.config, { environment: { label: 'Studio Mac', platform: { machine: 'laptop' }, capabilities: ALL_CAPS },
       providers: [{ instanceId: 'codex', driver: 'codex', displayName: 'Codex', models: [{ slug: 'm', name: 'GPT-6-Astra' }] }, { instanceId: 'claude', driver: 'claudeAgent', displayName: 'Claude' }] });
     const row = sidebarSnapshot(client, NOW, { ...helpers, providerBadge: () => ({ providerBadge: 'CO', providerBadgeColor: '' }) }).threads[0]!;
-    expect(row).toMatchObject({ hoverEnvironment: 'Studio Mac', hoverMachine: 'laptop', hoverModel: 'GPT-6-Astra · Codex',
+    // The model is the name it is said by: Codex's own GPT family drops its prefix.
+    expect(row).toMatchObject({ hoverEnvironment: 'Studio Mac', hoverMachine: 'laptop', hoverModel: '6 Astra · Codex',
       hoverHandoff: 'Handed off from Claude', hoverError: 'Usage limit reached', hoverErrorWarning: true });
+  });
+
+  test('a Claude thread\'s hover card says the model\'s spoken name; a server short name wins; an unknown slug stays', () => {
+    const claude = (models: Obj[]) => [{ instanceId: 'claude', driver: 'claudeAgent', displayName: 'Claude', models }];
+    const { client } = fake([shell('a', { modelSelection: { instanceId: 'claude', model: 'claude-opus-5-5' } })]);
+    Object.assign(client.config, { providers: claude([{ slug: 'claude-opus-5-5', name: 'Claude Opus 5.5' }]) });
+    expect(sidebarSnapshot(client, NOW, helpers).threads[0]!.hoverModel).toBe('Opus 5.5');
+    Object.assign(client.config, { providers: claude([{ slug: 'claude-opus-5-5', name: 'Claude Opus 5.5', shortName: 'Opus' }]) });
+    expect(sidebarSnapshot(client, NOW, helpers).threads[0]!.hoverModel).toBe('Opus');
+    Object.assign(client.config, { providers: claude([]) });
+    expect(sidebarSnapshot(client, NOW, helpers).threads[0]!.hoverModel).toBe('claude-opus-5-5');
   });
 
   test('custom snooze keeps the dialog open with its error, then snoozes every selected thread', async () => {
