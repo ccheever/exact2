@@ -1,0 +1,802 @@
+# LLP 1149: The renderer — the painter on the GPU, on every platform
+
+**Type:** RFC (a decision brief: each question carries a proposed answer; §5 lists the ones that are Charlie's)
+**Status:** Draft r3, 2026-10-28. Charlie asked for this document and its research record (LLP 1148) on 2026-10-28, with the direction: "I'm up for doing a lot of stuff ourselves and repeating ourselves per platform if that gives us better performance and efficiency", and "we want this renderer to work on every platform"; the code is Astra's to write (Charlie, the same day: "use Astra xhigh to write code for this"). r1 went to three families blind: Muse Wonder Full 1.0 (xhigh) NOT READY, Grok 4.7 (xhigh) READY WITH CHANGES, GPT-6 Astra (xhigh) NOT READY (`llp/reviews/rfc-2026-10-28-1149-r1.{muse,grok,astra}.md`). r2 folded Muse; r3 folds Grok and Astra (§R). The three agree on the direction and on one change r1 did not propose: the performance case for a device layer per platform is unmeasured, so S0 builds one core and decides the device layer per platform by measurement (D5, D15). Sent to Charlie with §5.
+**Systems:** a new crate, `host/ink` (`exact-ink`): the painter's GPU backend, its device trait, a wgpu device layer and direct ones where measured; `host/linux` (the paint walk and `paint/backend.rs`, unchanged in contract; `gpu.rs` gains kept rows as the control arm, then loses its platform branches as each passes; `raster.rs`, kept as the oracle and fallback; `text/catalog.rs`, the glyph rasterizers); `host/windows` (the window presents through a composition swap chain); a painted Apple carrier (new, S1, if S0 earns it); the build (`host/apple/build.mjs`, `host/windows/build.mjs`: shaders compiled at build); `scripts/app.schema.json` (`host.macos.presenter`, `host.ios.presenter`); LLP 1009 D1 (amended narrowly); `rules/DEFERRED.md` §Runtime (a replacement exception, §8)
+**Author:** Claude (Fable 5.1) for Charlie Cheever
+**Date:** 2026-10-28; r2 and r3 the same day
+**Implementer:** Astra (codex `gpt-6-astra`, xhigh) lanes, orchestrated by Claude. S0 from 2026-10-28 in `exact2-wt-1126-gate` on `lane/ink`, in six chunks (§3), with its Windows spike on the NucBox; each later stage dated when S0's gate (D15) says it is earned
+**Related:** LLP 1148 (the research this acts on; F1 to F10 are cited by number); LLP 1149.000 (the renderer on the web); LLP 1015 (the painter: §2 the walk, §3 text, §6 and §7 the measured costs, §8 the parity check); LLP 1015.000 and 1015.001 (the Windows window, the game DLL's direct presentation and its measured fast path); LLP 1056 §8.5 (vello's Canvas 2D module, which stays; its build-compiled kernels); LLP 1009 (the GPU module: D1 amended here, D5 the shader rule, §3 the module's web glue); LLP 1053.000 D2 (backdrop blur as three box passes over encoded sRGB); LLP 1115 (the principle) and 1115.004 (Windows: D2 the presenter stays Exact's, D4.3 the composition swap chain over Mica, D6.3 text, D7 the RichEdit, D13 the oracle); LLP 1076 §3.3 and §3.4 (Android's two hosts); LLP 1085.000 (text: Parley, fontique, swash); LLP 1043.000 (text damage); LLP 1030 D2 (the manifest); `rules/RULES.md` (the boot path compiles nothing; cold start 100 ms p50); `gpu/README.md` (the GPU module's ABI: no device or texture crosses it); `host/android/README.md` (the Android shell: arm64, Android 10 permitted, 12 default)
+
+## R. What the reviews changed
+
+### r3, from Grok's and Astra's reviews
+
+| Change | Raised as | Where |
+|---|---|---|
+| **One core, the device layer per platform decided by measurement**: a wgpu device layer is the portable one and the control; direct DirectX 11 is built regardless (wgpu has no DX11, the composition swap chain and Direct2D need it); direct Metal and Vulkan are kept only where S0 and S3 measure a gain beyond noise on the same core. LLP 1009 D1 is amended narrowly: the host's renderer may own a device layer where measured | Astra Q2 and §7 (91), Grok Q1 and §7, Muse §7 | D5, D15, §3 |
+| **Android keeps Vulkan** (through wgpu's presenter path, `gpu/present.rs`'s one-frame-deep thread); OpenGL ES only for a device without Vulkan, which Android 10's 64-bit requirement excludes | Grok Q4 (78), Astra Q4 (76) against Muse (70) | D5, S4 |
+| **Acceptance thresholds predeclared**: what earns the replacement, and what stops it after S0 | Astra Q1 (99), Grok §7 | D15, §5 Q21 |
+| The control arm is built: kept rows in the vello backend as retained scene fragments (`Scene::append` with a transform), on the same readback path, in S0 | all three §7 | §3 C4, D15 |
+| Android has a platform rasterizer: `Canvas.drawGlyphs` (API 31+, `host/android/canvas/.../Player.kt`), admitted by the same audit; every platform rasterizer opens the font from the shaper's bytes; DirectWrite grayscale is `IDWriteFactory2::CreateGlyphRunAnalysis` | Grok Q6, E7; Astra Q6, E11 | D3.2, D3.3 |
+| **The parity gate is split**: the tight band for geometry, a declared text band plus the advance audit for a platform rasterizer; an audit that fails lands the stage on swash with the tell open | Grok E8, missing Q2; Astra E11 | D9 |
+| `clip-path` and SVG clips are a coverage clip carried in the instance (both painters implement them today; a layer per clip would be a new cost); the instance grows to 192 bytes | Grok Q7, E5 | D1.1, D2.4 |
+| Coverage draws with a brush (solid, gradient, pattern), not only a tint: SVG paint has gradients and patterns | Astra E7 | D1.2, D2.3 |
+| Kept rows pin the atlas entries they reference; eviction skips pinned entries; group boundaries (layers, opacity, masks) are recorded as markers and reopened on replay; device resources retire after their last submitted frame | Astra Q8, E8 | D4, D8 |
+| The layer pool has no hard ceiling of two: it grows to the measured high-water mark, a compose target is budgeted (a swap-chain image cannot be sampled), and a frame that cannot allocate falls back to the CPU painter | Grok missing Q4; Astra E8 | D2.5, D8 |
+| The boot claim is the defensible one: no application-side shader compilation on Metal and DirectX 11; what every driver still does at pipeline creation is measured and a replacement DEFERRED exception is proposed with the numbers, not a withdrawal | Astra E4, E5; Grok E16 | D6.3, §8, §5 Q14 |
+| `fxc` is not on the Mac's cross-check: the build embeds DXBC where `fxc` exists and a stub that refuses at runtime where it does not | Grok missing Q8, E10 | D6.1 |
+| Windows is not presented with damage on the frame path (only the caret's blink); the game DLL presents its full-window canvas itself and the numbers are its fast path | Grok E1, Astra E1 | §1 |
+| D10 names the contract an imported image needs (identity, format and colour space, adapter identity, completion, ownership, release) and the interface change it implies; Microsoft does not support shared resources across D3D API versions on different adapters | Astra E9, missing Q4 | D10 |
+| Device loss is specified apart from surface recreation; the CPU fallback presents through the same swap chain (DXGI forbids returning to GDI on an HWND after flip-model presentation); retry with backoff | Astra missing Q7 | D5 |
+| The supported matrix is named: OS minima, the GPU floor and why, remote sessions, software-only, which Linux window systems | Astra missing Q3; Grok E10 | D5 |
+| The painted manifest key is refused by the build until the carrier exposes the accessibility tree; S1's carrier is a benchmark carrier until the shipping gate; what "the same everywhere" promises is said | Grok Q9, missing Q3; Astra Q9, missing Q2, Q8 | D12 |
+| `gpu.rs` loses platform branches as each passes, the shared file when its last consumer goes (S3 cannot delete what S4 uses); tvOS needs its focusable items exposed; cold start is measured by the platform's timers, latency by presented-frame timestamps | Astra E15 | D13, §3, §4 |
+| Colour and blending are a contract, not API defaults | Astra missing Q6; Grok missing Q7 | D2.7 |
+| The portable WGSL subset is named (ES 3.00 precision, no dynamic storage indexing); overrides are allowed for correctness as well as speed | Astra Q5; Grok Q5 | D6 |
+| LLP 1091.001 is not the Windows build rule; `host/windows/build.mjs` is | Grok E10 | D6.1 |
+| Separate commitments: the renderer, the Apple carrier, the web host and the compilation exception are each Charlie's own waiver | Astra missing Q11 | §5 Q24 |
+
+### r2, from Muse's review
+
+| Change | Raised as | Where |
+|---|---|---|
+| The Backend list in §1 is the trait's, `pointer` not "the caret"; the Windows numbers are LLP 1015.001's fast path and are named as game composition; LLP 1015's text is §3 and its parity check §8 | E1, E4, E5 | §1 |
+| Every Backend method is mapped to an instance kind or a coverage mask: superellipse corners, arbitrary border regions, dashed and dotted borders go through the path atlas; image tint and island blend modes are instance flags; the backdrop ops include saturate | E2 | D1.2, D2.3, D2.5 |
+| The instance layout is published, with its bytes; a replayed row is re-clipped under the clip in force | Q8 | D1.1, D4 |
+| Windows presents through a DirectComposition swap chain, premultiplied (LLP 1115.004 D4.3); the whole frame is redrawn and presented with `FLIP_DISCARD`; dirty rectangles are a later measurement; the D3D11 device is created with BGRA support for Direct2D | E3, E7, Q3 | D7, D5 |
+| The GPU module's ABI stands: no device or texture crosses it | E9 | D10 |
+| Six API implementations were counted; r3 reduces the committed count (above) | E10 | D5 |
+| swash first on every platform; a platform rasterizer is admitted by its audit; colour glyphs, synthetic bold and italic and font smoothing are named | Q6 | D3 |
+| S0 gains a Windows present spike and a shader translation spike | Q5, Q10 | §3 |
+| The parity gate names the pinned suites and the per-method inventory before deletion | Q11 | D9 |
+| Colour, the fallback chain, `unsafe`, minima, screenshots from a presenting backend, resize and DPI, binaries in the bundle, accessibility as S1's gate, the boot-graph count, display-link pacing | M1 to M10 | D5, D7, D9, D11, D12, D14 |
+| The manifest key is `host.macos.presenter` and `host.ios.presenter` | Q9 | D12 |
+
+## 0. Summary
+
+Exact's painted presenter draws an app the same way on every platform it paints on: the
+kernel's tree is the display list, one walk emits it to a backend, and the backend draws
+(LLP 1015 §2). What draws it on the GPU today is vello, a general compute-based vector
+renderer, read back to the CPU on Linux and the Mac and presented from a swapchain only on
+Android. Its measured costs (LLP 1148 F5) are the five metrics a performance-first customer
+asks about; the panel is right that three of them (the readback, runtime shader compilation,
+no kept rows) are the integration's, not the algorithm's, and S0 removes them from vello as
+the control arm, so what remains is measured, not assumed.
+
+This RFC proposes a renderer written for a user interface, **`exact-ink`**, and the
+measurement that decides whether it replaces vello:
+
+1. **What it draws** is what the painter's `Backend` trait already emits (D1): rounded
+   quads with per-corner radii, borders, analytic shadows, gradients, images, glyphs from an
+   atlas, coverage masks with a brush for everything that is a path, clips (two rounded and
+   one coverage clip in the instance), opacity groups, masks, backdrop filters, blend modes,
+   kept rows and animated layers. One instanced pipeline and a blur, no compute shader (D2).
+   Every method of the trait maps to an instance or a coverage mask (D1.2).
+2. **How it keeps work from happening** is the Backend contract's retained parts, which no
+   GPU backend implements today: kept rows replayed as instance lists that pin what they
+   reference (D4), animated layers kept apart from their rows, a frame drawn only when
+   something changed (D7).
+3. **What it runs on** is one core over a device trait (D5). A wgpu device layer runs it on
+   every platform and is the control. DirectX 11 is written directly, because wgpu has no
+   DX11 and Windows needs the composition swap chain and Direct2D on the renderer's device.
+   Direct Metal and Vulkan are written only where S0 and S3 measure a gain beyond noise over
+   wgpu on the same core (D15). That is Charlie's condition read exactly: repetition per
+   platform where it gives better performance.
+4. **Text looks like the platform's**, in order: swash everywhere first, then Core Text on
+   Apple, DirectWrite on Windows and `Canvas.drawGlyphs` on Android, each opened from the
+   shaper's own font bytes and admitted by an audit of its ink against the kernel's advances
+   (D3; LLP 1115.004 D6.3). A failed audit lands the stage on swash with the tell open (D9).
+5. **Shaders are compiled at build** from one WGSL source in a named portable subset, every
+   output proven in S0, with a hand-written per-platform shader allowed where a measurement
+   earns it (D6). The defensible claim is that no application-side shader compilation runs on
+   Metal or DirectX 11; what every driver does at pipeline creation is measured and a
+   replacement DEFERRED exception is proposed with the numbers (D6.3, §8, §5 Q14).
+6. **The CPU painter stays** as the pixel oracle and the fallback on every platform; the gate
+   is split into geometry (the tight band) and platform text (a declared band and the advance
+   audit) (D9). vello stays in the Canvas 2D module (D13).
+7. **S0 is a decision gate with thresholds declared now** (D15): the improved vello (kept rows,
+   on the same readback path) against the ink core on wgpu against the ink core on Metal,
+   and the Windows spike's numbers. If ink does not earn it, the improvements to vello that
+   S0 built land and this RFC stops there.
+
+Order of work (§3): S0 on the Mac in six chunks, with the Windows spike on the NucBox; then,
+if earned, the painted Apple presentation (S1) and Windows (S2) as parallel lanes; Linux (S3);
+Android (S4); the web when an app asks (LLP 1149.000).
+
+## 1. What is there today
+
+- **The painter** (`host/linux/src/paint.rs`): one preorder walk of the live tree emits to a
+  `Backend` (`paint/backend.rs`). Its methods, which the renderer implements every one of:
+  `name`, `needs_geometry_paint`, `page`, `begin`, `recycle_frame`, `damage`,
+  `begin_damage`, `fill`, `fill_gradient`, `backdrop_filter`, `blurred_shadow`, `text_blur`,
+  `fill_border`, `image`, `island_image`, `surface_image`, `canvas`, `split_window_canvas`,
+  `recycle_window_layers`, `take_window_underlay`, `window_overlay_rows`, `native`, `text`,
+  `svg_path`, `push_svg_clip`, `push_clip`, `push_css_clip`, `pop_clip`, `push_opacity`,
+  `push_mask`, `pop_mask`, `pop_opacity`, `pointer`, `finish`, `finish_for` (with
+  `FrameTarget::{Pixels, Window, Geometry}`), `rows`, `row_begin`, `row_end`, `row_culled`,
+  `row_draw`, `row_free`, `group_begin`, `group_end`, `slot_begin`, `slot_end`, `slot_again`,
+  `layer_recolored`, `layer_begin`, `layer_end`, `last_frame_ms`. The walk records every
+  node's painted box, which the agent's `layout` and hit testing read. `canvas`,
+  `surface_image` and `island_image` take CPU pixmaps; an imported GPU image is an interface
+  change (D10).
+- **Two backends.** `raster.rs`: tiny-skia on the CPU, the oracle and the fallback; it keeps
+  no rows. `gpu.rs`: vello over wgpu; it keeps no rows either, encodes the whole scene each
+  frame into a vello scene, renders to a texture and reads it back; on Android
+  `gpu/present.rs` renders into the window's Vulkan swapchain from a present thread, one
+  frame in flight. Both implement `push_css_clip` and `push_svg_clip`. The Android Canvas
+  host (LLP 1076 §3.3) is the one backend that keeps rows, as a Kotlin `RenderNode` per row,
+  and it draws glyphs with `Canvas.drawGlyphs` from the shaper's font files. Neither backend
+  draws a `blurred_shadow`: the painter draws every shadow as a stack of up to 32 border
+  fills (`paint/shadow.rs`).
+- **Windows** (`host/windows`): the CPU painter into a `softbuffer` surface; the frame path
+  calls `present()` whole, and `present_with_damage` is the caret's blink only. A game's
+  full-window canvas presents from the GPU DLL's own device, composing the UI above and
+  below it from premultiplied pixel layers the host hands it (`gpu/README.md`,
+  `gpu_window_frame`). The game composition path measured, after LLP 1015.001's fast path:
+  paint including the game's readback 7.22 ms p50 at 1280×720 and 10.83 ms at 1920×1080,
+  upload and present under 1 ms, on a shared machine with the desktop locked. These are game
+  composition numbers, not a UI paint baseline; S2 measures the UI itself.
+- **Apple**: native views; the painter runs headless on macOS for tests and the seconds loop.
+  The Canvas 2D module presents vello into IOSurfaces with kernels compiled to a Metal library
+  at build (LLP 1056 §8.5): 0.7 to 2 ms warm to build pipeline states at launch, 103 to
+  157 ms from process start to the first GPU canvas pixels at the landing tip (a canvas's
+  first pixels, not a whole app's first frame).
+- **Text** (LLP 1015 §3, LLP 1085.000): Parley lays out, fontique matches, swash rasterizes
+  hinted grayscale glyphs into the painter's cache (`text/catalog.rs`); vello draws glyph
+  outlines from the same layout.
+- **Parity today** (LLP 1015 §8): one whole-app band, `the_two_painters_agree_within_a_band`
+  (mean under 5/255, under 6% of pixels differing by more than 32 at 390×844), which exists
+  because vello's outlines and swash's bitmaps differ; and the pinned suites that run every
+  painter that can (`paint`, `borders`, `tint`, `backdrop`, `gradients`, `visual`,
+  `materials`, `image`).
+- **Measured costs** of the vello path are LLP 1148 F5's table. The 23 ms warm and 93 ms
+  first-launch device figures are `Gpu::new`'s whole of instance, adapter and device, which
+  a direct device also pays in the driver; whether any of it is wgpu's is unmeasured (D5).
+
+## 2. Decisions
+
+### D0 — Scope: one renderer for the painted presenter's frame, on every platform
+
+`exact-ink` draws the painted presenter's frame on macOS, iOS, iPadOS and tvOS, Windows,
+Linux, Android, and, for an app that opts in, the web (LLP 1149.000). It does not draw
+watchOS (a snapshot driver, LLP 1126), a game's canvas (the app's GPU module, LLP 1009), or
+the Apple native host's views (D12). It is the painter's backend, not a new painter: the walk,
+the damage, the rows and the layers are LLP 1015's, and every pixel it draws is held to the
+CPU painter's (D9).
+
+### D1 — The display list is the Backend trait; the renderer's input is instances
+
+The renderer implements `Backend`. Each call becomes one or more **instances** in a typed
+buffer for the frame. Instance order is paint order; a batch is a run of instances with the
+same texture bindings and scissor, drawn with one instanced draw of a four-vertex strip.
+A frame is a few batches. There is no scene graph in the renderer: the kernel is the scene.
+
+**D1.1 The instance, 192 bytes**, `#[repr(C)]`, 16-byte aligned, published so the budget is
+checkable. An instance is a **geometry** and a **brush**:
+
+| Field | Bytes | Holds |
+|---|---|---|
+| `rect` | 16 | the quad in local points: x, y, w, h |
+| `xform` | 24 (+8 pad) | the 2×3 affine from local points to device pixels (motion's translate, rotate and scale about the pivot, then the device scale) |
+| `radii` | 16 | the shape's four corner radii (circular; an elliptical corner, or any `corner-shape` that is not `round`, is a coverage geometry, D2.3) |
+| `color` | 16 | premultiplied RGBA for a solid brush, or the tint; for a gradient, unused |
+| `clip0`, `clip0_radii` | 32 | the innermost rounded clip in force, in device pixels, axis-aligned |
+| `clip1`, `clip1_radii` | 32 | the next one |
+| `mask_rect`, `mask_uv` | 32 | a coverage clip in force (`clip-path`, an SVG clip): its device rectangle and its place in the path atlas; zero when none |
+| `uv` | 16 | the texture rectangle, normalized: the image, glyph, coverage mask or layer; for a shadow and a border, the inner or shape rectangle |
+| `param` | 16 | by geometry and brush: sigma; a border ring's inner radii; a gradient's geometry; a pattern's tile; a layer's opacity and blend |
+| `kind`, `brush`, `flags`, `pad` | 16 | the geometry (D1.2), the brush (solid, gradient, image or pattern, from `uv` into the image slot), and flags: tint, inset, even-odd, `object-fit` sampling, the blend formula |
+
+Ten thousand instances are 1.9 MB; a frame's buffer is reused. The buffer is a vertex buffer
+read with instance step mode (D6.1), twelve attributes of 16 bytes, not a storage buffer.
+r1's sixty-four bytes did not hold the field list (Muse, Grok); this layout does.
+
+**D1.2 Every Backend method, mapped.** The gate in D9 is unmeetable unless this table is
+complete; it is the implementer's checklist, and S0 lands no row of it as "later".
+
+| Backend method | Geometry and brush, or path |
+|---|---|
+| `fill` with round corners | `RoundedRect` × solid: a rounded-rectangle signed distance; the whole-viewport opaque fill is the clear |
+| `fill` with elliptical radii or a `corner-shape` that is not `round` (squircle, bevel, scoop, notch, `-exact-continuous`, `kernel::corner::outline`) | `Coverage` × solid: the outline rasterized on the CPU into the path atlas |
+| `fill_gradient` | `RoundedRect` (or `Coverage`) × gradient: the kernel's `Geometry` (linear, radial, conic; repeat) in `param`, the stops in a ramp texture row, interpolated in the painter's space (D2.7) |
+| `fill_border` with `ring: Some` (one round-cornered ring) | `Ring` × solid: outer minus inner signed distance |
+| `fill_border` otherwise (per-side regions, side clips, ring clips, dashed and dotted, non-round corners) | `Coverage` × solid: the region rasterized even-odd inside its clips |
+| `blurred_shadow` (outer, and inset by the `inset` flag) | `Shadow`: the Gaussian-blurred rounded rectangle, analytically, as [Evan Wallace's shader](https://madebyevan.com/shaders/fast-rounded-rectangle-shadows/) and GPUI's; painted only outside `outer` by its signed distance; held to the painter's banded shadow by a fixture in S0 (the band is LLP 1064 D2's Gaussian, which the bands approximate); a non-round shape, or a miss on the fixture, falls back to the painter's bands. Returns true when it drew |
+| `text_blur` | the glyph geometry's blur sigma, applied in the atlas raster (a numeric roll's blur, LLP 1077 D15) |
+| `image` | `RoundedRect` × image: a texture, premultiplied, the `object-fit` rectangle already resolved, the content box as the instance rectangle, the outer shape as a clip slot; `tint` as the tint flag (RGB replaced through alpha) |
+| `island_image` | the same, with the blend flag: multiply, screen, overlay and the rest of CSS `mix-blend-mode`, as a blend formula over a copy of the destination region (D2.5) |
+| `surface_image`, `canvas` | `RoundedRect` × image from a texture uploaded from the pixmap, keyed by content revision (LLP 1056 D7) |
+| `text` | `Glyph` instances from the atlas (D3); colour glyphs from the colour atlas |
+| `svg_path` (fill, stroke, dashes, caps, joins, markers; `paint-order`) | `Coverage` × the paint's brush: solid, an SVG gradient (the ramp texture), or a pattern (an image slot, repeated by `param`); a fill and a stroke are two masks |
+| `push_clip` (rectangular) | the scissor |
+| `push_clip` (rounded, axis-aligned in device space) | `clip0` or `clip1` of every instance until the pop |
+| `push_css_clip`, `push_svg_clip` | the mask slot: the clip's union rasterized once into the path atlas (cached by path, transform and scale) and sampled by every instance until the pop |
+| a third rounded clip, a second coverage clip, or a clip under a rotation or skew | a layer (D2.5) composited through a coverage mask |
+| `push_opacity`/`pop_opacity` | a layer, composited at the opacity |
+| `push_mask`/`pop_mask` | a layer, composited through the mask: a colour's alpha or a gradient sampled with the gradient code |
+| `backdrop_filter` | the region under the shape copied from the frame's compose target, the ordered `BackdropOp`s applied (blur as three box passes over encoded sRGB, as LLP 1053.000 D2 and `raster/backdrop.rs` do; saturate, brightness, contrast and the rest in one colour pass), drawn back under the clip |
+| `split_window_canvas`, `recycle_window_layers`, `take_window_underlay`, `window_overlay_rows` | D10: unchanged in contract; the UI below and above a full-window game is read back as premultiplied pixels for those rows |
+| `native` | the platform element's box is left clear for the native view layered above (D10) |
+| `pointer` | `RoundedRect` × image: the arrow, as the CPU painter draws it, where a host has no system cursor (DRM) |
+| `rows`, `row_*`, `group_*`, `slot_*` | D4 |
+| `layer_begin`/`layer_end`/`layer_recolored` | D4: a kept instance range drawn with the layer's transform and opacity; a recolored layer is recorded again each frame it changes colour |
+| `damage`/`begin_damage` | false: the whole frame is redrawn (D7); the painter's damage set still drives whether a frame is drawn at all |
+| `page`, `begin`, `finish`, `finish_for`, `recycle_frame`, `last_frame_ms`, `name`, `needs_geometry_paint` | the frame's clear colour, the frame, the readback (D9, D11) and the report |
+
+### D2 — Pipelines, clips, paths and layers
+
+**D2.1 No compute.** Every stage is a vertex and fragment pipeline over instanced
+rectangles: one pipeline for every geometry and brush (the instance selects the fragment
+path), one for the box blur, one for the colour pass. "No compute" does not itself set a GPU
+floor (Astra); the floor is D5's, chosen for reach.
+
+**D2.2 Antialiasing** is analytic: a signed distance to the rounded rectangle (or ring)
+evaluated per fragment, with coverage from the distance's screen-space derivative. No
+multisampling, no coverage buffers. Text's antialiasing is the rasterizer's (D3); a coverage
+mask's is tiny-skia's.
+
+**D2.3 Paths** are everything D1.2 sends to the **path atlas**: rasterized on the CPU by
+tiny-skia's rasterizer, which the oracle already uses, into an alpha atlas, cached by path
+identity, transform and scale; drawn as `Coverage` geometry with a brush. The atlas bounds
+retained storage, not CPU work: an animated path rasterizes again each frame it changes, a
+path larger than an atlas page is tiled across entries or given a texture of its own for the
+frame, and a working set past the ceiling spills to a per-frame overflow texture that is not
+retained (D8). S0 measures the miss rate, the re-raster milliseconds and the uploaded bytes
+on Shelf, Excord and Reflow, where dashed borders and sparklines are ordinary. GPU path
+rendering (sparse strips, LLP 1148 F5, whose documentation lists unsupported mask, filter
+and blend cases) is deferred until a measured consumer needs it: an app whose frames are
+mostly animated paths.
+
+**D2.4 Clips.** Axis-aligned rectangular clips are the scissor. Two rounded clips and one
+coverage clip travel in the instance (D1.1), which covers a rounded container inside a
+scroller holding a rounded image, and a `clip-path` on any of them. A third rounded clip, a
+second coverage clip, or a transformed clip makes a layer (D2.5) composited through a
+coverage mask. The walk's clip stack is unchanged; S0 counts how often a screen of Excord and
+Shelf reaches a layer this way.
+
+**D2.5 Layers.** An opacity group below 1, a mask, a backdrop filter, a blend mode, and the
+clips D2.4 sends here draw into an offscreen texture from a pool sized to the viewport, then
+composite as a `Layer` instance. A frame that contains a backdrop filter or a blend mode
+draws into a compose target and blits to the swap chain at the end, since a swap-chain image
+cannot be sampled; the region under a node is copied from that target. The pool has no hard
+ceiling: it grows to the high-water mark the apps show and is trimmed on memory warning and
+background; a frame whose layers cannot be allocated is drawn by the CPU painter instead,
+so correctness survives pressure (D8).
+
+**D2.6 Images** are textures cached by bitmap identity (as `gpu/images.rs` keys them) with
+a mip chain for an image drawn smaller than its pixels, so a thumbnail of a photograph is
+area-filtered as the CPU painter's `image_area` filters it, within the band.
+
+**D2.7 Colour and blending, as a contract.** Targets are 8-bit sRGB-encoded, premultiplied
+alpha throughout; blending and gradient interpolation happen in the encoded space, as the
+CPU painter and the web do; coverage multiplies alpha without gamma adjustment, as
+tiny-skia's does; images are uploaded premultiplied as the painter decoded them; the swap
+chain is tagged sRGB on every platform so a wide-gamut display composites it as sRGB
+(`CAMetalLayer.colorspace`, DXGI's sRGB formats), measured once on a P3 display against the
+native host. The deviation from linear-light blending is declared (§5 Q15), not fixed.
+
+### D3 — Text: swash first, then the platform's rasterizer, by audit
+
+Shaping and layout stay the kernel's and the painter's (Parley over the painter's text
+cache, LLP 1085.000). The renderer owns rasterization into a **glyph atlas** (alpha, with a
+colour atlas for colour glyphs), keyed by face, glyph, size, variation coordinates, synthetic
+slant and one of four horizontal subpixel phases, packed on shelves, evicted by frame age
+except where pinned (D4).
+
+**D3.1 swash first, everywhere.** S0 rasterizes with swash, hinted, grayscale, exactly as
+`text/catalog.rs` does for the CPU painter, so the oracle and the renderer part only at the
+atlas's placement. Every stage presents with swash until its platform's rasterizer is
+admitted.
+
+**D3.2 A platform rasterizer is admitted by its audit, apart from any stage's gate:**
+
+| Platform | Rasterizer | Why |
+|---|---|---|
+| Apple | Core Text: `CTFontDrawGlyphs` into a `CGBitmapContext`, font smoothing as the system has it, the font made from the shaper's bytes (`CGDataProvider` → `CGFont` → `CTFontCreateWithGraphicsFont`) so glyph ids and variation axes are swash's | the platform's own text; a UIKit label and an Exact label on one screen must match |
+| Windows | DirectWrite: `IDWriteFactory2::CreateGlyphRunAnalysis` with `DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE` by default (the older factory method has no antialias mode and its sample uses ClearType), natural measuring mode, no grid fit, the face from an in-memory font file loader over the shaper's bytes; ClearType where the ground is opaque and the person's settings ask for it (LLP 1115.004 D6.3's measurement decides) | the one tell a Windows user notices; the ClearType Text Tuner settings count |
+| Android | `Canvas.drawGlyphs` (API 31+) through the Canvas host's JNI into a bitmap, from the same font file the shaper opened, as `Player.kt` draws today; swash below API 31 | Android's text is Skia over FreeType with the platform's hinting; the Canvas host already matches it |
+| Linux | swash stays | there is no one platform rasterizer to match |
+| Web | the browser's Canvas 2D (LLP 1149.000 D5) | the browser's rasterizer and the system's fonts |
+
+The rule LLP 1115.004 D6.3 set holds on every platform: a platform rasterizer lands only
+after an audit of its ink against the kernel's advances shows no drift beyond the oracle's
+tolerance on the parity fixtures. Advances never come from the rasterizer. An audit that
+fails on the system font at 100%, 125% and 150% keeps swash, keeps the tell open, and does
+not stop the stage (D9).
+
+**D3.3 What each rasterizer must also answer**, named so the audit covers them: colour
+glyphs (`COLR`, `sbix`, `CBDT`: swash reads all three; Core Text, DirectWrite and Android
+each have their own path, and the colour atlas takes whichever drew), synthetic bold and
+oblique (the kernel's `Synthesis`; swash skews, the others take a transform), and font
+smoothing (the person's setting on each platform is read by the platform's rasterizer and
+never by swash); and the audit runs during motion too (fractional positions, scale changes,
+a monitor change), not only on a static crop.
+
+### D4 — Kept rows and layers are instance lists, not pixels
+
+`rows()` is true. A kept row is the instance range it recorded, relative to its origin, with
+the clips pushed inside the row recorded in row space and the clips in force outside it
+(the scroller's) left out; the group boundaries inside it (a layer, an opacity group, a
+mask) are recorded as markers so replay reopens them. `row_draw` copies that range into the
+frame's buffer with the row's offset applied to `xform`, the inner clips and the markers,
+then re-clips every instance under the clips in force now: the scissor intersected, the
+outer rounded clips filling the free clip slots, a row that would need a third slot drawn
+through a layer. Ten thousand instances of 192 bytes are 1.9 MB, a copy. Scrolling a list of
+unchanged rows walks none of them (`paint/rows.rs`) and encodes none of them: the frame is a
+copy, a re-clip and a draw. If the copy shows in S0's measurement, instances are kept in
+row-local coordinates and the offset becomes a per-draw constant (Grok). Animated layers
+(`layer_begin`) are the same, with the layer's transform and opacity applied at draw. Images
+arriving in a kept row replace the slot's instances (`slot_again`).
+
+**What a kept row references stays valid**: a glyph, path or ramp entry a kept row's
+instances point at is pinned in its atlas while the row is kept (`row_free` unpins);
+eviction skips pinned entries; an atlas full of pinned entries spills new entries to the
+per-frame overflow texture (D2.3) rather than evicting. Device resources (buffers, layer
+textures, images) retire only after the last frame that used them has completed on the GPU
+(D11), by frame index, never on drop.
+
+Not chosen: rows cached as textures. A row at 400×100 points on a 3× display is 1.44 MB;
+twenty on screen are 29 MB (the Android Canvas host's `RenderNode` per row caches pixels in
+HWUI, which is that memory), and a scaled or rotated row would resample. Pixels are cached
+only where re-encoding is expensive and the pixels are the point: layers (D2.5).
+
+### D5 — One core; the device layer per platform decided by measurement
+
+The renderer's device is a trait of about fifteen operations: create and resize a swap
+chain, allocate and upload a buffer, allocate and upload a texture (alpha, colour,
+mipmapped), bind a pipeline from a built binary, one render pass with a clear and a scissor,
+one instanced draw, an offscreen target from the pool, a region copy for blur and blend,
+import an external image, present, read back.
+
+**D5.1 wgpu is the portable device layer and the control.** It implements the trait once for
+Metal, DirectX 12, Vulkan, OpenGL ES and WebGPU, and it is what `gpu/present.rs` already
+presents through on Android. S0 builds it first (§3 C1): the core runs on every platform
+from the first chunk, and every direct layer is measured against it.
+
+**D5.2 A direct device layer is written where it is required or measured.**
+
+| Platform | Device layer | Status | Why |
+|---|---|---|---|
+| Windows | DirectX 11 (`windows-rs`), feature level 11_0, created with `D3D11_CREATE_DEVICE_BGRA_SUPPORT`; a DirectComposition swap chain (D7) | **built**: S0's spike, then S2 | wgpu's Windows backend is DirectX 12; the composition swap chain over Mica (LLP 1115.004 D4.3) and Direct2D drawing the windowless RichEdit on the renderer's device (D7 there) want the renderer's own D3D11 device; WARP runs feature level 11_0 in virtual machines and over Remote Desktop (DirectX 12 has WARP too, Astra: the floor is for the interop and reach together) |
+| macOS, iOS, iPadOS, tvOS | Metal (`objc2-metal`), `CAMetalLayer` | **measured** in S0 C5: kept only if it beats the wgpu layer on the same core by D15's margin | the IOSurface import and the presentation options are reachable through wgpu's Metal backend with the two patches this repository carries; whether a direct layer saves boot time or frame time is the question, not an assumption |
+| Linux | Vulkan (`ash`): `VK_KHR_display` with `VK_KHR_display_swapchain` and `VK_EXT_acquire_drm_display` on KMS (LLP 1015 §7), a headless target on lavapipe | **measured** in S3 the same way | wgpu's Vulkan backend presents on KMS already |
+| Android | wgpu's Vulkan, through `gpu/present.rs`'s presenter path | **kept**: Android 10 requires Vulkan 1.1 on 64-bit devices (`host/android/README.md` permits Android 10), current Pixels run OpenGL ES through ANGLE over Vulkan, and the Canvas module's `AHardwareBuffer` import is Vulkan's | OpenGL ES only for a device that cannot open Vulkan, which S4's A/B on a low-end Mali or Adreno device must first show exists |
+| Web | wgpu's WebGPU; WebGL2 if a browser without WebGPU must be served | with the web (LLP 1149.000) | — |
+
+**LLP 1009 D1 is amended narrowly**: wgpu is the one GPU API for an *app's* GPU code (its
+canvases, its games); the host's renderer may own a device layer on a platform where this
+document measures that it earns it, and the GPU module and the renderer share no device
+(D10).
+
+**D5.3 The supported matrix**, named rather than "every machine":
+
+| | Minimum | Software-only | Remote sessions |
+|---|---|---|---|
+| macOS, iOS, tvOS | macOS 14, iOS and tvOS 17 (the Canvas module's minima; the manifests' `minimumOS`) | none on Apple: the CPU painter | — |
+| Windows | Windows 11 build 22621 on x64 (LLP 1115.004 D0.3), feature level 11_0 | WARP, then the CPU painter | WARP over Remote Desktop |
+| Linux | Vulkan 1.0 on KMS (the DRM run); no X11 or Wayland window system in this document | lavapipe, then the CPU painter | — |
+| Android | Android 10 (`host/android/README.md`), Vulkan 1.1 | the CPU painter | — |
+
+**D5.4 Failure.** The chain per platform is chosen once at boot and reported in `state`: the
+hardware device, else the platform's software device, else the CPU painter. **Surface
+recreation** (resize, DPI change, a monitor change, Android's surface loss on background)
+keeps the device and remakes the swap chain. **Device loss** (a driver reset, a remote
+session's GPU going away) invalidates every device resource by generation, keeps the
+renderer's logical state (atlases' keys, kept rows' instances), draws the frames in between
+on the CPU painter presented through the same swap chain where the platform forbids a return
+to the window's own surface (DXGI does not allow GDI on an HWND after flip-model
+presentation), and retries the device with backoff, never every frame.
+
+**`unsafe`** lives in `exact-ink`, which the FFI needs and whose device files are audited;
+`exact-linux` and the carriers stay `#![deny(unsafe_code)]`.
+
+**The cost named**: a wgpu layer plus DirectX 11 for certain, Metal and Vulkan only where
+measured; around a thousand lines each (Vulkan split across files under the cap). The new
+dependencies (`windows` features; `objc2-metal` and `ash` if measured in) are counted by the
+boot check per platform.
+
+### D6 — Shaders: one source, compiled at build, overridden where measured
+
+**D6.1** The shaders are one WGSL source in a **portable subset** named here: `mediump`-safe
+arithmetic in the fragment path (the GLSL ES 3.00 output declares `highp` for positions and
+distances and `mediump` elsewhere, and screen-space derivatives are used only on `highp`
+values); **no storage buffers**: GLSL ES 3.00 and WebGL2 have none (naga refuses them for
+that output; found in S0 C1), so instances are **per-instance vertex attributes** (twelve
+16-byte attributes, instance step mode), which Metal, DirectX 11, Vulkan, OpenGL ES 3.0 and
+WebGL2 all have and which is how GPUI feeds its quads; one uniform (the viewport); no
+`textureSampleLevel` on a non-mipmapped target. The
+build translates it with naga to MSL and compiles a `.metallib` with `xcrun metal` (as
+`canvas/vello/build.rs` does); to HLSL shader model 5.0 and compiles DXBC with `fxc` where
+`fxc` exists (the Windows host is built on Windows with the MSVC target,
+`host/windows/build.mjs`); to SPIR-V; to GLSL ES 3.00; and keeps WGSL for WebGPU. The Mac's
+tier-2 cross-check of `exact-windows` has no `fxc`: there the build embeds no DXBC and the
+DirectX 11 device refuses at runtime by name, so the check compiles and nothing pretends to
+run. `dxc` emits DXIL, which DirectX 11 cannot load. S0's translation spike compiles every
+output and holds the SDF, gradient and blur shaders to the oracle's band on each.
+
+**D6.2** A platform may carry a hand-written shader in place of the translated one, in its
+own language, when a measurement shows the translated one costs frame time or quality, or
+when a compiler is wrong (naga's GLSL ES output on derivatives is where to expect it). The
+override is a file beside the generated one; the build prefers it; it replaces the generated
+file in that platform's parity set, never adding a second variant to keep.
+
+**D6.3 What is still built at launch, said exactly.** The claim this document can defend is:
+**no application-side shader compilation runs on Metal or DirectX 11**. Metal's
+`.metallib` is AIR, not the GPU's binary: pipeline states are built from it at launch (0.7
+to 2 ms warm in the Canvas module; a cold driver is measured in S0). DirectX 11 drivers
+compile DXBC to the GPU's ISA at shader creation. Vulkan builds pipelines from SPIR-V behind
+a `VkPipelineCache` on disk; OpenGL ES links programs from GLSL, and Android's
+`EGL_ANDROID_blob_cache` is installed by the platform's EGL where the device's
+implementation supports it, with no retention guarantee, so the renderer keeps
+`glProgramBinary` itself and the first launch is budgeted as uncached; the browser compiles
+WGSL or GLSL. `rules/RULES.md` says the boot path "executes and compiles nothing", counted as
+a module graph; `rules/DEFERRED.md` §Runtime's exception is for the vello painter's shader
+compilation on the first launch. Whether a driver's pipeline build from a compiled binary is
+inside that rule is Charlie's (§5 Q14); the proposal is a **replacement exception**, written
+in §8 with S0's and S3's measured numbers per platform, not a withdrawal that leaves the
+behaviour the exception was written for.
+
+### D7 — Presentation and pacing
+
+A frame is drawn when the painter has damage or the reader has motion, never otherwise; an
+idle app submits nothing. **The whole frame is redrawn**: a redraw is a few batches, and
+partial presentation has its own costs (Windows's dirty rectangles need `FLIP_SEQUENTIAL`
+and a redraw confined to the rectangles; `VK_KHR_incremental_present` and
+`eglSwapBuffersWithDamageKHR` are hints honoured per driver; the tile-GPU win is
+`EGL_KHR_partial_update`, which a full redraw cannot use; a KMS page flip scans out the whole
+buffer regardless). Partial presentation is a measurement after S2 and S4, taken only if it
+saves power on a screen that changes a little.
+
+| Platform | Swap chain and pacing |
+|---|---|
+| Apple | `CAMetalLayer`, three drawables, `nextDrawable` off the main thread, paced by `CADisplayLink` (`CVDisplayLink` on the Mac), which runs at the display's rate on ProMotion and variable-refresh displays; during a live resize `presentsWithTransaction` with its sequence (encode, commit, `waitUntilScheduled`, present inside the transaction); the device layer remakes the drawable size on resize and scale change |
+| Windows | a DirectComposition swap chain (`CreateSwapChainForComposition`, premultiplied alpha, `DXGI_SWAP_EFFECT_FLIP_DISCARD`, two buffers, a frame-latency waitable object), as LLP 1115.004 D4.3 requires so the frame composes over Mica; never a layered window; the device layer resizes the buffers on `WM_SIZE` and DPI change and follows the monitor's refresh rate as the window does today |
+| Linux | Vulkan FIFO on KMS; mailbox where the display supports it; the device layer owns mode changes |
+| Android | `gpu/present.rs`'s presenter: `Choreographer` frames; surface loss on background and rotation remakes the swap chain, the device kept |
+
+Motion stays on the runner's clock; the display link paces presentation, so a spring on a
+120 Hz display is sampled at 120 Hz and on a 60 Hz one at 60. The target is one frame of
+latency from the walk to the glass, **measured** by presented-frame timestamps (Core
+Animation's, DXGI's frame statistics, the Android frame timeline), not inferred from the
+one-deep handoff.
+
+### D8 — Memory budgets, declared
+
+| Resource | Start | Ceiling | Under pressure |
+|---|---|---|---|
+| Glyph atlas (alpha) | 512² | 2048² (4 MB) | evict by frame age, skipping entries kept rows pin (D4); past the ceiling, new entries spill to the per-frame overflow texture |
+| Colour atlas | 256² | 1024² | the same |
+| Path atlas | 512² | 2048² | the same; a path larger than a page is tiled or given a texture for the frame (D2.3) |
+| Ramp texture | 256 × 64 rows | 256 × 1024 | rows evicted by frame age, pinned by kept rows |
+| Layer pool, and the compose target | none | the apps' measured high-water mark (S0) | freed on memory warning and background (`trim`, as the Canvas module has it); a frame that cannot allocate is drawn by the CPU painter |
+| Instance buffers | one frame's | the largest frame seen, three in flight | shrunk on `trim`; CPU copies counted beside GPU bytes |
+| Image textures | by use | the painter's image budget (LLP 1011) | the painter's eviction, after the last frame that used them completes |
+
+The measure (§4): a hello app's footprint on each platform against the CPU painter's, with
+the swap chain as the accepted difference; and, from S0, the atlas miss rates, the overflow
+texture's use and the layer pool's high-water mark on Shelf and Excord against these
+ceilings, during a fling with eviction forced.
+
+### D9 — The CPU painter is the oracle; the gate is split; parity gates each platform
+
+tiny-skia stays the deterministic pixel oracle (LLP 1015 §8) and the fallback where no
+device can be made. **The gate has two parts**, because D3 asks the renderer to draw text
+the oracle does not draw:
+
+- **Geometry and compositing**: the pinned suites that run every painter (`paint`, `borders`,
+  `tint`, `backdrop`, `gradients`, `visual`, `materials`, `image`) pass with the renderer as
+  a painter choice (`EXACT_PAINTER=ink`), with swash glyphs, at today's thresholds; and the
+  whole-app band holds.
+- **Platform text**: a rasterizer D3.2 admits is held to a **declared text band** (as LLP
+  1015 §8 declares one between vello's outlines and swash's bitmaps) plus the advance audit
+  on the parity fixtures and during motion (D3.3); it is never held to the swash oracle's
+  pixels, which it is meant to differ from. A failed audit keeps swash and the stage lands.
+
+Before vello's backend is deleted on a platform, an inventory of D1.2's rows shows a fixture
+for each (per-side borders, corner shapes, masks, backdrop saturate, blend modes, SVG
+gradients and patterns, SVG clips are the ones without one today, added as stage work), and
+the platform's qualification covers what pixels do not: pacing (D7's timestamps), device
+loss (D5.4, forced), native composition (D10), memory (D8) and, where the carrier ships,
+accessibility (D12). The suites run on that platform: the Mac, the NucBox, a builder under
+lavapipe, the Android emulator, headless Chrome, in the async lane.
+
+**Screenshots from a presenting backend**: `finish_for(Pixels)` reads the presented frame
+back on demand (a blit to a shared buffer and a wait), so the agent's `screenshot`, the
+smoke and delivery's captures work on every carrier; `finish_for(Window)` never reads back.
+
+### D10 — Composition with native content and with GPU modules
+
+The GPU module's ABI stands as `gpu/README.md` states it: no GPU device or texture object
+crosses the DLL boundary, and a full-window canvas presents from its module-owned device,
+composing premultiplied UI layers below and above it. The Backend's `canvas`,
+`surface_image` and `island_image` take CPU pixmaps; an imported GPU image is a new method
+and a new resource path, added when the first producer exists. Under the renderer:
+
+| Content | v1 | Later, one producer-consumer pair qualified before any generalization |
+|---|---|---|
+| A full-window game canvas (LLP 1015.000) | unchanged: the module presents; the UI below (a solid underlay where it is one) and above reach it as premultiplied pixels, which the renderer reads back for the overlay rows only (`window_overlay_rows` bounds them) | a shared image with the contract below: IOSurface on Apple (the Canvas module's, proven); a DXGI shared NT handle with a keyed mutex from the module's D3D12 device into the renderer's D3D11 device on the **same adapter** (Microsoft supports no cross-adapter sharing across API versions); Vulkan external memory on one physical device; `AHardwareBuffer` with an Android native fence |
+| A Canvas 2D surface (LLP 1056) on Apple | the module's IOSurface imported as a texture, as the native host shows it as a layer's contents today | — |
+| A Canvas 2D surface elsewhere | tiny-skia's pixmap uploaded by content revision (LLP 1056 D7), as today | the vello module's texture, when LLP 1056 §8.5's Linux note is taken |
+| The windowless RichEdit (LLP 1115.004 D7) | Direct2D on the same D3D11 device draws it into a texture the renderer draws as an image | — |
+| Native views above the frame (menus, pickers, the IME's candidates) | views layered over the Metal layer; child windows and the `topmost` composition target D7.0 names; views above the surface on Android | — |
+
+**The contract an imported image needs**, which the ABI change carries: identity (a stable
+id and a content revision), format and colour space, the adapter identity it was allocated
+on, the producer's completion (a fence or a keyed mutex the consumer waits on), ownership
+and who may reuse the memory, and release (the consumer's completion before the producer
+reclaims it). The first pair qualified is the Canvas module's IOSurface on Apple.
+
+### D11 — Threads
+
+The walk and the encode run on the host thread; submit and present on a render thread, one
+frame in flight, as `gpu/present.rs` does on Android: the frame's instance buffers and
+atlas uploads are handed over, the next walk starts while the GPU draws this one, and the
+buffers come back for reuse. Nothing of the kernel's crosses the handoff. A readback for a
+screenshot (D9) waits for the frame in flight. A resource retires only after the frame that
+last used it has completed (D4).
+
+### D12 — Where it is the presenter, and what "the same everywhere" promises
+
+On Linux, Windows and Android it replaces the vello and CPU-to-window paths: the painted
+presenter is already the host there. On Apple the native host stays the default — what an
+author leaves unsaid is the platform's (LLP 1115) — and an app chooses the painted presenter
+in its manifest, per platform as the manifest is shaped: `host.macos.presenter: "painted"`,
+`host.ios.presenter: "painted"` (`scripts/app.schema.json`; the native host is the absent
+value). **The build refuses the key** until the painted carrier exposes the accessibility
+tree through the kernel's roles, as the native host does (VoiceOver reads it), with text
+editing, the IME, keyboard navigation, focus and the app lifecycle: those are the shipping
+gate of a presenter an app may choose. S1's carrier is a **benchmark carrier** until that
+gate: a window or view over a `CAMetalLayer`, the pointer, the keyboard and the IME through
+the system's text input protocols on a hidden view (the shape LLP 1115.004 D7 takes on
+Windows), the agent over the same socket the native host uses; its menus, dialogs and
+pickers the system's, as 1115.004 takes them on Windows.
+
+What "the same everywhere" promises an app that opts in: the same authored styling and the
+same layout, verified against the web (LLP 1001); the platform's text rasterization (D3)
+and the platform's accessibility, editing and system surfaces, which differ by design. Not
+identical pixels.
+
+### D13 — vello's place after
+
+The Canvas 2D GPU module keeps vello: a canvas may receive any drawing, and a compute vector
+renderer with blur and clip-extent operators is the right tool there (LLP 1056 §8.5).
+`gpu.rs` gains kept rows in S0 as the control arm (§3 C4), which land whatever S0 decides.
+If ink is earned, `gpu.rs` loses each platform's branch when that platform passes D9 (the
+Linux readback path at S3, `gpu/present.rs` at S4), and the shared file when its last
+consumer is gone (delete, don't deprecate); `vendor/vello` stays for the module; the second
+wgpu build goes with the Linux painter.
+
+### D14 — Code
+
+`host/ink`, crate `exact-ink`, no dependency on `exact-linux`: `instance.rs` (the instance
+layout and batching), `atlas.rs` (shelf packing, pinning, eviction, the overflow texture),
+`glyph/` (the rasterizers, one file per platform, swash first), `path.rs` (coverage through
+tiny-skia), `shadow.rs`, `layer.rs` (the pool and the compose target), `device.rs` (the
+trait), `device/wgpu.rs`, `device/d3d11.rs`, and `device/metal.rs` and `device/vulkan/` only
+where measured in; `present.rs` (the render thread), `shaders/ink.wgsl` and `build.rs` (D6).
+The `Backend` implementation lives in `exact-linux` as `ink.rs`, where the painter's types
+are, as `gpu.rs` does today; it is the adapter, and the renderer is the two together under
+one name. `exact-windows` and the painted Apple carrier take the presenter from `exact-linux`
+as `exact-windows` does now; what the web would take without `exact-linux`'s font discovery
+and executors is LLP 1149.000's. Shader binaries ship inside the platform's bundle (LLP
+1030), and a pipeline cache on disk is keyed by the driver and the binary's hash. Every file
+under 1,500 lines. Tests: instance packing, batching, re-clipping, pinning and eviction as
+unit tests; parity against the oracle through the painter's pinned suites with
+`EXACT_PAINTER=ink`; the device layers under the async lane on their platforms.
+
+### D15 — The decision gate: what earns the replacement, declared before S0
+
+S0 produces four arms on the same readback path on the Mac, and the Windows spike's numbers:
+
+| Arm | What it isolates |
+|---|---|
+| A. vello as today | the baseline |
+| B. vello with kept rows (scene fragments replayed under a transform) | whether retention alone is the gain |
+| C. the ink core on the wgpu device layer | whether the UI-shaped primitives and the retained instance lists are the gain |
+| D. the ink core on a direct Metal device layer | whether owning the device layer adds anything |
+
+Measured per §4 on the heavy-list screen and on Shelf and Excord: cold start by phase, frame
+time and encode time during a fling, CPU per second during the fling and at rest, footprint
+peak and at rest, the atlas and layer counters.
+
+**Thresholds** (proposed to Charlie, §5 Q21):
+
+- **Ink is earned** (C over B) if it is at least 20% better on fling CPU per second or on
+  frame time at 1920×1080, with no metric more than 10% worse and no more late frames. Then
+  S1 and S2 follow. Otherwise B lands (it is an improvement to the shipping painter whatever
+  happens), ink stays a prototype, and this RFC's stages past S0 are not scheduled.
+- **A direct device layer is earned** (D over C, and the same test for Vulkan in S3) if it is
+  at least 10% better on cold start by phase or on frame time, beyond run-to-run noise
+  (interleaved runs, the spread reported). Otherwise the wgpu layer stays on that platform
+  and the direct code is deleted, not kept.
+- **DirectX 11 is built regardless** (D5.2); its measurement in S2 is against today's CPU
+  path, Electron and WinUI 3, not against a wgpu arm that cannot do what it is for.
+- **The replacement exception** (§8) is proposed with the measured launch numbers, and the
+  cold-start budget (100 ms p50) is argued phase by phase (§4).
+
+## 3. Order of work
+
+Each chunk and stage lands with its numbers in §4's table. S0 is one lane in
+`exact2-wt-1126-gate` on `lane/ink` (the Mac) with the spike on the NucBox; each chunk is
+one Astra run and one commit.
+
+| Chunk | What | Gate |
+|---|---|---|
+| **S0 C1** The crate, the shader, the wgpu device, one quad read back (from 2026-10-28) | `exact-ink`'s instances, batching, atlases, the WGSL in its subset, `build.rs` translating every output (the translation spike's compile half; the Metal library built where the toolchain is), `device/wgpu.rs` rendering to a texture and reading back, a unit test on pixels | the test; the six checks |
+| **S0 C2** The adapter and geometry parity | `ink.rs` implementing D1.2's geometry rows (fills, gradients, borders, shadows, images, clips, opacity, masks), `PainterChoice::Ink`, `EXACT_PAINTER=ink`, the pinned suites | the pinned suites at today's thresholds, text excluded |
+| **S0 C3** Text, paths, layers, backdrop, blend | the swash glyph atlas, the path atlas with brushes, coverage clips, layers and the compose target, backdrop ops, blend modes; the whole-app band | every pinned suite and the band; the per-method fixture inventory started |
+| **S0 C4** Kept rows, both arms, the measurement | D4 in ink; kept rows in `gpu.rs` as scene fragments (arm B); the four arms measured per §4 on the Mac | the numbers in §4; D15's first verdict (C over B) |
+| **S0 C5** The direct Metal device | `device/metal.rs` (`MTLCreateSystemDefaultDevice`, the `.metallib`, pipeline states, the same trait) and its measurement against C | D15's second verdict (D over C): kept or deleted |
+| **S0 C6** The Windows spike, on the NucBox | `device/d3d11.rs` in earnest (not throwaway): `D3D11CreateDevice` with BGRA, WARP forced once, a composition swap chain over Mica, the ink core drawing one screen, a windowless RichEdit drawn into a D3D11 texture; device-creation milliseconds beside wgpu's DirectX 12 device; `fxc` on that machine | the spike's numbers in §4; the cost of the composition swap chain to the first frame |
+| **S1** The painted Apple benchmark carrier (if earned) | a macOS carrier over `CAMetalLayer` (window, pointer, keyboard, IME, the agent); the same on iOS; tvOS exposing its focusable items to the focus engine; Core Text's audit (D3.2) | §4 against the native Apple host, SwiftUI and UIKit on the heavy-list bench; cold start by phase under the budget; the key stays refused until D12's shipping gate |
+| **S2** Windows (if earned; DirectX 11 regardless of D15's device verdicts) | the composition swap chain replacing `softbuffer`, Direct2D interop for the RichEdit, DirectWrite's audit, the game DLL's layers read back for the overlay rows | §4 against today's CPU path, Electron and the WinUI 3 oracle app, on the same screens |
+| **S3** Linux | the device layer measured (wgpu Vulkan against `ash`), KMS and lavapipe; the readback branch of `gpu.rs` deleted; the replacement exception written with the first-launch numbers on the minisforum | §4 against the vello painter; parity under lavapipe in the async lane |
+| **S4** Android | the ink core through the wgpu Vulkan presenter; `Canvas.drawGlyphs`'s audit; the low-end A/B that decides whether an OpenGL ES device layer exists at all; `gpu/present.rs` deleted | §4 against the vello swapchain host and the Canvas host |
+| The web | LLP 1149.000: unscheduled until an app asks; the ES 3.00 subset is held in C1's translation spike so the web does not discover it alone | its own |
+
+S1 and S2 are parallel lanes after S0's verdicts; S3 and S4 after either.
+
+## 4. Measurement
+
+The program is the same on every platform; the baselines differ. "Has numbers" is not a
+threshold; D15 is.
+
+| Metric | Definition | Harness |
+|---|---|---|
+| Cold start, by phase | process start to the first presented frame with the app's first screen complete, by the platform's timers (process start time and the presented-frame timestamp; never the agent's clock), median of interleaved runs, split into device creation, pipeline build, fonts, layout and the first frame; the first launch on a machine and later ones reported apart | `bench/heavy-list/cold-series.sh` on Apple; `EXACT_AGENT_WINDOW_FRAMES` on Windows (LLP 1015.000); the host's own boot log elsewhere |
+| Frame interval and latency | p50, p95, p99 and late frames (over 1.5 display periods) per second during a fling at the display's rate, from presented-frame timestamps; encode time apart from GPU time | the heavy-list probe on Apple; DXGI frame statistics on Windows; `perf frames` everywhere |
+| CPU | process and main-thread milliseconds per second during the fling and at rest; the renderer's encode time apart | the probe; `perf` |
+| Memory | physical footprint, peak and at the end of the fling; a hello app at rest; the whole process tree for Electron; the atlases' miss rates, the overflow texture's bytes, uploads per frame and the layer pool's high-water mark | the probe; the platform's counters; the renderer's report in `state` |
+| Energy | where a controlled measurement exists: Energy Impact on Apple; on Windows the battery report attributes nothing to a process, so it is recorded and not read as the renderer's | recorded, not gated |
+
+| Platform | Baselines |
+|---|---|
+| Apple | the four arms of D15 on the readback path (S0); the native Apple host, SwiftUI and UIKit (`bench/heavy-list`) when a carrier presents (S1) |
+| Windows | today's CPU path; an Electron window with the same list (its version pinned, production configuration, the process tree counted); the WinUI 3 oracle app (LLP 1115.004 D13; the Windows App SDK version pinned); one list screen, the same pixels, the same machine, interleaved runs; renderer-only and whole-app numbers apart |
+| Linux | the vello painter, the CPU painter |
+| Android | the vello swapchain host, the Canvas host, the Compose arm (LLP 1085.000 stage 3's A/B tooling) |
+
+The numbers land in this section as each chunk and stage does; a stage with no numbers has
+not landed.
+
+## 5. Questions that are Charlie's
+
+Each carries the proposed answer and the panel's recommendation and confidence (0 to 100):
+Muse (M), Grok (G), Astra (A), on r1.
+
+1. **Write our own renderer rather than take vello, GPUI or Skia?** Yes, as S0's prototype
+   with the thresholds of D15 deciding the replacement (§0). *M:* yes, 75. *G:* yes, 70. *A:*
+   a bounded prototype, not the replacement commitment yet, 88. All three: the measured costs
+   are mostly the integration's; the control arm decides.
+2. **Each platform's own API, not wgpu?** Revised: one core on a wgpu device layer, DirectX
+   11 direct regardless, Metal and Vulkan direct only where measured to earn it; LLP 1009 D1
+   amended narrowly (D5, D15). *M:* direct, 65 (the boot argument weak). *G:* direct, 76.
+   *A:* allow direct where justified, do not prohibit wgpu everywhere, 91. The revision is
+   Astra's, which the other two's reasoning supports.
+3. **DirectX 11, not DirectX 12, on Windows?** Yes (D5.2). *M:* 85. *G:* 88. *A:* 90.
+4. **Android: Vulkan through the existing presenter, OpenGL ES only for a device that cannot
+   open Vulkan?** Yes, revised from r1's OpenGL ES (D5.2). *M:* OpenGL ES, 70. *G:* keep
+   Vulkan, 78. *A:* keep Vulkan, 76.
+5. **One WGSL source in a named portable subset, translated at build, overridden for speed
+   or correctness where measured?** Yes (D6). *M:* 60. *G:* 80. *A:* 93.
+6. **Platform rasterizers (Core Text, DirectWrite, Android's `drawGlyphs`), swash first,
+   each admitted by its audit; a failed audit keeps swash and the stage lands?** Yes (D3,
+   D9). *M:* 80. *G:* 84. *A:* 91.
+7. **Paths on the CPU into an atlas with brushes in v1, with the overflow texture?** Yes
+   (D2.3). *M:* 80. *G:* 76. *A:* 81.
+8. **Kept rows as instance lists that pin what they reference?** Yes (D4). *M:* 75. *G:* 82.
+   *A:* 97.
+9. **On Apple the painted presenter is an app's manifest choice, refused by the build until
+   the carrier passes D12's shipping gate; the native host stays the default?** Yes. *M:*
+   90. *G:* 86 (refuse the key until VoiceOver). *A:* 98 (a benchmark carrier may precede
+   the gate).
+10. **S0 on the Mac in six chunks with the Windows spike and the direct-Metal measurement
+    inside it?** Yes (§3). *M:* spike inside S0, 65. *G:* 78. *A:* 94 (Windows is the first
+    product gate).
+11. **Delete vello's painter branches as each platform passes, the shared file last; keep it
+    in the Canvas module; keep its kept rows whatever S0 decides?** Yes (D13). *M:* 70.
+    *G:* 90. *A:* 97.
+12. **Electron and WinUI 3 as the Windows baselines, versions pinned, process trees
+    counted?** Yes (§4). *M:* 75. *G:* 85. *A:* 99.
+13. **`host/ink`, `exact-ink`, the adapter in `exact-linux`?** Yes (D14). *M:* 60. *G:* 78.
+    *A:* 99.
+14. **The boot rule: a replacement DEFERRED exception for the driver's pipeline build from
+    compiled shaders, written with measured numbers, rather than a withdrawal?** Proposed
+    yes (D6.3, §8). *M:* needs the ruling (E6). *G:* do not withdraw until the first launch is
+    inside the budget (risk 7). *A:* propose the replacement exception explicitly (E5).
+15. **Colour: sRGB-encoded premultiplied targets, blending and gradients in the encoded
+    space, the swap chain tagged sRGB, the deviation from linear declared?** Yes (D2.7).
+    *M:* 70. *G:* 70. *A:* specify it as a contract, 99.
+16. **The device fallback chain and the device-loss behaviour of D5.4?** Yes. *M:* 85. *A:*
+    99.
+17. **Shader binaries in the bundle; pipeline caches keyed by driver and binary hash?** Yes
+    (D14). *M:* 70.
+18. **Accessibility, editing, the IME, keyboard navigation, focus and lifecycle are the
+    painted Apple carrier's shipping gate, and the key is refused before it?** Yes (D12).
+    *M:* 80. *G:* 82. *A:* 99.
+19. **The web form stays unscheduled until an app asks, with the ES 3.00 subset held in
+    S0?** Yes (§3; LLP 1149.000). *M:* 75. *G:* 82. *A:* 97.
+20. **Build the control arm (kept rows in vello) in S0?** Yes, revised from r2's no (D15;
+    §3 C4). All three asked for the comparison on the same path.
+21. **D15's thresholds: 20% for ink over the improved vello, 10% for a direct device layer
+    over wgpu, no metric more than 10% worse?** Proposed. *A:* predeclare them, 99. *G:*
+    within 10% means the device layers are not the performance work.
+22. **What "the same everywhere" promises an app that opts in: the same styling and layout,
+    the platform's text and accessibility?** Proposed (D12). *A:* 99.
+23. **The supported matrix of D5.3 (minima, the 11_0 floor, WARP for remote sessions, KMS
+    only on Linux, Android 10 with Vulkan 1.1)?** Proposed. *A:* 98.
+24. **Four separate commitments, each its own waiver: the renderer prototype (S0), the
+    painted Apple carrier (S1), the painted web (LLP 1149.000), and the replacement
+    compilation exception (§8)?** Proposed. *A:* 98.
+
+## 6. Not in this document
+
+- The web, beyond D5's row: LLP 1149.000.
+- The painted Apple carrier's menus, dialogs, pickers and delivery beyond what D12's gate
+  names: a plan of its own when S1 lands, in LLP 1115.002's terms.
+- Text shaping, fallback and the text cache (LLP 1085.000); the Fluent, Material and Apple
+  looks the painter draws (LLP 1115.000, 1115.001, 1115.004); the kernel.
+- 3D, and effects the Backend trait does not emit. (The backdrop ops it does emit, blur and
+  the colour ops, are D1.2's, not excluded.)
+- LCD (ClearType) glyph coverage with dual-source blending: the hook is a glyph format; built
+  when LLP 1115.004 D6.3's measurement asks for it.
+- Sparse strips on the GPU for paths (D2.3) and vello_cpu as the CPU fallback: evaluated
+  when a consumer needs them.
+- Partial presentation (D7): a measurement after S2 and S4.
+- X11 and Wayland on Linux (D5.3).
+
+## 7. Risks
+
+1. **The project becomes a host rewrite.** Apple and the web need editing, accessibility,
+   focus and platform integration beyond drawing. D12 separates the renderer's qualification
+   from a shipping presenter's, and §5 Q24 keeps each a separate commitment.
+2. **A false performance conclusion.** Removing the readback, fixing presentation, changing
+   glyph rasterization and replacing vello at once would hide causality. D15's four arms
+   change one thing at a time on one path; swash is held constant until D3's audits.
+3. **Retained-resource corruption.** Atlas eviction, asynchronous uploads, external producers
+   and frames in flight overlap. D4's pinning, D8's overflow and D11's completion-based
+   retirement are specified before any optimization; S0 forces eviction during a fling.
+4. **Windows presentation is the critical path.** r1 specified it wrong (§R); the composition
+   swap chain's cost to the first frame, `D3D11CreateDevice`'s cold cost and the RichEdit's
+   texture are C6, before S1 starts. If the device threatens the 100 ms budget it is created
+   on a thread while fonts load and the first layout runs, with the first frame waiting only
+   for it.
+5. **Layer and path workloads defeat "a few batches".** Nested clips, blend modes, images
+   with distinct bindings, masks and backdrop filters multiply passes. §4 counts batches,
+   intermediate pixels, rasterized path pixels and uploads on real screens; D2.4's third
+   in-instance clip and a small-image atlas are the first additions if they show it.
+6. **Driver and deployment diversity exceeds the test matrix.** Lavapipe and headless
+   browsers establish part of correctness; D5.3 names what is supported, and S2 and S4
+   qualify real integrated GPUs, remote sessions and two Android GPU families.
+7. **Text quality diverges in motion or configuration changes.** D3.3's audit runs during
+   scrolling, transforms, monitor changes and variable fonts, apart from the screenshot band.
+8. **Maintenance is underestimated.** D5 commits to two device layers and measures the
+   others in; the estimate is corrected from the first complete Windows and Metal layers,
+   failure paths included, before S3.
+9. **The headline metric does not move.** Device creation is mostly the driver's; fonts (25 ms
+   on a laptop, LLP 1015 §3) and layout bound cold start next. §4 splits the budget by phase
+   so a gate argues phase by phase.
+
+## 8. The DEFERRED trades
+
+- **Proposed, pending §5 Q14**: a replacement for the Linux painter's exception
+  (`rules/DEFERRED.md` §Runtime, 2026-10-22). Today it admits "compiles its shaders on the
+  first launch on a machine and reads them from a pipeline cache after" with 93 + 77 ms on
+  RADV. The replacement admits the driver's pipeline build from compiled shaders at launch,
+  per platform, with the numbers S0 (Metal, DirectX 11) and S3 (Vulkan, the minisforum's first
+  launch) measure written into the entry, and names the budget each is held to. It is written
+  when those numbers exist, not before.
+- Unchanged: a canvas's module compiles at first use, after first pixel (LLP 1009 D5); games
+  stay on wgpu and the wasm target; the GPU module's ABI (`gpu/README.md`).
+- Separate commitments (§5 Q24): S0's prototype; the Apple carrier; the painted web; the
+  exception. Each is admitted by its own line, or not.
+
+## 9. What S0 decides
+
+The three families named the same alternative in three forms: keep vello and remove its
+costs in place (Muse, Grok), or keep the ink core and let wgpu stay where a direct layer
+earns nothing (Astra). D15 builds both into S0's arms rather than arguing them: B is vello
+improved in place, C is the ink core on wgpu, D is the ink core on a direct device layer,
+all on one path with one workload. Whatever the verdicts, two things land: vello's kept rows,
+and the Windows device layer that wgpu cannot provide. The rest is earned or deleted.
