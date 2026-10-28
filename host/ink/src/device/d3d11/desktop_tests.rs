@@ -73,11 +73,19 @@ impl Shelf {
         command
             .env(
                 "EXACT_INK_DEVICE",
-                if painter == "wgpu" { "wgpu" } else { "d3d11" },
+                match painter {
+                    "wgpu" => "wgpu",
+                    "warp" => "warp",
+                    _ => "d3d11",
+                },
             )
             .env(
                 "EXACT_PAINTER",
-                if painter == "wgpu" { "ink" } else { painter },
+                if matches!(painter, "wgpu" | "warp") {
+                    "ink"
+                } else {
+                    painter
+                },
             )
             .env("EXACT_SIZE", size)
             .env("EXACT_AGENT_WINDOW_READY", "library-count")
@@ -487,6 +495,7 @@ fn shelf_startup_series() {
             let arms = [
                 (&after, "cpu", "cpu"),
                 (&after, "wgpu", "wgpu"),
+                (&after, "warp", "warp-ink"),
                 (&after, "ink", "after"),
             ];
             for step in 0..arms.len() {
