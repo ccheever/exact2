@@ -116,6 +116,14 @@ impl View {
     }
 }
 
+/// An over-long source's identity, which is kept instead of the string.
+fn source_hash(source: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// The core's refusal as an image's `error` says it (Apple's names).
 fn refusal_text(refusal: Refusal) -> &'static str {
     match refusal {
@@ -396,6 +404,7 @@ impl Images {
                     self.backend.cancel(request);
                 }
                 (view.retries, view.retry_at) = (0, None);
+                view.rejected = None;
                 view.source_id = None;
                 view.accepted = None;
                 view.lease = None;
@@ -430,6 +439,7 @@ impl Images {
                 }
                 (view.source_id, view.lease, view.refusal) = (None, None, None);
                 (view.retries, view.retry_at) = (0, None);
+                view.rejected = None;
                 self.package
                     .want(*id, source, view.desired, view.object_fit, view.visible);
                 view.source = source.to_owned();
@@ -466,12 +476,7 @@ impl Images {
                 view.refusal = Some(Refusal::DecodeFailed);
                 self.deferred += 1;
                 // A new assignment, refused: its `error` once (the old picture stays).
-                let digest = {
-                    use std::hash::{Hash, Hasher};
-                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                    source.hash(&mut hasher);
-                    hasher.finish()
-                };
+                let digest = source_hash(source);
                 if view.rejected != Some(digest) {
                     view.rejected = Some(digest);
                     view.assignment += 1;
@@ -534,7 +539,11 @@ impl Images {
                 .node(*id)
                 .and_then(|n| n.props.str(PropId::ImageSource).map(str::to_owned))
                 .unwrap_or_default();
-            if view.symbol_size.is_some() || view.source == source {
+            // (An over-long source is kept as its hash, not the string.)
+            let rejected = view.source.is_empty()
+                && view.rejected.is_some()
+                && view.rejected == Some(source_hash(&source));
+            if view.symbol_size.is_some() || view.source == source || rejected {
                 continue;
             }
             self.remove(*id);

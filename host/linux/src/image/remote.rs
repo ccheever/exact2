@@ -23,13 +23,23 @@ fn without_query(link: &str) -> &str {
     &link[..link.find(['?', '#']).unwrap_or(link.len())]
 }
 
-/// `text` with every link in it (a word with `://`, or one starting `/`) cut
-/// at its query or fragment: a CDN's links carry signatures (Discord's `ex`,
-/// `is`, `hm`), and an image's `error` and the log quote only the host and path.
+/// `text` with every link in it (a word with `://`, one starting `/`, or one
+/// starting with a scheme, `https:host/a`) cut at its query or fragment: a
+/// CDN's links carry signatures (Discord's `ex`, `is`, `hm`), and an image's
+/// `error` and the log quote only the host and path.
 pub(crate) fn without_queries(text: &str) -> String {
+    let schemed = |word: &str| {
+        let word = word.trim_start_matches(|c: char| !c.is_ascii_alphanumeric() && c != '/');
+        word.split_once(':').is_some_and(|(scheme, _)| {
+            scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+        })
+    };
     text.split_inclusive(char::is_whitespace)
         .map(|word| {
-            let link = word.contains("://") || word.starts_with('/');
+            let link = word.contains("://") || word.starts_with('/') || schemed(word);
             (word, link.then(|| word.find(['?', '#'])).flatten())
         })
         .map(|(word, cut)| match cut {

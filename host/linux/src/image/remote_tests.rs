@@ -954,6 +954,14 @@ fn an_errors_links_lose_their_queries() {
     assert_eq!(without_queries("HTTP 404"), "HTTP 404");
     assert_eq!(without_queries("why? because"), "why? because");
     assert_eq!(
+        without_queries("image `https:cdn.example/a.png?hm=1`: x"),
+        "image `https:cdn.example/a.png x"
+    );
+    assert_eq!(
+        without_queries("fill=\"url(https://h/x?hm=s)\""),
+        "fill=\"url(https://h/x"
+    );
+    assert_eq!(
         without_queries("a redirect to //bad:port/a.png?hm=1#f"),
         "a redirect to //bad:port/a.png"
     );

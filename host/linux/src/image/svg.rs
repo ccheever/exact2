@@ -184,18 +184,19 @@ pub(super) fn decode(
     scale: f32,
     cancelled: impl Fn() -> bool,
 ) -> Result<Decoded, Refusal> {
-    // (A link's query, a CDN's signature, is not logged.)
-    let name = &super::remote::without_queries(name);
+    // (A link's query, a CDN's signature, is not logged: the source's, or
+    // one a diagnostic quotes.)
+    let log = |line: String| eprintln!("{}", super::remote::without_queries(&line));
     let text = std::str::from_utf8(bytes).map_err(|_| {
-        eprintln!("exact: image `{name}`: not UTF-8 text");
+        log(format!("exact: image `{name}`: not UTF-8 text"));
         Refusal::DecodeFailed
     })?;
     let loaded = exact_svg_file::load(text).map_err(|e| {
-        eprintln!("exact: image `{name}`: {e}");
+        log(format!("exact: image `{name}`: {e}"));
         Refusal::DecodeFailed
     })?;
     for warning in &loaded.document.warnings {
-        eprintln!("exact: image `{name}`: {warning}");
+        log(format!("exact: image `{name}`: {warning}"));
     }
     if cancelled() {
         return Err(Refusal::Stale);
@@ -203,7 +204,7 @@ pub(super) fn decode(
     let css = css_size(plan.pixels, scale);
     let scene = loaded.scene(css.0, css.1);
     if let Some(limit) = scene.over {
-        eprintln!("exact: image `{name}`: {limit}");
+        log(format!("exact: image `{name}`: {limit}"));
         return Err(Refusal::DecodeFailed);
     }
     if loaded.document.text {
@@ -234,7 +235,8 @@ pub(super) fn paint(
     pixels: PixelSize,
 ) -> Result<Pixmap, Refusal> {
     let drawn = crate::paint::Painter::svg_picture(text, scene, css, scale).map_err(|e| {
-        eprintln!("exact: an SVG image did not draw: {e}");
+        let line = format!("exact: an SVG image did not draw: {e}");
+        eprintln!("{}", super::remote::without_queries(&line));
         Refusal::DecodeFailed
     })?;
     if (drawn.width(), drawn.height()) != (pixels.width, pixels.height) {
