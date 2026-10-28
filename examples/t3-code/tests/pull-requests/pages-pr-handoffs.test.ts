@@ -44,7 +44,7 @@ describe('fix findings handoff', () => {
   });
   test('keeps failing checks in the prompt, having no line to attach them to', () => {
     const handoff = buildFixFindingsHandoff({ ...base, reviewThreads: [], checks: [failingCheck] });
-    expect(handoff.prompt).toContain('> typecheck — 2 errors');
+    expect(handoff.prompt).toContain('> typecheck: 2 errors');
     expect(handoff.reviewComments).toEqual([]);
   });
   test('leaves out a resolved conversation, and one nobody wrote in', () => {
@@ -69,6 +69,13 @@ describe('fix findings handoff', () => {
     expect(texts).not.toContain('reviewer: finding 0');
     expect(handoff.prompt).toContain('typecheck');
     expect(handoff.prompt).toContain('6 further findings were omitted');
+  });
+  test('names a GitLab merge request as one', () => {
+    const handoff = buildFixFindingsHandoff({ ...base, title: 'Add the page', url: 'https://gitlab.com/pingdotgg/t3code/-/merge_requests/42', reviewThreads: [], checks: [] });
+    expect(handoff.prompt).toContain('Fix the actionable findings on MR #42');
+    expect(handoff.prompt).toContain('The MR branch is `feat/page`');
+    expect(handoff.prompt).toContain('inspect the merge request and its failing checks');
+    expect(handoff.prompt).not.toMatch(/\bPR\b|pull request/u);
   });
 });
 
@@ -115,7 +122,7 @@ describe('one finding handed over on its own', () => {
   });
   test('quotes a failing check with what the host reported about it', () => {
     const handoff = buildFixFindingHandoff({ ...base, finding: { kind: 'check', check: { name: 'typecheck', status: 'failure', description: '2 errors', url: null } } });
-    expect(handoff.prompt).toContain('> typecheck — 2 errors');
+    expect(handoff.prompt).toContain('> typecheck: 2 errors');
     expect(handoff.prompt).toContain('Reproduce it locally first');
   });
   test("marks the pull request's own words as untrusted whatever the finding is", () => {
@@ -175,6 +182,13 @@ describe('asking about a change rather than working on it', () => {
     expect(handoff.reviewComments.map(entry => entry.filePath)).toEqual(['PR #42', 'apps/web/src/page.tsx']);
     expect(handoff.reviewComments[0]?.text).not.toContain('Do not change any code');
     expect(handoff.reviewComments[1]?.text).toBe('');
+  });
+  test('explains a GitLab merge request in its own term', () => {
+    const handoff = buildExplainPullRequestHandoff({ ...base, title: 'Add the page', url: 'https://gitlab.com/pingdotgg/t3code/-/merge_requests/42' });
+    expect(handoff.prompt).toBe('Explain this merge request.');
+    expect(handoff.reviewComments[0]?.text).toContain('The merge request is #42');
+    expect(handoff.reviewComments[0]?.text).not.toContain('pull request');
+    expect(resolveConflictsPrompt({ ...base, url: 'https://gitlab.com/pingdotgg/t3code/-/merge_requests/42' })).toMatch(/^MR #42 /u);
   });
 });
 
@@ -343,7 +357,7 @@ describe('the panel hands the pull request over (startAsk, startHandoff)', () =>
     expect(draft).toMatch(/^\[#7\]\(t3-context:\/\/v1\/review-comment\/[a-z0-9_-]+\) $/i);
     expect(pullRequestRecords(client, draft)).toEqual([expect.objectContaining({ kind: 'review-comment', label: '#7', filePath: 'PR #7', pullRequest: expect.objectContaining({ number: 7, url: URL7 }) })]);
     expect(calls.some(call => call.method === 'git.preparePullRequestThread' || /dispatch|launch/.test(call.method))).toBe(false);
-    expect(handoffToasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Asked in a thread', description: 'The pull request is in the composer — type your question, then send.' });
+    expect(handoffToasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Asked in a thread', description: 'The pull request is in the composer. Type your question, then send.' });
   });
   test('Explain then Ask replace their own sentence and chip, and a sentence the reader typed survives both', async () => {
     const { client } = fakeClient(defaults(base()));
@@ -379,7 +393,7 @@ describe('the panel hands the pull request over (startAsk, startHandoff)', () =>
     const draft = client.local.drafts['env:new:p1']!;
     expect(draft).toContain('Fix the actionable findings on PR #7');
     expect(draft).toContain('> lane-second: Needs a line about the format.');
-    expect(draft).toContain('> ci/test — 1 failing');
+    expect(draft).toContain('> ci/test: 1 failing');
     expect(draft).toMatch(/\[notes\.md L3\]\(t3-context:[^)]+\) $/);
     expect(handoffToasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Checkout ready' });
     expect(prState(client).handoff).toBe('');
@@ -445,7 +459,7 @@ describe('the panel hands the pull request over (startAsk, startHandoff)', () =>
     expect((await open(client)).handoffs.pending).toBe('');
     expect(calls.filter(call => call.method === 'git.preparePullRequestThread')).toHaveLength(1);
     expect(client.local.drafts['env:new:p1']).toContain('Fix the failing check quoted below.');
-    expect(client.local.drafts['env:new:p1']).toContain('> ci/test — 1 failing');
+    expect(client.local.drafts['env:new:p1']).toContain('> ci/test: 1 failing');
   });
   test('no project to open a thread on: "Could not open a thread", nothing checked out', async () => {
     const { client, calls } = fakeClient(defaults(base({ projectId: 'gone' })));
@@ -461,7 +475,7 @@ describe('the panel hands the pull request over (startAsk, startHandoff)', () =>
     const view = await open(client);
     expect(view.summary.checks.map(check => check.fix)).toEqual(['', 'finding:check:ci/test:https://ci/2']);
     expect([...view.summary.newest].map(item => item.card.fix).sort()).toEqual(['finding:comment:rv1', 'finding:thread:rt1']);
-    expect(view.handoffs).toEqual({ pending: '', canCheckout: true, threadOwn: false });
+    expect(view.handoffs).toEqual({ pending: '', canCheckout: true, threadOwn: false, term: { short: 'PR', singular: 'pull request', plural: 'pull requests', title: 'Pull request' } });
     await press(client, 'page|conflicts');
     expect(client.local.drafts['env:new:p1']).toBe(resolveConflictsPrompt({ number: 7, url: URL7, headBranch: 'feature/changelog', baseBranch: 'main' }));
   });

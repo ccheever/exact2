@@ -199,7 +199,7 @@ component PrdThreadComment
       column margin-top="0.25rem" min-width=0
         PrdWords(bodyId=comment.bodyId, emptyText="", collapse=false, canEdit=comment.canEdit, pencil=true, hovered=(over or focused), open=open, previewing=previewing, draft=draft, saving=comment.saving, allowEmpty=false, label="Edit comment", placeholder="", previewId=`pr-preview:comment:${comment.id}`, pencilLabel="Edit comment", frameId=`pr-code-comment-body-${comment.id}`, testId=`pr-code-comment-${comment.id}`, still=still, documents=documents, code=code, env=env, local=local, begin=begin, edit=edit, preview=preview, save=save, cancel=cancel)
 
-// PendingReviewCommentCard: dashed, "Pending — sent when you submit the review", a trash to discard it.
+// PendingReviewCommentCard: dashed, "Pending. Sent when you submit the review", a trash to discard it.
 component PrdPendingCard
   props
     id: string
@@ -214,7 +214,7 @@ component PrdPendingCard
     column margin-left="0.75rem" margin-right="0.75rem" margin-top="0.5rem" margin-bottom="0.5rem" padding="0.75rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="dashed" border-color=ptBorder() background-color="light-dark(#ffffff, #000000)" box-shadow="0 1px 2px #0000000d" testId=`pull-request-pending-${id}`
       row align-items="center" gap="0.5rem"
         PgIcon(name="message-square", size=14, color=ptMuted())
-        text "Pending — sent when you submit the review" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=ptMuted()
+        text "Pending. Sent when you submit the review" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=ptMuted()
         button press=discard hover=hover aria-label="Discard this comment" testId=`pull-request-pending-discard-${id}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" align-items="center" justify-content="center" title=""
           svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color=ptMuted() fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
             path d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"

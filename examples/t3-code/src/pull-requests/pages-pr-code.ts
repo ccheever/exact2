@@ -14,6 +14,7 @@ import { DiffFind, markDiffRows, findGap } from '../diff/diff-find';
 // the resource asked again (`wake`), as the panel's other reads do.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { capitalizeTerm, terminologyOf } from '../details/git-logic';
 import { ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
@@ -225,6 +226,8 @@ export function emptyCode() {
     available: false, mounted: false, key: '', phase: 'loading', message: '', raw: [] as { id: string; reason: string; text: string }[],
     // PullRequestDiffUnavailableState: what a failed first slice says, and where the host shows the change.
     errorTitle: '', errorDescription: '', providerName: '', url: '',
+    // DiffPanelLoadingState's label, in the host's term.
+    loadingLabel: 'Loading pull request diff...',
     scopeLabel: 'All commits', allSelected: true, hasCommits: false, commits: [] as { oid: string; short: string; headline: string; selected: boolean }[], moreCommits: 0,
     filesLabel: '0 files', viewedShown: false, viewedCount: '', viewedWord: 'viewed', viewedHere: false, viewedError: '', viewedTruncated: false, withheld: false, commentsOff: false,
     ignoreWhitespace: true, allCollapsed: false, hasFiles: false, layout: 'stacked', wrap: true, tree: false,
@@ -240,6 +243,8 @@ type Body = { id: string; kind: string; title: string; body: string };
 export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeView; bodies: Body[] } {
   const { client, reference, detail, activity } = ctx, view = emptyCode();
   const capabilities = obj(detail.capabilities), permissions = obj(detail.viewerPermissions);
+  const term = terminologyOf(str(detail.provider) || undefined).singular;
+  view.loadingLabel = `Loading ${term} diff...`;
   view.available = capabilities.diff === true;
   const code = ctx.state ?? peekCode(client);
   if (!code || (!ctx.state && code.key !== `${client.environmentId}|${pullRequestReviewKey(reference)}`) || !code.mounted || !view.available) return { view, bodies: [] };
@@ -320,7 +325,7 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   view.threadPending = code.threads.pending;
   // The tree lists only what has arrived; its footer pulls the rest in.
   const entries = diffFileTreeEntries(files.map(file => ({ path: file.path, status: file.status })));
-  view.treeRows = diffTreeRows(entries, code.treeClosed, code.treeSelected); view.treeLabel = `Pull request #${num(detail.number)} files`; view.treeCount = entries.length;
+  view.treeRows = diffTreeRows(entries, code.treeClosed, code.treeSelected); view.treeLabel = `${capitalizeTerm(term)} #${num(detail.number)} files`; view.treeCount = entries.length;
   view.treeFolders = collectDirectoryPaths(paths).length > 0; view.treeAllOpen = allDirectoriesExpanded(paths, code.treeClosed);
   view.treeFooter = nextCursor === null ? '' : code.diffError ? 'Retry' : code.diffDue ? 'Loading more files...' : 'Load more files';
   view.treeBusy = nextCursor !== null && code.diffDue;
@@ -330,12 +335,12 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   if (code.slices.length === 0 && code.diffError) {
     view.phase = 'error'; view.message = code.diffError;
     view.providerName = sourceControlHostName(str(detail.provider, 'github')); view.url = str(detail.url);
-    const words = describePullRequestDiffError(code.diffError, view.providerName);
+    const words = describePullRequestDiffError(code.diffError, view.providerName, term);
     view.errorTitle = words.title; view.errorDescription = words.description;
   }
   else if (code.slices.length === 0) view.phase = 'loading';
   else if (files.length === 0 && raw.length > 0) view.phase = 'raw';
-  else if (rows.items.length === 0 && nextCursor === null) { view.phase = 'empty'; view.message = code.commit === null ? 'This pull request has no file changes.' : 'This commit has no file changes.'; }
+  else if (rows.items.length === 0 && nextCursor === null) { view.phase = 'empty'; view.message = code.commit === null ? `This ${term} has no file changes.` : 'This commit has no file changes.'; }
   else view.phase = 'files';
   return { view, bodies: threadBodies(code.threads, threads) };
 }

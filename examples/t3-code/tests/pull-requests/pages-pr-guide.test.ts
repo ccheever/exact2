@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { obj } from '../../src/client/domain';
+import { obj, type Obj } from '../../src/client/domain';
 import { connected } from '../support/client-fixture';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { ATTENTION_LABELS, decodeGuideResult, guideRunKey, guideState, moveGuide, settleGuideWatch, type GuideResult } from '../../src/pull-requests/pages-pr-guide-logic';
@@ -73,6 +73,9 @@ test('guide query and generate stay on the original background environment, dedu
   entry.scopes = ['orchestration:read']; guideEntry(client, ctx.reference).result.run = null;
   await expect(generateGuide(ctx)).rejects.toThrow('orchestration:operate');
   expect(calls).toHaveLength(2);
+  // useReviewGuideWriter's copy names the settings page "Source control".
+  (entry.config as { settings: Obj }).settings = { reviewGuidesEnabled: false };
+  await expect(generateGuide(ctx)).rejects.toThrow('Enable review guides in Settings → Source control.');
 });
 
 

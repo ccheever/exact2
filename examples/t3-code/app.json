@@ -26,8 +26,7 @@
     "name": "T3 Code (Exact)"
   },
   "modules": [
-    "t3-ssh-password",
-    "t3-browser"
+    "t3-ssh-password"
   ],
   "commands": {
     "terminal": ["bun", "terminal-host/build.mjs"],

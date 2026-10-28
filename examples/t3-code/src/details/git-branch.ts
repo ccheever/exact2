@@ -10,6 +10,7 @@
 // seeds it from the project's "Start new worktrees from origin" setting).
 import type { T3Client } from '../client/client';
 import { arr, obj, str, num, type Obj } from '../client/domain';
+import { splitForMiddleTruncate } from './middle-truncate';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { canOverrideServerEnv, composerBranches, draftContext, refBadge, sanitizeNewRefName, selectBranch, serverEnvBranch, serverEnvMode, serverOrigin, toggleServerOrigin } from '../composer/composer-controls-branch';
 import { fanoutSelections } from '../composer/composer-controls-fanout';
@@ -81,7 +82,7 @@ export function includeRef(name: string, query: string): boolean {
 }
 
 export type CardBranch = Awaited<ReturnType<typeof cardBranchView>>;
-const hiddenView = { show: false, open: false, label: '', value: '', disabled: true, query: '', refs: [] as { name: string; badge: string; selected: boolean; index: number }[],
+const hiddenView = { show: false, open: false, label: '', labelHead: '', labelTail: '', value: '', disabled: true, query: '', refs: [] as { name: string; badge: string; selected: boolean; index: number }[],
   creatable: '', status: '', empty: '', enterOp: '', enterValue: '', originShown: false, originOn: false, count: 0, checkout: [] as CheckoutItem[] };
 /** The branch row and its picker for the card's workspace (`cwd`). */
 export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean) {
@@ -113,8 +114,10 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
   const loading = !refs;
   // A local draft's search that parses as a pull request reference leads with "Checkout pull request".
   const checkout = state.open === 'branch' ? checkoutItems(client, query, peekVcsStatus(client, cwd)) : [];
+  // MiddleTruncate: the label keeps its last segment when the row is too narrow for it.
+  const split = splitForMiddleTruncate(label);
   return {
-    show: true, open: state.open === 'branch', label, value, disabled: loading, query: state.query,
+    show: true, open: state.open === 'branch', label, labelHead: split?.head ?? '', labelTail: split?.tail ?? '', value, disabled: loading, query: state.query,
     refs: list.map((ref, index) => ({ name: str(ref.name), badge: refBadge(ref, root), selected: ref.name === value, index: index + checkout.length })),
     creatable, status: refsStatus(refs, loading),
     empty: !list.length && !creatable && !checkout.length ? (loading ? '' : 'No refs found.') : '',
