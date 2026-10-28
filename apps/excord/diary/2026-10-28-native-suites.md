@@ -17,9 +17,15 @@ task: Excord's contract suites on the iPhone simulator and the Mac
   the leaving sheet frees UIKit's presentation, and `clock settle` did not count those
   retries: it reported a fixed point with the card not yet shown. They count now
   (`MenuHost.waitingShows`).
+- On the iPhone, the account alert's Close was refused as unavailable: the agent's tap
+  first light-dismissed the painted account menu under the alert, and that menu held
+  the button the alert came from. A touch on an open alert never reaches the page, so
+  the agent's no longer dismisses through it.
+- "retrying older history at the exact top" typed Home at the transcript, which on Apple
+  hosts goes to the composer. It now drags to the top, as a phone does; on the Mac a
+  drag selects text, so that test still fails there (QUEUE.md).
 
 ### Checkpoints
 
-- ios: `members`, `typing`, `routing`, `translate` and `viewer` pass; `app` has the two
-  failures QUEUE.md names for the iPhone simulator (account details, Home at the top).
+- ios: every suite passes (`app` 69, one skipped).
 - macos: `members` and `typing` pass.

@@ -837,9 +837,9 @@ final class MenuHost {
         }
     }
 
-    /// Dismiss before resolving the tap; its accepted press owns invocation.
+    /// Dismiss before resolving the tap, unless it is on the open alert; its accepted press owns invocation.
     func agentTap(_ node: NodeView, landing: UIView? = nil) {
-        guard ExactEnv.agentPaints else { return }
+        guard ExactEnv.agentPaints, confirmation?.popover.map({ node.isDescendant(of: $0) }) != true else { return }
         lightDismiss(landing ?? node)
         #if os(tvOS)
         // tvOS retains its existing agent presentation; Select is unchanged.

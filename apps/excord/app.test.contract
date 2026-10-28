@@ -1132,7 +1132,13 @@ test "retrying older history at the exact top keeps the first visible message"
   clock settle
   tap "mark-read"
   fail fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  // Home reaches the top on the web and Windows; on Apple hosts it goes to the composer, so
+  // a finger's drags follow, as a phone reaches it (on a Mac a drag selects text instead).
   type "transcript" key "Home"
+  tap "transcript" drag 0 2500
+  tap "transcript" drag 0 2500
+  tap "transcript" drag 0 2500
+  tap "transcript" drag 0 2500
   clock settle
   expect state pageTries == 3
   expect state historyStart == true
