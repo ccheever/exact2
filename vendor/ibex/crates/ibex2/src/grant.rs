@@ -74,6 +74,13 @@ impl PathPrefix {
                 return None;
             }
             ("doc:", path)
+        } else if let Some(found) = ["home:", "bundle:"]
+            .into_iter()
+            .find_map(|ns| Some((ns, path.strip_prefix(ns)?.strip_prefix('/')?)))
+        {
+            // Exact patch (exact2 LLP 1133.007 D6): the person's home
+            // directory and the app's installed bundle, resolved by the host.
+            found
         } else if path.starts_with('/') {
             ("", path)
         } else {
@@ -280,7 +287,7 @@ impl GrantSet {
                 if prefix
                     .0
                     .first()
-                    .is_some_and(|p| p == "app:" || p == "doc:" || p.starts_with("win:"))
+                    .is_some_and(|p| p.ends_with(':') || p.starts_with("win:"))
                 {
                     return prefix.clone();
                 }
@@ -482,6 +489,8 @@ impl GrantSet {
                             index + 1
                         )
                     })?;
+                    namespace_refusal(capability, &prefix)
+                        .map_err(|e| format!("line {}: `{target}`: {e}", index + 1))?;
                     match capability {
                         "fs.read" => Grant::FsRead(prefix),
                         "fs.write" => Grant::FsWrite(prefix),
@@ -623,6 +632,22 @@ pub fn is_local_network(host: &str, loopback: bool) -> bool {
     }
     let name = host.strip_suffix('.').unwrap_or(&host);
     name.ends_with(".local") && name.len() > ".local".len() || loopback && name == "localhost"
+}
+
+/// Exact patch (exact2 LLP 1133.007 D6): why a path line's namespace refuses
+/// it. A line naming the whole home directory would stop meaning anything
+/// (`home-grant-whole`), and the bundle is read only.
+fn namespace_refusal(capability: &str, prefix: &PathPrefix) -> Result<(), String> {
+    match prefix.components() {
+        [home] if home == "home:" => Err(
+            "home-grant-whole: a line names a subtree of the home directory, such as `home:/.ssh`"
+                .into(),
+        ),
+        [bundle, ..] if bundle == "bundle:" && capability != "fs.read" => Err(format!(
+            "the bundle is read only: `{capability}` cannot name it"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// A CSP3 `scheme-source`: a scheme and its colon, with nothing after it.

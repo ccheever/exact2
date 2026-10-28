@@ -20,6 +20,7 @@
 use std::collections::BTreeSet;
 mod local;
 mod presence;
+pub mod process;
 mod windows_path;
 pub use local::{is_local_network, is_service_type, DEVELOPMENT, LOCAL_NETWORK};
 pub use presence::{
@@ -78,10 +79,13 @@ impl PathPrefix {
         }
         // `doc:/` names the documents a person chose (Exact patch: LLP
         // 1069.010 D1), a namespace beside `app:/` resolved by the host.
-        let (namespace, path) = if let Some(path) = path.strip_prefix("app:/") {
-            ("app:", path)
-        } else if let Some(path) = path.strip_prefix("doc:/") {
-            ("doc:", path)
+        // `home:/` and `bundle:/` name the person's home directory and the
+        // app's installed bundle (LLP 1133.007 D6), resolved by the host.
+        let namespace = ["app:", "doc:", "home:", "bundle:"]
+            .into_iter()
+            .find_map(|ns| Some((ns, path.strip_prefix(ns)?.strip_prefix('/')?)));
+        let (namespace, path) = if let Some(found) = namespace {
+            found
         } else if path.starts_with('/') {
             ("", path)
         } else {
@@ -279,7 +283,7 @@ impl GrantSet {
             if prefix
                 .0
                 .first()
-                .is_some_and(|p| p == "app:" || p == "doc:" || p.starts_with("win:"))
+                .is_some_and(|p| p.ends_with(':') || p.starts_with("win:"))
             {
                 return prefix.clone();
             }
@@ -483,6 +487,8 @@ impl GrantSet {
                             index + 1
                         )
                     })?;
+                    namespace_refusal(capability, &prefix)
+                        .map_err(|e| format!("line {}: `{target}`: {e}", index + 1))?;
                     match capability {
                         "fs.read" => Grant::FsRead(prefix),
                         "fs.write" => Grant::FsWrite(prefix),
@@ -538,6 +544,22 @@ impl GrantSet {
 
 #[cfg(test)]
 mod quoted_tests;
+
+/// Why a path line's namespace refuses it (LLP 1133.007 D6): a line naming
+/// the whole home directory would stop meaning anything
+/// (`home-grant-whole`), and the bundle is read only.
+pub fn namespace_refusal(capability: &str, prefix: &PathPrefix) -> Result<(), String> {
+    match prefix.components() {
+        [home] if home == "home:" => Err(
+            "home-grant-whole: a line names a subtree of the home directory, such as `home:/.ssh`"
+                .into(),
+        ),
+        [bundle, ..] if bundle == "bundle:" && capability != "fs.read" => Err(format!(
+            "the bundle is read only: `{capability}` cannot name it"
+        )),
+        _ => Ok(()),
+    }
+}
 
 /// A CSP scheme source ([CSP3 `scheme-source`](https://www.w3.org/TR/CSP3/#grammardef-scheme-source)):
 /// a scheme and its colon, nothing else.

@@ -60,7 +60,12 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if own(line) {
+        if exact_grants::process::is_process_line(line) {
+            match exact_grants::process::validate(line) {
+                Ok(()) => lines.push(line),
+                Err(error) => errors.push(format!("line {}: {error}", index + 1)),
+            }
+        } else if own(line) {
             lines.push(line);
         } else {
             let read = match link {
@@ -76,6 +81,9 @@ pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String
                 )),
             }
         }
+    }
+    if let Some(twice) = exact_grants::process::named_twice(spec) {
+        errors.push(twice);
     }
     if errors.is_empty() {
         Ok(Grants { lines })
@@ -123,9 +131,13 @@ pub fn refusal(errors: &[String]) -> String {
 /// kept documents (`doc.keep`, LLP 1069.010.000 D7), by the module
 /// admission of `@exact/browser-automation`'s names (`browser.automation`,
 /// LLP 1020.002 D9) and of `@exact/local-network`'s service types
-/// (`net.dns-sd <type>`, LLP 1133.036 D7), never by the I/O executor.
+/// (`net.dns-sd <type>`, LLP 1133.036 D7), never by the I/O executor's
+/// grammar; and the desktop-process lines (`process.spawn`, `env.read
+/// login:`, `secret.hold`, LLP 1133.007 §6), which the runner and the data
+/// executor read with `exact_grants::process`.
 pub(crate) fn own(line: &str) -> bool {
     line == "doc.keep"
+        || exact_grants::process::is_process_line(line)
         || line.starts_with("net.dns-sd ")
         || line == "browser.automation"
         || line.starts_with("surface.read ")
@@ -376,6 +388,20 @@ mod tests {
         );
         assert!(json.contains("line 4: `camelCase`"), "{json}");
         assert!(json.contains("\"seal\":\""), "{json}");
+    }
+
+    /// The desktop-process lines (LLP 1133.007 §6) are the runner's own:
+    /// read whole here, never handed to the I/O grammar, and a name is
+    /// kept or held, not both.
+    #[test]
+    fn process_lines_are_own_lines_read_whole() {
+        let spec = "process.spawn path:ssh\nenv.read login:PATH\nsecret.hold ssh.password\nfs.read home:/.ssh";
+        assert_eq!(super::parse(spec).unwrap().lines().len(), 4);
+        assert_eq!(crate::io_grants(spec), "fs.read home:/.ssh");
+        assert!(super::parse("process.spawn path:a/b").unwrap_err()[0].starts_with("line 1: "));
+        let twice = super::parse("secret.keep ssh.password\nsecret.hold ssh.password").unwrap_err();
+        assert!(twice[0].starts_with("secret-name-twice"), "{twice:?}");
+        assert!(super::parse("fs.read home:/").unwrap_err()[0].contains("home-grant-whole"));
     }
 
     /// `browser.automation` is the runner's own line and names no target

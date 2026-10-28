@@ -493,5 +493,13 @@
    "websocket":[["ws://127.0.0.1:4790/",false]]},
   {"spec":"net.fetch local-network production", "ok":false},
   {"spec":"net.websocket local-network development extra", "ok":false},
-  {"spec":"net.fetch local-network:", "ok":false}
+  {"spec":"net.fetch local-network:", "ok":false},
+  {"spec":"fs.read home:/.ssh\nfs.write home:/.t3\nfs.read bundle:/Resources/t3-runtime", "ok":true,
+   "fs":[["fs.read","home:/.ssh/config",true],["fs.read","home:/.ssh2",false],["fs.write","home:/.t3/userdata",true],["fs.write","home:/.ssh/config",false],
+         ["fs.read","bundle:/Resources/t3-runtime/a",true],["fs.write","bundle:/Resources/t3-runtime/a",false],["fs.read","/Resources/t3-runtime/a",false],["fs.read","app:/.ssh",false]]},
+  {"spec":"fs.read home:/", "ok":false},
+  {"spec":"fs.write home:/", "ok":false},
+  {"spec":"fs.write bundle:/Resources", "ok":false},
+  {"spec":"sqlite.open bundle:/Resources/db", "ok":false},
+  {"spec":"fs.read home:.ssh", "ok":false}
 ]

@@ -1283,7 +1283,7 @@ const grantTupleValid = grant => {
   if (Object.hasOwn(schemeGrants, grant[0])) return grant.length === 2 && schemeGrants[grant[0]].includes(grant[1]);
   if (localGrants.has(grant[0])) return grant.length === 1 || grant.length === 2 && grant[1] === 'development';
   if (pathGrants.has(grant[0])) return grant.length >= 2
-    && (['', 'app:', 'doc:'].includes(grant[1]) || nativeNamespace(grant[1]))
+    && (['', 'app:', 'doc:', 'home:', 'bundle:'].includes(grant[1]) || nativeNamespace(grant[1]))
     && grant.slice(2).every(component => nativeNamespace(grant[1]) ? nativeLeaf(component)
       : typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
@@ -1297,7 +1297,7 @@ const pathTuple = (kind, target) => {
   }
   const at = target.indexOf(':/');
   const namespace = at < 0 ? target.startsWith('/') ? '' : null : target.slice(0, at) + ':';
-  if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
+  if (namespace == null || !['', 'app:', 'doc:', 'home:', 'bundle:'].includes(namespace)) return null;
   const rest = at < 0 ? target.slice(1) : target.slice(at + 2);
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..') ? null : [kind, namespace, ...parts];
@@ -1349,7 +1349,7 @@ const sourceTuple = source => {
   if (capability === 'storage.kv') return ['storage-kv', target];
   return null;
 };
-const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|net\.dns-sd |doc\.keep$|browser\.automation$)/.test(source);
+const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|net\.dns-sd |process\.spawn |secret\.hold |env\.read login:|doc\.keep$|browser\.automation$)/.test(source);
 const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);
@@ -1437,7 +1437,7 @@ function grantPathParts(path) {
   if (typeof path !== 'string') return null;
   const at = path.indexOf(':/');
   const namespace = at < 0 ? path.startsWith('/') ? '' : null : path.slice(0, at) + ':';
-  if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
+  if (namespace == null || !['', 'app:', 'doc:', 'home:', 'bundle:'].includes(namespace)) return null;
   const rest = at < 0 ? path.slice(1) : path.slice(at + 2);
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..' || part.includes('\0')) ? null : [namespace, ...parts];
