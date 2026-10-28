@@ -124,6 +124,11 @@ pub struct Reads {
     /// `k`, bit 63 for 63 and past; every bit when read other than one
     /// field at a time): LLP 1017.003 D6. Meaningful with bit 0 of `frames`.
     pub(crate) fields: u64,
+    /// Enclosing frames whose POSITION is read (`each item, i in list`,
+    /// LoadIndex), by relative depth as `frames`: bit 0 says a row's body
+    /// reads its own position, at any depth, so a row that moved must
+    /// re-evaluate (LLP 1062 D8); one that reads none keeps its bindings.
+    pub(crate) positions: u64,
     /// Whether any row slot is among `bits`.
     pub(crate) row_slots: bool,
     /// Reads a parameter or has an effect: never skipped.
@@ -147,6 +152,7 @@ impl Reads {
             self.fields = !0;
         }
         self.frames |= frames;
+        self.positions |= out_of(other.positions, shift);
         self.row_slots |= other.row_slots;
         self.opaque |= other.opaque;
     }
@@ -154,6 +160,10 @@ impl Reads {
     #[cfg(test)]
     pub(crate) fn constant(&self) -> bool {
         self.bits.is_empty() && self.frames == 0 && !self.opaque
+    }
+    /// Whether these reads, a row's body's, read the row's own position.
+    pub(crate) fn reads_position(&self) -> bool {
+        self.positions & 1 != 0
     }
     /// The same reads seen from `shift` scopes further out.
     pub(crate) fn frames_outside(&self, shift: u32) -> u64 {
@@ -492,6 +502,9 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
             }
             Opcode::LoadItem | Opcode::LoadBound | Opcode::LoadIndex => {
                 reads.frames |= 1 << index.min(63);
+                if i.op == Opcode::LoadIndex {
+                    reads.positions |= 1 << index.min(63);
+                }
                 if index == 0 {
                     // One field of the innermost frame's value, or all of it
                     // (its position, LLP 1062 D8, counts as all of it).
