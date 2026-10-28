@@ -19,21 +19,34 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
 /// `link` cut at its query or fragment, whatever its form.
-fn without_query(link: &str) -> &str {
+pub(crate) fn without_query(link: &str) -> &str {
     &link[..link.find(['?', '#']).unwrap_or(link.len())]
 }
 
+/// `text` about source `source` with no link's query: the source itself, quoted
+/// whole (a space in it too), cut at its query, then [`without_queries`].
+pub(crate) fn redacted(text: &str, source: &str) -> String {
+    let text = if source.is_empty() {
+        text.into()
+    } else {
+        text.replace(source, without_query(source))
+    };
+    without_queries(&text)
+}
+
 /// `text` with every link in it cut at its query or fragment: in each word,
-/// the first `?` or `#` after a `/` or `:` (a scheme, a path, a link wrapped in
-/// `url(…)` or backticks) ends it. A CDN's links carry signatures (Discord's
+/// the first `?` or `#` after a `/`, a `:` or a `url(` (a scheme, a path, a
+/// link wrapped in `url(…)` or backticks, a relative `url(a.css?…)`) ends it. A CDN's links carry signatures (Discord's
 /// `ex`, `is`, `hm`), and an image's `error` and the log quote only the host
 /// and path. A question (`why?`) has neither, and is left be.
 pub(crate) fn without_queries(text: &str) -> String {
     text.split_inclusive(char::is_whitespace)
         .map(|word| {
-            let cut = word
-                .find(['/', ':'])
-                .and_then(|at| word[at..].find(['?', '#']).map(|q| at + q));
+            let marker = [word.find(['/', ':']), word.find("url(")]
+                .into_iter()
+                .flatten()
+                .min();
+            let cut = marker.and_then(|at| word[at..].find(['?', '#']).map(|q| at + q));
             match cut {
                 Some(cut) => format!("{}{}", &word[..cut], &word[word.trim_end().len()..]),
                 None => word.to_owned(),

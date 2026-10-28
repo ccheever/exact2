@@ -953,6 +953,15 @@ fn an_errors_links_lose_their_queries() {
     assert_eq!(without_queries("ftp://h/p#frag"), "ftp://h/p");
     assert_eq!(without_queries("HTTP 404"), "HTTP 404");
     assert_eq!(without_queries("why? because"), "why? because");
+    assert_eq!(
+        without_queries("@import url(a.css?hm=secret);"),
+        "@import url(a.css"
+    );
+    let spaced = "https://h/a b.png?hm=secret";
+    assert_eq!(
+        super::redacted(&format!("image {spaced}: gone"), spaced),
+        "image https://h/a b.png: gone"
+    );
     assert_eq!(without_queries("image `/a.svg?hm=1`: x"), "image `/a.svg x");
     assert_eq!(
         without_queries("image `//cdn.example/a.svg?hm=1`: x"),

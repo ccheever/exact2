@@ -186,7 +186,7 @@ pub(super) fn decode(
 ) -> Result<Decoded, Refusal> {
     // (A link's query, a CDN's signature, is not logged: the source's, or
     // one a diagnostic quotes.)
-    let log = |line: String| eprintln!("{}", super::remote::without_queries(&line));
+    let log = |line: String| eprintln!("{}", super::remote::redacted(&line, name));
     let text = std::str::from_utf8(bytes).map_err(|_| {
         log(format!("exact: image `{name}`: not UTF-8 text"));
         Refusal::DecodeFailed

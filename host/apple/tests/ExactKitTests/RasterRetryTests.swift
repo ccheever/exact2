@@ -230,6 +230,8 @@ final class RasterRetryTests: XCTestCase {
         XCTAssertEqual(RasterRetry.withoutQueries("at https:cdn.example/a.png?hm=1"), "at https:cdn.example/a.png")
         XCTAssertEqual(RasterRetry.withoutQueries("`//h/a.svg?hm=1`: fill=\"url(https:h/x?hm=s)\""), "`//h/a.svg fill=\"url(https:h/x")
         XCTAssertEqual(RasterRetry.withoutQueries("HTTP 503: why?"), "HTTP 503: why?")
+        XCTAssertEqual(RasterRetry.withoutQueries("@import url(a.css?hm=secret);"), "@import url(a.css")
+        XCTAssertEqual(RasterRetry.redacted("at https://h/a b.png?hm=s: gone", source: "https://h/a b.png?hm=s"), "at https://h/a b.png: gone")
         XCTAssertTrue(RasterRetry.transient(URLError(.timedOut)))
         XCTAssertTrue(RasterRetry.transient(RasterHTTPStatus(code: 502)))
         XCTAssertTrue(RasterRetry.transient(RasterHTTPStatus(code: 429)))

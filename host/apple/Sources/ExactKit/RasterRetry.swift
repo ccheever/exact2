@@ -77,10 +77,18 @@ enum RasterRetry {
     /// in `url(…)` or backticks) ends it. A CDN's links carry signatures
     /// (Discord's `ex`, `is`, `hm`), and an image's `error` quotes only the host
     /// and path (the Linux host's `remote::without_queries`).
+    /// `text` about source `source` with no link's query: the source quoted
+    /// whole (a space in it too) cut at its query, then `withoutQueries`.
+    static func redacted(_ text: String, source: String) -> String {
+        let bare = source.firstIndex(where: { $0 == "?" || $0 == "#" }).map { String(source[..<$0]) } ?? source
+        return withoutQueries(source.isEmpty ? text : text.replacingOccurrences(of: source, with: bare))
+    }
     static func withoutQueries(_ text: String) -> String {
         var out = "", word = ""
         func flush() {
-            if let marker = word.firstIndex(where: { $0 == "/" || $0 == ":" }),
+            let wrapped = word.range(of: "url(")?.lowerBound
+            let marker = [word.firstIndex(where: { $0 == "/" || $0 == ":" }), wrapped].compactMap { $0 }.min()
+            if let marker,
                let cut = word[marker...].firstIndex(where: { $0 == "?" || $0 == "#" }) { word = String(word[..<cut]) }
             out += word; word = ""
         }

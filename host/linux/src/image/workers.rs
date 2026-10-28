@@ -73,7 +73,7 @@ impl SourceOwner {
         downloads.forget(&self.name, &body);
         eprintln!(
             "exact: image {}: {message}",
-            remote::without_queries(&self.name)
+            remote::without_query(&self.name)
         );
         *self.message.lock().unwrap() = Some(message);
     }
@@ -376,10 +376,10 @@ impl Backend {
             // The reason is the image's `error` and the log's, once for the
             // source; neither quotes a link's query (a CDN's signature).
             Some(Err(failure)) => {
-                let message = remote::without_queries(&failure.message);
+                let message = remote::redacted(&failure.message, &source.name);
                 eprintln!(
                     "exact: image {}: {message}",
-                    remote::without_queries(&source.name)
+                    remote::without_query(&source.name)
                 );
                 *source.message.lock().unwrap() = Some(message);
                 *source.transient.lock().unwrap() = failure

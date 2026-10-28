@@ -258,7 +258,8 @@ fn a_load_waiting_is_sent_only_to_the_node_and_source_it_landed_for_and_owes_a_t
     );
     p.apply_reports(Vec::new());
     assert_eq!(loads(&mut p), 0.);
-    assert!(p.images.load_events.is_empty());
+    // (The missing file's own `error` may wait: no `load` does.)
+    assert!(!p.images.load_events.iter().any(|e| e.error.is_none()));
     // Its own node and source: sent.
     p.images
         .load_events
