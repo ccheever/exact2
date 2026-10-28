@@ -29,22 +29,18 @@ impl<D: DataSource> Presenter<D> {
     /// A source's first picture sends its `load` to an image that hears it
     /// (LLP 1011 §4) and is still that node showing that source, assigned
     /// that time, as it is sent: since it landed, input, a timer or an
-    /// earlier load's action may have changed any of them. The work due by
-    /// the later of the host's and the runner's time (a mutation's `then`
-    /// armed at an earlier load's commit; a timer a loop deferred) runs
-    /// first, once, with the load still queued, so a source it changes drops
-    /// it (`Images::sync_shown`); the load is then sent with nothing run
-    /// before its handler (`Host::dispatch_now`). Loads that land meanwhile
-    /// wait for the next turn (owed at once). Whether any was sent.
+    /// earlier load's action may have changed any of them. It is sent with
+    /// nothing run before its handler (`Host::dispatch_now`), so the handler
+    /// sees what was checked; what the clock owes runs after, at the loop's
+    /// next advance. A source changed and changed back between two of the
+    /// presenter's image syncs (commits of one advance) was never shown
+    /// changed, and counts as unchanged. Loads are taken one at a time, so a
+    /// source an earlier load's action changes drops the rest's
+    /// (`Images::sync_shown`), and at most as many as were waiting: a handler
+    /// that keeps changing sources can't hold the loop. Whether any was sent.
     pub(crate) fn deliver_image_loads(&mut self) -> bool {
         let mut loads = false;
         for _ in 0..self.images.load_events.len() {
-            let cutoff = self.host.now().max(self.host.runner().now_ms());
-            if self.host.timer_due_ms().is_some_and(|due| due <= cutoff) {
-                if let Some(error) = self.advance(cutoff) {
-                    self.host.log(error);
-                }
-            }
             if self.images.load_events.is_empty() {
                 break;
             }

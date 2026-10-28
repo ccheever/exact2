@@ -385,7 +385,10 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   cannot decode is not kept. Linux, Android and Windows send `load`, once a
   source assignment, when its first picture is accepted for drawing (one
   from the cache too), after that pass's sizes, and not again for a re-decode
-  or an unchanged source shown again; they send no `error` yet (LLP 1011.001): a
+  or an unchanged source shown again (one changed and changed back between
+  two of the presenter's image syncs, the commits of one turn, counts as
+  unchanged); the handler runs with nothing the clock owes run before it,
+  on the node and source checked; they send no `error` yet (LLP 1011.001): a
   failed download, or a body this host cannot decode, is a line on stderr
   (`exact: image <url>: HTTP 404`). Linux and Windows decode PNG and SVG
   bodies; a JPEG, GIF or WebP body fails there as a bundled one does, and
