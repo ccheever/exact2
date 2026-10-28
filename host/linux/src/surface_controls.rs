@@ -935,7 +935,10 @@ impl<D: DataSource> Presenter<D> {
     /// A press's event: the modifiers held, and a pointer's point (the
     /// keyboard's press has none, as a browser's synthetic click is at 0, 0).
     pub(crate) fn press_event(&self, pointer: bool) -> Event {
-        let (client_x, client_y) = pointer.then_some(self.press_point).flatten().unwrap_or_default();
+        let (client_x, client_y) = pointer
+            .then_some(self.press_point)
+            .flatten()
+            .unwrap_or_default();
         Event::pressed(exact_runner::MouseEvent {
             client_x: client_x.into(),
             client_y: client_y.into(),

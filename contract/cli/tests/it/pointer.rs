@@ -194,7 +194,8 @@ fn a_press_hears_where_the_pointer_was() {
         .unwrap()
         .id;
     r.dispatch(a, Event::press("30.5,8").unwrap()).unwrap();
-    r.dispatch(a, Event::press("120,40,Shift+").unwrap()).unwrap();
+    r.dispatch(a, Event::press("120,40,Shift+").unwrap())
+        .unwrap();
     r.dispatch(a, Event::Press).unwrap();
     assert_eq!(r.slot("log"), Some(&Value::str("30.5,8;120,40+shift;0,0;")));
     assert_eq!(Event::press("0,0,"), Some(Event::Press));

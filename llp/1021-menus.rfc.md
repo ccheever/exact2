@@ -689,8 +689,10 @@ A press's `MouseEvent` carries `clientX` and `clientY`, from the viewport's
 top-left in CSS px (`frame()`'s space, as a `PointerEvent`'s, LLP 1094 D11).
 A press from the keyboard or an assistive technology is at 0, 0, as the
 `click` Chrome dispatches for one is; a page tests for that and leaves the
-insets `auto`, so the menu opens at its invoker. An agent's `tap` is a pointer's
-press at its point.
+insets `auto`, so the menu opens at its invoker. A native button's click or
+tap carries its point as any node's does (on the Mac, the press AppKit's
+button tracked; on iOS, the touch that lifted). An agent's `tap` is a
+pointer's press at its point.
 
 A popover whose author wrote `left` or `top` is placed by them, not by its
 invoker: its border box's top-left at the inset past its margin, as CSS places
