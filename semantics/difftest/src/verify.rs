@@ -1,15 +1,6 @@
-//! `difftest verify <file.contract>`: one app against the semantics, for
-//! its author (`contract verify` runs it).
-//!
-//! The program's `test` blocks (its own, those of an `<stem>.test.contract`
-//! beside it and, for an `app.contract`, those of every other
-//! `*.test.contract` beside it) and an explore script run on the
-//! runner and the Lean semantics; a divergence names the step where the
-//! two first differ, where that step is written, the element it reached
-//! and the declaration whose line differs. `--types` runs the Lean type
-//! checker on the program; `--prove <Module>` regenerates
-//! `semantics/Apps/<Module>.lean` and builds the proofs of it under
-//! `semantics/Apps/Proofs/`.
+//! App properties and refusal findings under the seeded oracle. Search and
+//! shrinking run on the runner before Lean confirms authored scripts, findings
+//! and a walk sample. The last output is the reproducing receipt.
 
 use crate::script::{Case, Event, Scripted};
 use crate::{check, compile, expectations_on, leanrun, oracle, work_dir, Verdict};
@@ -18,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// What to run besides the differential run.
-#[derive(Default)]
 pub struct Options {
     /// The Lean type checker on the program.
     pub types: bool,
@@ -26,16 +16,46 @@ pub struct Options {
     pub runner_only: bool,
     /// Regenerate this module's embedding and build its proofs.
     pub prove: Option<String>,
+    /// Number of adaptive walks.
+    pub walks: usize,
+    /// Maximum new primitive events per walk, including input landings.
+    pub steps: usize,
+    /// Seed for walk selection; defaults to the app path.
+    pub walk_seed: Option<u64>,
+    /// Walks to confirm with Lean.
+    pub confirm: usize,
 }
 
-/// A case with where each of its events is written, when a test wrote it.
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            types: false,
+            runner_only: false,
+            prove: None,
+            walks: 20,
+            steps: 40,
+            walk_seed: None,
+            confirm: 2,
+        }
+    }
+}
+
+#[derive(Clone)]
 struct Located {
     scripted: Scripted,
     steps: Vec<(PathBuf, Span)>,
 }
+struct Found {
+    located: Located,
+    observation: Vec<String>,
+    predicate: crate::finding::Predicate,
+    store_only: bool,
+}
 
-/// Run everything `options` asks for; whether all of it passed.
+/// Search on the runner, shrink its findings, then confirm with the semantics.
 pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
+    use std::{collections::BTreeSet, time::Instant};
+    let started = Instant::now();
     let file = file
         .canonicalize()
         .map_err(|e| format!("{}: {e}", file.display()))?;
@@ -49,12 +69,12 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
     };
     leanrun::CACHE.store(true, std::sync::atomic::Ordering::Relaxed);
     let mut ok = true;
-
     let mut property_files = Vec::new();
     let mut properties = Vec::new();
     let mut authored = Vec::new();
-    for path in test_files(&file) {
-        let Ok(text) = std::fs::read_to_string(&path) else {
+    let files = test_files(&file);
+    for path in &files {
+        let Ok(text) = std::fs::read_to_string(path) else {
             continue;
         };
         match contract::tests(&text)
@@ -63,16 +83,16 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
             Ok((tests, declarations)) => {
                 if let Err(errors) = contract::check_properties_path(&file, &declarations) {
                     for e in errors {
-                        println!("PROPERTY REFUSED {}:{e}", show(&path));
+                        println!("PROPERTY REFUSED {}:{e}", show(path));
                     }
                     ok = false;
                 }
                 property_files.extend(declarations.iter().map(|_| path.clone()));
                 properties.extend(declarations);
-                authored.push((path, tests));
+                authored.push((path.clone(), tests));
             }
             Err(e) => {
-                println!("SCRIPT {}:{e}", show(&path));
+                println!("SCRIPT {}:{e}", show(path));
                 ok = false;
             }
         }
@@ -80,51 +100,54 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
     if !ok {
         return Ok(false);
     }
-    let mut property_totals = crate::property::Report::new(&properties);
+    let identity = crate::receipt::Identity::new(&file, &source, &files)?;
+    let inputs = crate::walk::Inputs::new(
+        &source,
+        authored.iter().flat_map(|(_, t)| t.iter().cloned()),
+    );
+    let seed = options
+        .walk_seed
+        .unwrap_or_else(|| crate::seed_of(&show(&file)));
+    let mut delivery = crate::receipt::Delivery::default();
     let mut located = Vec::new();
-    let (mut whole, mut partial, mut skipped) = (0, 0, 0);
     for (test_file, tests) in authored {
         for t in &tests {
             let scripted =
                 crate::script::test_case(&show(&test_file), &source, Some(&file), t, Some(&plan))?;
-            let delivery = &scripted.delivery;
-            let expansion = delivery
+            let d = &scripted.delivery;
+            let expansion = d
                 .settle_events
                 .map(|k| {
                     format!(
                         "; settle expanded to {k} events; kept: {}",
-                        delivery
-                            .expansion
+                        d.expansion
                             .as_ref()
                             .map_or_else(String::new, |p| p.display().to_string())
                     )
                 })
                 .unwrap_or_default();
-            if let Some((span, kind, why)) = &delivery.stopped {
-                let verdict = if delivery.taken == 0 && scripted.case.events.is_empty() {
-                    skipped += 1;
-                    "SKIP"
+            if let Some((span, kind, why)) = &d.stopped {
+                let skip = d.taken == 0 && scripted.case.events.is_empty();
+                let summary = format!("{:?} stopped at {kind}", t.name);
+                if skip {
+                    delivery.skipped.push(summary);
                 } else {
-                    partial += 1;
-                    "PART"
-                };
+                    delivery.partial.push(summary);
+                }
                 println!(
-                    "{verdict} {}: stopped at {}: {kind}: {why}{expansion}",
+                    "{} {}: stopped at {}: {kind}: {why}{expansion}",
+                    if skip { "SKIP" } else { "PART" },
                     scripted.case.name,
                     at_span(&test_file, *span)
                 );
-                if delivery.taken == 0 && scripted.case.events.is_empty() {
+                if skip {
                     continue;
                 }
             } else {
-                whole += 1;
+                delivery.whole += 1;
                 println!("WHOLE {}{expansion}", scripted.case.name);
             }
-            let steps = delivery
-                .events
-                .iter()
-                .map(|s| (test_file.clone(), *s))
-                .collect();
+            let steps = d.events.iter().map(|s| (test_file.clone(), *s)).collect();
             located.push(Located { scripted, steps });
         }
     }
@@ -133,157 +156,384 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         scripted: crate::explore(&show(&file), &source, Some(&file)),
         steps: Vec::new(),
     });
-    let mut census = crate::census::Census::default();
-    let mut findings = Vec::new();
-    for (i, l) in located.iter().enumerate() {
+    let base = located[tests].scripted.case.clone();
+    let mut observations = Vec::new();
+    for l in &located {
         let case = &l.scripted.case;
-        let oracle = oracle::Oracle::for_case(&plan, case);
-        let (rust, _) = crate::observe::run(plan.clone(), oracle, &case.events);
-        // Expectations use the seeded oracle's data, not the app's own.
-        if let Err(e) = expectations_on(&l.scripted, &rust) {
+        observations.push(
+            crate::observe::run(
+                plan.clone(),
+                oracle::Oracle::for_case(&plan, case),
+                &case.events,
+            )
+            .0,
+        );
+    }
+    let mut rendered = BTreeSet::new();
+    let mut walk_census = crate::census::Census::default();
+    let mut rng = crate::rng::Rng::new(seed);
+    for i in 0..options.walks {
+        let prefix = if i % 2 == 1 && tests > 0 {
+            Some(&located[(i / 2) % tests].scripted.case)
+        } else {
+            None
+        };
+        let walk = crate::walk::generate(
+            &plan,
+            &base,
+            prefix,
+            rng.next_u64(),
+            i,
+            options.steps,
+            &inputs,
+        );
+        rendered.extend(walk.rendered);
+        walk_census.observe(&walk.observation);
+        observations.push(walk.observation);
+        located.push(Located {
+            scripted: walk.scripted,
+            steps: Vec::new(),
+        });
+    }
+    delivery.walks = options.walks;
+    let originals = located.len();
+    if plan.slots.iter().any(|s| s.persist) {
+        for i in 0..originals {
+            let l = &located[i];
+            let scripted = crate::stored_variant(&l.scripted);
+            let c = &scripted.case;
+            let (mut driver, mut lines) =
+                crate::observe::Driver::new(plan.clone(), oracle::Oracle::for_case(&plan, c));
+            let is_walk = i > tests;
+            let record = |driver: &crate::observe::Driver, rendered: &mut BTreeSet<String>| {
+                if is_walk {
+                    for control in driver.controls() {
+                        rendered.extend(control.press.into_iter().chain(control.input));
+                    }
+                }
+            };
+            record(&driver, &mut rendered);
+            for event in &c.events {
+                lines.extend(driver.step(event));
+                record(&driver, &mut rendered);
+            }
+            if is_walk {
+                walk_census.observe(&lines);
+            }
+            observations.push(lines);
+            let steps = l.steps.clone();
+            located.push(Located { scripted, steps });
+            delivery.stores += 1;
+        }
+    }
+    let mut census = crate::census::Census::default();
+    let mut totals = crate::property::Report::new(&properties);
+    let mut suggestions = crate::suggest::Suggestions::new(&plan, &file);
+    let mut found = Vec::new();
+    let mut candidates = 0;
+    for (i, (l, rust)) in located.iter().zip(&observations).enumerate() {
+        if let Err(e) = expectations_on(&l.scripted, rust) {
             println!(
                 "NOTE {}: with the oracle's data, {}",
-                case.name,
+                l.scripted.case.name,
                 e.split_once("; the runner shows")
-                    .map_or(e.as_str(), |(head, _)| head)
+                    .map_or(e.as_str(), |(h, _)| h)
             );
         }
-        let matched = crate::property::evaluate(&properties, &rust);
-        property_totals.merge(&matched);
-        for failure in &matched.failures {
-            print_property(
-                &properties,
-                &property_files,
-                failure,
-                l,
-                &map,
-                &rust,
-                None,
-                false,
-            );
-        }
-        findings.push((i, census.observe(&rust), rust));
-    }
-    for (i, found, rust) in &findings {
-        let l = &located[*i];
-        for f in found {
-            let location = locate(&l.scripted.case, &l.steps, &map, f.at, rust, &[]);
-            let location = location.split("  runner:").next().unwrap_or(&location);
-            println!(
-                "REFUSED {} ({}):\n{}  {}\n  # {}",
-                l.scripted.case.name, f.class, location, f.line, f.reason
-            );
-        }
-    }
-    ok &= census.passed() && property_totals.passed();
-    census.print(&plan);
-    println!("world: settle omits host waits on motion, scrolling and hatches, and advances to animation ends");
-    println!("verify: {} cases ({tests} tests, 1 explored); blocks: {whole} whole, {partial} partial, {skipped} skipped", located.len());
-    if options.runner_only || !lean_available() {
-        println!("semantics did not run ({}); install Lean: curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y", if options.runner_only { "--runner-only" } else { "lake is unavailable" });
-        print_properties(&properties, &property_files, &property_totals);
-        return Ok(ok);
-    }
-    leanrun::build()?;
-    let cases: Vec<Case> = located.iter().map(|l| l.scripted.case.clone()).collect();
-    let outcomes = check(cases, 16, "verify")?;
-    let (mut agree, mut diverge, mut outside) = (0, 0, 0);
-    let dir = work_dir().join("failures");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    for (i, (o, l)) in outcomes.iter().zip(&located).enumerate() {
-        let mut property_diverged = false;
-        if let Some((rust, lean)) = &o.observations {
-            let r = crate::property::evaluate(&properties, rust);
-            let m = crate::property::evaluate(&properties, lean);
-            ok &= m.passed();
-            let mut printed = std::collections::BTreeSet::new();
-            for f in r.failures.iter().chain(&m.failures) {
-                let key = (f.property, f.line, f.step);
-                if !printed.insert(key) {
-                    continue;
-                }
-                let differs = r
-                    .judged
-                    .get(&key)
-                    .zip(m.judged.get(&key))
-                    .is_some_and(|(a, b)| a != b);
-                property_diverged |= differs;
-                if !r
-                    .failures
+        census.observe(rust);
+        totals.merge(&crate::property::evaluate(&properties, rust));
+        suggestions.observe(rust);
+        for predicate in crate::finding::predicates(&properties, rust) {
+            let store_only = i >= originals
+                && !observations[..originals]
                     .iter()
-                    .any(|v| (v.property, v.line, v.step) == key)
-                {
-                    property_totals.counts[f.property][f.line].false_ += 1;
-                }
-                print_property(
-                    &properties,
-                    &property_files,
-                    f,
-                    l,
-                    &map,
-                    rust,
-                    Some(lean),
-                    differs,
-                );
-            }
-        }
-        if property_diverged {
-            ok = false;
-        }
-        match &o.verdict {
-            Verdict::Agree if property_diverged => diverge += 1,
-            Verdict::Agree => agree += 1,
-            Verdict::Unsupported(why) => {
-                outside += 1;
-                println!(
-                    "OUTSIDE {}: {why} (semantics/README.md, \"What the semantics leaves out\")",
-                    o.case.name
-                );
-            }
-            Verdict::Refused(e) => {
-                ok = false;
-                println!("REFUSED {}: {e}", o.case.name);
-            }
-            Verdict::Emit(e) => {
-                ok = false;
-                println!("EMIT {}: the Lean backend refuses it: {e}", o.case.name);
-            }
-            Verdict::Expectation(e) => println!("NOTE {}: {e}", o.case.name),
-            Verdict::Diverge {
-                at,
+                    .any(|o| predicate.holds(&properties, o));
+            let shrunk = crate::shrink::runner(
+                &plan,
+                &l.scripted.case,
                 rust,
-                lean,
-                lean_raw,
-            } => {
-                ok = false;
-                diverge += 1;
-                let stem = dir.join(format!("{}-verify-{i}", std::process::id()));
-                let events: Vec<String> = o.case.events.iter().map(Event::label).collect();
-                let _ = std::fs::write(stem.with_extension("contract"), &o.case.source);
-                let _ = std::fs::write(stem.with_extension("events"), events.join("\n"));
-                let _ = std::fs::write(stem.with_extension("rust.txt"), rust.join("\n"));
-                let _ = std::fs::write(stem.with_extension("lean.txt"), lean_raw.join("\n"));
-                println!(
-                    "DIVERGE {}\n{}  kept: {}.{{contract,events,rust.txt,lean.txt}}",
-                    o.case.name,
-                    locate(&o.case, &l.steps, &map, *at, rust, lean),
-                    stem.display()
+                |lines| predicate.holds(&properties, lines),
+                |lines| suggestions.observe(lines),
+            );
+            candidates += shrunk.candidates;
+            let steps = shrunk
+                .kept
+                .iter()
+                .filter_map(|i| l.steps.get(*i).cloned())
+                .collect();
+            let scripted = Scripted {
+                case: shrunk.case,
+                items: Vec::new(),
+                delivery: Default::default(),
+            };
+            found.push(Found {
+                located: Located { scripted, steps },
+                observation: shrunk.observation,
+                predicate,
+                store_only,
+            });
+        }
+    }
+    ok &= census.passed() && totals.passed();
+    let runner_seconds = started.elapsed().as_secs_f64();
+    println!(
+        "runner: {:.3}s; {} search scripts; {} findings; {candidates} shrink candidates",
+        runner_seconds,
+        located.len(),
+        found.len()
+    );
+    let mut semantics = crate::receipt::Semantics::default();
+    if options.runner_only || !lean_available() {
+        semantics.reason = Some(if options.runner_only {
+            "--runner-only".into()
+        } else {
+            "lake is unavailable; install Lean as semantics/README.md, Lean describes".into()
+        });
+        for f in &found {
+            print_finding(f, &properties, &property_files, &plan, &map, None);
+        }
+    } else {
+        let then = Instant::now();
+        leanrun::build()?;
+        let mut selected: Vec<Located> = located[..tests + 1].to_vec();
+        selected.extend(
+            located[tests + 1..originals]
+                .iter()
+                .take(options.confirm)
+                .cloned(),
+        );
+        let finding_start = selected.len();
+        selected.extend(found.iter().map(|f| f.located.clone()));
+        let cases = selected.iter().map(|l| l.scripted.case.clone()).collect();
+        let outcomes = check(cases, 16, "verify")?;
+        semantics.run = outcomes.len();
+        for (i, (o, l)) in outcomes.iter().zip(&selected).enumerate() {
+            if let Some((rust, lean)) = &o.observations {
+                suggestions.observe(rust);
+                semantics.trace_disagreed |= lean.iter().any(|l| l == "trace disagrees");
+                if i >= finding_start {
+                    ok &= found[i - finding_start].predicate.holds(&properties, lean);
+                    print_finding(
+                        &found[i - finding_start],
+                        &properties,
+                        &property_files,
+                        &plan,
+                        &map,
+                        Some(lean),
+                    );
+                }
+                let matched = crate::property::evaluate(&properties, lean);
+                let runner = crate::property::evaluate(&properties, rust);
+                for f in &matched.failures {
+                    if !runner
+                        .failures
+                        .iter()
+                        .any(|r| r.property == f.property && r.line == f.line && r.step == f.step)
+                    {
+                        ok = false;
+                        totals.counts[f.property][f.line].false_ += 1;
+                        print_property(
+                            &properties,
+                            &property_files,
+                            f,
+                            l,
+                            &map,
+                            rust,
+                            Some(lean),
+                            true,
+                        );
+                    }
+                }
+            }
+            match &o.verdict {
+                Verdict::Agree => semantics.agreed += 1,
+                Verdict::Unsupported(why) => {
+                    semantics.outside.push(why.clone());
+                    println!("OUTSIDE {}: {why}", o.case.name);
+                }
+                Verdict::Refused(e) | Verdict::Emit(e) => {
+                    ok = false;
+                    println!("REFUSED {}: {e}", o.case.name);
+                }
+                Verdict::Expectation(e) => {
+                    println!("NOTE {}: {e}", o.case.name);
+                }
+                Verdict::Diverge { at, rust, lean, .. } => {
+                    ok = false;
+                    println!(
+                        "DIVERGE {}\n{}",
+                        o.case.name,
+                        locate(&o.case, &l.steps, &map, *at, rust, lean)
+                    );
+                    let (case, cost) =
+                        crate::shrink::divergence(&o.case, "verify-shrink", |lines| {
+                            suggestions.observe(lines)
+                        })?;
+                    semantics.candidates += cost;
+                    let shrunk = check(vec![case], 1, "verify-shrunk")?.remove(0);
+                    if let Some((rust, lean)) = &shrunk.observations {
+                        suggestions.observe(rust);
+                        save_case(&shrunk.case, rust, Some(lean), &format!("divergence-{i}"))?;
+                    }
+                    println!(
+                        "  shrunk: {} -> {} events; {cost} two-engine candidates",
+                        o.case.events.len(),
+                        shrunk.case.events.len()
+                    );
+                }
+            }
+        }
+        if options.types {
+            ok &= types(&file)?;
+        }
+        if let Some(module) = &options.prove {
+            ok &= prove(&file, module)?;
+        }
+        semantics.seconds = then.elapsed().as_secs_f64();
+    }
+    print_properties(&properties, &property_files, &totals);
+    println!("world: settle omits host waits on motion, scrolling and hatches, and advances to animation ends");
+    suggestions.print(&properties);
+    let never = rendered
+        .difference(&walk_census.attempted)
+        .cloned()
+        .collect();
+    crate::receipt::Receipt {
+        file: &show(&file),
+        options,
+        seed,
+        identity: &identity,
+        delivery: &delivery,
+        census: &census,
+        plan: &plan,
+        never: &never,
+        properties: &properties,
+        property_files: &property_files,
+        report: &totals,
+        semantics: &semantics,
+        runner_seconds,
+        candidates,
+    }
+    .print();
+    Ok(ok)
+}
+
+fn print_finding(
+    f: &Found,
+    properties: &[contract_syntax::PropertyDecl],
+    files: &[PathBuf],
+    plan: &exact_plan::Plan,
+    map: &contract::SourceMap,
+    lean: Option<&[String]>,
+) {
+    let case = &f.located.scripted.case;
+    println!(
+        "FINDING {} ({} events, oracle seed 0x{:016x})",
+        case.name,
+        case.events.len(),
+        case.seed.unwrap_or_else(|| crate::seed_of(&case.name))
+    );
+    if f.store_only {
+        println!(
+            "  false from a store holding {}",
+            readable(&crate::finding::store(plan, case))
+        );
+    }
+    let disagrees = lean.is_some_and(|lines| !f.predicate.holds(properties, lines));
+    match &f.predicate {
+        crate::finding::Predicate::Property(p, l) => {
+            if let Some(failure) = crate::property::evaluate(properties, &f.observation)
+                .failures
+                .iter()
+                .find(|v| v.property == *p && v.line == *l)
+            {
+                print_property(
+                    properties,
+                    files,
+                    failure,
+                    &f.located,
+                    map,
+                    &f.observation,
+                    lean,
+                    disagrees,
                 );
             }
         }
+        crate::finding::Predicate::Refusal { class, action } => {
+            if let Some(refusal) = crate::census::Census::default()
+                .observe(&f.observation)
+                .iter()
+                .find(|v| v.class == *class && crate::finding::action_of(&v.line) == *action)
+            {
+                let location = locate(case, &f.located.steps, map, refusal.at, &f.observation, &[]);
+                let location = location.split("  runner:").next().unwrap_or(&location);
+                println!(
+                    "REFUSED {} ({class}){}:\n{}  {}\n  # {}",
+                    case.name,
+                    if disagrees {
+                        "; DIVERGE (the finding differs between runner and Lean)"
+                    } else {
+                        ""
+                    },
+                    location,
+                    refusal.line,
+                    refusal.reason
+                );
+                if let Err(e) = save_case(case, &f.observation, lean, "refusal") {
+                    println!("  could not keep observation: {e}");
+                }
+            }
+        }
+    }
+}
+
+fn save_case(
+    case: &Case,
+    rust: &[String],
+    lean: Option<&[String]>,
+    tag: &str,
+) -> Result<(), String> {
+    let dir = work_dir().join("failures");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = dir.join(format!(
+        "{}-{tag}-{:x}",
+        std::process::id(),
+        crate::seed_of(&case.name)
+    ));
+    for (extension, text) in [
+        ("contract", case.source.clone()),
+        (
+            "events",
+            case.events
+                .iter()
+                .map(Event::label)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        ("rust.txt", rust.join("\n")),
+        (
+            "case.txt",
+            format!(
+                "{}\noracle seed: 0x{:016x}\nstored: {}\nlaunch: {:?}",
+                case.name,
+                case.seed.unwrap_or_else(|| crate::seed_of(&case.name)),
+                case.stored,
+                case.launch
+            ),
+        ),
+    ] {
+        std::fs::write(stem.with_extension(extension), text).map_err(|e| e.to_string())?;
+    }
+    if let Some(lean) = lean {
+        std::fs::write(stem.with_extension("lean.txt"), lean.join("\n"))
+            .map_err(|e| e.to_string())?;
     }
     println!(
-        "semantics: {} cases: {agree} agree, {diverge} diverge, {outside} outside the semantics",
-        outcomes.len()
+        "  kept: {}.{{contract,events,rust.txt,case.txt{}}}",
+        stem.display(),
+        if lean.is_some() { ",lean.txt" } else { "" }
     );
-    print_properties(&properties, &property_files, &property_totals);
-    if options.types {
-        ok &= types(&file)?;
-    }
-    if let Some(module) = &options.prove {
-        ok &= prove(&file, module)?;
-    }
-    Ok(ok)
+    Ok(())
 }
 
 fn lean_available() -> bool {
@@ -403,7 +653,7 @@ fn at_span(file: &Path, span: Span) -> String {
     format!("{}:{}:{}", show(file), span.line, span.col)
 }
 
-fn show(file: &Path) -> String {
+pub(crate) fn show(file: &Path) -> String {
     std::env::current_dir()
         .ok()
         .and_then(|d| file.strip_prefix(d).ok().map(Path::to_path_buf))
@@ -668,44 +918,12 @@ fn print_property(
             }
         }
     }
-    let dir = work_dir().join("failures");
-    let stem = dir.join(format!(
-        "{}-property-{:x}-{}-{}-{}",
-        std::process::id(),
-        crate::seed_of(&located.scripted.case.name),
-        failure.property,
-        failure.line,
-        failure.step
-    ));
-    let saved = std::fs::create_dir_all(&dir).and_then(|()| {
-        std::fs::write(
-            stem.with_extension("contract"),
-            &located.scripted.case.source,
-        )?;
-        std::fs::write(
-            stem.with_extension("events"),
-            located
-                .scripted
-                .case
-                .events
-                .iter()
-                .map(Event::label)
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )?;
-        std::fs::write(stem.with_extension("rust.txt"), rust.join("\n"))?;
-        if let Some(lean) = lean {
-            std::fs::write(stem.with_extension("lean.txt"), lean.join("\n"))?;
-        }
-        Ok(())
-    });
-    match saved {
-        Ok(()) => println!(
-            "  kept: {}.{{contract,events,rust.txt{}}}",
-            stem.display(),
-            if lean.is_some() { ",lean.txt" } else { "" }
-        ),
-        Err(e) => println!("  could not keep observation: {e}"),
+    let tag = format!(
+        "property-{}-{}-{}",
+        failure.property, failure.line, failure.step
+    );
+    if let Err(e) = save_case(&located.scripted.case, rust, lean, &tag) {
+        println!("  could not keep observation: {e}");
     }
 }
 

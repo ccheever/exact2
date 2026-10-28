@@ -12,9 +12,12 @@
 //! Corpus cases are `test` blocks in `semantics/corpus/*.contract`; random
 //! cases come from [`gen`].
 
+#[cfg(test)]
+mod a2_tests;
 pub mod arith;
 mod census;
 pub mod expansion;
+mod finding;
 pub mod gen;
 pub mod js;
 mod launch;
@@ -27,13 +30,17 @@ pub mod oracle;
 mod property;
 mod property_corpus;
 pub mod quick;
+mod receipt;
 #[cfg(test)]
 mod refusal_tests;
 pub mod rng;
 pub mod script;
 mod settle;
+mod shrink;
+mod suggest;
 pub mod types;
 pub mod verify;
+mod walk;
 
 use script::{Case, Expect, Item, Scripted};
 use std::path::{Path, PathBuf};
@@ -533,19 +540,25 @@ pub fn stored_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
     let mut out = Vec::new();
     for s in cases {
         let persists = compile(&s.case).is_ok_and(|p| p.slots.iter().any(|r| r.persist));
-        let variant = persists.then(|| Scripted {
-            case: Case {
-                name: format!("{} (stored)", s.case.name),
-                stored: true,
-                ..s.case.clone()
-            },
-            items: s.case.events.iter().cloned().map(Item::Event).collect(),
-            delivery: s.delivery.clone(),
-        });
+        let variant = persists.then(|| stored_variant(&s));
         out.push(s);
         out.extend(variant);
     }
     out
+}
+
+/// The same oracle and events from a seeded store; authored expectations belong to the empty store.
+pub(crate) fn stored_variant(s: &Scripted) -> Scripted {
+    Scripted {
+        case: Case {
+            name: format!("{} (stored)", s.case.name),
+            stored: true,
+            seed: Some(s.case.seed.unwrap_or_else(|| seed_of(&s.case.name))),
+            ..s.case.clone()
+        },
+        items: s.case.events.iter().cloned().map(Item::Event).collect(),
+        delivery: s.delivery.clone(),
+    }
 }
 
 /// `cases`, each followed, when its program has a tab panel, by the same
@@ -576,6 +589,7 @@ pub fn prerendered_variants(cases: Vec<Scripted>) -> Vec<Scripted> {
 pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
     let mut events = Vec::new();
     let probe = Case {
+        seed: None,
         name: name.to_string(),
         source: source.to_string(),
         events: Vec::new(),
@@ -633,30 +647,9 @@ pub fn collect(path: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-/// Shrink a diverging case's script: drop events while it still diverges,
-/// one Lean process per round (every single-event removal at once).
+/// Drop event chunks, then single events, while both engines still diverge.
 pub fn shrink(case: &Case, tag: &str) -> Result<Case, String> {
-    let mut best = case.clone();
-    loop {
-        if best.events.is_empty() {
-            return Ok(best);
-        }
-        let candidates: Vec<Case> = (0..best.events.len())
-            .map(|i| {
-                let mut c = best.clone();
-                c.events.remove(i);
-                c
-            })
-            .collect();
-        let outcomes = check(candidates, usize::MAX, tag)?;
-        match outcomes
-            .into_iter()
-            .find(|o| matches!(o.verdict, Verdict::Diverge { .. }))
-        {
-            Some(o) => best = o.case,
-            None => return Ok(best),
-        }
-    }
+    crate::shrink::divergence(case, tag, |_| {}).map(|(case, _)| case)
 }
 
 #[cfg(test)]

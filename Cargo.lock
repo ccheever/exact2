@@ -967,6 +967,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

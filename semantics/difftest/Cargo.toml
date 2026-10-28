@@ -26,3 +26,4 @@ exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 serde_json = "1.0"
+sha2 = "0.10"

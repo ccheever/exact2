@@ -50,6 +50,8 @@ pub enum Item {
 pub struct Case {
     /// Where it came from: a file and test name, or a seed.
     pub name: String,
+    /// An explicit oracle seed, retained when a case is renamed or shrunk.
+    pub seed: Option<u64>,
     /// The Contract source.
     pub source: String,
     /// The events, in order.
@@ -218,6 +220,7 @@ pub fn test_case(
         .collect();
     let mut script = Scripted {
         case: Case {
+            seed: None,
             name: format!("{file}: {}", t.name),
             source: source.to_string(),
             events,

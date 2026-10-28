@@ -1,4 +1,4 @@
-//! `contract verify <file.contract> [--runner-only] [--types] [--prove <Module>]`: the app
+//! `contract verify <file.contract> [--runner-only] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]`: the app
 //! against the Lean semantics (semantics/README.md, "Using it day to day").
 //! The work is `difftest verify`'s; this runs it through Cargo from the
 //! exact2 checkout this binary was built from, so the compiler never
@@ -7,14 +7,15 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const USAGE: &str = "usage: contract verify <file.contract> [--runner-only] [--types] [--prove <Module>]
+const USAGE: &str = "usage: contract verify <file.contract> [--runner-only] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]
 
-Runs the app's `test` blocks (its own, and those in `app.test.contract` and
-every other `*.test.contract` beside it) and an explore script on the runner and on the Lean semantics, and names
-where they first differ. Without Lean or with --runner-only, runs the runner's
-delivery, refusal census and coverage alone. --types runs the Lean type checker on it;
---prove <Module> regenerates semantics/Apps/<Module>.lean and builds the
-proofs in semantics/Apps/Proofs/<Module>.lean.";
+Runs delivered test prefixes, an explore script and adaptive walks on the runner,
+including seeded stores. Shrinks findings before Lean confirms the tests, explore,
+findings and a walk sample. Prints property suggestions and a reproducing receipt.
+Defaults: --walks 20 --steps 40 --confirm 2; --walk-seed defaults to the app path.
+Without Lean or with --runner-only, the receipt says the semantics did not run.
+--types runs the Lean type checker; --prove <Module> regenerates the embedding
+and builds semantics/Apps/Proofs/<Module>.lean.";
 
 /// The checkout this binary was built in.
 fn repository() -> PathBuf {
@@ -32,10 +33,10 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "--types" | "--runner-only" => rest.push(a.clone()),
-            "--prove" => match it.next() {
+            "--prove" | "--walks" | "--steps" | "--walk-seed" | "--confirm" => match it.next() {
                 Some(m) if !m.starts_with('-') => rest.extend([a.clone(), m.clone()]),
                 _ => {
-                    eprintln!("--prove needs a module name\n{USAGE}");
+                    eprintln!("{a} needs a value\n{USAGE}");
                     return ExitCode::from(2);
                 }
             },

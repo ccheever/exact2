@@ -245,11 +245,22 @@ events and by the semantics' sources and the harness that runs them
 async lane sets.
 
 **Writing an app.** `contract verify apps/<app>/app.contract` runs the
-app's `test` blocks (its own, those in `app.test.contract` and those in
-every other `*.test.contract` beside it) plus an explore script, first on
-the runner, then on the semantics. `--runner-only`, or an unavailable `lake`,
-runs the runner's half alone and reports how to install Lean. Its exit
-status comes from that half: a type refusal fails; app refusals are findings.
+app's delivered test prefixes and explore script, plus 20 adaptive walks of at
+most 40 new primitive events each. `--walks`, `--steps` and `--walk-seed` set the
+search; the seed defaults to the app's path. Half the walks boot fresh; the others
+replay delivered test prefixes in turn before appending events. Each choice reads
+the live rendered controls. Inputs land before the next choice. Typed values come
+from that field's authored tests, then source literals, then the generator. Every
+script also runs from a seeded store when the app persists state, with the same
+oracle answers as its empty-store run.
+
+The runner checks properties and classifies refusals on these scripts, then shrinks
+each distinct property-line or refusal-class/action finding in each script. Lean
+confirms the delivered tests and explore script, each shrunk finding, and `--confirm N` walks (default 2). A divergence is shrunk with both
+engines. Deletion tries large chunks before single events; each retained candidate
+still satisfies the original predicate. The receipt counts candidates and times
+both halves. `--runner-only`, or an unavailable `lake`, skips the semantics and says
+why. A property failure or type refusal fails verification; app refusals are findings.
 `clock data` lands continuations; `clock settle` expands as described beside
 the observation format. Leading fixed `epoch` and `time-zone` lines set the
 runner's launch facts, using Bun's Date and Intl APIs for the date and offset;
@@ -261,7 +272,7 @@ run. The summary counts whole, partial and skipped blocks.
 
 Properties in the app's test files (`always`, `after`, `never refuses`; the grammar
 and example are in `docs/contract-grammar.md`, "Authored tests") apply to every
-delivered script and the explore script. Before delivery, the compiler checks reads
+delivered script, explore script, walk and stored variant. Before delivery, the compiler checks reads
 against the expanded root and follows derives and functions to reject dependencies
 on resources, mutation status, the clock or geometry. `performanceNow` is the
 roster's clock read; date formatters read arguments, and `exactTime` is a resource.
@@ -279,6 +290,19 @@ and is counted only. Every line reports checks, counted-only steps and violation
 an action never attempted is not exercised. A false property fails verify; if it
 holds on only one evaluator, it is also a divergence. These are observed-step
 checks under the seeded oracle, not proofs or device checks.
+
+Suggestions print D1 blocks; they never edit test files. They use all observed runner
+scripts, including shrink candidates and confirmation replays. The receipt's script,
+step and property denominators count the search scripts once; shrink work is separate.
+Frames require at least two eligible input/landing pairs or clock advances and include
+changed queue slots. Sets, whole numbers, options and stays use the same cone as
+authored properties. Existing predicates are compared by scope and line, ignoring names.
+
+The receipt records SHA-256 of the entry source, test files concatenated in filename
+order, and `contract::lean::lean_path(file, "app")`, plus the exact2 commit. It ends with
+the world and semantics boundaries. `never reached` names rendered test targets' actions
+that no walk attempted; declared actions and committed actions use the full plan.
+The receipt is the last output, so its command and seed can be kept with the app diary.
 
 Corpus properties live in `<program>.test.contract` beside the program. The corpus
 loads these sidecars as tests rather than programs; a sidecar without scripts uses

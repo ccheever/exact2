@@ -75,7 +75,10 @@ impl Oracle {
     /// The source a case runs against: the empty store an authored test
     /// starts from, or the device store [`Oracle::with_store`] fills.
     pub fn for_case(plan: &Plan, case: &crate::script::Case) -> Self {
-        let mut oracle = Oracle::new(plan, crate::seed_of(&case.name));
+        let mut oracle = Oracle::new(
+            plan,
+            case.seed.unwrap_or_else(|| crate::seed_of(&case.name)),
+        );
         oracle.prerendered = case.prerendered;
         oracle.launch = case.launch.clone();
         if case.stored {

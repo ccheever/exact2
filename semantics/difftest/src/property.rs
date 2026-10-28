@@ -53,15 +53,15 @@ impl Report {
     }
 }
 
-struct Step<'a> {
-    lines: &'a [String],
-    label: &'a str,
-    ran: Vec<(&'a str, &'a str, &'a str)>,
-    config: bool,
-    omitted: bool,
+pub(crate) struct Step<'a> {
+    pub(crate) lines: &'a [String],
+    pub(crate) label: &'a str,
+    pub(crate) ran: Vec<(&'a str, &'a str, &'a str)>,
+    pub(crate) config: bool,
+    pub(crate) omitted: bool,
 }
 impl<'a> Step<'a> {
-    fn new(lines: &'a [String]) -> Self {
+    pub(crate) fn new(lines: &'a [String]) -> Self {
         Self {
             lines,
             label: lines
@@ -83,10 +83,10 @@ impl<'a> Step<'a> {
             omitted: lines.iter().any(|l| l == crate::observe::OMITTED_COMMIT),
         }
     }
-    fn input(&self) -> bool {
+    pub(crate) fn input(&self) -> bool {
         self.label.starts_with("tap ") || self.label.starts_with("type ")
     }
-    fn value(&self, name: &str) -> Option<&str> {
+    pub(crate) fn value(&self, name: &str) -> Option<&str> {
         self.lines.iter().find_map(|l| {
             l.strip_prefix(&format!("slot {name} "))
                 .or_else(|| l.strip_prefix(&format!("derive {name} ")))
@@ -255,13 +255,13 @@ fn literal(v: &V) -> String {
         V::EmptyList => "[]".into(),
     }
 }
-fn number(value: &str) -> Option<f64> {
+pub(crate) fn number(value: &str) -> Option<f64> {
     let hex = value.strip_prefix('n')?;
     (hex.len() == 16)
         .then(|| u64::from_str_radix(hex, 16).ok().map(f64::from_bits))
         .flatten()
 }
-fn changed(old: Option<&Step<'_>>, current: &Step<'_>) -> BTreeSet<String> {
+pub(crate) fn changed(old: Option<&Step<'_>>, current: &Step<'_>) -> BTreeSet<String> {
     let slots = |s: &Step<'_>| -> BTreeMap<String, String> {
         s.lines
             .iter()

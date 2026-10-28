@@ -1,18 +1,17 @@
 //! Refusal attribution and coverage from the runner's commit lines.
 
 use crate::refusal_class;
-use exact_plan::Plan;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Default)]
 pub(crate) struct Census {
-    classes: BTreeMap<&'static str, usize>,
-    committed: BTreeSet<String>,
-    attempted: BTreeSet<String>,
-    tasks: BTreeSet<String>,
-    steps: usize,
-    multiple: usize,
-    poisoned: usize,
+    pub(crate) classes: BTreeMap<&'static str, usize>,
+    pub(crate) committed: BTreeSet<String>,
+    pub(crate) attempted: BTreeSet<String>,
+    pub(crate) tasks: BTreeSet<String>,
+    pub(crate) steps: usize,
+    pub(crate) multiple: usize,
+    pub(crate) poisoned: usize,
     pub(crate) omitted: usize,
 }
 
@@ -87,69 +86,6 @@ impl Census {
 
     pub fn passed(&self) -> bool {
         self.classes.get("type").copied().unwrap_or(0) == 0
-    }
-
-    pub fn print(&self, plan: &Plan) {
-        let declared: BTreeSet<_> = plan.actions.iter().map(|a| plan.str(a.name)).collect();
-        let committed = declared
-            .iter()
-            .filter(|a| self.committed.contains(**a))
-            .count();
-        let never: Vec<_> = declared
-            .iter()
-            .copied()
-            .filter(|a| !self.attempted.contains(*a))
-            .collect();
-        let uncommitted: Vec<_> = declared
-            .iter()
-            .copied()
-            .filter(|a| !self.committed.contains(*a))
-            .collect();
-        let fired = plan
-            .timers
-            .iter()
-            .filter(|t| self.tasks.contains(plan.str(plan.action(t.action).name)))
-            .count();
-        println!(
-            "actions: committed {committed} of {}; never run: {}; never committed: {}",
-            declared.len(),
-            names(&never),
-            names(&uncommitted)
-        );
-        println!(
-            "clock actions fired: {fired} of {} tasks declared (by action name)",
-            plan.timers.len()
-        );
-        println!(
-            "steps: {} (including boot); {} with more than one ran line; {} poisoned",
-            self.steps, self.multiple, self.poisoned
-        );
-        println!("steps with a commit the trace leaves out: {}", self.omitted);
-        let counts: Vec<_> = [
-            "world",
-            "limit",
-            "poisoned",
-            "cycle",
-            "value",
-            "app",
-            "type",
-            "unclassified",
-        ]
-        .into_iter()
-        .map(|c| format!("{c} {}", self.classes.get(c).unwrap_or(&0)))
-        .collect();
-        println!(
-            "refusal lines (aggregate outcomes and commits): {}",
-            counts.join(", ")
-        );
-    }
-}
-
-fn names(names: &[&str]) -> String {
-    if names.is_empty() {
-        "none".into()
-    } else {
-        names.join(", ")
     }
 }
 
