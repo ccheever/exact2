@@ -10,7 +10,7 @@ import { isWindowsAbsolutePath } from '../media/media-reference';
 import { inlineCodeFilePathCandidate } from './inline-code-files';
 import { workspaceLookupPath } from './workspace-file-lookup';
 import { chatFileLink } from './markdown-file-links';
-import { isSentAudio } from './timeline-attachments';
+import { isSentAudio, isSvgAttachment } from './timeline-attachments';
 import { workspaceValues } from '../composer/composer-workspace-snapshots';
 import { selectedProvider, workspaceCwd } from '../composer/composer-editor';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -247,6 +247,9 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       if (kind === 'image') return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `Image attachment, ${name}, ${size}`, target: str(attachment.id) };
       // A sent sound plays in its audio chip above the text, so its reference draws nothing here.
       if (isSentAudio(attachment)) return { ...base, kind: 'audio', label: middleTruncate(name), target: str(attachment.id) };
+      // SvgFileChip: an SVG draws as an image chip with the picture as its thumbnail, named and tipped as the file it
+      // opens as (`detail` is its tooltip).
+      if (isSvgAttachment(attachment)) return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `File attachment, ${name}, ${size}`, detail: `${name}\n${size}`, target: str(attachment.id) };
       const video = isVideo(attachment);
       return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target: str(attachment.id) };
     }

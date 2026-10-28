@@ -29,7 +29,7 @@ import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments, withoutSoundReferences } from './timeline-attachments';
+import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, isSentSvg, messageAttachments, withoutSoundReferences } from './timeline-attachments';
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
@@ -47,6 +47,8 @@ import { workflowOpening, workflowOpeningMessage, type WorkflowOpening } from '.
 import { preparationFailureRunId, retryableActivities } from './workspace-retry'; // Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
 import { letGo } from '../client/let-go';
+import { pushToast } from '../shell/toast';
+import { CHATGPT_WORKSPACE_ADMIN_REQUEST } from './timeline-errors';
 import { pullRequestLinkPick } from '../panel/context-menu-actions';
 import { prGuideLocalFor, prCodeLocalFor, prLocalWrite, prUiLocal } from '../pull-requests/pages-pr-detail';
 import { stackLayerTarget } from '../pull-requests/pages-pr-stack';
@@ -145,6 +147,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   }
   if (op.startsWith('plan-')) return planAction(client, native, op, id, value);
   if (op === 'tree-all' || op === 'tree-dir') return toggleTree(client, view, op, id, value);
+  if (op === 'image-open' && isSentSvg(client, id)) return surfaceLocal(client, native, 'linked-attachment', id, value); // SvgFileChip's onOpen
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
@@ -177,6 +180,13 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     return '';
   }
   if (op === 'copy-prompt-link') { await copyPromptLink(client, native, promptLinkFor(copyText(client, id))); return ''; }
+  // ThreadErrorBanner's Copy request for admin, for a ChatGPT Business workspace limit.
+  if (op === 'admin-request') {
+    try { await client.restAccess(native).call({ op: 'copyText', text: CHATGPT_WORKSPACE_ADMIN_REQUEST }); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not copy the request' }); return ''; }
+    pushToast(client, { kind: 'success', title: 'Request copied', description: 'Send it to your workspace admin.' });
+    return '';
+  }
   if (op === 'copy-code' || op === 'copy') {
     const text = op === 'copy-code' ? value : copyText(client, id);
     if (!text || text.length > 1_000_000) throw new ClientError(op === 'copy-code' ? 'That code block is unavailable.' : 'That message is no longer available.');
@@ -388,7 +398,7 @@ export function transcriptRows(client: T3Client): Message[] {
   // MessagesTimeline backgroundWorktreeSetup: a setup still running after the agent's turn started.
   const background = setup.snapshot?.phase === 'running' && agentStarted(setup.snapshot) && input.latestRun?.startedAt != null ? setup.snapshot : null;
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
-    preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
+    preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active || row.kind === 'working' && !!row.compacting), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
     workflow: workflowOpening(client), background, findEntry: threadFindExpanded(client) ? threadFindView(client).entry : '' };
   return rows.map(row => present(row, context));
 }
@@ -453,10 +463,14 @@ function present(row: Row, context: PresentContext): Message {
   switch (row.kind) {
     case 'fold': return { ...base, kind: 'work', title: row.label, runId: row.runId, groupId: row.runId, expanded: row.expanded };
     // While a worktree is prepared the header reads "Setting up worktree…" and the activity row keeps its height empty.
-    // A compaction with no row of its own yet reads "Compacting…" (WorkingTimelineRow's CompactingLabel).
-    case 'working': return { ...base, kind: 'working', title: context.preparing ? 'Setting up worktree…' : context.compacting ? 'Compacting…' : 'Working for',
-      live: context.preparing || context.compacting, icon: !context.preparing && context.compacting ? 'minimize' : '', startedMs: Date.parse(row.createdAt) || 0,
-      ...(context.background ? { setup: [setupView(context.background, true, context.detailsOpen)], detail: str(obj(context.background.setupScript).name, 'Setup script') } : {}) };
+    // A compaction the row owns says why the message waits; one with no row of its own yet reads "Compacting…"
+    // (WorkingTimelineRow's CompactingLabel).
+    case 'working': {
+      const compacting = row.compacting ?? (context.compacting ? 'Compacting…' : undefined);
+      return { ...base, kind: 'working', title: context.preparing ? 'Setting up worktree…' : compacting ?? 'Working for',
+        live: context.preparing || compacting !== undefined, icon: !context.preparing && compacting !== undefined ? 'minimize' : '', startedMs: Date.parse(row.createdAt) || 0,
+        ...(context.background ? { setup: [setupView(context.background, true, context.detailsOpen)], detail: str(obj(context.background.setupScript).name, 'Setup script') } : {}) };
+    }
     case 'setup': return { ...base, kind: 'worktree-setup', title: 'Worktree setup', setup: [setupView(row.snapshot, row.embedded, context.detailsOpen)] };
     case 'thinking': return { ...base, kind: 'thinking', title: context.preparing || context.compacting ? '' : 'Thinking', icon: 'brain', live: true, continues: row.continues === true,
       groupId: row.groupId ?? '', expanded: row.expanded === true };
@@ -484,8 +498,14 @@ function present(row: Row, context: PresentContext): Message {
       return { ...base, kind: 'entry', activities, continues: row.continues === true, runId: row.entries[0]?.runId ?? '', code: entryCode(row.entries, context.client) };
     }
     case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Cut off by a steer', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
-    case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize',
-      activities: [{ ...keyedLabel(row, row.label), ...(row.tokenCounts ? { detail: row.tokenCounts.before, result: row.tokenCounts.after } : {}) }] };
+    // ContextCompactionTimelineRow: T3 Code's own compaction's title leads in place of "Context compacted"; a failed one
+    // reads in the destructive colour with its reason after a middle dot (`output`).
+    case 'compaction': {
+      const label = row.title && row.label.startsWith('Context compacted') ? row.title + row.label.slice('Context compacted'.length) : row.label;
+      return { ...base, kind: 'compaction', title: row.failure ? `${label}: ${row.failure}` : label, live: row.active, icon: 'minimize', failed: row.failed === true,
+        activities: [{ ...keyedLabel(row, label), output: row.failure ?? '',
+          ...(row.tokenCounts ? { body: row.title ?? 'Context compacted', detail: row.tokenCounts.before, result: row.tokenCounts.after } : {}) }] };
+    }
     case 'document': {
       const entry = row.entry, ref = entry.document;
       const key = inlineDocumentKey(context.client, str(entry.row.sourceThreadId), str(entry.item.id), ref);
@@ -571,7 +591,10 @@ const blankActivity = (activity: Activity): RowActivity => ({
 export function timelineMessages(client: T3Client, transcript: Message[], now: number) {
   const format = client.local.deviceSettings.timestampFormat, md = markdownEnv(client);
   const copy = timelineView(client).codeCopy, codeCopy = copy.threadId === client.threadId ? { codeCopied: copy.text, codeCopyNonce: copy.nonce } : { codeCopied: '', codeCopyNonce: 0 };
-  const rows = transcript.filter(message => message.kind !== 'checkpoint' || !message.sourceThreadId || message.sourceThreadId === client.threadId).map(message => {
+  // A checkpoint that changed no files draws nothing, so it is no row, as upstream derives none for it. A zero-height
+  // row would also never settle in the virtualized transcript: each row state write (a row's first laneSized) puts it
+  // back at the list's estimate, and once measured it leaves the window again, rebuilding the row at the window's edge.
+  const rows = transcript.filter(message => message.kind !== 'checkpoint' || (message.files?.length ?? 0) > 0 && (!message.sourceThreadId || message.sourceThreadId === client.threadId)).map(message => {
     const checkpoint = arr(client.projection.checkpoints).find(checkpoint => checkpoint.id === message.checkpointId);
     const files = message.files ?? [], tree = treeState(client, message.runId || message.checkpointId || '');
     return { id: message.id, kind: message.kind, title: message.title, body: message.body,

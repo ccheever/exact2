@@ -10,7 +10,8 @@ import type { Files, Native } from '../client/protocol';
 import { dismissToast, pushToast } from '../shell/toast';
 import { openFileSurface, openSurface } from '../panel/panel-surfaces';
 import { cloneDestination, cloneDirectoryName, flowOf, newProjectPublishTargets, inferTitle, initialBrowseQuery, normalizeCloneUrl, resolvePath, SOURCE_LABELS } from './palette-add';
-import { sortedThreads } from './palette';
+import { listedMessageMatch, sortedThreads } from './palette';
+import { findForMessageMatch, openThreadFindOnQuery } from '../timeline/thread-find-runtime';
 import { activeTarget } from './palette-files';
 import { favoriteEditor } from '../shell/keyboard-dispatch';
 import { openFavoriteHere } from '../connections/remote-open'; // remote Open: an SSH environment's workspace opens over SSH
@@ -73,6 +74,9 @@ async function createProject(client: T3Client, native: Native, storage: Files, t
 function claimPick(client: T3Client, threadId: string, pick: string): void {
   const space = pick.indexOf(' '), at = Number(pick.slice(0, space)), query = pick.slice(space + 1);
   if (space > 0 && Number.isFinite(at) && query.trim().length > 0 && !query.startsWith('>') && threadId !== client.threadId) claimThreadOpen(client.environmentId, threadId, at);
+  // A message result opens find on its query at the matched message.
+  const listed = space > 0 ? listedMessageMatch(client, threadId, query) : null;
+  if (listed) openThreadFindOnQuery(client, threadId, findForMessageMatch({ snippet: str(listed.match.snippet), messageId: str(listed.match.messageId) || undefined }, listed.query));
 }
 
 export async function paletteCommand(client: T3Client, native: Native | null | undefined, storage: Files, op: string, id: string, value: string, source: EnvironmentFleet = fleet): Promise<PaletteResult> {

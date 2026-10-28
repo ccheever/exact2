@@ -10,7 +10,7 @@ export { commandDisplayText, commandProgramName } from './command-label';
 import { toolCallLines } from './timeline-item-detail';
 import { replToolTitle } from './tool-activity';
 import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
-import { summarizeT3ToolCalls, t3ActionPriority, t3ToolDefinition, t3ToolPresentation, t3ToolResultFailed, type T3ToolCall, type T3ToolPresentation } from './timeline-t3tools';
+import { summarizeT3ToolCalls, t3ActionPriority, t3SummaryAction, t3ToolDefinition, t3ToolPresentation, t3ToolResultFailed, type T3ToolCall, type T3ToolPresentation } from './timeline-t3tools';
 import { extractToolActivityPresentation, notificationSource } from './timeline-work-rows';
 
 export const last = <T>(items: readonly T[]): T | undefined => items[items.length - 1];
@@ -244,12 +244,16 @@ function entryToolName(entry: WorkEntry): string | undefined {
   if (typeof data.toolName === 'string') return data.toolName;
   return t3ToolDefinition(entry.toolTitle) ? entry.toolTitle : entry.label;
 }
+function entryToolInput(entry: WorkEntry): unknown {
+  const data = entry.toolData ?? {};
+  return entry.itemType === 'dynamic_tool' ? entry.item.input : data.arguments ?? data.input ?? data.rawInput;
+}
 function entryToolOutput(entry: WorkEntry): unknown {
   const data = entry.toolData ?? {};
   return entry.itemType === 'dynamic_tool' ? entry.item.output : data.output ?? data.result ?? data.rawOutput ?? data.content;
 }
 export function toolPresentation(entry: WorkEntry, status: string = entry.status): T3ToolPresentation | null {
-  const definition = t3ToolDefinition(entryToolName(entry));
+  const definition = t3ToolDefinition(entryToolName(entry), entryToolInput(entry));
   return t3ToolPresentation(definition, definition && t3ToolResultFailed(entryToolOutput(entry)) ? 'failed' : status, entry.toolData);
 }
 
@@ -326,8 +330,7 @@ function actionLabel(action: GroupAction, count: number): string {
   }
 }
 function t3Call(entry: WorkEntry): T3ToolCall {
-  const data = entry.toolData ?? {};
-  return { input: entry.itemType === 'dynamic_tool' ? entry.item.input : data.arguments ?? data.input ?? data.rawInput, output: entryToolOutput(entry),
+  return { input: entryToolInput(entry), output: entryToolOutput(entry),
     outcome: entry.status === 'failed' || entry.status === 'declined' || entry.tone === 'error' ? 'failed' : entry.status === 'completed' ? 'completed' : 'unfinished' };
 }
 /** summarizeToolGroup: at most two action categories, the rest counted, joined as a sentence. */
@@ -358,7 +361,7 @@ export function summarizeToolGroup(all: WorkEntry[]): { summary: string; hasFail
   return { summary: sentence.length < 3 ? sentence.join(' and ') : `${sentence.slice(0, -1).join(', ')}, and ${last(sentence)}`,
     hasFailure: summaries.some(group => group.failed > 0) };
 }
-const t3Action = (entry: WorkEntry) => t3ToolDefinition(entryToolName(entry))?.summaryAction ?? null;
+const t3Action = (entry: WorkEntry) => t3SummaryAction(entryToolName(entry), entryToolInput(entry));
 export type SummaryKind = GroupAction | 'reasoning' | 'agent-tool' | 'tone-tool' | 'dynamic-tool' | 'mixed' | 'pull-request';
 export function summaryKind(all: WorkEntry[]): SummaryKind {
   const entries = all.filter(entry => entry.itemType !== 'reasoning');

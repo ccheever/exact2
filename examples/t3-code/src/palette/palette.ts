@@ -271,6 +271,14 @@ export function threadItems(client: T3Client, now: number, query: string): Item[
         terminalCount: terminalProcessCount(client, str(thread.id)), ...palettePullRequest(client, thread, query), branch: str(thread.branch), provider: str(instance?.driver), current }) };
   });
 }
+// The message matches the palette lists, by thread, and the query they were found for: picking one of these threads
+// opens find at its message (CommandPaletteThreadItems, findForMessageMatch).
+const listedMessages = new WeakMap<T3Client, { query: string; threads: Map<string, Obj> }>();
+/** The listed message match a pick of `threadId` for `query` opens find on, if the palette showed one. */
+export function listedMessageMatch(client: T3Client, threadId: string, query: string): { match: Obj; query: string } | null {
+  const listed = listedMessages.get(client), match = listed?.threads.get(threadId);
+  return listed && match && listed.query === query.trim().slice(0, 200).trim() ? { match, query: listed.query } : null;
+}
 /**
  * The threads whose messages match and whose title, branch or pull request do not, best first (rankMessageMatches,
  * PALETTE_MESSAGE_LIMIT): the server's matches, one per thread, as their threads' rows with the snippet in place of the
@@ -473,8 +481,9 @@ export function commandView(client: T3Client, context: CommandContext): PaletteV
   const page = context.page, query = context.query;
   const submenu = page !== '';
   const { root, extra } = rootSearch(client, query, submenu || query.startsWith('>') ? '' : query, context.now, context.scheme);
-  const filtered = filterGroups(submenu ? submenuGroups(client, page, context.scheme) : root, query, submenu, { ...extra, threads: context.linkedThreads ?? extra.threads,
-    messages: context.linkedThreads ? [] : messageItems(extra.threads, context.matches, context.matchQuery, context.now) });
+  const messages = context.linkedThreads ? [] : messageItems(extra.threads, context.matches, context.matchQuery, context.now);
+  listedMessages.set(client, { query: context.matchQuery, threads: new Map(messages.map(item => [item.row.arg, context.matches.get(item.row.arg)!])) });
+  const filtered = filterGroups(submenu ? submenuGroups(client, page, context.scheme) : root, query, submenu, { ...extra, threads: context.linkedThreads ?? extra.threads, messages });
   const rows = flatten(filtered);
   const actionsOnly = query.startsWith('>');
   return { ...closedView, open: true, page, parent: '', back: submenu, addon: submenu ? 'back' : 'search', placeholder: submenu ? 'Search...' : 'Search commands, projects, and threads...',

@@ -494,22 +494,25 @@ component TimelineContent
                       else
                         if message.kind == "compaction"
                           row width="100%" align-items="center" gap="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" role="separator" aria-label=message.title
-                            box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
+                            box flex=1 height=1 background-color=(message.failed ? "light-dark(#fb2c364d, #fb414a4d)" : "light-dark(#e4e4e7b3, #ffffff0e)")
                             for keyed in message.activities key=keyed.id
                               if message.live
                                 LiveActivity(label=keyed.label, icon="minimize", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
                               else
-                                // ContextCompactionRow: text-xs with a size-3 Minimize2 icon, gap-1.5; the token counts
-                                // around a size-3 ArrowRight (`detail` before, `result` after), the label otherwise.
-                                row gap="0.375rem" align-items="center" flex-shrink=0
-                                  TimelineIcon(name="minimize", size=12, color="light-dark(#71717b, #a1a1a1)")
+                                // ContextCompactionRow: text-xs with a size-3 Minimize2 icon (CircleAlert, destructive, when it
+                                // failed), gap-1.5; the token counts after their lead (`body`) around a size-3 ArrowRight
+                                // (`detail` before, `result` after), the label otherwise; a failure's reason (`output`) truncates.
+                                row gap="0.375rem" align-items="center" min-width=0 overflow="hidden"
+                                  TimelineIcon(name=(message.failed ? "circle-alert" : "minimize"), size=12, color=(message.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)"))
                                   if keyed.detail != ""
-                                    text `Context compacted ${keyed.detail}` aria-hidden=true font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
-                                    TimelineIcon(name="arrow-right", size=12, color="light-dark(#71717b, #a1a1a1)")
-                                    text `${keyed.result} tokens` aria-hidden=true font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
+                                    text `${keyed.body} ${keyed.detail}` aria-hidden=true font-size="0.75rem" line-height="1rem" white-space="nowrap" color=(message.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
+                                    TimelineIcon(name="arrow-right", size=12, color=(message.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)"))
+                                    text `${keyed.result} tokens` aria-hidden=true font-size="0.75rem" line-height="1rem" white-space="nowrap" color=(message.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
                                   else
-                                    text keyed.label font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
-                            box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
+                                    text keyed.label font-size="0.75rem" line-height="1rem" white-space="nowrap" color=(message.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
+                                  if keyed.output != ""
+                                    text `· ${keyed.output}` aria-hidden=true min-width=0 opacity=0.8 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#fb2c36, #fb414a)"
+                            box flex=1 height=1 background-color=(message.failed ? "light-dark(#fb2c364d, #fb414a4d)" : "light-dark(#e4e4e7b3, #ffffff0e)")
                         else
                           if message.kind == "event" or message.kind == "handoff"
                             if message.kind == "handoff"

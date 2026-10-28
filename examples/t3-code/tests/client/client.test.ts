@@ -162,6 +162,36 @@ describe('desktop presentation and model options', () => {
     expect(client.diffError).toContain('No completed checkpoint');
   });
 
+  test("the chat header's title reads in its majority direction (#22777)", async () => {
+    const { client } = await opened();
+    obj(client.projection.thread).title = 'إصلاح الشريط الجانبي في Exact';
+    expect(snapshot(client)).toMatchObject({ threadTitle: 'إصلاح الشريط الجانبي في Exact', threadTitleDir: 'rtl' });
+    obj(client.projection.thread).title = 'Fix the sidebar';
+    expect(snapshot(client).threadTitleDir).toBe('ltr');
+  });
+
+  test('a checkpoint that changed no files is no row, so the transcript holds no zero-height row', async () => {
+    const { client } = await opened();
+    client.thread!.projection.runs = [{ id: 'r1', status: 'completed', startedAt: timestamp, completedAt: '2026-10-03T01:00:00.847Z' },
+      { id: 'r2', status: 'completed', startedAt: timestamp, completedAt: '2026-10-03T01:00:01.000Z' }];
+    client.thread!.projection.checkpoints = [{ id: 'cp1', runId: 'r1', appRunOrdinal: 1, status: 'ready' },
+      { id: 'cp2', runId: 'r2', appRunOrdinal: 2, status: 'ready' }];
+    client.thread!.projection.visibleTurnItems = [
+      { sourceThreadId: 't1', sourceItemId: 'ask1', item: { id: 'ask1', type: 'user_message', messageId: 'ask1', text: 'Look', runId: 'r1' } },
+      { sourceThreadId: 't1', sourceItemId: 'answer1', item: { id: 'answer1', type: 'assistant_message', text: 'Nothing to change', runId: 'r1' } },
+      { sourceThreadId: 't1', sourceItemId: 'cp1', item: { id: 'cp1', type: 'checkpoint', checkpointId: 'cp1', runId: 'r1', files: [] } },
+      { sourceThreadId: 't1', sourceItemId: 'ask2', item: { id: 'ask2', type: 'user_message', messageId: 'ask2', text: 'Fix it', runId: 'r2' } },
+      { sourceThreadId: 't1', sourceItemId: 'answer2', item: { id: 'answer2', type: 'assistant_message', text: 'Fixed', runId: 'r2' } },
+      { sourceThreadId: 't1', sourceItemId: 'cp2', item: { id: 'cp2', type: 'checkpoint', checkpointId: 'cp2', runId: 'r2',
+        files: [{ path: 'a.ts', additions: 3, deletions: 1 }] } },
+    ];
+    const rows = snapshot(client).messages;
+    expect(rows.map(row => row.kind)).toEqual(['user', 'assistant', 'user', 'assistant', 'checkpoint']);
+    expect(rows.at(-1)).toMatchObject({ checkpointId: 'cp2', fileCount: 1, attached: true, last: true });
+    client.thread!.projection.visibleTurnItems = client.thread!.projection.visibleTurnItems.slice(0, 3);
+    expect(snapshot(client).messages.map(row => [row.kind, row.last])).toEqual([['user', false], ['assistant', true]]);
+  });
+
   test('model browsing is read-only, favorites use environment settings, and choosing commits one selection', async () => {
     const { client, native, command, disk: store } = await opened();
     client.config.providers = [...arr(client.config.providers), { instanceId: 'second', driver: 'codex', displayName: 'Other account', enabled: true,

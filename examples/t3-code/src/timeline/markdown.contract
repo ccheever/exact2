@@ -889,7 +889,7 @@ component ResolvedChip
           ChipDetails(chip=chip, close=toggle)
       // A sent sound plays in its audio chip above the text; its reference draws nothing (TimelineUserMessageRow).
       if not ["link", "mention", "unresolved", "terminal", "element", "review", "pr", "citation", "skill", "audio"].includes(chip.kind)
-        Tip(label=(chip.kind == "image" ? "" : chip.tip), side="top", align="center", offset=21)
+        Tip(label=(chip.kind == "image" ? chip.detail : chip.tip), side="top", align="center", offset=21)
           AttachmentChip(run=run, chip=chip, urls=urls, local=local)
 // PullRequestChip (contextChipParts.tsx): "#N" with its state's glyph and ContextChip kind (pr-open, pr-draft, pr-merged,
 // pr-closed; pull-request when the state is unknown), a button that opens the pull request (useOpenPrLink, pr-chip-open.ts).

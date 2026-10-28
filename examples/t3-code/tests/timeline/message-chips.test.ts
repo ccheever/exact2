@@ -16,6 +16,16 @@ describe('sent-message context chips', () => {
     expect(chips).toEqual([{ id: 'chip-0', href: 't3-context://v1/file/file_abc', kind: 'file', label: 'notes.md', size: '1 KB', tip: 'notes.md\n1 KB', detail: '', icon: 'markdown', target: 'att-1', owner: 'm1', menu: [] }]);
     expect([...chippedAttachmentIds(chips)]).toEqual(['att-1']);
   });
+  test('a sent SVG is an image chip with the picture as its thumbnail, named and tipped as the file it opens (#21355)', () => {
+    const svg = (mimeType: string, name = 'logo.svg') => messageChips(item(`see [${name}](t3-context://v1/file/file_svg)`,
+      [{ version: 1, kind: 'file', contextId: 'file_svg', label: name, attachmentId: 'att-s', name, mimeType, sizeBytes: 2048 }],
+      [{ type: 'file', id: 'att-s', name, mimeType, sizeBytes: 2048 }]), '', [], 'm1')[0];
+    expect(svg('image/svg+xml')).toMatchObject({ kind: 'image', label: 'logo.svg', size: '2 KB', tip: 'File attachment, logo.svg, 2 KB', detail: 'logo.svg\n2 KB', target: 'att-s' });
+    expect(svg('application/octet-stream')).toMatchObject({ kind: 'image' });
+    // A definite type other than SVG keeps the name's extension from counting.
+    expect(svg('text/plain')).toMatchObject({ kind: 'file' });
+    expect(svg('', 'logo.png')).toMatchObject({ kind: 'file' });
+  });
   test('a reference without its record, or whose attachment is gone, reads "This context is no longer available."', () => {
     const chips = messageChips(item('[deploy](t3-context://v1/skill/skill_deploy) and ![a.png](t3-context://v1/image/image_x)',
       [{ version: 1, kind: 'image', contextId: 'image_x', label: 'a.png', attachmentId: 'gone', name: 'a.png', mimeType: 'image/png', sizeBytes: 10 }]), '', []);

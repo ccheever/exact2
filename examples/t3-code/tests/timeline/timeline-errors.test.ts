@@ -21,6 +21,23 @@ describe('thread error banner variants', () => {
   });
 });
 
+describe('ChatGPT sharing limits (#23361)', () => {
+  const workspace = 'subscription_sharing_workplace_individual_usage_limit_exceeded', plan = 'subscription_sharing_usage_limit_exceeded';
+  test('a limit named by its code is a warning that offers its own recovery', () => {
+    expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'provider_error', lastErrorCode: workspace, latestRunId: 'r1' }, 'provider_error'), base))
+      .toMatchObject({ error: base.error, errorWarning: true, errorLimit: 'workspace' });
+    expect(threadErrorView(client({ status: 'idle', lastErrorClass: 'usage_limit', lastErrorCode: plan }, 'usage_limit'), base))
+      .toMatchObject({ errorWarning: true, errorLimit: 'chatgpt' });
+    expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'provider_error', lastErrorCode: 'rate_limit' }, 'provider_error'), base)).toMatchObject({ errorLimit: '' });
+  });
+  test('the composer still owns a failed run its usage limit stopped, and a local error is no limit', () => {
+    expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'usage_limit', lastErrorCode: workspace, latestRunId: 'r1' }, 'usage_limit'), base))
+      .toMatchObject({ error: '', errorWarning: false, errorLimit: '' });
+    expect(threadErrorView(client({ status: 'failed', lastErrorClass: 'provider_error', lastErrorCode: workspace }, 'provider_error'), { error: 'Could not send.', clientError: 'Could not send.' }))
+      .toMatchObject({ errorWarning: false, errorLimit: '' });
+  });
+});
+
 // ThreadErrorBanner.test.tsx at 74541bab17 (#21483).
 describe('thread error banner message', () => {
   test('extracts a readable nested message without trimming its whitespace', () => {

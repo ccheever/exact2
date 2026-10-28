@@ -10,6 +10,7 @@ import { commandView, settingTarget, type CommandContext } from '../../src/palet
 import { paletteCommand } from '../../src/palette/palette-commands';
 import { CATALOG } from '../../src/settings/settings-catalog';
 import { searchSettings, settingsNavigation } from '../../src/settings/settings-search';
+import { threadFindState, threadFindView } from '../../src/timeline/thread-find-runtime';
 
 const NOW = Date.parse('2026-10-27T12:00:00.000Z');
 const at = (hoursAgo: number) => new Date(NOW - hoursAgo * 3_600_000).toISOString();
@@ -141,6 +142,27 @@ describe('group limits', () => {
     // Without a matching thread, a group lists every match.
     const projects = view(c, 'fixture project').rows;
     expect([group(projects, 'threads-search').length, group(projects, 'projects-search').length]).toEqual([0, 5]);
+  });
+});
+
+describe('a message result (#24343)', () => {
+  test('opens find on its query at the matched message once its thread shows', async () => {
+    const c = client([{ id: 'notes', title: 'Release notes', updatedAt: at(1) }, { id: 'here', title: 'Here', updatedAt: at(0) }], 'message-pick-env');
+    c.threadId = 'here';
+    c.config = { ...c.config, threadFind: true };
+    const matches = new Map([['notes', { threadId: 'notes', source: 'agent', messageId: 'm7', snippet: 'Ran vp run dev twice' }]]);
+    expect(group(view(c, 'vp run dev', '', { matches, matchQuery: 'vp run dev' }).rows, 'threads-messages').map(entry => entry.arg)).toEqual(['notes']);
+    await pick(c, 'notes', 'vp run dev');
+    c.threadId = 'notes';
+    expect(threadFindView(c)).toMatchObject({ open: true, query: 'vp run dev' });
+    expect(threadFindState(c).model.start).toEqual({ entryId: 'm7', occurrence: 0 });
+    // A thread row that matched by its title opens without find.
+    c.threadId = 'here';
+    expect(threadFindView(c).open).toBeFalse();
+    view(c, 'release', '', { matches: new Map(), matchQuery: 'release' });
+    await pick(c, 'notes', 'release');
+    c.threadId = 'notes';
+    expect(threadFindView(c).open).toBeFalse();
   });
 });
 
