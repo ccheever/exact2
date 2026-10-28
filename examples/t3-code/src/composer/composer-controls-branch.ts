@@ -421,7 +421,7 @@ export function branchMismatchNotice(client: T3Client) {
   const hasContent = !!client.draft.trim() || client.snapshotDrafts.length > 0 || draftFiles(client.local).some(file => file.draftKey === client.draftKey);
   if (!mismatch || state.dismissed.has(key) || (!hasContent && state.revealed !== key)) return null;
   state.revealed = key;
-  return { id: `branch-mismatch:${key}`, icon: 'git-branch', title: `Branch changed — was ${mismatch.threadBranch}`,
+  return { id: `branch-mismatch:${key}`, icon: 'git-branch', title: 'Branch changed from', code: mismatch.threadBranch,
     tip: `This thread last ran on ${mismatch.threadBranch}. Sending will continue on ${mismatch.currentBranch}.`,
     action: 'cc:branch-restore', actionLabel: 'Restore branch', dismiss: 'cclocal:branch-mismatch-dismiss',
     dismissId: key, dismissLabel: 'Dismiss branch change notice' };

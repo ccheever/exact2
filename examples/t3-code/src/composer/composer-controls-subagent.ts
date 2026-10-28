@@ -56,9 +56,9 @@ export function selectionEffort(selection: Obj, models: Obj[], reported: Selecti
   return '';
 }
 
-/** The bar's row in the composer view; `subagent` is false for every other thread. */
-export function subagentBar(source: { threadId: string; projection: Obj; config: Obj }, now: number) {
-  const empty = { subagent: false, subagentModel: '', subagentEffort: '', subagentStatus: '', subagentAnnounce: '', subagentParent: '' };
+/** The bar's row in the composer view; `subagent` is false for every other thread. `width` is the bar's own, 0 unmeasured. */
+export function subagentBar(source: { threadId: string; projection: Obj; config: Obj }, now: number, width = 0) {
+  const empty = { subagent: false, subagentModel: '', subagentEffort: '', subagentStatus: '', subagentAnnounce: '', subagentParent: '', subagentWidth: 0 };
   const thread = obj(source.projection.thread);
   if (!source.threadId || !isProviderSubagent(thread)) return empty;
   const selection = obj(thread.modelSelection);
@@ -72,5 +72,5 @@ export function subagentBar(source: { threadId: string; projection: Obj; config:
   const announce = formatSubagentStatus(status && { ...status, startedAt: '' }, 0);
   return { subagent: true, subagentModel: modelLabel, subagentEffort: effort, subagentStatus: formatSubagentStatus(status, now),
     subagentAnnounce: `${effort ? `${modelLabel}, ${effort}` : modelLabel} subagent: ${announce}`,
-    subagentParent: parent };
+    subagentParent: parent, subagentWidth: width };
 }

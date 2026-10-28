@@ -2,14 +2,15 @@
 // 63f74e209d (provider-reported option labels), 151c241cd2 + a5b34b2537
 // (background-work wording) and 5108c978b1 (latest executed run).
 import { describe, expect, test } from 'bun:test';
-import { obj } from '../../src/client/domain';
-import { formatModelSlugName, reportedModelLabel, reportedSelection, resolveSelectableModel, triggerModelName } from '../../src/composer/composer-controls-model';
+import { obj, type Obj } from '../../src/client/domain';
+import { displayModelName, formatModelSlugName, modelShortName, reportedModelLabel, reportedSelection, resolveSelectableModel, triggerModelName } from '../../src/composer/composer-controls-model';
 import { presentBackgroundWork, traitsDisplay } from '../../src/composer/composer-controls-view';
 import { traitsMenu } from '../../src/composer/composer-presentation';
 import { latestExecutedRun, resumeState } from '../../src/composer/composer-controls';
 import { selectionEffort, subagentBar } from '../../src/composer/composer-controls-subagent';
-import { snapshot } from '../../src/client/presentation';
+import { modelCatalog, snapshot } from '../../src/client/presentation';
 import { opened } from '../support/composer-controls-fixture';
+import { threadNowRows } from '../../src/composer/thread-end';
 
 const claudeModels = [
   { slug: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', shortName: 'Haiku 4.5', aliases: ['claude-haiku-4-5-20251001', 'haiku'] },
@@ -19,6 +20,47 @@ const claudeModels = [
 const variant = { id: 'variant', label: 'Reasoning', type: 'select', options: [{ id: 'thinking', label: 'Thinking' }, { id: 'fast', label: 'Fast' }] };
 const openCode = (options: object[] = []) => ({ instanceId: 'opencode', model: 'openai/gpt-5', options });
 
+describe('the name you would say out loud (modelShortName.test.ts)', () => {
+  test.each([
+    ['Claude Opus 5.5', ['Claude '], 'Opus 5.5'], ['GPT-6.1-Sol', ['GPT-'], '6.1 Sol'], ['GPT 6.0 Astra', ['GPT-', 'GPT '], '6.0 Astra'],
+    ['Grok 4 Pro', [], undefined], ['Claude Opus 5.5', [], 'Opus 5.5'], ['NVIDIA: Nemotron 3 Super', [], 'Nemotron 3 Super'],
+    ['GPT-5.5', ['GPT-'], undefined], ['Gemini 3.1 Pro', ['Gemini '], '3.1 Pro'],
+  ] as const)('gives %s on families %j the short name %s', (name, families, expected) => {
+    expect(modelShortName(name, families)).toBe(expected);
+  });
+  test('a trigger says the spoken name on its driver\'s families; rows, tooltips and accessible names the full one', () => {
+    const gemini = { slug: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' };
+    expect(triggerModelName(gemini, 'antigravity')).toBe('3.1 Pro');
+    expect(triggerModelName(gemini, 'cursor')).toBe('Gemini 3.1 Pro');
+    expect(triggerModelName({ slug: 'x', name: 'Claude Opus 4.5', shortName: 'Opus' }, 'claudeAgent')).toBe('Opus');
+    expect(displayModelName({ slug: 'x', name: 'Claude Opus 4.5', shortName: 'Opus' })).toBe('Claude Opus 4.5');
+    // A caller that names no provider keeps the full name (or the server's shortName): its label does not change.
+    expect(triggerModelName({ slug: 'x', name: 'Claude Sonnet 5.5' })).toBe('Claude Sonnet 5.5');
+    expect(triggerModelName({ slug: 'x', name: 'Claude Sonnet 5.5', shortName: 'Sonnet' })).toBe('Sonnet');
+  });
+  test('the trigger on an Antigravity model says "3.1 Pro", its accessible name the full name', async () => {
+    const { client } = await opened();
+    const providers = client.config.providers as Obj[], claude = providers.find(provider => provider.instanceId === 'claude')!;
+    providers.push({ ...claude, instanceId: 'antigravity', driver: 'antigravity', displayName: 'Antigravity',
+      models: [{ slug: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', isDefault: true, capabilities: { optionDescriptors: [] } }] });
+    client.providerId = 'antigravity'; client.modelId = 'gemini-3.1-pro';
+    expect(snapshot(client)).toMatchObject({ modelShortLabel: '3.1 Pro', modelLabel: 'Gemini 3.1 Pro' });
+  });
+});
+
+describe('the composer trigger names the model it runs', () => {
+  test('the trigger says "Opus 4.5"; its tooltip and accessible name the full name; picker rows the full name', async () => {
+    const { client } = await opened();
+    const claude = (client.config.providers as Obj[]).find(provider => provider.instanceId === 'claude')!;
+    claude.models = [{ slug: 'claude-opus-4-5', name: 'Claude Opus 4.5', isDefault: true, capabilities: { optionDescriptors: [] } }];
+    client.providerId = 'claude'; client.modelId = 'claude-opus-4-5';
+    const view = snapshot(client);
+    expect(view).toMatchObject({ modelShortLabel: 'Opus 4.5', modelLabel: 'Claude Opus 4.5', modelUnavailable: false });
+    expect(view.composer.modelTip).toBe('Claude Opus 4.5 · ⇧⌘M');
+    expect(modelCatalog(client, 'claude', '').models.find(row => row.id === 'claude-opus-4-5')?.name).toBe('Claude Opus 4.5');
+  });
+});
+
 describe('subagent model names (4f7760e6a0)', () => {
   test('a reported dated id or alias resolves to the catalog entry and its trigger name', () => {
     expect(resolveSelectableModel('claudeAgent', 'claude-haiku-4-5-20251001', claudeModels)).toBe('claude-haiku-4-5');
@@ -26,6 +68,9 @@ describe('subagent model names (4f7760e6a0)', () => {
     expect(resolveSelectableModel('cursor', 'opus-4.6', claudeModels)).toBe('claude-opus-4-6');
     expect(resolveSelectableModel('claudeAgent', 'unknown', claudeModels)).toBe('');
     expect(reportedModelLabel('claudeAgent', 'claude-haiku-4-5-20251001', claudeModels)).toBe('Haiku 4.5');
+    // modelShortName on an unknown driver: the vendor prefix and the family go; "Sonnet" still names the model. With no
+    // driver named, only the sub-provider qualifier goes.
+    expect(triggerModelName(claudeModels[2]!, '')).toBe('Sonnet');
     expect(triggerModelName(claudeModels[2]!)).toBe('Claude Sonnet');
     expect(reportedModelLabel('claudeAgent', 'claude-sonnet-4-6', claudeModels)).toBe('Claude Sonnet 4.6');
     expect(formatModelSlugName('gpt-6-astra')).toBe('GPT-6-Astra');
@@ -111,12 +156,15 @@ describe('background work (151c241cd2, a5b34b2537)', () => {
     expect(presentBackgroundWork([{ kind: 'command' }, { kind: 'command', description: 'b' }])).toMatchObject({ title: 'Running 2 commands', waiting: false });
     expect(presentBackgroundWork([{ kind: 'monitor' }])).toMatchObject({ title: 'Waiting on a monitor', waiting: true });
   });
-  test('the banner dot is static for commands and pulses otherwise', async () => {
+  test('the line at the end of the timeline: a muted dot for commands, a dark one for work that wakes the agent', async () => {
     const { client } = await opened();
     Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'a', kind: 'command', description: 'npm run dev' }] });
-    expect(snapshot(client).composer.notices[0]).toMatchObject({ title: 'Running: npm run dev', icon: 'dot-static' });
-    Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'a', kind: 'subagent', description: 'Subagent: Review' }] });
-    expect(snapshot(client).composer.notices[0]).toMatchObject({ title: 'Waiting on subagent Review', icon: 'dot' });
+    expect(snapshot(client).composer.notices).toEqual([]);
+    expect(threadNowRows(client)[0]).toMatchObject({ kind: 'thread-now', title: 'Running: npm run dev', icon: 'dot-muted', detail: '' });
+    expect(threadNowRows(client)[0]!.activities).toEqual([expect.objectContaining({ status: 'action', label: 'Stop', detail: 'cc:stop-background', ok: true })]);
+    Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'a', kind: 'subagent', description: 'Subagent: Review', childThreadId: 'c1' }] });
+    expect(threadNowRows(client)[0]).toMatchObject({ title: 'Waiting on subagent Review', icon: 'dot' });
+    expect(threadNowRows(client)[0]!.activities![0]).toMatchObject({ status: 'link', label: 'Show', targetId: 'c1', body: 'Show subagent Review' });
   });
 });
 

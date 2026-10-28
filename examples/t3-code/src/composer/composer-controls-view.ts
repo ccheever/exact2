@@ -1,19 +1,15 @@
-// What the composer footer and its docked banners show,
+// What the composer footer and the notices above it show,
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9: ComposerPrimaryActions.tsx,
-// ChatComposer.tsx (footer blocks, provider-unavailable control, activity row),
-// composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
-// (buildTraitsTriggerDisplay), ChatView.tsx (background and child-input banners,
-// the Compact chip, tasks progress), threadSync.ts and ComposerTasksBadge.tsx; the tasks
-// plan follows session-logic.ts at 74541bab17 (deriveActivePlanState, selectComposerTasksPlan).
-import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
+// ChatComposer.tsx (footer blocks, provider-unavailable control), composerFooterLayout.ts
+// (icon-only before overflow), TraitsPicker.tsx (buildTraitsTriggerDisplay) and ChatView.tsx (the
+// Compact chip); the notices follow ChatView.tsx, ChatComposer.tsx (shelfItems) and
+// ComposerBannerStack.tsx at 7c3b3b3605ef, and presentPendingBackgroundWork threadExecution.ts.
 import { branchMismatchNotice } from './composer-controls-branch';
 import { projectCloneBlock, projectCloneNotice } from '../shell/project-clones-live';
 import { systemComposerNotices } from '../connections/server-update-notices';
 import { autoBalanceState } from './auto-balance';
 import { autoBalanceNotices, type MachineRow } from './auto-balance-banner';
-import { arr, obj, str, num, type Obj } from '../client/domain';
-import { activeRun } from '../client/protocol';
-import { activityRun } from '../timeline/worktree-card-run';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { antigravitySendBlockReason, composerSelection } from './composer-provider-selection'; // one provider rule
 import { fanoutSelections } from './composer-controls-fanout';
 import type { T3Client } from '../client/client';
@@ -21,8 +17,7 @@ import { followUpBehavior, isCompacting, planFollowUp, resolveDispatchMode, resu
 import { usageNotices, type UsageAccountView } from './composer-controls-usage';
 import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Codex /feedback
 import { subagentTitle } from '../timeline/timeline-events';
-import { compactBlocked, keepsFullHistory, latestTokenUsage, resumeCompaction, resumeCompactionTokens } from './composer-controls-resume';
-import { childThreadInputs, childThreadInputsTitle } from '../sidebar/subagent-requests';
+import { keepsFullHistory, latestTokenUsage, resumeCompactionTokens } from './composer-controls-resume';
 import { pendingRequests } from './requests';
 import { chordGlyphs } from './composer-controls-model';
 import { commandChords } from './composer-presentation';
@@ -135,26 +130,30 @@ export function primaryAction(client: T3Client, phase: string) {
 
 /**
  * The Compact chip beside Send (ComposerPrimaryActions compactTokens): a stale Claude session's token count, on
- * ("Compact next", the send compacts first) or off ("Keep full", the next send keeps the history); the count is in
- * the tooltip. It hides while a queued message is edited, and the contract hides it where Resume thread replaces
- * Send. `compactWidth` is the chip's width (px-2 gap-1.5, a 16pt glyph and a 14pt medium label), which the resting
- * card reserves.
+ * ("Compact 312k", the send compacts first) or off ("Keep 312k", the next send keeps the history). It hides while a
+ * queued message is edited, and the contract hides it where Resume thread replaces Send. `compactWidth` is the chip's
+ * width (px-2 gap-1.5, a 16pt glyph, the 14pt medium label and the count), which the resting card reserves.
  */
 export function compactChip(client: T3Client, now: number, editingQueued: boolean) {
   const tokens = editingQueued ? null : resumeCompactionTokens(client, now, contextSnapshot(client.projection));
   if (tokens === null) return { compactTokens: '', compactKeepFull: false, compactTip: '', compactSend: false, compactWidth: 0 };
-  const count = formatTokens(tokens), keep = keepsFullHistory(client), label = keep ? 'Keep full' : 'Compact next';
-  const anchor = obj(client.presentation.anchors)[`compact:${label}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
-  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(16 + 16 + 6 + textWidth(label)),
+  const count = formatTokens(tokens), keep = keepsFullHistory(client), label = keep ? 'Keep' : 'Compact';
+  const anchor = obj(client.presentation.anchors)[`compact:${label}:${count}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
+  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(16 + 16 + 6 + textWidth(label) + 6 + textWidth(count)),
     compactTip: keep ? `Next send keeps all ${count} tokens.\nClick to compact first` : `Next send compacts ${count} tokens first.\nClick to keep full history` };
 }
 
-// ── Docked banners ─────────────────────────────────────────────────────────
+// ── Notices above the composer ─────────────────────────────────────────────
 
-export type ComposerNotice = { id: string; variant: string; icon: string; title: string; description: string;
+/**
+ * ComposerBannerStackItem: `group` "environment" is the machine's own notice (offline, a running or failed update,
+ * auto-balance), shown first; everything else needs you ("attention").
+ */
+export type ComposerNotice = { id: string; group: string; variant: string; icon: string; title: string; description: string;
   action: string; actionLabel: string; action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[];
-  /** Why the action is disabled (its tooltip), '' when it is enabled; the ids the action and dismiss commands receive. */
-  actionReason: string; actionId: string; dismissId: string; segments: NoticeSegment[];
+  /** Why the action is disabled (its tooltip), '' when it is enabled; the second action shown disabled; the ids the
+   *  action and dismiss commands receive. */
+  actionReason: string; action2Disabled: boolean; actionId: string; dismissId: string; segments: NoticeSegment[];
   /** The title's and the actions' tooltips, a red icon; `details`: the description is clipped (composer-presentation.ts). */
   tip: string; actionTip: string; action2Tip: string; iconTone: string; details: boolean;
   /** Auto balance: the multi-machine banner's popover rows and its title's accessible name. */
@@ -162,10 +161,12 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   /** A description that is an account address (RedactedSensitiveText, then `redactAfter`), and the /usage-limits body. */
   redact: string; redactMask: string; redactAfter: string; usage: UsageAccountView[];
   /** The title is cut off (composer-presentation.ts noticeTitleDetails). */
-  titleDetails?: boolean };
-const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
-  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', actionId: '', dismissId: '', segments: [],
-  tip: '', actionTip: '', action2Tip: '', iconTone: '', details: false, machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], ...value });
+  titleDetails?: boolean;
+  /** A title in two parts: `title` a muted lead-in, then this code (the branch mismatch's branch), `tip` on it. */
+  code: string };
+const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ group: 'attention', variant: 'info', icon: '', description: '',
+  action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', action2Disabled: false, actionId: '', dismissId: '', segments: [],
+  tip: '', actionTip: '', action2Tip: '', iconTone: '', details: false, machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], code: '', ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {
   subagent: { order: 0, singular: 'subagent', plural: 'subagents' }, command: { order: 1, singular: 'command', plural: 'commands' },
@@ -201,148 +202,29 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
   return { title: `${waiting ? 'Waiting on' : 'Running'} ${joinWithAnd(groups)}`, description: items.map(item => item.label).join(', '), waiting,
     segments: items.some(item => item.child) ? segments(items) : [] };
 }
-function backgroundWork(client: T3Client): ComposerNotice | null {
-  if (activeRun(client.projection)) return null;
-  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
-  const presented = presentBackgroundWork(arr(shell?.pendingBackgroundTasks));
-  // A dev server can run for hours after the agent is done, so only work that will wake the agent pulses.
-  return presented ? notice({ id: `background-work:${client.threadId}`, variant: 'default', icon: presented.waiting ? 'dot' : 'dot-static', priority: 0, title: presented.title,
-    description: presented.description, segments: presented.segments, action: 'cc:stop-background', actionLabel: 'Stop' }) : null;
-}
 
 /**
- * childInputBannerItem: a delegated subagent below this thread waits on the user. Its title opens it; the
- * action opens the first. Hidden while this thread itself waits on the user.
+ * ChatView composerBannerItems, as ChatComposer and ComposerBannerStack show them: notices about sending from this
+ * composer, each its own attached card, the machine's notices first and then feedback, limit recovery, usage limits,
+ * the project clone and the branch mismatch, in that fixed order so cards never trade places. An open approval or
+ * question owns the space above the composer: only a machine error or warning, which is why an answer could not go
+ * through, stays beside it. What the thread is doing lives at the end of the timeline (thread-end.ts).
  */
-function childInputNotice(client: T3Client): ComposerNotice | null {
-  const children = childThreadInputs(client.shell.threads, client.threadId), first = children[0];
-  const shell = client.shell.threads.find(thread => thread.id === client.threadId);
-  const requests = pendingRequests(client.projection);
-  const parentAwaiting = requests.approvals.length > 0 || requests.inputs.length > 0 || obj(shell?.pendingRuntimeRequest).kind === 'user_input';
-  if (!first || parentAwaiting) return null;
-  return notice({ id: `child-input:${first.id}`, priority: 0, icon: first.approval ? 'shield-question' : 'message-circle', title: childThreadInputsTitle(children),
-    segments: children.map((entry, index) => ({ key: entry.id, label: entry.title, threadId: entry.id, aria: `Open subagent ${entry.title}`, last: index === children.length - 1 })),
-    action: 'select-thread', actionId: first.id, actionLabel: first.approval ? 'Open approval' : 'Open question' });
-}
-function goalNotice(client: T3Client): ComposerNotice | null {
-  const thread = client.shell.threads.find(thread => thread.id === client.threadId), goal = providerGoal(thread?.goal);
-  if (!goal) return null;
-  const working = providerGoalWorking(client), view = presentProviderGoal(goal, working);
-  return notice({ id: `goal:${client.threadId}`, variant: 'default', priority: 0, icon: 'target', title: view.usage ? `${view.title} · ${view.usage}` : view.title,
-    description: view.objective, action: working ? '' : view.canResume ? 'cc:goal-resume' : 'cc:goal-clear', actionLabel: view.canResume ? 'Resume' : 'Clear',
-    action2: !working && view.canResume ? 'cc:goal-clear' : '', action2Label: 'Clear' });
-}
 export function composerNotices(client: T3Client, now: number): ComposerNotice[] {
   const mismatch = branchMismatchNotice(client); // returning to Home resets revelation, but keeps session dismissals
   // ChatView projectCloneBannerItem: a project added by cloning shows its clone where its draft is (project-clones-live.ts).
   const clone = projectCloneNotice(client);
-  const cloneItem = clone ? [notice({ ...clone, icon: 'download', priority: clone.variant === 'info' ? 0 : 2 })] : [];
-  // systemComposerBannerItems (server-update-notices.ts): the environment's offline and server-version notices.
+  const cloneItem = clone ? [notice({ ...clone, icon: 'download' })] : [];
+  // systemComposerBannerItems (server-update-notices.ts): the environment's offline and server-update notices.
   // An Auto draft shows one banner for every machine's update instead of the single-machine notice.
-  const system = [...systemComposerNotices(client, { automaticEnvironment: autoBalanceState(client).automatic }), ...autoBalanceNotices(client)].map(item => notice(item));
-  if (!client.threadId) return rankNotices([...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system]);
-  // ChatView composerBannerItems order: feedback, limit recovery, usage limits, project clone, system, then the
-  // activity tier (a subagent waiting on the user, background work), then the branch mismatch. Settled, snoozed and
-  // woke are thread state, not composer actions: a line after the last message (thread-status-line.ts).
-  const items: ComposerNotice[] = [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system];
-  const child = childInputNotice(client);
-  if (child) items.push(child);
-  const goal = goalNotice(client);
-  if (goal) items.push(goal);
-  const background = backgroundWork(client);
-  if (background) items.push(background);
-  const resume = resumeCompaction(client, now, contextSnapshot(client.projection));
-  if (resume) items.push(notice({ id: `resume-compaction:${resume.key}`, icon: 'minimize', title: 'Resume with less context', description: `${formatTokens(resume.used)} tokens from earlier`,
-    action: 'cc:compact', actionLabel: 'Compact', actionReason: compactBlocked(client), dismiss: 'cclocal:resume-compaction-dismiss', dismissId: resume.key, dismissLabel: 'Keep full history' }));
-  if (mismatch) items.push(notice(mismatch));
-  return rankNotices(items);
-}
-/**
- * bannerPriority: urgency (priority 1), warnings and errors lead, so they stay attached ahead of activity
- * (priority 0, and the activity strip, composer-presentation.ts); other notices follow.
- */
-export function noticeRank(item: Pick<ComposerNotice, 'priority' | 'variant'>): number {
-  return item.priority === 1 || item.variant === 'error' || item.variant === 'warning' ? 0 : item.priority === 0 ? 1 : 2;
-}
-function rankNotices(items: ComposerNotice[]): ComposerNotice[] {
-  return items.map((item, order) => ({ item, order })).sort((a, b) => noticeRank(a.item) - noticeRank(b.item) || a.order - b.order).map(entry => entry.item);
-}
-
-// ── Activity row: thread sync and tasks ────────────────────────────────────
-
-const syncSeen = new Map<T3Client, string>();
-/**
- * resolveThreadSyncPhase. useDelayedStatus holds a status back 400ms so a short
- * load never flashes; data sources have no clock here, so a phase shows once a
- * second snapshot still finds it (the next event batch after it began).
- */
-export function syncStatus(client: T3Client): string {
-  const phase = !client.threadId || client.connection !== 'connected' || !client.shell.threads.some(thread => thread.id === client.threadId) ? ''
-    : !client.thread ? 'loading' : client.ready ? '' : 'syncing';
-  const key = phase ? `${client.environmentId}:${client.threadId}:${phase}` : '';
-  const shown = !!key && syncSeen.get(client) === key;
-  syncSeen.set(client, key);
-  return shown ? (phase === 'loading' ? 'Loading messages...' : 'Syncing messages...') : '';
-}
-
-export type TaskStep = { key: string; text: string; status: string; duration: string };
-function durationLabel(milliseconds: number): string {
-  if (milliseconds < 1000) return `${Math.max(1, Math.round(milliseconds))}ms`;
-  if (milliseconds < 60000) return `${Math.round(milliseconds / 100) / 10}s`.replace(/\.0s$/, 's');
-  const seconds = Math.round(milliseconds / 1000), minutes = Math.floor(seconds / 60);
-  return minutes < 60 ? `${minutes}m ${seconds % 60}s`.replace(/ 0s$/, '') : `${Math.floor(minutes / 60)}h ${minutes % 60}m`.replace(/ 0m$/, '');
-}
-const SETTLING = new Set(['preparing', 'queued', 'starting', 'running', 'waiting']);
-/**
- * deriveActivePlanState: the activity run's last todo list that no newer list superseded, else the one of the latest
- * run by ordinal.
- */
-function activePlan(projection: Obj, runId: string): Obj | null {
-  const plans = arr(projection.plans).filter(plan => plan.kind === 'todo_list' && plan.status !== 'superseded');
-  const ordinals = new Map(arr(projection.runs).map(run => [str(run.id), num(run.ordinal)]));
-  const rank = (plan: Obj) => ordinals.get(str(plan.runId)) ?? -1;
-  return plans.findLast(plan => !!runId && plan.runId === runId)
-    ?? plans.reduce<Obj | null>((latest, plan) => latest === null || rank(plan) >= rank(latest) ? plan : latest, null);
-}
-/**
- * selectComposerTasksPlan (session-logic.ts): the activity run's own plan while it works; after it, a Claude todo
- * list with unfinished steps stays while the latest started run is on the same provider thread, since Claude's tasks
- * belong to its session rather than the turn.
- */
-export function composerTasksPlan(projection: Obj, plan: Obj | null, runId: string, settled: boolean): Obj | null {
-  if (!plan) return null;
-  if (runId && !settled && plan.runId === runId) return plan;
-  if (arr(plan.steps).every(step => step.status === 'completed')) return null;
-  const providerThreadId = arr(projection.runs).find(run => run.id === plan.runId)?.providerThreadId;
-  if (providerThreadId == null) return null;
-  if (arr(projection.providerThreads).find(thread => thread.id === providerThreadId)?.driver !== 'claudeAgent') return null;
-  let latest: Obj | null = null;
-  for (const run of arr(projection.runs)) if (run.startedAt != null && run.providerThreadId != null && (!latest || num(run.ordinal) > num(latest.ordinal))) latest = run;
-  return latest?.providerThreadId === providerThreadId ? plan : null;
-}
-/** ChatView activeComposerTasksProgress: "now" marks the step in progress only while its run works (`live`). */
-export function tasksProgress(client: T3Client) {
-  const empty = { tasksTotal: 0, tasksDone: 0, tasksCurrent: '', tasks: [] as TaskStep[] };
-  if (!client.threadId) return empty;
-  // isLatestRunSettled over deriveThreadActivityRun: a run that stopped working and is not the runtime's active one.
-  // The runtime's active run is the thread shell's (sidebar-model.ts shellRuntime).
-  const run = activityRun(client.projection), runId = str(run?.id);
-  const activeRunId = str(client.shell.threads.find(thread => thread.id === client.threadId)?.activeRunId);
-  const settled = !!run && !SETTLING.has(str(run.status)) && activeRunId !== runId;
-  const plan = composerTasksPlan(client.projection, activePlan(client.projection, runId), runId, settled);
-  const steps = arr(plan?.steps);
-  if (!plan || !steps.length) return empty;
-  const live = !settled && !!runId && plan.runId === runId;
-  const status = (value: unknown) => value === 'running' || value === 'inProgress' ? 'inProgress' : value === 'completed' ? 'completed' : 'pending';
-  const seen = new Map<string, number>();
-  const tasks = steps.map(step => {
-    const text = str(step.text), occurrence = seen.get(text) ?? 0; seen.set(text, occurrence + 1);
-    const state = status(step.status);
-    return { key: `${text}:${occurrence}`, text, status: state,
-      duration: typeof step.durationMs === 'number' ? durationLabel(num(step.durationMs)) : state === 'inProgress' && live ? 'now' : '' };
-  });
-  const current = tasks.find(task => task.status === 'inProgress') ?? tasks.find(task => task.status === 'pending') ?? tasks[tasks.length - 1]!;
-  return { tasksTotal: tasks.length, tasksDone: tasks.filter(task => task.status === 'completed').length, tasksCurrent: current.text, tasks };
+  const system = [...systemComposerNotices(client, { automaticEnvironment: autoBalanceState(client).automatic }), ...autoBalanceNotices(client)]
+    .map(item => notice({ ...item, group: 'environment' }));
+  const attention = client.threadId
+    ? [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...(mismatch ? [notice(mismatch)] : [])]
+    : [...usageNotices(client, now).map(item => notice(item)), ...cloneItem];
+  const requests = client.threadId ? pendingRequests(client.projection) : { approvals: [], inputs: [] };
+  if (requests.approvals.length > 0 || requests.inputs.length > 0) return system.filter(item => item.variant === 'error' || item.variant === 'warning');
+  return [...system, ...attention];
 }
 
 // ── Provider-unavailable control ───────────────────────────────────────────
