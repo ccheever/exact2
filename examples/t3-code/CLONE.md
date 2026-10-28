@@ -47,14 +47,23 @@ A separate root resource now loads complete Arrange data only while Arrange is
 open. Ordinary Home replies no longer include its rows or catalogue version.
 The normal iPhone build sends a follow-up, displays growing streamed output, and
 stops it; the server confirms an interrupted run. The earlier Hermes abort has
-not recurred in this drive, but sustained editing and restart still need acceptance.
-A fresh 124-character edit saved only 117 characters after queued work drained.
-The POC remains blocked until the latest native edit reliably reaches storage.
+not recurred in this drive. Text observations now commit independently of the
+bounded command queue; lifecycle, submit and command outcomes remain ordered.
+The normal integrated PR build saves all 124 characters of a rapid edit exactly
+and restores that complete draft, saved environment and conversation after relaunch.
+The restored draft reaches the server intact. Its saved project directory became
+unavailable, so final provider acceptance uses another existing live checkout.
 The first Home fix is pushed in PR216 at `122646f95` and independently reviewed.
 
-All six root repository checks pass at the mobile checkpoint. After the Home fix,
-the full mobile suite passes 3,696 tests, strict app TypeScript passes, and the
-native simulator build succeeds. These checks do not override the observed crash.
+All six root repository checks pass at the mobile checkpoint. On the integrated
+PR, build, tests, Clippy, formatting, boot and workspace checks pass. Caps finds
+one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
+unchanged from the original PR head. A bounded extraction attempt made no changes;
+the desktop checkpoint needs broader integration. Keep the failure visible.
+
+The full mobile suite passes 3,698 tests, strict app TypeScript passes, and the
+normal native simulator build succeeds. The actual Root event regression fails
+with `QueueFull` on the former eager-send action and passes with coalesced text.
 
 The app uses Exact Contract, TypeScript/Hermes, and UIKit, with no React Native
 runtime or Metro. Use Bun 1.4.2 and the separate app Cargo workspace. Ordinary

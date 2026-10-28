@@ -9,6 +9,7 @@ import {fleet} from './shared/settings-b-fleet';
 import {setDraftFiles} from './shared/composer-editor-files';
 import {obj,type Obj} from './shared/domain';
 import type {Native,Files} from './shared/protocol';
+import {contractComponent,type Env} from '../tests/support/contract-action-fixture';
 let serial=0;
 const uuid=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 function deferred<T>(){let resolve!:(v:T)=>void,reject!:(e:unknown)=>void;const promise=new Promise<T>((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}}
@@ -44,7 +45,7 @@ async function fixture(text='/mo') {
   const run=(op:string,key='',payload='',admission=view().admission,handle:Native|null=native)=>action(client,input,{op,key,payload,admission},handle,storage);
   const event=(kind:string,value=mobileEditorOwner(client)!.state.value,patch:Obj={})=>{const state=mobileEditorOwner(client)!.state;return JSON.stringify({...state.identity,mountId:state.mountId||'mount',kind,eventCount:state.eventCount+1,
     value,selection:{start:value.length,end:value.length},focused:true,composing:false,...patch})};
-  const ready=async()=>{view();await run('event','',event('ready'));return view()};
+  const ready=async()=>{view();await run('rich','',event('ready'));return view()};
   return {client,input,native,storage,calls,writes,view,run,event,ready,reply,respond:(fn:typeof response)=>{response=fn},holdWrite:(fn:typeof writeHook)=>{writeHook=fn}};
 }
 
@@ -78,14 +79,37 @@ test('raw event observation precedes persistence; independent text event publish
   const pending=f.run('immediate',v.queries.immediateKey).then(value=>({value}),error=>({error}));await started.promise;
   const write=deferred<void>();f.holdWrite(()=>write.promise);const raw=f.event('text','new text');f.view(raw);
   expect(f.client.draft).toBe('@src');expect(JSON.parse(f.view().configuration).document.value).toBe('new text');
+  expect(f.view().eventKey).not.toBe('');
   const changed=f.run('event','',raw);expect(f.client.draft).toBe('new text');write.resolve();await changed;
+  expect(f.view().eventKey).toBe('');
   query.resolve({ok:true,generation:1,value:{entries:[{path:'old.ts',kind:'file'}]}});expect(await pending).toMatchObject({error:{kind:'superseded'}});expect(f.client.draft).toBe('new text');expect(f.view().menu.visible).toBe(false);
 });
+test('actual Root retains the latest native text while the mutation queue refuses more sends',async()=>{
+  const f=await fixture('');await f.ready();const root=contractComponent('mobile/app.contract','App');
+  const state:Env={richComposerLatch:''},work:Promise<unknown>[]=[];
+  let full=false,sends=0;
+  const scope=()=>({richComposerInput:f.input,richComposer:f.view(),wallTime:{epochAtZero:0},performanceNow:()=>f.input.now,
+    composerRootAction:(input:ComposerRootInput,op:string,admission:string,key:string,payload:string,now:number)=>{
+      if(full)throw Error('QueueFull');sends++;
+      const pending=action(f.client,{...input,now},{op,admission,key,payload},f.native,f.storage);work.push(pending);return pending;
+    }});
+  const held=deferred<void>(),entered=deferred<void>();f.holdWrite(async()=>{entered.resolve();await held.promise});
+  let text='a',latest=f.event('text',text);root.call('richComposerEvent',state,scope(),[latest]);f.view(String(state.richComposerLatch));
+  root.call('flushRichComposer',state,scope(),[]);await entered.promise;full=true;
+  for(let index=1;index<124;index++){
+    text+='x';latest=f.event('text',text);root.call('richComposerEvent',state,scope(),[latest]);f.view(String(state.richComposerLatch));
+  }
+  expect(state.richComposerLatch).toBe(latest);expect(sends).toBe(1);expect(f.view().eventKey).not.toBe('');
+  held.resolve();await work[0];full=false;f.holdWrite(null);
+  root.call('flushRichComposer',state,scope(),[]);await work.at(-1);
+  expect(f.client.draft).toBe(text);expect(obj(f.writes.at(-1)?.drafts)[f.client.draftKey]).toBe(text);
+  expect(f.view().eventKey).toBe('');f.input.active=false;expect(f.view().eventKey).toBe('');
+});
 test('actual native submit alternate is claimed once; unrelated payload cannot forge effect',async()=>{
-  const f=await fixture('text');await f.ready();await f.run('event','',f.event('submit',undefined,{alternate:true}));const v=f.view();
+  const f=await fixture('text');await f.ready();await f.run('rich','',f.event('submit',undefined,{alternate:true}));const v=f.view();
   expect(v.effectKind).toBe('submit');const claimed=await f.run('claim-effect',v.effectId,'false');expect(claimed).toMatchObject({effectKind:'submit',alternate:true,visit:'visit',admission:v.admission});
   expect((await f.run('claim-effect',v.effectId,'true')).effectId).toBe('');expect(f.calls).toHaveLength(0);
-  await f.run('event','',f.event('blur',undefined,{focused:false}));const blur=f.view();expect((await f.run('claim-effect',blur.effectId)).effectKind).toBe('blur');
+  await f.run('rich','',f.event('blur',undefined,{focused:false}));const blur=f.view();expect((await f.run('claim-effect',blur.effectId)).effectKind).toBe('blur');
 });
 test('route change and catalog replacement fence held native command replies; exact letGo is preserved',async()=>{
   for(const change of ['route','catalog','permission'] as const){const f=await fixture();const v=await f.ready(),held=deferred<unknown>();f.respond(()=>held.promise);

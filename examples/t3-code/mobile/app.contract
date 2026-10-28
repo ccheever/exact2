@@ -533,9 +533,12 @@ component App
     send richComposerChanged = composerRootAction(richComposerInput, op, admission, key, payload, wallTime.epochAtZero + performanceNow())
   action richComposerEvent(value: string)
     richComposerLatch = value
-    send richComposerChanged = composerRootAction(richComposerInput, "event", richComposer.admission, "", value, wallTime.epochAtZero + performanceNow())
   action richComposerMessage(value: string)
     send richComposerChanged = composerRootAction(richComposerInput, "rich", richComposer.admission, "", value, wallTime.epochAtZero + performanceNow())
+  task flushRichComposer when richComposer.eventKey != "" and not pending(richComposerChanged) key=richComposer.eventKey
+    after(1, flushRichComposer)
+  action flushRichComposer
+    send richComposerChanged = composerRootAction(richComposerInput, "event", richComposer.admission, "", richComposerLatch, wallTime.epochAtZero + performanceNow())
   task prepareRichComposer when richComposer.files.needsPrepare key=richComposer.files.prepareKey
     after(1, prepareRichComposer)
   action prepareRichComposer

@@ -33,6 +33,7 @@ export interface ComposerRootAction {op:string;admission:string;key:string;paylo
 export type ComposerRootProjection=Omit<EditorProjection,'effect'|'files'>&{
   files:Omit<EditorProjection['files'],'retiredAdmissions'|'revision'>;
   colors:ReturnType<typeof mobileCommandColors>;routeVisit:string;editorId:string;owner:string;effectId:string;effectKind:string;
+  eventKey:string;
 };
 export interface ComposerRootResult {
   revision:number;message:string;visit:string;owner:string;editorId:string;admission:string;effectId:string;effectKind:string;alternate:boolean;
@@ -116,14 +117,17 @@ export function mobileComposerRootSnapshot(client:MobileDraftClient,input:Compos
   const currentRoute=route(client,input),shown=mobileEditorSnapshot(client,currentRoute,rawLatch,presentation(client,input,rawLatch),input.now);
   states.set(client,{input,signature,admission:shown.admission});
   const {effect,files,...rest}=shown;
+  const editor=mobileEditorOwner(client)?.state;
+  const eventKey=shown.enabled&&editor?.latestEffect&&editor.stagedEventCount<editor.latestEffect.event.eventCount?editor.latestEffect.id:'';
   return {...rest,files:{ready:files.ready,prepareKey:files.prepareKey,needsPrepare:files.needsPrepare,message:files.message,cleanupKey:cleanupKey(shown)},
     colors:mobileCommandColors(input.scheme,input.themeId),routeVisit:input.visit,editorId:input.editorId,
-    owner:shown.enabled?mobileEditorOwner(client)?.target.owner??'':'',effectId:effect?.id??'',effectKind:effect?.kind??''};
+    owner:shown.enabled?mobileEditorOwner(client)?.target.owner??'':'',effectId:effect?.id??'',effectKind:effect?.kind??'',eventKey};
 }
 /** Fresh native/storage handles belong to this call only. Root supplies its actual current
  * input plus the captured admission/key, never a callback or a synthetic native event. */
 export async function mobileComposerRootAction(client:MobileDraftClient,input:ComposerRootInput,action:ComposerRootAction,nativeInput:Native|null|undefined,storage:Files):Promise<ComposerRootResult> {
   input={...input};action={...action};
+  if(action.op==='rich'&&mobileComposerEditorDecodeEvent(action.payload))action.op='event';
   const prior=states.get(client);
   if(action.admission&&prior&&prior.admission!==action.admission)throw superseded();
   if(!['event','rich','pick','dismiss','retry','prepare-files','cleanup-files','immediate','wake','claim-effect'].includes(action.op))throw new ClientError('Unknown composer action.');

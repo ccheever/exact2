@@ -46,6 +46,7 @@ shape ComposerRootView
   colors: ComposerCommandColors
   effectId: string
   effectKind: string
+  eventKey: string
   message: string
   routeVisit: string
   editorId: string

@@ -139,7 +139,8 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     private func send(_ object: [String: Any], rich: Bool) {
         guard let bytes = try? JSONSerialization.data(withJSONObject: object) else { return }
         let json = String(decoding: bytes, as: UTF8.self)
-        if rich { events.message(json) } else { events.change(json) }
+        if rich || !["text", "selection"].contains(object["kind"] as? String ?? "") { events.message(json) }
+        else { events.change(json) }
     }
     // Separate source-rich callback channel. Parent must integrate explicit handlers before activation.
     private func rich(_ kind: String, from sender: T3MobileOwnedComposerView?, payload: [String: Any]) {
