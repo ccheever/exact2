@@ -76,6 +76,28 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertEqual(color?[0], red, "the colour its author wrote, not its grey")
     }
 
+    /// A dot whose fill names the tint takes its node's tint, undimmed while UIKit dims tints: the
+    /// bar item's image is baked once and kept
+    func testATintDotTakesItsNodesTintUndimmed() throws {
+        let tinted: [String: Any] = ["op": "create", "id": 3, "kind": "view", "handlers": [], "props": [:],
+                                     "style": ["background_color": ["sys": "@tint", "c": [0, 122, 255, 255]], "width": 14, "height": 6]]
+        let (p, node) = button([tinted, label(["written": ["text_color"]])])
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        window.tintColor = UIColor(red: 1, green: 0, blue: 0, alpha: 1)
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        func fill() throws -> [Double] {
+            let face = try XCTUnwrap(ChipFace(node, engine: TextEngine(resolve: { _ in nil })))
+            guard case .dot(_, let fill, _) = face.parts[0] else { return try XCTUnwrap(nil as [Double]?, "the face's first part is its dot: \(face.parts)") }
+            return fill[0]
+        }
+        for (got, want) in zip(try fill(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the node's red tint") }
+        window.tintAdjustmentMode = .dimmed
+        for (got, want) in zip(try fill(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the red tint, undimmed, while dimmed") }
+        window.tintAdjustmentMode = .automatic
+    }
+
     /// A colour only inherited from the page is unsaid: the bar's ink, as a
     /// title's (LLP 1115 D4), never the page's grey or red.
     func testAnInheritedColourIsTheBarsInk() throws {
