@@ -954,6 +954,15 @@ fn an_errors_links_lose_their_queries() {
     assert_eq!(without_queries("HTTP 404"), "HTTP 404");
     assert_eq!(without_queries("why? because"), "why? because");
     assert_eq!(
+        without_queries("https://cdn.example/a.png?ex=1\u{000B}&hm=secret"),
+        "https://cdn.example/a.png"
+    );
+    let spaced = "https://h/a?x=a &hm=secret";
+    assert_eq!(
+        super::redacted(&format!("url(\"{spaced}\") gone"), spaced),
+        "url(\"https://h/a\") gone"
+    );
+    assert_eq!(
         without_queries("https://h/a.svg?x=a\u{00A0}&hm=secret"),
         "https://h/a.svg"
     );

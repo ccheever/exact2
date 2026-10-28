@@ -184,20 +184,38 @@ pub(super) fn decode(
     scale: f32,
     cancelled: impl Fn() -> bool,
 ) -> Result<Decoded, Refusal> {
-    // (A link's query, a CDN's signature, is not logged: the source's, or
-    // one a diagnostic quotes.)
+    // No link's query, a CDN's signature, is logged: the source is named cut
+    // at its query, and a downloaded file's diagnostics, which quote what the
+    // file holds (its own links among it), are counted, not quoted; a bundled
+    // file's, the app's own, are quoted for its developer.
+    let remote = super::remote::is_remote(name);
     let name = super::remote::without_query(name);
     let log = |line: String| eprintln!("{}", super::remote::redacted(&line, name));
+    let quoted = |what: &dyn std::fmt::Display| {
+        if remote {
+            "(not quoted: a downloaded file's)".to_string()
+        } else {
+            what.to_string()
+        }
+    };
     let text = std::str::from_utf8(bytes).map_err(|_| {
         log(format!("exact: image `{name}`: not UTF-8 text"));
         Refusal::DecodeFailed
     })?;
     let loaded = exact_svg_file::load(text).map_err(|e| {
-        log(format!("exact: image `{name}`: {e}"));
+        log(format!(
+            "exact: image `{name}`: not an SVG this host reads: {}",
+            quoted(&e)
+        ));
         Refusal::DecodeFailed
     })?;
-    for warning in &loaded.document.warnings {
-        log(format!("exact: image `{name}`: {warning}"));
+    if remote && !loaded.document.warnings.is_empty() {
+        let count = loaded.document.warnings.len();
+        log(format!("exact: image `{name}`: {count} parts this host does not draw (not quoted: a downloaded file's)"));
+    } else {
+        for warning in &loaded.document.warnings {
+            log(format!("exact: image `{name}`: {warning}"));
+        }
     }
     if cancelled() {
         return Err(Refusal::Stale);

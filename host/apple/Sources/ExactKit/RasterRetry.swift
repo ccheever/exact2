@@ -72,9 +72,14 @@ enum RasterRetry {
         return formatter
     }()
 
-    /// `text` about source `source` with no link's query (`withoutQueries`:
-    /// the source, however it is quoted, is one of them).
-    static func redacted(_ text: String, source: String) -> String { withoutQueries(text) }
+    /// `text` about source `source` with no link's query.
+    static func redacted(_ text: String, source: String) -> String {
+        // The source quoted whole (a space in it too) is cut at its query and
+        // marked as one, so what follows it in its word goes with it.
+        guard let cut = source.unicodeScalars.firstIndex(where: { $0 == "?" || $0 == "#" }) else { return withoutQueries(text) }
+        let bare = String(source.unicodeScalars[..<cut])
+        return withoutQueries(text.replacingOccurrences(of: source, with: bare + "?\u{2026}"))
+    }
     /// `text` with no query or fragment of any link in it: a CDN's links carry
     /// signatures (Discord's `ex`, `is`, `hm`), and an image's `error` quotes
     /// only the host and path. A `?` with anything but a space after it starts
@@ -87,7 +92,8 @@ enum RasterRetry {
         // By Unicode scalar (a combining mark after `?` is its own), and words
         // end at ASCII whitespace only (a no-break space can sit in a link).
         let trailing: (Unicode.Scalar) -> Bool = { ")\"'`>],;:.".unicodeScalars.contains($0) }
-        let space: (Unicode.Scalar) -> Bool = { " \t\n\r\u{0B}\u{0C}".unicodeScalars.contains($0) }
+        // (Rust's is_ascii_whitespace: no vertical tab.)
+        let space: (Unicode.Scalar) -> Bool = { " \t\n\r\u{0C}".unicodeScalars.contains($0) }
         let scalars = Array(text.unicodeScalars)
         var out = String.UnicodeScalarView(), i = 0, linked = false
         var last: [Unicode.Scalar] = ["\0", "\0", "\0"]

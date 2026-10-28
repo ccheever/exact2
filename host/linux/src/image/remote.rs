@@ -23,10 +23,15 @@ pub(crate) fn without_query(link: &str) -> &str {
     &link[..link.find(['?', '#']).unwrap_or(link.len())]
 }
 
-/// `text` about source `source` with no link's query ([`without_queries`]:
-/// the source, however it is quoted, is one of them).
-pub(crate) fn redacted(text: &str, _source: &str) -> String {
-    without_queries(text)
+/// `text` about source `source` with no link's query: the source, quoted
+/// whole (a space in it too), is first cut at its query and marked as one
+/// (`?…`), so what follows it in its word goes with it ([`without_queries`]).
+pub(crate) fn redacted(text: &str, source: &str) -> String {
+    let cut = without_query(source);
+    if cut.len() == source.len() {
+        return without_queries(text);
+    }
+    without_queries(&text.replace(source, &format!("{cut}?\u{2026}")))
 }
 
 /// `text` with no query or fragment of any link in it: a CDN's links carry
