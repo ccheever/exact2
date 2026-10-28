@@ -443,7 +443,7 @@ extension NodeView {
     /// `ShowNonLocatedContextMenu`: the `contextmenu`, then the
     /// `contextPopover`'s menu, of the first node from this one up that
     /// answers (`contextTarget`; the event bubbles), at this one's drawn
-    /// middle; where none does, what a secondary click there gets
+    /// middle; where none does, the menu a right-click there would show
     /// (`unansweredContextMenu`), as AppKit's show menu pops a view's menu.
     package override func accessibilityPerformShowMenu() -> Bool {
         guard let presenter, presenter.views[id] === self, let point = presenter.contextPoint(self), let window else { return false }
@@ -453,9 +453,14 @@ extension NodeView {
     /// AppKit offers every action whose method the class implements; show
     /// menu only where something answers it, as AppKit offers it only on a
     /// view with a `menu`: a node whose `contextmenu` or `contextPopover`
-    /// runs, or the view drawn at its middle whose `menu(for:)` gives one.
-    /// An app's responder past the session's view cannot be asked ahead, so
-    /// a node only it answers is not offered, though show menu reaches it.
+    /// runs, or where the view drawn at its middle, or one above it, holds
+    /// selected text or a menu (`offersKeyboardMenu`). A responder past the
+    /// session's view (an app's menu) cannot be judged ahead, so a node only
+    /// it answers is not offered. AppKit's accessibility server performs
+    /// show menu there all the same when another process asks (measured on
+    /// macOS 27.2: `AXUIElementPerformAction` succeeds on an element that
+    /// does not list it), though an assistive app reading the element's
+    /// actions does not see it there.
     package override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         guard selector == #selector(accessibilityPerformShowMenu) else { return super.isAccessibilitySelectorAllowed(selector) }
         return showMenuTarget != nil || offersUnansweredMenu
@@ -473,7 +478,7 @@ extension NodeView {
         return menu.focusedMenuRow === self
     }
     private var offersUnansweredMenu: Bool {
-        guard let presenter, presenter.views[id] === self, presenter.contextTarget(self) == nil,
+        guard let presenter, presenter.views[id] === self, presenter.contextTarget(self) == nil, presenter.contextUnanswered(self),
               let point = presenter.contextPoint(self), let window else { return false }
         return presenter.offersKeyboardMenu(at: point, in: window)
     }

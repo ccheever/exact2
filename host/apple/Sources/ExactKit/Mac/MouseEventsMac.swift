@@ -44,60 +44,88 @@ extension Presenter {
             guard responder == nil || responder === window || responder === viewport
                     || responder === root || responder === session?.view,
                   session?.view?.ownsShortcutFocus() ?? true else { return false }
-            let clip = viewport.contentView
-            point = clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)
-            start = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
+            if let (node, at) = selection.keyboardMenuPoint(in: window) {
+                // Selected text: at its first line, as Blink's
+                // `ShowNonLocatedContextMenu` places a menu with no focus.
+                point = at
+                start = node
+            } else {
+                let clip = viewport.contentView
+                point = clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)
+                start = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
+            }
         }
         guard let node = contextTarget(start) else { return unansweredContextMenu(at: point, from: start, in: window) }
         return contextMenu(node, at: point, from: start)
     }
 
     /// A request from the keyboard that no node answers (the ContextMenu
-    /// key, VoiceOver's show menu) goes on as an unanswered secondary click
-    /// at `point` does (`NodeView.rightMouseDown`), as Chrome's own menu
-    /// follows a `contextmenu` no handler prevented: the menu of the view
-    /// drawn there (selectable text's), else the session's view and its
-    /// next responders (an embedder's, an app's). No node hears it, since
-    /// the tree already declined, and selectable text keeps its selection.
-    /// It goes on the next turn, as a context menu's popover does
+    /// key, VoiceOver's show menu) gets the menu a right-click at `point`
+    /// would show, as Chrome's own menu follows a `contextmenu` no handler
+    /// prevented: the menu of the view drawn there or of the first view
+    /// above it that has one (selected text's), else the session's view and
+    /// the responders past it (an embedder's, an app's), which hear a
+    /// secondary click's press and release. No node hears it, since the
+    /// tree already declined, and selected text keeps its selection. It
+    /// goes on the next turn, as a context menu's popover does
     /// (`MenuHost.context`), outside VoiceOver's request. False where the
     /// walk from `start` stopped at a field, which keeps its own menu.
     func unansweredContextMenu(at point: NSPoint, from start: NSView?, in window: NSWindow) -> Bool {
-        guard contextUnanswered(start), let event = Self.keyboardClick(at: point, in: window) else { return false }
-        let found = keyboardMenu(for: event, in: window)
+        guard contextUnanswered(start), let down = Self.keyboardClick(.rightMouseDown, at: point, in: window),
+              let up = Self.keyboardClick(.rightMouseUp, at: point, in: window) else { return false }
+        let found = keyboardMenu(for: down, in: window)
         RunLoop.main.perform(inModes: [.common]) { [weak self] in
             guard let self else { return }
-            if let (view, menu) = found { NSMenu.popUpContextMenu(menu, with: event, for: view) }
-            else { (self.session?.view ?? self.viewport).rightMouseDown(with: event) }
+            if let (view, menu) = found { return NSMenu.popUpContextMenu(menu, with: down, for: view) }
+            let past = self.session?.view ?? self.viewport
+            past.rightMouseDown(with: down)
+            past.rightMouseUp(with: up)
         }
         return true
     }
 
-    /// Whether the view drawn at `point` gives a request from the keyboard
-    /// there a menu (VoiceOver's show menu is offered where it does).
+    /// Whether a request from the keyboard at `point` would get a menu,
+    /// judged without building one, since VoiceOver asks on every query:
+    /// the view drawn there or one above it holds selected text or has a
+    /// `menu`. A responder past the session's view is not counted.
     func offersKeyboardMenu(at point: NSPoint, in window: NSWindow) -> Bool {
-        Self.keyboardClick(at: point, in: window).flatMap { keyboardMenu(for: $0, in: window) } != nil
+        var next = hit(point, in: window)
+        while let view = next, view !== session?.view {
+            if let node = view as? NodeView, node.isParagraph, !ExactEnv.agentMode, (selection.range(node)?.length ?? 0) > 0 { return true }
+            if view.menu != nil { return true }
+            next = view.superview
+        }
+        return false
     }
 
-    private static func keyboardClick(at point: NSPoint, in window: NSWindow) -> NSEvent? {
-        NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+    private static func keyboardClick(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) -> NSEvent? {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
     }
 
-    /// The view drawn at `event`'s point and the menu its `menu(for:)`
-    /// gives a request from the keyboard there; nil when it gives none.
+    private func hit(_ point: NSPoint, in window: NSWindow) -> NSView? {
+        guard let content = window.contentView else { return nil }
+        return content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+    }
+
+    /// The first view from the one drawn at `event`'s point up to the
+    /// session's view whose `menu(for:)` gives a request from the keyboard
+    /// a menu, as AppKit asks a right-click's view and then its superviews;
+    /// nil when none does.
     private func keyboardMenu(for event: NSEvent, in window: NSWindow) -> (NSView, NSMenu)? {
-        guard let content = window.contentView,
-              let view = content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow)
-        else { return nil }
         NodeView.keyboardMenuRequest = true
         defer { NodeView.keyboardMenuRequest = false }
-        return view.menu(for: event).map { (view, $0) }
+        var next = hit(event.locationInWindow, in: window)
+        while let view = next, view !== session?.view {
+            if let menu = view.menu(for: event) { return (view, menu) }
+            next = view.superview
+        }
+        return nil
     }
 
     /// Whether the walk `contextTarget` takes from `view` meets no field,
     /// which keeps its own menu.
-    private func contextUnanswered(_ view: NSView?) -> Bool {
+    func contextUnanswered(_ view: NSView?) -> Bool {
         var next = view
         while let view = next {
             if let node = view as? NodeView, node.field != nil || node.textArea != nil { return false }
@@ -398,13 +426,14 @@ extension NodeView {
 
     /// Whether a request from the keyboard at run `id` reaches a run or
     /// node from it up whose `contextmenu` or `contextPopover` runs, or,
-    /// where none answers, a menu from the view drawn at the run's middle.
+    /// where none answers, a menu at the run's middle (`offersKeyboardMenu`).
     func inlineOffersContextMenu(_ id: UInt32) -> Bool {
         guard let presenter, presenter.views[self.id] === self, !formDisabled, !inert,
               !presenter.inlineInert(id), let run = presenter.inlineText(id) else { return false }
         if inlineContextTarget(from: run) != nil { return true }
         if let node = presenter.contextTarget(self) { return !node.formDisabled && !node.authoredInert }
-        guard let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line), let window else { return false }
+        guard presenter.contextUnanswered(self), let line = inlineRects(run).first,
+              let point = presenter.contextPoint(self, rect: line), let window else { return false }
         return presenter.offersKeyboardMenu(at: point, in: window)
     }
 

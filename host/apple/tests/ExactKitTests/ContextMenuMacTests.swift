@@ -89,6 +89,7 @@ final class ContextMenuMacTests: XCTestCase {
         // answers, and goes on as an unanswered secondary click there.
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertFalse(source.accessibilityPerformShowMenu())
+        turn()
         XCTAssertEqual(heard, [1, 1, 1, 1], "inert still suppresses the menu")
     }
 
@@ -647,8 +648,9 @@ final class ContextMenuMacTests: XCTestCase {
     private final class NativeKeySink: NSView { override var acceptsFirstResponder: Bool { true } }
     /// A responder after the session's view, as an embedder's or an app's is.
     private final class SecondaryClickSink: NSResponder {
-        var clicks: [NSPoint] = []
+        var clicks: [NSPoint] = [], releases: [NSPoint] = []
         override func rightMouseDown(with event: NSEvent) { clicks.append(event.locationInWindow) }
+        override func rightMouseUp(with event: NSEvent) { releases.append(event.locationInWindow) }
     }
     /// A view whose `menu(for:)` answers, as selectable text's does.
     private final class MenuView: NSView {
@@ -688,6 +690,7 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertTrue(plain.accessibilityPerformShowMenu())
         turn()
         XCTAssertEqual(sink.clicks, [middle, middle])
+        XCTAssertEqual(sink.releases, [middle, middle], "each press has its release")
         XCTAssertEqual(heard, [], "no node hears it")
         XCTAssertTrue(window.makeFirstResponder(source))
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
@@ -697,17 +700,21 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(sink.clicks.count, 2, "a node that answers keeps the request")
     }
 
-    /// Where the view drawn at the node's middle has a menu (selectable
-    /// text's), the unanswered request asks its `menu(for:)` as a request
-    /// from the keyboard, opens that menu, and goes no further; show menu
-    /// is offered there.
+    /// Where a view at the node's middle, or above the one drawn there, has
+    /// a menu (selectable text's), the unanswered request asks its
+    /// `menu(for:)` as a request from the keyboard, opens that menu, and goes
+    /// no further; show menu is offered there without asking for the menu.
     func testAnUnansweredKeyboardRequestOpensTheMenuOfTheViewDrawnThere() throws {
         try XCTSkipIf(ExactEnv.agentMode, "AppKit's tracking would hold the agent")
         let p = presenter(), window = try XCTUnwrap(windows.last)
         p.apply(wireBatch([["op": "create", "id": 7, "kind": "button", "handlers": ["press"], "props": ["tabindex": "0"]],
                            ["op": "frame", "id": 7, "x": 180, "y": 20, "w": 100, "h": 30], ["op": "children", "id": 9, "ids": [1, 2, 7]]]))
+        // A view with a menu under the node, and a plain view in front of it:
+        // AppKit asks the view under a click, then the views above it.
         let plain = try XCTUnwrap(p.views[7]), sink = SecondaryClickSink(), drawn = MenuView(frame: plain.bounds)
+        drawn.menu = NSMenu()
         plain.addSubview(drawn)
+        drawn.addSubview(NSView(frame: drawn.bounds))
         sink.nextResponder = p.viewport.nextResponder
         p.viewport.nextResponder = sink
         defer { p.viewport.nextResponder = sink.nextResponder }
@@ -720,6 +727,7 @@ final class ContextMenuMacTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
         XCTAssertEqual(try offered(plain), ["AXPress", "AXShowMenu"])
+        XCTAssertEqual(drawn.asked, [], "offering it builds no menu")
         XCTAssertTrue(window.makeFirstResponder(plain))
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         turn()
@@ -1192,7 +1200,53 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, ["menu Pin"], "show menu on the run's element")
     }
 
-    func testContextMenuDoesNotOpenForDisabledInertHiddenOrRemovedSources() throws {
+    /// With nothing focused and text selected, the key lands at the left
+    /// edge of the selection's first line, halfway down it, as Blink's
+    /// `ShowNonLocatedContextMenu` places it, and opens the selected text's
+    /// menu there, the selection kept.
+    func testTheKeyWithNothingFocusedOpensAtTheSelection() throws {
+        let p = presenter(inSession: true), window = try XCTUnwrap(windows.last)
+        p.apply(wireBatch([
+            ["op": "create", "id": 8, "kind": "text", "props": ["text": "Write to the list or the team"], "style": ["font_size": 18.0]],
+            ["op": "frame", "id": 8, "x": 20, "y": 80, "w": 400, "h": 28],
+            ["op": "children", "id": 9, "ids": [1, 2, 8]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let text = try XCTUnwrap(p.views[8]), sink = SecondaryClickSink()
+        sink.nextResponder = p.viewport.nextResponder
+        p.viewport.nextResponder = sink
+        defer { p.viewport.nextResponder = sink.nextResponder }
+        p.selection.set(text, FieldSelection(start: 9, end: 17))
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        let (node, at) = try XCTUnwrap(p.selection.keyboardMenuPoint(in: window))
+        XCTAssertTrue(node === text)
+        let box = text.drawnRect(text.bounds)
+        XCTAssertGreaterThan(at.x, box.minX + 20, "the selection's start, not the paragraph's")
+        XCTAssertTrue(box.contains(at))
+        var tracked: [[String]] = []
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            tracked.append(menu.items.map(\.title))
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTrackingWithoutAnimation() }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        window.orderFrontRegardless()
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        turn()
+        if ExactEnv.agentMode {
+            XCTAssertEqual(sink.clicks, [at], "under the agent selected text has no menu")
+        } else {
+            XCTAssertEqual(tracked.count, 1, "the selected text's menu")
+            XCTAssertEqual(sink.clicks, [])
+        }
+        XCTAssertEqual(p.selection.range(text), NSRange(location: 9, length: 8), "the selection is kept")
+    }
+
+    /// A source made disabled, inert, hidden or removed is no focus: the
+    /// key lands at (1,1), as Chrome's does with no focus, where nothing
+    /// answers, and goes on there as a secondary click past the session's
+    /// view, once, with no node event.
+    func testTheKeyAtADisabledInertHiddenOrRemovedSourceGoesOnAtTheCorner() throws {
         let changes: [(String, [String: Any])] = [
             ("disabled", ["op": "props", "id": 1, "set": ["disabled": "true"]]),
             ("inert", ["op": "props", "id": 1, "set": ["inert": "true"]]),
@@ -1201,13 +1255,20 @@ final class ContextMenuMacTests: XCTestCase {
         ]
         for (name, change) in changes {
             let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+            let sink = SecondaryClickSink()
+            sink.nextResponder = p.viewport.nextResponder
+            p.viewport.nextResponder = sink
+            defer { p.viewport.nextResponder = sink.nextResponder }
             XCTAssertTrue(window.makeFirstResponder(source))
             var heard = 0
             p.onClipboard = { _, _, _ in heard += 1 }
             p.apply(wireBatch([change]))
-            // The source is no focus now: the key lands at (1,1), which
-            // nothing answers, and goes on as an unanswered secondary click.
             XCTAssertTrue(p.routeKey(contextKey(window), focused: true), name)
+            turn()
+            let clip = p.viewport.contentView
+            let corner = clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)
+            XCTAssertEqual(sink.clicks, [corner], name)
+            XCTAssertEqual(sink.releases, [corner], name)
             XCTAssertEqual(heard, 0, name)
         }
     }

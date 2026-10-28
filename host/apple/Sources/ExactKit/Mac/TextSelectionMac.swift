@@ -218,14 +218,31 @@ package final class TextSelection {
         reported = reported.filter { seen.contains($0.key) }
     }
 
-    private func rectangles(_ node: NodeView, range: NSRange?) -> [CGRect]? {
+    /// Where the ContextMenu key opens with nothing focused while text is
+    /// selected in `window`, as Blink's `ShowNonLocatedContextMenu` places
+    /// it: at the left edge of the selection's first line, halfway down it,
+    /// in the window; with the paragraph that holds that line.
+    func keyboardMenuPoint(in window: NSWindow) -> (NodeView, NSPoint)? {
+        for node in paragraphs where node.window === window {
+            guard let range = range(node), range.length > 0 else { continue }
+            guard let first = rectangles(node, range: range, inWindow: true)?.first else { return nil }
+            return (node, NSPoint(x: first.minX, y: first.midY))
+        }
+        return nil
+    }
+
+    /// The selected lines of `range` in `node`, as drawn: in the page's
+    /// client space (the clip's, from its scroll origin), or in the window.
+    private func rectangles(_ node: NodeView, range: NSRange?, inWindow: Bool = false) -> [CGRect]? {
         guard let range, let presenter else { return [] }
         let clip = presenter.viewport.contentView
+        let drawn = { (rect: CGRect) in
+            inWindow ? node.drawnRect(rect) : node.drawnRect(rect, in: clip).offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY)
+        }
         if let reader = node.readerParagraph {
             guard let rects = reader.selectionRects(range) else { return nil }
             let origin = node.contentBox().origin
-            return rects.map { node.drawnRect($0.offsetBy(dx: origin.x, dy: origin.y), in: clip)
-                .offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY) }
+            return rects.map { drawn($0.offsetBy(dx: origin.x, dy: origin.y)) }
         }
         guard let paragraph = node.paragraphLayout() else { return [] }
         let selected = paragraph.selectedLines(range, align: node.paragraphSpec().align, in: node.paragraphBox(), dirty: .infinite)
@@ -238,7 +255,7 @@ package final class TextSelection {
                 }
             }
         } else { local = selected.map(\.rect) }
-        return local.map { node.drawnRect($0, in: clip).offsetBy(dx: -clip.bounds.minX, dy: -clip.bounds.minY) }
+        return local.map(drawn)
     }
 
     func set(_ node: NodeView, _ selection: FieldSelection) {
