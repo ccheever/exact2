@@ -450,6 +450,15 @@ impl Batch {
         quote(&session.url, &mut s);
         s.push_str(",\"callback\":");
         quote(&session.callback, &mut s);
+        // A loopback callback's receiver checks `state` itself (LLP 1133.005 D9).
+        if let Some((host, port, path)) = exact_runner::auth::loopback_callback(&session.callback) {
+            s.push_str(&format!(
+                ",\"loopback\":{{\"host\":\"{host}\",\"port\":{port},\"path\":"
+            ));
+            quote(&path, &mut s);
+            s.push_str("},\"state\":");
+            quote(&session.state, &mut s);
+        }
         s.push_str(&format!(",\"ephemeral\":{}}}", session.ephemeral));
         self.ops.push(s);
     }

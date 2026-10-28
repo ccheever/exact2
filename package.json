@@ -42,6 +42,7 @@
     "@exact/reading": "workspace:*",
     "@exact/passkeys": "workspace:*",
     "@exact/sign-in": "workspace:*",
+    "@exact/payments": "workspace:*",
     "@exact/contacts": "workspace:*",
     "@exact/calendar": "workspace:*",
     "@exact/background": "workspace:*",

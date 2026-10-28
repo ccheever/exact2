@@ -67,6 +67,18 @@ pub(crate) fn declared(tag: &str) -> Option<DeclaredView> {
     DECLARED.with(|d| d.borrow().get(tag).cloned())
 }
 
+/// Whether string literal `value` is one of the cases enum declaration `decl` (or its option) names: a literal
+/// infers to `string`, which no `enum<…>` admits otherwise.
+pub(crate) fn names_case(decl: &str, value: &str) -> bool {
+    let decl = decl.trim();
+    let decl = (decl
+        .strip_prefix("option<")
+        .and_then(|d| d.strip_suffix('>')))
+    .unwrap_or(decl);
+    (decl.strip_prefix("enum<").and_then(|d| d.strip_suffix('>')))
+        .is_some_and(|cases| cases.split('|').any(|c| c.trim() == value))
+}
+
 /// Whether a value of type `ty` is what declaration `decl` names. A
 /// declaration the check does not read (`handle<track>`) admits anything.
 pub(crate) fn fits(decl: &str, ty: &Ty) -> bool {
@@ -175,7 +187,7 @@ impl Lowerer<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::fits;
+    use super::{fits, names_case};
     use contract_types::Ty;
 
     #[test]
@@ -189,5 +201,15 @@ mod tests {
         assert!(!fits("MapMarker[]", &marker));
         assert!(!fits("number", &Ty::String));
         assert!(!fits("Other[]", &markers));
+    }
+
+    #[test]
+    fn a_string_literal_admits_an_enum_only_by_one_of_its_cases() {
+        let kinds = "option<enum<plain|buy|order>>";
+        assert!(!fits(kinds, &Ty::String));
+        assert!(names_case(kinds, "order"));
+        assert!(names_case("enum<plain|buy>", "plain"));
+        assert!(!names_case(kinds, "rent"));
+        assert!(!names_case("string", "order"));
     }
 }

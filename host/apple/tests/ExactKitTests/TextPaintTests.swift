@@ -504,6 +504,65 @@ final class TextPaintTests: XCTestCase {
         #endif
     }
 
+    #if os(macOS)
+    /// `-webkit-font-smoothing: antialiased` (LLP 1019 D12): AppKit's raster,
+    /// both its paths, draws with font smoothing off, as Chrome does on the
+    /// Mac: thinner stems, so less ink. The raster's key tells the two apart.
+    func testAntialiasedTextRastersWithoutFontSmoothing() throws {
+        func ink(_ antialiased: Bool, glyphs: Bool) throws -> Int {
+            var spec = Spec(runs: [run("Settings General", weight: 500)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.antialiased = antialiased
+            let p = engine.paragraph(spec, width: 300)
+            let box = CGRect(x: 0, y: 0, width: 300, height: 30)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map { CTLineGetStringRange($0) },
+                                    baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 2, antialiased: antialiased,
+                                    measuredGlyphs: glyphs ? try XCTUnwrap(MeasuredGlyphs(p, spec: spec, width: 300)) : nil,
+                                    measuredColor: glyphs ? CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1) : nil)
+            let bytes = rasterBytes(try XCTUnwrap(job.render()))
+            return stride(from: 3, to: bytes.count, by: 4).reduce(0) { $0 + Int(bytes[$1]) }
+        }
+        for glyphs in [false, true] {
+            let smoothed = try ink(false, glyphs: glyphs), antialiased = try ink(true, glyphs: glyphs)
+            XCTAssertLessThan(Double(antialiased), Double(smoothed) * 0.97, "glyphs \(glyphs): \(antialiased) against \(smoothed)")
+        }
+        var spec = Spec(runs: [run("Settings")], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let box = CGRect(x: 0, y: 0, width: 100, height: 20)
+        let smoothed = TextRasterKey(spec: spec, size: box.size, box: box, scale: 2)
+        spec.antialiased = true
+        XCTAssertNotEqual(TextRasterKey(spec: spec, size: box.size, box: box, scale: 2), smoothed)
+    }
+
+    /// The direct draw (`TextEngine.draw`, a view's own context) turns
+    /// smoothing off for the paragraph alone and leaves the context's as it was.
+    func testAntialiasedTextDrawsDirectlyWithoutFontSmoothing() {
+        let width = 900, height = 60
+        func ink(_ specs: [Spec]) -> [Int] {
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
+            bytes.withUnsafeMutableBytes { raw in
+                let ctx = CGContext(data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                    bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: 2, y: -2)
+                ctx.setShouldSmoothFonts(true)
+                for (i, spec) in specs.enumerated() {
+                    TextEngine.draw(engine.paragraph(spec, width: 140), spec: spec,
+                                    in: CGRect(x: CGFloat(i) * 150, y: 5, width: 140, height: 20), context: ctx)
+                }
+            }
+            return (0..<specs.count).map { i in
+                (0..<height).reduce(0) { sum, y in
+                    (i * 300..<(i + 1) * 300).reduce(sum) { $0 + Int(bytes[(y * width + $1) * 4 + 3]) }
+                }
+            }
+        }
+        let smoothed = Spec(runs: [run("Settings General", weight: 500)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        var antialiased = smoothed; antialiased.antialiased = true
+        let drawn = ink([smoothed, antialiased, smoothed])
+        XCTAssertLessThan(Double(drawn[1]), Double(drawn[0]) * 0.97, "\(drawn)")
+        XCTAssertEqual(drawn[2], drawn[0], "the context smooths again after the antialiased paragraph")
+    }
+    #endif
+
     /// LLP 1100 D2: a paragraph whose colour is wide rasterizes into Display
     /// P3, so its ink is not clipped to sRGB; any other stays sRGB.
     func testAWideColouredParagraphRastersInDisplayP3() throws {

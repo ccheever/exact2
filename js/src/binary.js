@@ -189,6 +189,133 @@
     for (var i = 0; i < reply.headers.length; i++)
       if (reply.headers[i][0] === ":exact-body-to") return Number(reply.headers.splice(i, 1)[0][1]);
   }
+
+  // A resource's two-way socket (LLP 1016.000 D7): the handle its mapper
+  // receives. Its state is what the mapper has seen: CONNECTING until
+  // `open`, OPEN until the end, CLOSED once the stream ends or its answer
+  // is let go. A mutation's synchronous source and the socket's own mapper
+  // answering `open` or a `message` may send or close: each operation is
+  // copied now, handed over with that turn's answer (`settle`,
+  // `__exact_message`) and published once the commit that settles it stands.
+  // An answer in flight's go to the host as each is made, in any turn of it (amendment of 2026-10-18).
+  // A local listener's connections (LLP 1133.005 D6) take the same rules, each
+  // connection a target of its own: its mapper sends only on the connection
+  // whose `connection` or `message` event it answers. `env` is the prelude's
+  // door and turn: the answer running, the mapper call, and any mapper call.
+  var SOCKET_OPS = 256, SOCKET_BYTES = 1048576;
+  function sockets(env) {
+    var host = env.host;
+    var closed = function (what) { return new DOMException("the " + (what || "socket") + " is not open", "InvalidStateError"); }, quota = function (what) { return new DOMException(what, "QuotaExceededError"); };
+    // The transport's bytes as this turn began, earlier turns' unsent ones and
+    // an answer's this turn (door op 15; none on wasm, whose handle never
+    // opens), as WHATWG's `bufferedAmount` counts them at a task's start. A
+    // listener's connections are bounded by the host (D3).
+    function buffered(owner) { if (owner.listen) return 0; try { return Number(host(15, String(owner.ticket), "")) || 0; } catch (e) { return 0; } }
+    function turn(owner) { var m = env.mapping(); return m && m.owner === owner ? m : env.current(); } // its own mapper's call, else the turn's
+    // Stage `op` on `target` (the socket, or one connection of a listener),
+    // whose `state` 1 is open; `byMutation`: its stream is a mutation's.
+    function stage(owner, target, op, byMutation) {
+      var call = turn(owner), mapping = env.mapping(), mapper = !!mapping && call === mapping, what = owner.listen ? "connection" : "socket";
+      // A turn of an answer the runner still holds, in no mapper call: a resource's, or a mutation's after a source that answered with a promise.
+      var answer = !mapper && !env.inMapper() && !!call && !call.replied && !call.letGo && (call.answer || call.mutation && !call.sync && call.status === "pending");
+      if (!call || !mapper && !answer && (!call.mutation || !call.sync)) throw new Error(what + "." + op.op.replace("text", "send").replace("binary", "send").replace("line", "send") + " is only available in a mutation's synchronous source, its " + (owner.listen ? "listener" : "socket") + "'s own mapper or an answer in flight");
+      if (owner.state !== 1 || target.state !== 1 || answer && byMutation) throw closed(what);
+      if (mapper && owner.listen && mapping.connection !== target) throw closed(what);
+      if (answer) return sendNow(owner, target, call, op);
+      if (!mapper && call.tickets.length) { call.socketConflict = true; throw new Error(env.conflict); }
+      var over = function (what) { var e = quota(what); if (mapper) call.overload = e; return e; }; // fails a mapper's snapshot, caught or not
+      var ops = call.socketOps || (call.socketOps = []), bytes = op.size, mine = op.size, kind = mapper ? "mapper call" : "mutation";
+      if (ops.length >= SOCKET_OPS) throw over("socket " + kind + " exceeds 256 operations");
+      for (var i = 0; i < ops.length; i++) {
+        if (ops[i].target === target && ops[i].ends) throw closed(what);
+        bytes += ops[i].size;
+        if (ops[i].owner === owner) mine += ops[i].size;
+      }
+      // The turn's payload as a whole; this socket's buffer with what it stages on it.
+      if (bytes > SOCKET_BYTES) throw over("socket " + kind + " exceeds 1 MiB");
+      if (buffered(owner) + mine > SOCKET_BYTES) throw over("socket buffer exceeds 1 MiB");
+      op.owner = owner; op.target = target;
+      ops.push(op);
+    }
+    // An answer's operation goes to the host now; D7's bounds count over all its turns.
+    function sendNow(owner, target, call, op) {
+      var sent = call.socketSent || (call.socketSent = { ops: 0, bytes: 0, closed: [] });
+      if (sent.closed.indexOf(target) >= 0) throw closed(owner.listen ? "connection" : "socket");
+      if (sent.ops >= SOCKET_OPS) throw quota("socket answer exceeds 256 operations");
+      if (sent.bytes + op.size > SOCKET_BYTES) throw quota("socket answer exceeds 1 MiB");
+      if (buffered(owner) + op.size > SOCKET_BYTES) throw quota("socket buffer exceeds 1 MiB");
+      sent.ops++; sent.bytes += op.size;
+      if (op.ends) sent.closed.push(target);
+      host(17, String(owner.ticket), wire(op));
+    }
+    function wire(op) { return JSON.stringify({ op: op.op, data: op.data, code: op.code, reason: op.reason, connection: op.connection }); }
+    function socketOwner(ticket, byMutation) {
+      var owner = { ticket: ticket, state: 0 };
+      owner.handle = Object.freeze({
+        get readyState() { return owner.state; },
+        get bufferedAmount() {
+          var n = buffered(owner), call = turn(owner), ops = call && call.socketOps;
+          for (var i = 0; ops && i < ops.length; i++) if (ops[i].owner === owner) n += ops[i].size;
+          return n;
+        },
+        send: function (data) {
+          if (typeof data === "string") return stage(owner, owner, { op: "text", data: data, size: utf8Length(data) }, byMutation);
+          if (!(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data)) throw new TypeError("socket.send expects a string, ArrayBuffer or ArrayBufferView");
+          var bytes = new Uint8Array(env.copyBytes(data, "socket.send"));
+          stage(owner, owner, { op: "binary", data: toBase64(bytes), size: bytes.length }, byMutation);
+        },
+        close: function (code, reason) {
+          if (code === undefined) code = 1000; if (reason === undefined) reason = "";
+          if (code !== 1000 && (!Number.isInteger(code) || code < 3000 || code > 4999)) throw new DOMException("invalid socket close code", "InvalidAccessError");
+          if (typeof reason !== "string" || utf8Length(reason) > 123) throw new SyntaxError("socket close reason exceeds 123 UTF-8 bytes");
+          stage(owner, owner, { op: "close", code: code, reason: reason, size: 0, ends: true }, byMutation);
+        },
+      });
+      return owner;
+    }
+    // A listener (LLP 1133.005 D1): its state is the stream's (OPEN from
+    // `listening`), and each connection's handle is OPEN from its
+    // `connection` event to its `end`, CLOSED once the stream ends.
+    function listenOwner(ticket) {
+      var owner = { ticket: ticket, state: 0, listen: true, connections: new Map() };
+      // The connection `id`'s handle, made at its `connection` event.
+      owner.connection = function (id) {
+        var c = owner.connections.get(id);
+        if (c) return c;
+        c = { id: id, state: 1 };
+        c.handle = Object.freeze({
+          get readyState() { return c.state; },
+          send: function (text) {
+            if (typeof text !== "string") throw new TypeError("ListenConnection.send expects a string");
+            // The peer would read a line with a newline as two.
+            if (text.indexOf("\n") >= 0) throw new SyntaxError("ListenConnection.send: a line has no \\n");
+            stage(owner, c, { op: "line", connection: id, data: text, size: utf8Length(text) + 1 }, false);
+          },
+          end: function () { stage(owner, c, { op: "end", connection: id, size: 0, ends: true }, false); },
+        });
+        owner.connections.set(id, c);
+        return c;
+      };
+      // The stream's end, or its answer let go: every handle is closed.
+      owner.close = function () { owner.state = 3; owner.connections.forEach(function (c) { c.state = 3; }); owner.connections.clear(); };
+      return owner;
+    }
+    // One message for a listener's mapper: the event and the connection
+    // handle beside it (none for `listening`). `end` closes that handle.
+    function listenEvent(owner, message) {
+      var type = message.event, id = Number(message.id), c = type === "listening" ? null : owner.connection(id);
+      if (type === "listening") { owner.state = 1; return { event: { type: type, address: message.data, port: id || 0 } }; }
+      if (type === "end") { c.state = 3; owner.connections.delete(id); return { event: { type: type, id: id, reason: message.data }, connection: c }; }
+      if (type === "connection") return { event: { type: type, id: id }, connection: c };
+      return { event: { type: "message", id: id, data: message.data }, connection: c };
+    }
+    // A turn's staged operations to the host, with its answer.
+    function hand(call, door) { // door 17: a promise-answering mutation's first answer turn, counted toward its bounds
+      var ops = call.socketOps || [], sent = door === 17 && (call.socketSent = { ops: ops.length, bytes: 0, closed: [] }); call.socketOps = null;
+      ops.forEach(function (op) { if (sent) { sent.bytes += op.size; if (op.ends) sent.closed.push(op.target); } host(door || 14, String(op.owner.ticket), wire(op)); });
+    }
+    return { socketOwner: socketOwner, listenOwner: listenOwner, listenEvent: listenEvent, hand: hand };
+  }
   global.__exact_binary = Object.freeze({
     fileRefusal: fileRefusal,
     bodyWritten: bodyWritten,
@@ -200,5 +327,6 @@
     gateDecode: door ? gateDecode : undefined,
     longPollOf: longPollOf,
     presence: presence,
+    sockets: sockets,
   });
 })(globalThis);

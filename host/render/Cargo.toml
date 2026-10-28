@@ -46,5 +46,7 @@ windows-sys = { version = "0.61.2", features = ["Win32_Networking_WinSock"] }
 test-wait = []
 
 [dev-dependencies]
+# The listener the shared executor's tests install (LLP 1133.005).
+exact-listen = { path = "../listen" }
 exact-render = { path = ".", features = ["test-wait"] }
 contract = { path = "../../contract/cli" }

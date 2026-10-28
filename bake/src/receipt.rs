@@ -636,6 +636,8 @@ fn artifact_graph(
         ("sound", !plan.sounds.is_empty()),
         // LLP 1125 D6: the MIDI arm for a plan that asks for ports or hears an input.
         ("midi", exact_runner::uses::uses_midi(plan)),
+        // LLP 1133.005 D13: the listener for an app whose grants can listen.
+        ("listen", listens(inputs)),
     ]
     .into_iter()
     .filter_map(|(module, reached)| reached.then_some(module))
@@ -655,6 +657,22 @@ fn artifact_graph(
     Ok(
         json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"launchBackground":launch_background(plan),"artifacts":artifacts}),
     )
+}
+
+/// Whether the app's grant ceiling has a `net.listen` line or a loopback
+/// `auth.callback` (D9's receiver is the listener's): without either,
+/// everything the listener would do is refused, so the build carries none.
+fn listens(inputs: &Value) -> bool {
+    (inputs["grantCeiling"].as_str().unwrap_or("").lines()).any(|line| {
+        let line = line.trim();
+        exact_runner::listen::grant_prefix(line).is_some()
+            || [
+                "auth.callback http://127.0.0.1/",
+                "auth.callback http://[::1]/",
+            ]
+            .iter()
+            .any(|p| line.starts_with(p))
+    })
 }
 
 /// LLP 1116.011 D2.3: the ground the app's first route stands on, which the

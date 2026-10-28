@@ -40,6 +40,7 @@ import { arrivals } from "./arrival.js";
 import { devices } from "./devices.js";
 import { setSpaceState } from "../web/address-space.js";
 import { members } from "./members.js";
+import { sheets } from "./sheets.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -170,7 +171,11 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // A newer ask of the same reader or mutation supersedes its held one, whatever answers the newer (§6: retired).
   // A forwarded call let go is cancelled at its implementation (LLP 1133.016 D15 item 2).
   const supersede = (row, name) => {
-    for (const h of held.filter(h => h.name === name)) { retire(h); say(`device ${capability(h)} ${h.ticket} retired`); h.reject(new Failed(`${row.key}: superseded`)); }
+    for (const h of held.filter(h => h.name === name)) {
+      // A payment sheet decides for itself what its call let go means (sheets.js).
+      if (paySheets.has(h)) { h.superseded = true; continue; }
+      retire(h); say(`device ${capability(h)} ${h.ticket} retired`); h.reject(new Failed(`${row.key}: superseded`));
+    }
     const pending = forwarded.get(name);
     if (pending) { forwarded.delete(name); say(`cancel ${pending.key} request ${pending.request}: its call was let go`); pending.impl.cancel(pending.request); }
   };
@@ -194,11 +199,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (waits !== "ceremony") supersede(row, name);
     const queued = waits === "ceremony" && ceremonies.begins(row);
     return new Promise((resolve, reject) => {
-      const h = { ticket: queued ? null : nextTicket(), row, waits, name, send: row.send, resolve, reject, json, timeout, forward, args, kept, queued, permission: permissionOf(row, args)?.name, deadline: waits === "value" && timeout != null ? clock.now + timeout : null };
+      const h = { ticket: queued ? null : nextTicket(), row, waits, name, send: row.send, resolve, reject, json, timeout, forward, args, queued, permission: permissionOf(row, args)?.name, deadline: waits === "value" && timeout != null ? clock.now + timeout : null };
+      h.kept = () => !h.superseded && kept();
       held.push(h);
       if (!queued) say(`device ${capability(h)} ${h.ticket} held (agent)`);
       ar.claimed(row);
       if (waits === "ceremony") ceremonies.record(h, queued ? "queued" : "held");
+      if (!queued && row.sub.ceremony?.asks) paySheets.opened(h);
     });
   };
   const retire = h => { const i = held.indexOf(h); if (i >= 0) held.splice(i, 1); };
@@ -221,7 +228,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       for (const o of row.sub.colorOptions ?? []) if (typeof args?.[o] === "string" && !isColor(args[o])) return { error: "TypeError", message: `${o} is no CSS colour` };
       const lines = (data.grants ?? "").split("\n").map(l => l.trim().split(/\s+/));
       for (const [path, spec] of Object.entries(row.sub.nameGrants ?? {})) {
-        if (!spec?.line) continue;
+        if (!spec?.line || path.includes("[]")) continue; // a list's values, the sheet's (sheets.js `admit`)
         // A call without the argument the path is in asks nothing of it (a sign-in alone, LLP 1133.014 D3).
         if (path.includes(".") && args?.[path.split(".")[0]] == null) continue;
         const code = spec.refuse ?? "NotAllowedError";
@@ -246,6 +253,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       return { hold: "ceremony" };
     },
     args(h) {
+      if (h.row.sub.ceremony.asks) return paySheets.args(h);
       const c = h.row.sub.ceremony, declared = h.row.key.slice(h.row.key.indexOf(".") + 1);
       const client = c.clientOrigin?.web === "page" && typeof location === "object" ? location.origin : null;
       const owned = mb.ownsCeremony(h.row, h.args);
@@ -268,9 +276,10 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (!next) return;
       next.queued = false; next.ticket = nextTicket();
       say(`device ${capability(next)} ${next.ticket} held (agent)`);
+      if (next.row.sub.ceremony?.asks) paySheets.opened(next);
     },
     record(h, outcome) {
-      const entry = { name: h.row.key.slice(h.row.key.indexOf(".") + 1), mediation: h.args?.mediation ?? null, rpId: h.row.sub.ceremony ? ceremonies.args(h).rpId : ceremonies.rpId(h.row, h.args), origin: h.row.sub.ceremony ? ceremonies.args(h).clientOrigin : null, outcome, ...(h.row.sub.ceremony ? mb.summary(h.row, h.args) : {}) };
+      const entry = paySheets.entry(h, outcome) ?? { name: h.row.key.slice(h.row.key.indexOf(".") + 1), mediation: h.args?.mediation ?? null, rpId: h.row.sub.ceremony ? ceremonies.args(h).rpId : ceremonies.rpId(h.row, h.args), origin: h.row.sub.ceremony ? ceremonies.args(h).clientOrigin : null, outcome, ...(h.row.sub.ceremony ? mb.summary(h.row, h.args) : {}) };
       const i = listed.findIndex(([x]) => x === h);
       if (i >= 0) listed[i][1] = entry; else listed.push([h, entry]);
       if (listed.length > 16) listed.shift();
@@ -303,6 +312,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       return row.sub.ceremony ? { error: "AbortError", message: "the call was let go" } : json;
     },
   };
+  const paySheets = sheets({
+    release,
+    // Its reply is dropped (the ticket was let go), but the call must end, or it stays in flight for `clock settle`.
+    retire: h => { retire(h); say(`device ${capability(h)} ${h.ticket} retired`); h.reject(new Failed(`${h.row.key}: closed after its call ended`)); ceremonies.record(h, "closed after its call ended"); ceremonies.promote(); },
+  });
+  Clocked.push(() => paySheets.deadlines());
+  After.push(() => paySheets.letGo());
   const reask = keys => {
     commit(() => { const sources = new Set([...keys].map(k => byKey.get(k).source)); for (const r of Resources) if (sources.has(r.source)) R(r); }, "module");
     for (const key of keys) globalThis.exact?.announceModule?.(key); // data code's readers
@@ -543,8 +559,11 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (row.send && asker && impl.cancel) forwarded.set(asker, { key: row.key, request, impl });
     const call = row.send && how.kept && impl.cancel ? { key: row.key, request, impl, kept: how.kept } : null;
     if (call) dataCalls.add(call);
+    // A pending call's handlers (LLP 1133.034 D5): the ones its handler options name, by `request:<n>` while it runs.
+    const callbacks = (row.sub.handlerOptions ?? []).map(o => args?.[o]).filter(h => typeof h === "string");
+    if (callbacks.length) handlers.set(`request:${request}`, new Set(callbacks));
     const told = { origin: how.origin ?? "app", request, ...(route(row) === "agent" ? { preferred: how.sheet ?? preferred.get(row.key) } : {}) };
-    const answered = Promise.resolve(impl[name](args ?? {}, told)).finally(() => { if (forwarded.get(asker)?.request === request) forwarded.delete(asker); dataCalls.delete(call); });
+    const answered = Promise.resolve(impl[name](args ?? {}, told)).finally(() => { if (forwarded.get(asker)?.request === request) forwarded.delete(asker); dataCalls.delete(call); handlers.delete(`request:${request}`); });
     if (row.live && row.sub.poll) {
       polls.set(row.key, clock.now);
       asking.add(row.key);
@@ -807,8 +826,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // Admitted, then what answers: `{now}`, `{hold}`, or `{forward}` (the implementation).
   const admitted = (row, args, origin, send, timeout) => {
     // A grant matched by the argument's value fails with its own code (`SecurityError` for an RP ID, LLP 1133.011 D6).
-    const byValue = ceremonies.grants(row, args);
-    if (byValue) { say(`${row.key}: refused, ${byValue.message}`); return { now: byValue }; }
+    const byValue = ceremonies.grants(row, args) ?? (row.sub.ceremony?.asks ? paySheets.admit(row, args) : null);
+    if (byValue) { say(`${row.key}: refused, ${byValue.error}: ${byValue.message}`); return { now: byValue }; }
     // A member is an option of its owner's call, never a call of its own (LLP 1133.014 D10 item 1).
     if (row.sub.memberOf) return { now: { error: "NotSupportedError", message: `${row.key} is a member of ${row.sub.memberOf}: pass it to that call` } };
     const why = admit(row, args, origin);
@@ -886,15 +905,22 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
         const impl = ready.get(extensionOf(row)), declared = row.key.slice(row.key.indexOf(".") + 1);
         if (impl?.[declared]) {
           // Registered for `cancel` as `viaImplementation` registers, the call staying in the press's dispatch.
-          const request = ++requests;
+          const request = ++requests, callbacks = (row.sub.handlerOptions ?? []).map(o => given?.[o]).filter(h => typeof h === "string");
+          if (callbacks.length) handlers.set(`request:${request}`, new Set(callbacks));
           if (impl.cancel) forwarded.set(name, { key: row.key, request, impl });
           return Promise.resolve(impl[declared](given, { origin, request }))
-            .finally(() => { if (forwarded.get(name)?.request === request) forwarded.delete(name); })
+            .finally(() => { handlers.delete(`request:${request}`); if (forwarded.get(name)?.request === request) forwarded.delete(name); })
             .then(json => { handled(row, given, json); return answer(row, json); });
         }
       }
       if (d.forward) return viaImplementation(row, given, reader, { name, origin }).then(json => { disposeDropped(row, json, name, n); if (reader) sampled.answered(row, reader, json); return answer(row, json); });
-      if (d.hold) return hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet, origin }) : null, given);
+      // `call.wanted`: whether the mutation still wants the reply (rt.js `reply`), which a payment sheet reads.
+      if (d.hold) {
+        const call = {};
+        const p = hold(row, d.hold, name, false, timeout, route(row) === "agent" ? sheet => viaImplementation(row, given, reader, { name, sheet, origin }) : null, given, () => call.wanted?.() ?? true);
+        p.call = call;
+        return p;
+      }
       // A name refused now fails its mutation or resource, as on native, rather than the action that sent it or the
       // commit that read it: a source absent on the web shows its `else` (LLP 1133.025 D14).
       return errorCode(d.now) ? Promise.resolve().then(() => answer(row, d.now)) : answer(row, d.now);
@@ -1079,6 +1105,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const h = held.find(x => x.ticket === req.ticket);
       if (!h) return undefined;
       const cap = capability(h);
+      if (h.waits === "ceremony" && h.row.sub.ceremony.asks) return paySheets.answer(h, req);
       if (h.waits === "ceremony") {
         const c = h.row.sub.ceremony;
         if (req.op === "tap") {

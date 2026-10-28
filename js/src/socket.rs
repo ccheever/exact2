@@ -11,7 +11,9 @@ use exact_runner::{SocketOp, Store, Target};
 use serde_json::Value as Json;
 
 /// One operation as the prelude records it: `{"op":"text","data":…}`,
-/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`.
+/// `{"op":"binary","data":base64}` or `{"op":"close","code":…,"reason":…}`;
+/// a listener's `{"op":"line","connection":…,"data":…}` or
+/// `{"op":"end","connection":…}`.
 pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
     let j: Json = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let data = || j.get("data").and_then(Json::as_str).unwrap_or("");
@@ -32,7 +34,19 @@ pub(crate) fn op_from_json(text: &str) -> Result<SocketOp, String> {
                 .unwrap_or("")
                 .to_string(),
         }),
-        _ => Err("socket: an operation that is not text, binary or close".into()),
+        // A listener's, to one connection (LLP 1133.005 D6).
+        Some(op @ ("line" | "end")) => {
+            let connection = (j.get("connection").and_then(Json::as_u64))
+                .ok_or("listen: a connection that is not a number")?;
+            Ok(match op {
+                "line" => SocketOp::Line {
+                    connection,
+                    text: data().to_string(),
+                },
+                _ => SocketOp::End { connection },
+            })
+        }
+        _ => Err("socket: an operation that is not text, binary, close, line or end".into()),
     }
 }
 

@@ -1449,7 +1449,7 @@ impl Deadline {
 }
 
 #[path = "executor_stream.rs"]
-mod stream;
+pub(crate) mod stream;
 
 #[cfg(test)]
 #[path = "executor_async_tests.rs"]

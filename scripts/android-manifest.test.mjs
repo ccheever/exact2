@@ -129,3 +129,16 @@ test('a query with a data scheme: SENDTO mailto: and smsto: only (LLP 1133.024 D
   assert.throws(() => manifestFragment(impl({ queries: [{ action: 'android.intent.action.SENDTO', scheme: 'https' }] })), /not on the list/);
   assert.throws(() => manifestFragment(impl({ queries: [{ action: 'android.intent.action.VIEW', scheme: 'mailto' }] })), /not on the list/);
 });
+
+test("payments' callbacks service is exported only to Play services' binder, with Google Pay's switch", () => {
+  const json = JSON.parse(readFileSync(resolve(import.meta.dir, '../packages/payments/android/exact.json'), 'utf8'));
+  const payments = (manifest) => manifestFragment([{ extension: 'payments', className: 'exact.payments.PaymentsModule', manifest }]);
+  const xml = payments(json.manifest);
+  assert.match(xml, /<service android:name="exact\.payments\.PaymentCallbacks" android:exported="true" android:permission="com\.google\.android\.gms\.permission\.BIND_PAYMENTS_CALLBACK_SERVICE">/);
+  assert.match(xml, /<action android:name="com\.google\.android\.gms\.wallet\.callback\.PAYMENT_DATA_CALLBACKS" \/>/);
+  assert.match(xml, /<meta-data android:name="com\.google\.android\.gms\.wallet\.api\.enabled" android:value="true" \/>/);
+  const refuses = (manifest, what) => assert.throws(() => payments(manifest), (e) => e.message.includes(what));
+  refuses({ services: [{ name: 'exact.payments.S', permission: 'android.permission.BIND_JOB_SERVICE', actions: ['x'] }] }, 'BIND_JOB_SERVICE');
+  refuses({ services: [{ name: 'exact.payments.S', permission: 'com.google.android.gms.permission.BIND_PAYMENTS_CALLBACK_SERVICE', actions: ['android.intent.action.MAIN'] }] }, 'does not bind');
+  refuses({ metadata: [{ name: 'com.google.android.geo.API_KEY', value: 'k' }] }, 'API_KEY');
+});

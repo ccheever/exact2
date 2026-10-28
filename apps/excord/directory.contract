@@ -71,7 +71,6 @@ component DirectoryList
                   text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
                   if c.mentions > 0
                     Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
-                  image "symbol:forward-chevron"
             if dms.length > recentDms.length
               button press=moreDms testId="more-dms"
                 row gap=12 align-items="center" flex=1 min-width=0
@@ -94,7 +93,6 @@ component DirectoryList
                       text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
                       if c.mentions > 0
                         Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
-                      image "symbol:forward-chevron"
             else
               section
                 header
@@ -106,4 +104,3 @@ component DirectoryList
                       text c.name font-weight=(c.unread > 0 ? 600 : 400) flex=1 min-width=0 line-clamp=1
                       if c.mentions > 0
                         Badge(label=`${c.mentions}`, tint=some("-exact-system-red"))
-                      image "symbol:forward-chevron"

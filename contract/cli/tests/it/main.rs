@@ -144,6 +144,7 @@ mod page_transition;
 mod pan;
 mod pan_release;
 mod passkeys;
+mod payments;
 mod pedometer;
 mod persist;
 mod photos;

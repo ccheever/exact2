@@ -265,11 +265,14 @@ impl Lowerer<'_> {
         for (key, a) in &keyed {
             let ty =
                 contract_types::infer(&a.value, scope, &self.types.shapes).unwrap_or(Ty::Unknown);
-            if let Some(decl) = view
-                .props
-                .get(*key)
-                .filter(|d| !crate::native_typed::fits(d, &ty))
-            {
+            let literal = match &a.value {
+                contract_syntax::Expr::Str(v, _) => Some(v.as_str()),
+                _ => None,
+            };
+            if let Some(decl) = view.props.get(*key).filter(|d| {
+                !crate::native_typed::fits(d, &ty)
+                    && !literal.is_some_and(|v| crate::native_typed::names_case(d, v))
+            }) {
                 return err(
                     "contract-view-prop",
                     format!(

@@ -1,0 +1,204 @@
+{
+  "kind": "interface",
+  "name": "@exact/payments",
+  "version": "1.0.0",
+  "grants": [
+    "payment.apple-pay",
+    "payment.google-pay"
+  ],
+  "shapes": {
+    "PaymentCurrencyAmount": {
+      "currency": "string",
+      "value": "string"
+    },
+    "PaymentItem": {
+      "label": "string",
+      "amount": "PaymentCurrencyAmount",
+      "pending": "option<bool>"
+    },
+    "PaymentShippingOption": {
+      "id": "string",
+      "label": "string",
+      "amount": "PaymentCurrencyAmount",
+      "selected": "option<bool>"
+    },
+    "PaymentDetailsModifier": {
+      "supportedMethods": "string",
+      "total": "option<PaymentItem>",
+      "additionalDisplayItems": "option<PaymentItem[]>",
+      "data": "option<json<PaymentMethodModifier>>"
+    },
+    "PaymentMethodData": {
+      "supportedMethods": "string",
+      "data": "option<json<PaymentMethodRequest>>"
+    },
+    "PaymentDetailsInit": {
+      "id": "option<string>",
+      "total": "PaymentItem",
+      "displayItems": "option<PaymentItem[]>",
+      "shippingOptions": "option<PaymentShippingOption[]>",
+      "modifiers": "option<PaymentDetailsModifier[]>"
+    },
+    "PaymentOptions": {
+      "requestPayerName": "option<bool>",
+      "requestPayerEmail": "option<bool>",
+      "requestPayerPhone": "option<bool>",
+      "requestShipping": "option<bool>",
+      "requestBillingAddress": "option<bool>",
+      "shippingType": "option<enum<shipping|delivery|pickup>>"
+    },
+    "ContactAddress": {
+      "country": "option<string>",
+      "addressLine": "option<string[]>",
+      "region": "option<string>",
+      "city": "option<string>",
+      "dependentLocality": "option<string>",
+      "postalCode": "option<string>",
+      "sortingCode": "option<string>",
+      "organization": "option<string>",
+      "recipient": "option<string>",
+      "phone": "option<string>"
+    },
+    "ApplePaymentMethod": {
+      "displayName": "option<string>",
+      "network": "option<string>",
+      "type": "option<string>"
+    },
+    "ApplePaymentResult": {
+      "paymentMethod": "option<ApplePaymentMethod>"
+    },
+    "AndroidPaymentResult": {
+      "paymentMethodDescription": "option<string>",
+      "cardNetwork": "option<string>"
+    },
+    "PaymentResult": {
+      "requestId": "string",
+      "methodName": "string",
+      "shippingAddress": "option<ContactAddress>",
+      "shippingOption": "option<string>",
+      "payerName": "option<string>",
+      "payerEmail": "option<string>",
+      "payerPhone": "option<string>",
+      "result": "enum<success|fail|unknown>",
+      "message": "option<string>",
+      "data": "option<json<PaymentCompleteData>>",
+      "apple": "option<ApplePaymentResult>",
+      "android": "option<AndroidPaymentResult>"
+    },
+    "PaymentRequestStatus": {
+      "available": "bool",
+      "canMakePayment": "bool",
+      "hasEnrolledInstrument": "option<bool>",
+      "methodName": "option<string>"
+    }
+  },
+  "views": {
+    "exact-payment-button": {
+      "props": {
+        "buttonType": "option<enum<plain|buy|checkout|order|book|donate|subscribe|pay>>",
+        "checkout": "option<string>"
+      },
+      "events": [
+        "press"
+      ]
+    }
+  },
+  "names": [
+    {
+      "source": "paymentRequestStatus",
+      "live": true,
+      "options": {
+        "methodData": "PaymentMethodData[]"
+      },
+      "answers": "PaymentRequestStatus",
+      "substitute": {
+        "default": {
+          "available": true,
+          "canMakePayment": true,
+          "hasEnrolledInstrument": true
+        },
+        "targets": {
+          "ios": { "methodName": "https://apple.com/apple-pay" },
+          "macos": { "methodName": "https://apple.com/apple-pay" },
+          "android": { "methodName": "https://google.com/pay" },
+          "linux": { "available": false, "canMakePayment": false, "hasEnrolledInstrument": false },
+          "tvos": { "available": false, "canMakePayment": false, "hasEnrolledInstrument": false },
+          "windows": { "available": false, "canMakePayment": false, "hasEnrolledInstrument": false },
+          "terminal": { "available": false, "canMakePayment": false, "hasEnrolledInstrument": false }
+        }
+      }
+    },
+    {
+      "send": "showPaymentRequest",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "adopts": "exact-payment-button",
+      "gesture": true,
+      "grants": {
+        "methodData[].data.merchantIdentifier": {
+          "line": "payment.apple-pay",
+          "matches": "target",
+          "refuse": "SecurityError",
+          "when": { "supportedMethods": "https://apple.com/apple-pay" }
+        }
+      },
+      "options": {
+        "methodData": "PaymentMethodData[]",
+        "details": "PaymentDetailsInit",
+        "options": "option<PaymentOptions>",
+        "onshippingaddresschange": "option<handler>",
+        "onshippingoptionchange": "option<handler>",
+        "onpaymentmethodchange": "option<handler>",
+        "onmerchantvalidation": "option<handler>",
+        "onpaymentauthorized": "handler"
+      },
+      "callbacks": {
+        "onshippingaddresschange": {},
+        "onshippingoptionchange": {},
+        "onpaymentmethodchange": {},
+        "onmerchantvalidation": {},
+        "onpaymentauthorized": { "final": true }
+      },
+      "methods": {
+        "https://apple.com/apple-pay": {
+          "grant": "payment.apple-pay",
+          "targets": ["ios", "macos", "web"],
+          "data": ["version", "merchantIdentifier", "merchantCapabilities", "supportedNetworks", "countryCode", "requiredBillingContactFields", "requiredShippingContactFields", "billingContact", "shippingContact", "supportedCountries", "supportsCouponCode", "couponCode", "shippingContactEditingMode", "applicationData", "applePayLaterAvailability"],
+          "modifier": ["paymentMethodType", "total", "additionalLineItems", "additionalShippingMethods", "recurringPaymentRequest", "automaticReloadPaymentRequest", "deferredPaymentRequest", "multiTokenContexts"],
+          "exclusive": ["recurringPaymentRequest", "automaticReloadPaymentRequest", "deferredPaymentRequest", "multiTokenContexts"]
+        },
+        "https://google.com/pay": {
+          "grant": "payment.google-pay",
+          "targets": ["android", "web"],
+          "data": ["apiVersion", "apiVersionMinor", "allowedPaymentMethods", "merchantInfo", "shippingAddressParameters", "offerInfo", "existingPaymentMethodRequired"],
+          "modifier": [],
+          "refuse": { "environment": "payment-environment" }
+        }
+      },
+      "answers": "PaymentResult",
+      "withhold": [
+        "details"
+      ],
+      "substitute": {
+        "ceremony": {
+          "ticket": "payment",
+          "status": "paymentRequestStatus",
+          "options": "details",
+          "cancel": { "error": "AbortError" },
+          "budget": 25000,
+          "asks": {
+            "shippingAddress": { "handler": "onshippingaddresschange", "redact": "w3c" },
+            "shippingOption": { "handler": "onshippingoptionchange" },
+            "paymentMethod": { "handler": "onpaymentmethodchange" },
+            "merchantValidation": { "handler": "onmerchantvalidation", "first": true, "web": true },
+            "authorize": { "handler": "onpaymentauthorized", "choice": true, "payment": "synthetic" }
+          },
+          "unless": [
+            { "field": "available", "is": false, "error": "NotSupportedError" }
+          ]
+        }
+      }
+    }
+  ]
+}

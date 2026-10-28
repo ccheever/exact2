@@ -1132,6 +1132,9 @@ props retain their declared spelling.
 inherited; `auto` restores ordinary greedy wrapping. `pretty` and `stable` are refused with the supported values, `auto | balance`. Every host balances the
 lines before a paragraph's first forced break, up to six, at the narrowest
 width that keeps their count, as Chrome does (LLP 1001 §6).
+`-webkit-font-smoothing` takes `auto` or `antialiased` and is inherited; `none`
+and `subpixel-antialiased` are refused. It changes how glyphs paint, never how
+text measures (LLP 1019 D12).
 
 `-exact-hairline` is a length every length row takes but a font's size and line
 height ([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md) D10.3): one
@@ -1551,6 +1554,15 @@ after mounting the list with `scrollIntoView("feed", key, offset=within)`.
 `offset=` is a finite number and belongs only to the list form. It places the
 port that many pixels into the keyed row wrapper, overriding that list's
 `block`/`inline` alignment and scroll-padding, clamped to the scroll range.
+
+A virtualized list mounts the rows near its port and unmounts the rest.
+`keep-mounted=` names rows that stay mounted wherever the window is: a list of
+up to 64 keys as the `for`'s `key=` gives them, each possibly an `option`
+(`none` names no row), computed or literal. A screen reader moves only through
+mounted rows, so a transcript keeps its first and last message,
+`keep-mounted=[first(ids), ids.at(-1)]`; a row playing audio keeps its player.
+A key the list does not hold is passed over; another value keeps none and
+says so in the journal (LLP 1010 §6.11).
 
 `scroll-padding` (or its four physical sides) insets any scroll container’s
 alignment port. `scroll-margin` expands the target element’s border box for

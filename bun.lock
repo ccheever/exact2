@@ -37,6 +37,7 @@
         "@exact/nfc": "workspace:*",
         "@exact/notifications": "workspace:*",
         "@exact/passkeys": "workspace:*",
+        "@exact/payments": "workspace:*",
         "@exact/pedometer": "workspace:*",
         "@exact/photos": "workspace:*",
         "@exact/quick-actions": "workspace:*",
@@ -221,6 +222,10 @@
       "name": "@exact/passkeys",
       "version": "1.0.0",
     },
+    "packages/payments": {
+      "name": "@exact/payments",
+      "version": "1.0.0",
+    },
     "packages/pedometer": {
       "name": "@exact/pedometer",
       "version": "1.0.0",
@@ -380,6 +385,8 @@
     "@exact/notifications": ["@exact/notifications@workspace:packages/notifications"],
 
     "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
+
+    "@exact/payments": ["@exact/payments@workspace:packages/payments"],
 
     "@exact/pedometer": ["@exact/pedometer@workspace:packages/pedometer"],
 

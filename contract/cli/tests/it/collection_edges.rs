@@ -849,3 +849,36 @@ fn reach_margin_is_a_virtualized_lists_literal() {
         assert!(error.message.contains("virtualized=true"), "{error}");
     }
 }
+
+// @ref LLP 1010 §6.11 — `keep-mounted` is a virtualized list's list of row
+// keys, each a key or an option of one.
+#[test]
+fn keep_mounted_is_a_virtualized_lists_list_of_keys() {
+    let list = |value: &str| {
+        format!(
+            "component App\n  state ids = [\"a\", \"b\"]\n  view\n    list virtualized=true height=320 keep-mounted={value}\n      for x in ids key=x\n        text x\n"
+        )
+    };
+    for value in ["[]", "ids", "[first(ids), ids.at(-1)]", "[\"c\"]", "[none]"] {
+        contract::compile(&list(value)).expect(value);
+    }
+    for value in [
+        "\"a\"",
+        "1",
+        "[[1]]",
+        "[ids]",
+        "[1, 2]",
+        "[true]",
+        "[some(0)]",
+    ] {
+        let error = contract::compile(&list(value)).expect_err(value);
+        assert_eq!(error.id, "lower-attr-type", "{value}: {error}");
+    }
+    for node in ["list", "list virtualized=false", "view", "scroll"] {
+        let source = format!(
+            "component App\n  view\n    {node} height=320 keep-mounted=[1]\n      for x in [1, 2] key=x\n        text `${{x}}`\n"
+        );
+        let error = contract::compile(&source).expect_err(node);
+        assert_eq!(error.id, "lower-list-virtualized", "{node}: {error}");
+    }
+}

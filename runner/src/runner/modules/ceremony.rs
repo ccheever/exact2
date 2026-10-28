@@ -67,6 +67,28 @@ pub(super) fn at<'a>(value: &'a Json, path: &str) -> Option<&'a Json> {
         .filter(|v| !v.is_null())
 }
 
+/// The value at `path` in `value`, reading a string on the way as the JSON
+/// it holds (a payment method's `data`, LLP 1133.034 D10).
+pub(super) fn within(value: &Json, path: &str) -> Option<Json> {
+    let mut at = value.clone();
+    for part in path.split('.') {
+        if let Some(text) = at.as_str() {
+            at = serde_json::from_str(text).ok()?;
+        }
+        at = at.get(part)?.clone();
+    }
+    // A `json<…>` value is JSON text: the object or list it holds.
+    if let Some(parsed) = at
+        .as_str()
+        .and_then(|t| serde_json::from_str::<Json>(t).ok())
+    {
+        if parsed.is_object() || parsed.is_array() {
+            at = parsed;
+        }
+    }
+    (!at.is_null()).then_some(at)
+}
+
 /// Remove `path` from `value`, where it is.
 fn remove(value: &mut Json, path: &str) {
     let (parent, last) = match path.rsplit_once('.') {
@@ -97,6 +119,7 @@ impl<D: DataSource> Runner<D> {
                 return Err((json!("TypeError"), format!("{option} is no CSS colour")));
             }
         }
+        self.methods_admitted(row, args)?;
         for (path, spec) in sub["nameGrants"].as_object().into_iter().flatten() {
             let Some(line) = spec["line"].as_str() else {
                 continue;
@@ -104,34 +127,52 @@ impl<D: DataSource> Runner<D> {
             let code = json!(spec["refuse"].as_str().unwrap_or("NotAllowedError"));
             // A call without the argument the path is in asks nothing of it
             // (a sign-in alone, with no `publicKey`, LLP 1133.014 D3).
-            let root = path.split('.').next().unwrap_or(path);
+            let root = path.split(['.', '[']).next().unwrap_or(path);
             if path.contains('.') && args.get(root).is_none_or(Json::is_null) {
                 continue;
             }
-            let Some(value) = at(args, path).and_then(Json::as_str) else {
-                if spec["omitted"] == "page" && target() == "web" {
-                    continue;
+            // A path through a list names each element `when` matches (a
+            // merchant ID per Apple Pay method, LLP 1133.034 D13).
+            let values = match path.split_once("[].") {
+                Some((list, rest)) => {
+                    let matches = |e: &Json| {
+                        (spec["when"].as_object())
+                            .is_none_or(|w| w.iter().all(|(k, v)| e.get(k) == Some(v)))
+                    };
+                    let elements = args[list].as_array().into_iter().flatten();
+                    elements
+                        .filter(|e| matches(e))
+                        .map(|e| within(e, rest).and_then(|v| v.as_str().map(str::to_owned)))
+                        .collect::<Vec<_>>()
                 }
-                return Err((
-                    code,
-                    format!("{path} is omitted, and here no page's host stands for it"),
-                ));
+                None => vec![at(args, path).and_then(Json::as_str).map(str::to_owned)],
             };
-            let granted = self.data.grants().lines().any(|l| {
-                let mut words = l.split_whitespace();
-                words.next() == Some(line) && words.next() == Some(value)
-            });
-            if !granted {
-                return Err((
-                    code,
-                    format!("grant-missing ({path}={value} needs `{line} {value}`)"),
-                ));
-            }
-            if value == "localhost" && target() != "web" {
-                return Err((
-                    code,
-                    format!("{path}=localhost: no association names it on {}", target()),
-                ));
+            for value in values {
+                let Some(value) = value else {
+                    if spec["omitted"] == "page" && target() == "web" {
+                        continue;
+                    }
+                    return Err((
+                        code,
+                        format!("{path} is omitted, and here no page's host stands for it"),
+                    ));
+                };
+                let granted = self.data.grants().lines().any(|l| {
+                    let mut words = l.split_whitespace();
+                    words.next() == Some(line) && words.next() == Some(value.as_str())
+                });
+                if !granted {
+                    return Err((
+                        code,
+                        format!("grant-missing ({path}={value} needs `{line} {value}`)"),
+                    ));
+                }
+                if value == "localhost" && target() != "web" {
+                    return Err((
+                        code,
+                        format!("{path}=localhost: no association names it on {}", target()),
+                    ));
+                }
             }
         }
         Ok(())
@@ -179,6 +220,9 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn ceremony_args(&self, row: &ModulesRow, args: &Json, origin: CallOrigin) -> Json {
         let sub = self.substitute(row);
         let ceremony = &sub["ceremony"];
+        if ceremony["asks"].is_object() {
+            return self.sheet_args_of(row, args, origin);
+        }
         let rp_id = self.rp_id(row, args);
         let client = match (ceremony["clientOrigin"][target()].as_str(), rp_id.as_str()) {
             (Some("page") | None, _) | (_, None) => Json::Null,
@@ -202,7 +246,10 @@ impl<D: DataSource> Runner<D> {
 
     /// The choices a ceremony's ticket takes by tap besides `cancel`.
     pub(super) fn ceremony_choices(&self, row: &ModulesRow, sub: &Json) -> Vec<String> {
+        let asked = (sub["ceremony"]["asks"].as_object().into_iter().flatten())
+            .filter(|(_, ask)| ask["choice"] == true);
         let mut out: Vec<String> = (sub["ceremony"]["choices"].as_object().into_iter().flatten())
+            .chain(asked)
             .map(|(c, _)| c.clone())
             .collect();
         if sub["ceremony"].is_object() {
@@ -221,9 +268,13 @@ impl<D: DataSource> Runner<D> {
         &self,
         row: &ModulesRow,
         args: &Json,
+        token: u64,
         text: &str,
     ) -> Result<Json, String> {
         let sub = self.substitute(row);
+        if sub["ceremony"]["asks"].is_object() {
+            return self.sheet_typed(token, text);
+        }
         let wants = sub["ceremony"]["answer"]
             .as_object()
             .cloned()
@@ -296,7 +347,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A ceremony waiting behind a modal one gets its ticket once none is held.
-    fn promote_ceremony(&mut self) {
+    pub(super) fn promote_ceremony(&mut self) {
         let modal = (self.extensions.held.iter()).any(|h| h.waits == Waits::Ceremony && !h.queued);
         if modal {
             return;
@@ -314,6 +365,8 @@ impl<D: DataSource> Runner<D> {
         let h = &mut self.extensions.held[at];
         h.hold = hold;
         h.queued = false;
+        let token = h.token;
+        self.sheet_opened(token);
     }
 
     /// A ceremony or signal of `row` is listed in `state.extensions`.
@@ -324,12 +377,14 @@ impl<D: DataSource> Runner<D> {
         args: &Json,
         outcome: &str,
     ) {
-        let mut entry = json!({
-            "name": self.plan.str(row.declared),
-            "mediation": args["mediation"],
-            "rpId": self.rp_id(row, args),
-            "origin": self.ceremony_args(row, args, CallOrigin::App)["clientOrigin"],
-            "outcome": outcome,
+        let mut entry = self.sheet_entry(token, outcome).unwrap_or_else(|| {
+            json!({
+                "name": self.plan.str(row.declared),
+                "mediation": args["mediation"],
+                "rpId": self.rp_id(row, args),
+                "origin": self.ceremony_args(row, args, CallOrigin::App)["clientOrigin"],
+                "outcome": outcome,
+            })
         });
         // A member's request by its provider and mode, never its client or nonce.
         for (option, described) in self.members_args(row, args) {

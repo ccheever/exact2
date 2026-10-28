@@ -594,3 +594,69 @@ test('a page that lands within a fling\'s band re-arms reachstart', async () => 
   })()`);
   expect(result).toEqual([0, null, null, null, null, 740, 0]);
 }, 60_000);
+
+// @ref LLP 1010 §6.11 — `keep-mounted` keeps its rows mounted wherever the window is, as the runner's keep.rs.
+test('keep-mounted keeps the first, last and playing rows mounted as the window moves', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'height:320px;width:400px;overflow:auto';
+    document.getElementById('exact-root').append(el);
+    const rows = rt.sig(Array.from({length:200}, (_, i) => i)), playing = rt.sig(100);
+    const own = rt.scope(() => list.vl(el, rows, i => i(), (w, i) => {
+      const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+    }, {est:32, pw:[], ph:[320], keep: () => [0, rows().length - 1, playing(), null]}));
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    const c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+    const mounted = () => c.mounted.map(m => m.position).filter(p => p < 20 || p > 60).join(' ');
+    const out = [mounted()];
+    await new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = 6080; });
+    await exact.lists.settle();
+    out.push(mounted());
+    rt.commit(() => rt.W(playing, 150));
+    rt.settled();
+    out.push(mounted());
+    // The kept last key and the data change in one commit: one pass, one revision.
+    const before = c.revision;
+    rt.commit(() => rt.W(rows, [...rows(), ...Array.from({length:20}, (_, i) => 200 + i)]));
+    rt.settled();
+    out.push(c.mounted.some(m => m.position === 219), c.mounted.some(m => m.position === 199) === c.mounted.some(m => m.position === 198), c.revision - before);
+    rt.end(own); el.remove(); rt.settled();
+    return out;
+  })()`);
+  const [start, end, played, ...grown] = result;
+  // At the start, the window's first rows, the playing row and the last row.
+  expect(start.split(' ').map(Number)).toEqual(expect.arrayContaining([0, 100, 199]));
+  // At the end: the first row and the playing one are still there; the window's rows near the start went.
+  expect(end.split(' ').map(Number)).toEqual(expect.arrayContaining([0, 100]));
+  expect(end.split(' ').map(Number)).not.toContain(10);
+  // A new playing row mounts and the old one goes.
+  expect(played.split(' ').map(Number)).toEqual(expect.arrayContaining([0, 150]));
+  expect(played.split(' ').map(Number)).not.toContain(100);
+  // The new last row is kept; 199 is now an ordinary row of the window.
+  expect(grown).toEqual([true, true, 1]);
+}, 60_000);
+
+// @ref LLP 1010 §6.11 — a kept row before a jump's target does not hold the jump open (into_view.rs `settle_target`).
+test('a jump past a kept row settles', async () => {
+  const result = await evaluate(`(async () => {
+    const out = [];
+    for (const keep of [undefined, () => [0]]) {
+      const el = document.createElement('div'); el.id = 'kept-jump';
+      el.style.cssText = 'height:320px;width:400px;overflow:auto';
+      document.getElementById('exact-root').append(el);
+      const own = rt.scope(() => list.vl(el, () => Array.from({length:200}, (_, i) => i), i => i(), (w, i) => {
+        const row = document.createElement('div'); row.textContent = String(i()); row.style.height = '32px'; w.append(row);
+      }, {est:32, pw:[], ph:[320], keep}));
+      rt.settled();
+      await exact.lists.pending(); await exact.lists.settle();
+      rt.Hosts.scrollIntoView('kept-jump', 150, 'start', 'nearest', 'instant', null, null);
+      for (let f = 0; f < 4; f++) { await exact.lists.settle(); await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0))); }
+      const c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+      out.push([exact.lists.intoView().find(e => e.list === c.view)?.status, el.scrollTop]);
+      rt.end(own); el.remove(); rt.settled();
+    }
+    return out;
+  })()`);
+  expect(result).toEqual([['done', 4800], ['done', 4800]]);
+}, 60_000);

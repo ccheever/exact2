@@ -110,7 +110,10 @@ impl<D: DataSource> Runner<D> {
         args: Json,
         reader: Option<usize>,
     ) -> Request {
-        Request::native(self.forward_body(row, args, reader))
+        let origin = self.call_origin();
+        let body = self.forward_body(row, args, reader);
+        self.anchor_body(row, &body, origin);
+        Request::native(body)
     }
 
     /// The body of a call of `row` for its implementation, `{"extension",
@@ -239,16 +242,22 @@ impl<D: DataSource> Runner<D> {
 
     /// Request `ticket`'s reply landed: its send is no longer cancelled.
     pub(in crate::runner) fn landed_send(&mut self, ticket: u64) {
-        self.extensions.sent.remove(&ticket);
+        if let Some((_, n)) = self.extensions.sent.remove(&ticket) {
+            self.unanchor(n);
+        }
     }
 
     /// Each send let go before its reply landed (superseded, its commit
     /// refused): its implementation is told `{"extension", "cancel": n}`,
     /// so the work no one reads stops (LLP 1133.016 D15 item 2).
     pub(in crate::runner) fn cancel_let_go(&mut self) {
-        let gone: Vec<u64> = (self.extensions.sent.keys())
-            .filter(|t| !self.pending.iter().any(|p| p.ticket == **t))
-            .copied()
+        // A call whose final handler runs is held until it answers (LLP
+        // 1133.034 D16 item 1): its cancel goes once that ends.
+        let gone: Vec<u64> = (self.extensions.sent.iter())
+            .filter(|(t, (_, n))| {
+                !self.pending.iter().any(|p| p.ticket == **t) && !self.final_running(*n)
+            })
+            .map(|(t, _)| *t)
             .collect();
         let handler = self.native_slot().handler();
         for ticket in gone {
@@ -256,6 +265,7 @@ impl<D: DataSource> Runner<D> {
                 continue;
             };
             self.log(format!("cancel {key} request {n}: its call was let go"));
+            self.unanchor(n);
             let extension = key.split_once('.').map_or(key.as_str(), |(e, _)| e);
             if let Some(handler) = &handler {
                 let body = json!({ "extension": extension, "cancel": n });

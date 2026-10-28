@@ -35,7 +35,9 @@ test('commit takes the session\'s writes, leaves other staging and never pushes;
       'type dial-hue-stepper 210', 'clock data', 'tap apply', 'clock data',
       'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
       'tap commit', 'clock data', 'state',
-      'tap toggle-history', 'clock data', 'state',
+      // (the hand edit lands as history is read; the changes' long poll brings its row when the server's watcher sees
+      // it, in real time, which the virtual clock doesn't wait on: waited for by that row, not any reply)
+      'tap toggle-history', 'clock data', 'clock until state changes.recent.0.who == "changed on disk" within 20000', 'clock data', 'state',
       `tap revert-${past.slice(0, 12)}`, 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
     ]);
     const states = replies.filter(r => r.resources);

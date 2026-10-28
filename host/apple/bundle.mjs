@@ -205,7 +205,7 @@ export function assembleIOS({intents, shared, triple, app, paths, binDir, bin, d
     const ent = resolve(binDir, kind === 'app' ? 'entitlements.plist' : `${kind}-entitlements.plist`);
     if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
     // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
-    writeFileSync(ent, entitlements({ ...app, id, widgetTV: tv, widgetHost: kind === 'host', ...(kind === 'clip' ? { clipParent: app.id } : {}) }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach, { simulator: !device, prefix: signingProfile?.prefix }));
+    writeFileSync(ent, entitlements({ ...app, id, widgetTV: tv, widgetHost: kind === 'host', ...(kind === 'clip' ? { clipParent: app.id } : {}) }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach, { simulator: !device, prefix: signingProfile?.prefix, allows: signingProfile?.entitlements ?? [] }));
     if (shared && kind === 'app') {
       const group = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', ent]).stdout)['keychain-access-groups'][0];
       runApple('plutil', ['-insert', 'ExactKeychainAccessGroup', '-string', group, resolve(assembled, 'Info.plist')]);

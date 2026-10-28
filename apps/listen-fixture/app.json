@@ -1,0 +1,11 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Listen Fixture", "short_name": "Listen", "id": "com.exact.listen-fixture",
+  "start_url": "/", "display": "standalone",
+  "app": { "id": "com.exact.listen-fixture", "name": "Listen Fixture" },
+  "host": {
+    "macos": { "minimumOS": "14.0", "window": { "width": 420, "height": 560, "minWidth": 320, "minHeight": 360 } },
+    "web": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "linux": "0" } }
+}

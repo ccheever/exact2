@@ -175,6 +175,7 @@ fn main() {
         "shared-load",
         "overlay",
         "socket",
+        "listen",
         "heap",
         "snapshot",
         "context",

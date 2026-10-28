@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across grid of square centre-cropped thumbnails with thin gaps. Oldest is at the top and it opens at the newest. Day headings use full dates ('Saturday, October 24'). A large 'Library' title with a photo count appears at the top. Tapping the status bar scrolls to the top."},
+      {"n": 2, "status": "pass", "note": "Black full-screen viewer shows each photo at its own aspect ratio. Swiping left and right pages between photos and stops correctly at the newest. Swiping down closes it. Tapping the photo hides the controls. A counter reads '1,496 of 1,500'."},
+      {"n": 3, "status": "pass", "note": "A heart button toggles Favorite/Unfavorite. A white heart appears on the grid thumbnail straight away."},
+      {"n": 4, "status": "pass", "note": "Inset-grouped list of 8 albums, each with a cover, a name, a 'N Photos' count and a chevron. Counts update after deletes. Opening an album shows its grid, but it opens at the oldest photo at the top rather than the newest."},
+      {"n": 5, "status": "pass", "note": "Select changes thumbnails into checkable cells with blue checkmarks and shows a bottom bar (heart, 'N Photos Selected', trash). Batch favorite works. Batch delete asks for confirmation in an alert ('Delete 2 photos?') and then removes the photos."},
+      {"n": 6, "status": "pass", "note": "Favorites from the viewer and from select mode, and batch deletions, all survive a relaunch."}
+    ],
+    "bugs": [
+      "During a fast fling of the library grid, one screenshot showed torn and duplicated thumbnail fragments: horizontal slivers of rows drawn in the wrong place under the nav bar.",
+      "At the largest text size, the full-screen viewer showed a dark purple band above the photo, outside the image's own frame. It looks like a misaligned placeholder or neighbouring layer.",
+      "An album grid opens scrolled to its oldest photo, unlike the library (and Photos), which open at the newest."
+    ],
+    "tells": [
+      "The full-screen viewer's controls are hand-drawn: dark circle buttons for close, heart and trash, plus a text counter. There is no system toolbar or glass, and no Share button.",
+      "The select-mode bottom bar is an opaque grey slab with a centred label. It is not a Liquid Glass toolbar, and the tab bar disappears under it.",
+      "At the largest text size, the viewer's chrome scales without limit. The close X, heart and trash become huge, the date takes up a third of the screen, and the counter wraps to two lines ('1,496 of' / '1,498').",
+      "At the largest text size, the album nav bar shows a small title 'City' over a huge '185 Photos' subtitle, which looks unbalanced.",
+      "The album nav bar sits on a plain opaque white band at the top of the grid, rather than content scrolling under a glass bar.",
+      "Album rows at the largest text size wrap the count ('185 / Photos') beside tiny thumbnails. This is readable but cramped."
+    ],
+    "scroll": "Scrolling is mostly smooth with no blank rows or pop-in during slow drags and flings, scroll-to-top works, and the large title collapses properly. One fast fling caught visibly torn, duplicated row fragments under the nav bar.",
+    "scores": {"features": 9, "platform": 6, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across grid of square centre-cropped thumbnails with thin gaps. Oldest is at the top and it opens at the newest. Short day headings ('Sat, Oct 24') and a '1,500 Photos' footer, as Photos does. Tapping the status bar scrolls to the top."},
+      {"n": 2, "status": "pass", "note": "Full-screen viewer on a system background, with a nav bar (back button, date and time) and a glass toolbar (Share, Favorite, Delete). Photos show at their own aspect ratio. Paging left and right works and stops at the newest. Swiping down closes it. Tapping the photo hides the bars and the status bar."},
+      {"n": 3, "status": "pass", "note": "The Favorite/Unfavorite toolbar button toggles, and a heart badge appears in the grid immediately."},
+      {"n": 4, "status": "pass", "note": "A two-column grid of 8 large rounded covers with the name and count underneath, like Photos' 'My Albums'. An album opens a grid scrolled to the newest photo, with a count footer."},
+      {"n": 5, "status": "pass", "note": "Select puts '3 Photos Selected' in the nav title and shows system checkmark badges, plus glass Favorite and Delete toolbar buttons. Batch favorite works. Batch delete asks for confirmation in a popover action sheet anchored to the trash button ('Delete 2 Photos')."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions survive a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Day headings scale to very large bold text at the largest size. They never truncate, so this is acceptable, but the type is heavy.",
+      "During a hard fling, the top rows under the nav bar look washed out for a moment, a slightly long scroll-edge fade."
+    ],
+    "scroll": "Scrolling feels like a native collection view: slow drags and flings showed no blank cells, pop-in or tearing, scroll-to-top works, and both the library and albums open at the newest photo.",
+    "scores": {"features": 9, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet all six requirements and persist state correctly. B uses system chrome throughout: a glass toolbar in the viewer and in select mode, a popover confirmation for deletes, a Photos-style albums grid, and albums that open at the newest photo. It also scrolled cleanly and stayed well-behaved at the largest text size. A's viewer and selection bar are hand-drawn, its controls balloon at the largest text size, and it showed rendering artefacts during a fling and in the viewer."
+}

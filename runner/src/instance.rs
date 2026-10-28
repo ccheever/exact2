@@ -18,6 +18,7 @@ mod deps;
 mod document;
 mod find;
 mod foresee;
+mod keys;
 pub mod looks;
 mod rare;
 mod region;
@@ -34,6 +35,8 @@ pub use document::{DocNode, DocTree, DocTreeError};
 use exact_kernel::{Kernel, NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
 pub use foresee::Mount;
+pub(crate) use keys::key_text;
+use keys::{disambiguate, ident, key_text_into, repeated};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -44,12 +47,7 @@ use std::rc::Rc;
 /// refuses virtualized lists when this table is absent.
 pub struct ListLinks {
     create: CreateList,
-    update: fn(
-        &mut collection::Collection,
-        &mut Update<'_>,
-        &[Frame],
-        bool,
-    ) -> Result<(), InstanceError>,
+    update: UpdateList,
     typography: ListTypography,
     pub(crate) collections_json: fn(&Tree) -> String,
     /// `scrollIntoView` (LLP 1070.000): a request begun on its list.
@@ -81,6 +79,15 @@ type CreateList = fn(
     ViewId,
     &[Frame],
 ) -> Result<Option<Box<collection::Collection>>, InstanceError>;
+/// A list's data update, given whether it follows its end and its
+/// `keep-mounted` value.
+type UpdateList = fn(
+    &mut collection::Collection,
+    &mut Update<'_>,
+    &[Frame],
+    bool,
+    Option<&Value>,
+) -> Result<(), InstanceError>;
 type ListTypography = fn(&mut [Child], &mut Update<'_>, &[Frame]) -> Result<(), InstanceError>;
 
 /// The list engine.
@@ -1225,12 +1232,21 @@ impl NodeInst {
                         && b.id == exact_kernel::PropId::ScrollFollowEnd as u16
                 })
                 .is_some_and(|i| self.emitted(plan, u.sites, i) == Some(Value::Bool(true)));
+        let keep = self
+            .collection()
+            .and_then(|_| self.bound_prop(plan, u.sites, exact_kernel::PropId::KeepMounted));
         if let Some(collection) = self.collection_mut() {
             collection.around = theme::Around {
                 retheme: false,
                 ..u.theme.clone()
             };
-            (u.env.lists.ok_or_else(unlinked)?.update)(collection, u, frames, follow)?;
+            (u.env.lists.ok_or_else(unlinked)?.update)(
+                collection,
+                u,
+                frames,
+                follow,
+                keep.as_ref(),
+            )?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
         }
@@ -1250,53 +1266,6 @@ fn invalid(view: ViewId, row: &str, value: &Value) -> String {
     let mut shown = String::new();
     crate::agent::untyped_json(value, &mut shown);
     format!("view {view}: invalid {row} value {shown}; unset")
-}
-
-/// A row's identity: its key's canonical text, or for the `dup`th repeat
-/// of that key, `d{dup}:` before it — never a canonical text, which starts
-/// `s:`, `n:` or `b:`.
-fn ident(key: &Value, dup: u32) -> Option<String> {
-    key_text(key).map(|text| disambiguate(text, dup))
-}
-
-fn disambiguate(text: String, dup: u32) -> String {
-    if dup == 0 {
-        text
-    } else {
-        format!("d{dup}:{text}")
-    }
-}
-
-/// The journal line for a repeated key's row.
-fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
-    let mut shown = String::new();
-    crate::agent::untyped_json(key, &mut shown);
-    format!(
-        "list {}: key {shown} repeats; this row is {ident}",
-        region.0
-    )
-}
-
-/// One canonical key text: strings, finite numbers (`-0` is `0`, matching the
-/// VM's equality), bools. NaN is not a key.
-pub(crate) fn key_text(v: &Value) -> Option<String> {
-    let mut text = String::new();
-    key_text_into(v, &mut text).then_some(text)
-}
-
-/// [`key_text`] appended to `out`; whether `v` is a key.
-fn key_text_into(v: &Value, out: &mut String) -> bool {
-    match v {
-        v @ exact_plan::str_value!() => exact_num::push_text!(out, "s:{}", v.text()),
-        Value::Number(n) if n.is_finite() => exact_num::push_text!(
-            out,
-            "n:{}",
-            exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })
-        ),
-        Value::Bool(b) => exact_num::push_text!(out, "b:{}", b),
-        _ => return false,
-    }
-    true
 }
 
 /// The root of the instance tree: the plan's top-level sites.

@@ -327,13 +327,15 @@ if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe
 
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
 // Groups preserve capability-based shipping; none of these imports enters boot.
+// A group's files import statically only from it or base (web-host-groups.test.mjs): base's documents-glue.js
+// reads storage-environment.js, so it ships in base, not only with storage.
 const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'frame-messages.js', 'frame-navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
     'http-body.js', 'grant-admission.js', 'faults.js', 'address-space.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
     'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js'],
+    'documents-glue.js', 'storage-environment.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-binary.js', 'module-prelude.js'],
-  storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
+  storage: ['storage-request.js', 'storage.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
   gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js', 'gpu-pads.js', 'gpu-tier.js', 'gpu-refusal.js'],

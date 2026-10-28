@@ -35,6 +35,16 @@ fn a_reach_margin_is_a_list_option() {
     assert!(js.contains("reach:\"0px 200%\""), "{js}");
 }
 
+/// @ref LLP 1010 §6.11 — list.js reads `keep-mounted` again at each update.
+#[test]
+fn keep_mounted_is_a_list_option_read_again() {
+    let source = "component App\n  state ids = [1, 2]\n  view\n    list virtualized=true height=200 keep-mounted=[first(ids), ids.at(-1)]\n      for x in ids key=x\n        text `${x}`\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("keep:()=>"), "{js}");
+}
+
 #[test]
 fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     let plan = contract::compile(

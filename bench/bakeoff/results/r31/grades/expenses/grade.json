@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day; each header shows the date ('Sun, Oct 25', 'Today', 'Yesterday') on the left and the day total right-aligned."},
+      {"n": 2, "status": "pass", "note": "Summary card shows 'Spent this month $5,269.70 · 86 expenses' with a category colour strip; updates immediately after add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with large amount field (decimal pad), merchant, category picker listing the 7 categories with icons, date defaulting to today, optional note. Save stays disabled for -5 / empty merchant, and an inline red message explains why. Cancel with changes asks 'Discard changes?'."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens 'Edit expense' prefilled; merchant and date edits saved and the row moved to 'Yesterday'. Swiping left shows a red Delete action, which removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists this month's categories largest first (Bills $1,544.59, 29.3% of total …) with icons, share bars and chevrons; tapping one pushes that category's transactions for the month, grouped by day."},
+      {"n": 6, "status": "pass", "note": "US currency throughout ($1,544.59). The added and edited expense survived a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Custom warm theme: off-white/beige background, peach summary card and orange-red tint instead of system grouped backgrounds and accent colour; looks more designed than stock iOS.",
+      "The Done button above the number pad is a floating orange capsule that partly covers the Date row.",
+      "During a swipe, the row's category icon disappears and the row turns into a separate rounded card; this is not quite how a UITableView swipe looks.",
+      "The long validation message ('…maximum $999,999,999.99') is a bit web-form-like."
+    ],
+    "scroll": "The long list (240 rows, 38 pages) scrolls smoothly when dragged slowly, flung or pulled past the top. It had no blank rows or pop-in, and scroll position was kept after opening and cancelling an edit.",
+    "scores": {"features": 10, "platform": 8, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day; each header is one string 'Sun, Oct 25, 2026 · $222.02', showing the date and the day total."},
+      {"n": 2, "status": "pass", "note": "'THIS MONTH $5,269.70, October 2026 · 86 expenses' card at the top of the list; updates after add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Stock form: amount (decimal pad), merchant, category pop-up menu with the 7 categories, date defaulting to today, note. Save (checkmark) stays disabled for -5 or no merchant, but the 'Enter an amount greater than zero.' footer is always grey and never flags the error. Cancel discards edits without asking."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens 'Edit Expense' prefilled; the edit and date change were saved. Swiping left reveals Delete, which removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists categories largest first with amount, '29.3% of total · 16 expenses' and a blue bar; tapping one pushes its transactions for the month."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. The added and edited expense survived a relaunch."}
+    ],
+    "bugs": [
+      "While swiping a row left, the row turns grey and its subtitle lines (category, note) vanish, leaving only a clipped title ('e Edp') and the amount.",
+      "At the largest text size, the merchant name breaks mid-word without a hyphen ('Clim / bing Gym') because the amount stays on the same line and squeezes it."
+    ],
+    "tells": [
+      "Transaction rows have almost no vertical padding: titles sit against the top edge of each cell and the note lines against the bottom, so the list looks cramped.",
+      "Category rows on the Categories screen have no disclosure chevron, even though they push a detail screen.",
+      "Day header puts the total inline after a '·' instead of right-aligned, and repeats the year on every header.",
+      "Cancelling an edited form discards changes without the usual confirmation.",
+      "The validation hint is static grey text and never turns into an error state."
+    ],
+    "scroll": "The long list scrolls and flings smoothly, with no blank rows or jumps, and keeps its position after an edit is cancelled. The cramped row padding makes it feel dense.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist data. A is noticeably more finished: comfortable row metrics, icons, a discard confirmation, clear validation errors, and a layout that adapts well at the largest text size. B uses stock SwiftUI controls but has cramped rows, a glitchy swipe animation, and a mid-word break at large text; A's custom warm theme is its main departure from a stock iOS look."
+}

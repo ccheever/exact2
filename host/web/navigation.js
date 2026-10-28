@@ -1349,7 +1349,7 @@ const sourceTuple = source => {
   if (capability === 'storage.kv') return ['storage-kv', target];
   return null;
 };
-const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|net\.dns-sd |process\.spawn |secret\.hold |env\.read login:|doc\.keep$|browser\.automation$)/.test(source);
+const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|net\.dns-sd |process\.spawn |secret\.hold |env\.read login:|doc\.keep$|browser\.automation$|payment\.google-pay$|payment\.apple-pay )/.test(source);
 const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);

@@ -206,10 +206,18 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         })
         .transpose()?
         .unwrap_or_default();
+    // A listener's connections are handles a worker's turn cannot hold, as
+    // a socket's are (LLP 1133.005).
+    if !json["listen"].is_null() {
+        return Err(unavailable(
+            "exactListen is unavailable in a worker-placed source; place it on main",
+        ));
+    }
     let request = Request {
         surface: None,
         // The runner stamps who asked when the request goes out.
         reach: Default::default(),
+        listen: None,
         continuation: json["continuation"].as_u64(),
         http: match &json["max_response_bytes"] {
             Json::Null => HttpScheduling::Ordered,

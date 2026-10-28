@@ -52,7 +52,7 @@ import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
-import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, signInEntitlement } from './presence.mjs';
+import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, merchantEntitlement, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { backgroundKeys, localNetworking, nfcKeys, transportSecurity } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
@@ -329,13 +329,11 @@ export const appClip = (app) => {
   return { id, name, executable: executableName({ id, displayName: name ?? '' }) };
 };
 
-/** Device identity comes from the profile. Simulators need an app identity too:
- * Keychain's default access group is the application-identifier. A
- * simulator's is `SIMULATORX.<id>`, with the bare id it had before kept as a
- * second Keychain group so items stored then still read and update in place
- * (D3, measured). The grants' signing entitlements (`reach.entitlements`,
- * D2) are each `true`. */
-export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false, prefix = team } = {}) => {
+/** Device identity comes from the profile. Simulators need an app identity too: Keychain's default access group
+ * is the application-identifier. A simulator's is `SIMULATORX.<id>`, with the bare id it had before kept as a
+ * second Keychain group so items stored then still read and update in place (D3, measured). The grants' signing
+ * entitlements (`reach.entitlements`, D2) are each `true`. `allows`: the signing profile's entitlements. */
+export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false, prefix = team, allows = [] } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   const prefixed = `${SIMULATOR_PREFIX}.${app.id}`;
   const dict = {
@@ -369,6 +367,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
   for (const name of reach?.entitlements ?? []) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
+  Object.assign(dict, merchantEntitlement(reach, { simulator, team, allows }));
   return plistFile({ ...dict, ...signInEntitlement(reach?.auth, simulator && !team) });
 };
 
@@ -897,7 +896,7 @@ async function main(args, lockHeld = false) {
   // bake to say (below). Every other build starts both now.
   const fixedPlan = production && expected.composition === 'embedded';
   cargoEnv.EXACT_APPLE_LINK = linksByPlan(production, args) ? 'plan' : 'all'; // what the archive links (link.mjs)
-  const hostModules = embedOnly || fixedPlan ? null : buildModules(['exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : [])], 'host-modules.log');
+  const hostModules = embedOnly || fixedPlan ? null : buildModules(['exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : []), ...(ios ? [] : ['exact-listen'])], 'host-modules.log'); // the listener: macOS's (LLP 1133.005 §8)
   const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, link: !args.includes('--embed'), prepareGpu(product) {
     const artifact = gpuArtifacts.find(m => m.built === basename(product));
     if (!artifact) throw new Error(`unknown GPU product: ${product}`);
@@ -998,10 +997,10 @@ async function main(args, lockHeld = false) {
   const reaches = buildReceipt.graph.loads;
   const settled = production && level === '0' && Array.isArray(reaches);
   const carries = (module) => !settled || reaches.includes(module);
-  const leftOut = settled ? ['canvas', 'svg', 'video', 'web', 'sound', 'midi'].filter((module) => !reaches.includes(module)) : [];
+  const leftOut = settled ? ['canvas', 'svg', 'video', 'web', 'sound', 'midi', 'listen'].filter((module) => !reaches.includes(module)) : [];
   if (leftOut.length) console.log(`host/apple: the plan cannot change (production, store level 0) and reaches no ${leftOut.join(', ')} module: left out of this build`);
   const canvasGpu = metal && carries('canvas');
-  const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : [])] : [];
+  const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : []), ...(!ios && carries('listen') ? ['exact-listen'] : [])] : [];
   const lateModules = lateCrates.length ? buildModules(lateCrates, 'late-modules.log') : null;
   const env = swiftEnv(libDir, composition, appleLink);
   // The products: the standalone app, and with --host the sample host too
@@ -1061,7 +1060,7 @@ async function main(args, lockHeld = false) {
   };
   const arms = [];
   // tvOS has no WebKit, so no iframe arm there.
-  const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg');
+  const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg'), hasListen = !ios && carries('listen');
   if (hasWeb) arms.push(arm([...webArgs, ...(!production && !distribution ? ['-D', 'EXACT_DEVELOPMENT'] : [])], [resolve(root, 'host/apple/webarm/WebArm.swift'), ...frameSources], webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
   // The video arm and its media session (LLP 1098 D7): both sources are its key and its inputs, with MediaPlayer.
@@ -1086,7 +1085,7 @@ async function main(args, lockHeld = false) {
   const hasMidi = !tv && carries('midi'), midiBuilt = resolve(webBuildDir, 'libexact_midi.dylib'), midiSource = resolve(root, 'host/apple/midiarm/MIDIArm.swift'), midiRing = resolve(root, 'host/apple/midiarm/midi_ring.h');
   if (hasMidi) arms.push(arm(ownArgs(webArgs).map(value => value === 'ExactWebArm' ? 'ExactMIDIArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? midiSource : value === webBuilt ? midiBuilt : value === 'WebKit' ? 'CoreMIDI' : value).concat(['-import-objc-header', midiRing]), [midiSource, midiRing], midiBuilt));
   // The loose arms, each where the build carries it: [carried, built, load name, its framework on iOS].
-  const looseArms = [[hasWeb, webBuilt, webLoadName, 'ExactWeb'], [hasVideo, videoBuilt, videoLoadName, 'ExactVideo'], [hasSound, soundBuilt, soundLoadName, 'ExactSound'], [hasMidi, midiBuilt, 'libexact_midi.dylib', 'ExactMIDI']];
+  const looseArms = [[hasWeb, webBuilt, webLoadName, 'ExactWeb'], [hasVideo, videoBuilt, videoLoadName, 'ExactVideo'], [hasSound, soundBuilt, soundLoadName, 'ExactSound'], [hasMidi, midiBuilt, 'libexact_midi.dylib', 'ExactMIDI'], ...(ios ? [] : [[hasListen, moduleLib['exact-listen'], 'libexact_listen.dylib', null]])];
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
   // `modules/apple/*.swift`, one dylib under one load name. A release build

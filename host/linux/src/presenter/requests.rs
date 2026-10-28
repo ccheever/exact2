@@ -322,19 +322,20 @@ impl<D: DataSource> Presenter<D> {
     pub fn serve_packages(&mut self, table: Vec<crate::package::Entry>) {
         let agent = self.agent || std::env::var("EXACT_AGENT").as_deref() == Ok("1");
         self.requests.packages.set(table, agent);
-        if self.requests.packages.is_empty() {
-            return;
-        }
-        self.handle_modules();
-        let (real, under) = self.requests.packages.bound();
+        // Said with no package composed too: a substitute's per-target answer
+        // is this target's, not that of the OS the binary was built on.
         let target = if cfg!(target_os = "windows") {
             "windows"
         } else {
             "linux"
         };
-        let runner = self.host.runner_mut();
-        runner.set_module_target(target);
-        runner.bind_extensions(&real, &under);
+        self.host.runner_mut().set_module_target(target);
+        if self.requests.packages.is_empty() {
+            return;
+        }
+        self.handle_modules();
+        let (real, under) = self.requests.packages.bound();
+        self.host.runner_mut().bind_extensions(&real, &under);
     }
 
     /// The session ends: each package instance's `destroy`.

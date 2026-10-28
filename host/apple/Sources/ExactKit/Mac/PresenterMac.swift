@@ -1143,6 +1143,7 @@ package final class Presenter {
                 v.handlers = op.handlers
                 v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
+                v.embedFrame(self)
                 views[id] = v
                 elements.created(v)
                 if v.kind == "list" { listViews[id] = v }

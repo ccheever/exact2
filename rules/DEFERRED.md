@@ -588,6 +588,14 @@ the tooltips, toasts, empty states and themed fields of
 `issues/closed/20261009-balanced-text-placeholder-color.md`. This
 amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
 
+**Admitted (Daehyeon Mun, 2026-10-28, waived; LLP 1019 D12):**
+`-webkit-font-smoothing: auto | antialiased`, an inherited paint row. This
+amends the 2026-10-12 textrows ruling above, which kept it deferred. Consumer:
+the T3 Code clone, whose web original sets `antialiased` on its root; drawn
+without it, its labels read a weight heavier than the original's. `none` and
+`subpixel-antialiased` stay refused. Take: waived (Daehyeon Mun, 2026-10-28):
+a paint-only row, no doing-list item in this area.
+
 **Runtime**
 
 **Expanded (Charlie, 2026-10-13, issue-program ruling 10):** runner-owned
