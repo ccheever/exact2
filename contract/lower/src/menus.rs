@@ -90,6 +90,84 @@ pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerE
     Ok(())
 }
 
+/// LLP 1021 §5.3.3: a root's chords for the Mac's standard items the host
+/// builds, each `id=chord` (one `aria-keyshortcuts` chord with `Meta`) or
+/// `id=none`.
+pub(crate) fn check_menu_keys(attrs: &[Attr], root: bool) -> Result<(), LowerError> {
+    const IDS: &[&str] = &[
+        "close-window",
+        "minimize",
+        "zoom",
+        "bring-all-to-front",
+        "enter-full-screen",
+        "back",
+        "paste-and-match-style",
+        "app-help",
+    ];
+    for attr in attrs.iter().filter(|a| a.name == "-exact-menu-keys") {
+        let pairs: Option<Vec<(&str, &str)>> = match &attr.value {
+            Expr::Str(value, _) if root => value
+                .split_whitespace()
+                .map(|pair| pair.split_once('='))
+                .collect(),
+            _ => None,
+        };
+        let valid = pairs.is_some_and(|pairs| {
+            pairs.iter().enumerate().all(|(i, (id, chord))| {
+                IDS.contains(id)
+                    && (*chord == "none" || menu_chord(chord))
+                    && !pairs[..i].iter().any(|(earlier, _)| earlier == id)
+            })
+        });
+        if !valid {
+            return err("lower-menu-keys", format!(
+                "`-exact-menu-keys` belongs to a root and takes a literal whitespace-separated list of id=chord, each id once, \
+                 the chord one `aria-keyshortcuts` chord with Meta (`Meta+Shift+W`) or `none`; the ids: {}",
+                IDS.join(", ")
+            ), attr.span);
+        }
+    }
+    Ok(())
+}
+
+/// One chord as `aria-keyshortcuts` spells it, with `Meta`: a menu item's
+/// key equivalent. The keys are those the Mac host maps
+/// (`ShortcutsMac.swift`, `Shortcut`).
+fn menu_chord(chord: &str) -> bool {
+    let (held, key) = match chord.strip_suffix("++") {
+        Some(held) => (held, "+"),
+        None => chord.rsplit_once('+').unwrap_or(("", chord)),
+    };
+    let modifiers: Vec<&str> = held.split('+').collect();
+    let named = matches!(
+        key,
+        "Enter"
+            | "Tab"
+            | "Escape"
+            | "Space"
+            | "Backspace"
+            | "Delete"
+            | "Insert"
+            | "ArrowUp"
+            | "ArrowDown"
+            | "ArrowLeft"
+            | "ArrowRight"
+            | "Home"
+            | "End"
+            | "PageUp"
+            | "PageDown"
+            | "Plus"
+    ) || key
+        .strip_prefix('F')
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=35).contains(&n));
+    modifiers.contains(&"Meta")
+        && modifiers
+            .iter()
+            .all(|m| matches!(*m, "Meta" | "Control" | "Alt" | "Shift"))
+        && (key.chars().count() == 1 || named)
+}
+
 /// HTML honours `popovertarget` and `commandfor` on a button only (HTML
 /// §6.12, "the popover target attributes"; "the commandfor attribute"): on
 /// any other node no host opens anything, so it is refused where it is

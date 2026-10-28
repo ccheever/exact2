@@ -2269,6 +2269,18 @@ the virtual clock).
   menu off the bar and leaves its chords (Save Trace's ⌥⌘T among them);
   other hosts ignore it ([LLP 1021 §5.3](../llp/1021-menus.rfc.md#53-contract-extensions-to-the-mac-menu-bar-2026-10-12)).
 
+  On a top-level root, `-exact-menu-keys="close-window=none
+  minimize=Meta+Shift+M"` sets the chords of the host's own items: each
+  literal pair is an id and one `aria-keyshortcuts` chord with `Meta`, or
+  `none`, which keeps the item in its place with no chord. The ids are
+  `close-window` (File ▸ Close Window, built with ⌘W), `minimize`, `zoom`,
+  `bring-all-to-front`, `enter-full-screen`, `back`, `paste-and-match-style`
+  and `app-help`. Unknown ids, an id named twice, a chord without `Meta`,
+  expressions and non-root use fail with `lower-menu-keys`. An app command
+  with the same chord still takes it from the item; removing the declaration
+  gives each item its built chord back. Other hosts ignore it
+  ([LLP 1021 §5.3.3](../llp/1021-menus.rfc.md#533-the-hosts-own-items-chords-2026-10-28)).
+
   The Dock menu and the status item ([LLP 1133.025](../llp/1133.025-desktop.rfc.md)
   D4, D5): `dock` beside one menu id, or alone, files the button in the Dock
   menu too, above AppKit's own items, in declaration order, from the key

@@ -978,7 +978,7 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
 
 #[test]
 fn menu_bar_attributes_explain_the_fixed_removal_ids() {
-    for name in ["-exact-menu", "-exact-menu-remove"] {
+    for name in ["-exact-menu", "-exact-menu-remove", "-exact-menu-keys"] {
         let out = stdout(&vocab(&[name]));
         for part in [
             "menubar (a concept)",

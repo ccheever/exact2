@@ -502,6 +502,11 @@ the standard AppKit item ids in LLP 1021 §5.3 and §5.3.1. AppKit suppresses th
 and their menu equivalents; all other hosts ignore this non-CSS presentation
 hint. It changes no layout or window capability.
 
+`menuKeys` (292, string) carries root `-exact-menu-keys`: a literal list of
+`id=chord` pairs over the standard AppKit items of LLP 1021 §5.3.3, each chord
+one `aria-keyshortcuts` chord with `Meta`, or `none`. AppKit gives that item
+the chord, or none; all other hosts ignore this non-CSS presentation hint.
+
 `menuPlacement` (261, string) is `-exact-menu` on a button (LLP 1021 §5.3,
 Charlie, 2026-10-12; §5.3.1, 2026-10-22): a literal `about`, `app`, `file`,
 `edit`, `view`, `go`, `window`, `help` or `none`. AppKit adds the button to

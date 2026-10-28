@@ -5,7 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below).
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below). §5.3.3, 2026-10-28 (Claude, Opus 5.5): File ▸ Close Window's chord, `-exact-menu-keys`.
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -1406,3 +1406,44 @@ the chords that work on Windows: an item's declared `Control` chord, never a
 `Meta` one, which on Windows is the Windows key (LLP 1115.004 D9.6). §5.3.1's
 app-wide items hold, except under a modal dialog, which disables the row as a
 Windows owner window's modality does.
+
+### 5.3.3 The host's own items' chords (2026-10-28)
+
+Implementer: Claude (Opus 5.5), 2026-10-28. Consumer: the T3 Code clone,
+whose original gives File ▸ Close Window no accelerator on macOS, so that ⌘W
+reaches the page, which closes a sidebar tab or does nothing
+(`apps/desktop/src/window/DesktopApplicationMenu.ts`, T3 Code `a86c05f977`).
+Electron's menu template sets each role item's `accelerator` the same way.
+
+On a top-level root, `-exact-menu-keys` takes a whitespace-separated literal
+list of `id=chord`: `close-window=none` keeps File ▸ Close Window in its
+place with no chord; `close-window=Meta+Shift+W` gives it ⇧⌘W, as Safari and
+Chrome give it beside their ⌘W Close Tab. The chord is one
+`aria-keyshortcuts` chord with `Meta`, as a menu item's key equivalent has ⌘.
+
+| ID | Standard item | Built with |
+|---|---|---|
+| `close-window` | File → Close Window | ⌘W |
+| `minimize` | Window → Minimize | ⌘M |
+| `zoom` | Window → Zoom | none |
+| `bring-all-to-front` | Window → Bring All to Front | none |
+| `enter-full-screen` | View → Enter/Exit Full Screen | ⌃⌘F |
+| `back` | Go → Back | ⌘[ |
+| `paste-and-match-style` | Edit → Paste and Match Style | ⌥⇧⌘V |
+| `app-help` | Help → *App* Help | ⌘? |
+
+These are the items the host builds with one action each. AppKit's own (the
+tab items, AutoFill) and the zoom items, whose ⌘+ has a hidden ⌘= beside it,
+take no declared chord; an app command with the chord stands in for a zoom
+item as before. Unknown ids, an id named twice, a chord without `Meta`,
+expressions and non-root use fail with `lower-menu-keys`, which names the
+ids. An app command that declares the same chord still takes it from the item
+(§5.3), and the item gets the declared chord back once no command claims it;
+a command's ⌘W takes nothing from a Close Window declared `none`. Removing
+the declaration gives each item the chord it was built with. AppKit keeps
+Minimize's own ⌘ alone while its key is M: `minimize=Meta+Shift+M` leaves it
+⌘M, where `Meta+Shift+K` gives ⇧⌘K and `none` takes the chord (measured,
+macOS 27).
+
+Other hosts ignore the hint: the web has no menu bar, and Windows' row
+(§5.3.2) builds no Close Window.
