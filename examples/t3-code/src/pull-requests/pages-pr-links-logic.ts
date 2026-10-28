@@ -1,7 +1,7 @@
 // Pull request links in pull request text and between threads:
 // `#N` and commit autolinks, the hover card's target, the linked-thread palette results, whether a
 // thread already links a pull request, the link/unlink dispatch and the thread picker's rows.
-// Sources: T3 Code (MIT, see LICENSE-T3) at 1e2ecbd975 — apps/web/src/components/pullRequest/
+// Sources: T3 Code (MIT, see LICENSE-T3) at 7c3b3b3605ef — apps/web/src/components/pullRequest/
 // pullRequestMarkdown.logic.ts (remarkPullRequestAutolinks), packages/shared/src/changeRequestUrl.ts
 // (changeRequestRepositoryUrl, pullRequestCandidateUrlFromReferenceAutolink,
 // matchesLinkedPullRequestUrl), packages/shared/src/threadPullRequests.ts (threadPullRequestKeysEqual),
@@ -25,12 +25,17 @@ import { repositorySelector } from '../composer/composer-editor-menu';
 
 // ── Autolinks (remarkPullRequestAutolinks) ─────────────────────────────────
 
-export type PullRequestAutolink = { href: string; text: string; kind: 'reference' | 'commit' };
+export type PullRequestAutolink = { href: string; text: string; kind: 'reference' | 'commit' | 'mention' };
 
-// Sticky: tried at each position the scan reaches, as the reference retries one character on.
-const AUTOLINK_CANDIDATE = /#[1-9]\d*|[0-9a-f]{40}/iuy;
-const WORD = /[A-Za-z0-9_]/u;
-const COMMIT_PREFIX = /[\s([{]/u;
+// GitHub's autolinked references (gitHubReferenceAutolinks): `#12`, `repo#12` and `owner/repo#12`; a SHA of 7 to 40
+// characters, optionally `repo@` or `owner/repo@` qualified; `@user` and `@org/team`. Sticky: tried at each position the
+// scan reaches, over the text node from there, as the reference's matchAll tries each one. Its lookbehind is the scan's
+// own check, which knows where the node starts.
+const REFERENCE = /(?:([\w.-]+\/[\w.-]+|[\w-]+)?#([1-9]\d*)|(?:([\w.-]+\/[\w.-]+|[\w-]+)@)?([a-f\d]{7,40})(?![\w])|@([a-z\d](?:[a-z\d-]*[a-z\d])?(?:\/[a-z\d][a-z\d-]*)?))(?![\w])/iuy;
+const NOT_BEFORE = /[\w/\\]/u;
+/** What a reference can be made of: the text node holds at most this run (an emphasis `_` ends the node). */
+const REFERENCE_CHARACTER = /[\w.#@/-]/u;
+const SHORT_SHA_LENGTH = 7;
 const FENCE = /^\s{0,3}((?:`{3,})|(?:~{3,}))(.*)$/u;
 const LIST_ITEM = /^\s{0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/u;
 const DEFINITION = /^\s{0,3}\[((?:\\.|[^\]\\])+)\]:\s*\S/u;
@@ -105,7 +110,20 @@ function closingBracket(text: string, at: number, open: string, close: string): 
   return -1;
 }
 
-type Scan = { links: Map<string, PullRequestAutolink>; repositoryUrl: string; definitions: Set<string> };
+type Scan = { links: Map<string, PullRequestAutolink>; origin: string; owner: string; repo: string; definitions: Set<string> };
+/** gitHubReferenceAutolinks' repository: an unqualified reference is this repository, `other#4` the same name under another owner. */
+const repositoryOf = (scan: Scan, qualifier: string | undefined) => (qualifier?.includes('/') ? qualifier : qualifier ? `${qualifier}/${scan.repo}` : `${scan.owner}/${scan.repo}`);
+/** The autolink a reference match makes, or null for a run of digits, which is a number far more often than a SHA. */
+function autolinkOf(scan: Scan, match: RegExpExecArray): PullRequestAutolink | null {
+  const [matched, issueRepo, number, commitRepo, sha, mention] = match;
+  if (number) return { href: `${scan.origin}/${repositoryOf(scan, issueRepo)}/issues/${number}`, text: matched, kind: 'reference' };
+  if (sha) {
+    if (!/[a-f]/iu.test(sha)) return null;
+    return { href: `${scan.origin}/${repositoryOf(scan, commitRepo)}/commit/${sha}`, text: `${commitRepo ? `${commitRepo}@` : ''}${sha.slice(0, SHORT_SHA_LENGTH)}`, kind: 'commit' };
+  }
+  const [organization, team] = (mention ?? '').split('/');
+  return { href: `${scan.origin}/${team ? `orgs/${organization}/teams/${team}` : mention}`, text: matched, kind: 'mention' };
+}
 
 /** One run of prose (a paragraph's lines, blank lines between such runs): every candidate a parsed text node would hold, rewritten. */
 function autolinkProse(text: string, scan: Scan): string {
@@ -147,20 +165,20 @@ function autolinkProse(text: string, scan: Scan): string {
       while (end < text.length && !/[\s<]/u.test(text[end]!)) end += 1;
       out += text.slice(index, end); index = nodeStart = end; continue;
     }
-    AUTOLINK_CANDIDATE.lastIndex = index;
-    const match = AUTOLINK_CANDIDATE.exec(text);
-    if (match !== null && match.index === index) {
-      const matched = match[0], reference = matched.startsWith('#');
-      const before = startsNode(index) ? undefined : text[index - 1];
-      const afterAt = index + matched.length;
-      const after = afterAt >= text.length || delimiterAt(text, afterAt, paired) ? undefined : text[afterAt];
-      const guarded = (before !== undefined && (reference ? WORD.test(before) : !COMMIT_PREFIX.test(before))) || (after !== undefined && WORD.test(after));
-      if (!guarded) {
-        const href = reference ? `${scan.repositoryUrl}/issues/${matched.slice(1)}` : `${scan.repositoryUrl}/commit/${matched}`;
-        const label = reference ? matched : matched.slice(0, 7);
-        if (!scan.links.has(href)) scan.links.set(href, { href, text: label, kind: reference ? 'reference' : 'commit' });
-        out += `[${label}](${href})`;
-        index = afterAt;
+    const before = startsNode(index) ? undefined : text[index - 1];
+    if (before === undefined || !NOT_BEFORE.test(before)) {
+      // The text node from here: a reference's characters up to the first emphasis delimiter, which ends the node.
+      let stop = index;
+      while (stop < text.length && REFERENCE_CHARACTER.test(text[stop]!) && !delimiterAt(text, stop, paired)) stop += 1;
+      REFERENCE.lastIndex = 0;
+      const match = stop > index ? REFERENCE.exec(text.slice(index, stop)) : null;
+      if (match !== null) {
+        const link = autolinkOf(scan, match);
+        if (link) {
+          if (!scan.links.has(link.href)) scan.links.set(link.href, link);
+          out += `[${link.text}](${link.href})`;
+        } else out += match[0];
+        index += match[0].length;
         continue;
       }
     }
@@ -170,13 +188,17 @@ function autolinkProse(text: string, scan: Scan): string {
 }
 
 /**
- * remarkPullRequestAutolinks over Markdown source: `#N` → `[#N](<repo>/issues/N)`, a 40-hex sha →
- * `[<first 7>](<repo>/commit/<sha>)`, never inside code, links, link references, images, raw HTML or
- * bare URLs. The autolinks it made come back once each, in order.
+ * remarkPullRequestAutolinks with GitHub's references (changeRequestReferenceAutolinker) over Markdown source: `#N` →
+ * `[#N](<repo>/issues/N)`, a SHA → `[<first 7>](<repo>/commit/<sha>)`, `@user` → `[@user](<origin>/user)`, never inside
+ * code, links, link references, images, raw HTML or bare URLs. Only GitHub links references; the caller asks for no
+ * other host. The autolinks it made come back once each, in order.
  */
 export function autolinkPullRequestMarkdown(markdown: string, repositoryUrl: string): { text: string; links: PullRequestAutolink[] } {
-  const scan: Scan = { links: new Map(), repositoryUrl: repositoryUrl.replace(/\/+$/u, ''), definitions: new Set() };
-  if (!scan.repositoryUrl) return { text: markdown, links: [] };
+  let url: URL;
+  try { url = new URL(repositoryUrl); } catch { return { text: markdown, links: [] }; }
+  const [owner, repo] = url.pathname.split('/').filter(Boolean);
+  if (!owner || !repo || !/^https?:$/u.test(url.protocol)) return { text: markdown, links: [] };
+  const scan: Scan = { links: new Map(), origin: url.origin, owner, repo, definitions: new Set() };
   const lines = markdown.split('\n');
   for (const line of lines) { const definition = DEFINITION.exec(line); if (definition) scan.definitions.add(normalizeLabel(definition[1]!)); }
   const out: string[] = [];

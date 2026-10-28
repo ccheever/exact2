@@ -87,7 +87,7 @@ export async function readGuide(ctx: GuideContext): Promise<'wake' | 'done'> {
 }
 export async function generateGuide(ctx: GuideContext): Promise<void> {
   const { client, native, reference, now } = ctx, entry = guideEntry(client, reference);
-  if (!guidesEnabled(client, reference)) throw new ClientError('Enable review guides in Settings → Source Control.');
+  if (!guidesEnabled(client, reference)) throw new ClientError('Enable review guides in Settings → Source control.');
   const owner = environmentClient(client, entry.environmentId, native);
   requirePermission(owner.scopes, 'orchestration:operate');
   if (!owner.ready) throw new ClientError('Reconnect before writing a review guide.');
@@ -99,7 +99,7 @@ export async function generateGuide(ctx: GuideContext): Promise<void> {
   } catch (error) {
     if (letGo(error)) throw error;
     guideReader(client).watches.delete(entry.key);
-    const message = error instanceof Error ? error.message : 'Check the review guide model in Settings → Source Control.';
+    const message = error instanceof Error ? error.message : 'Check the review guide model in Settings → Source control.';
     pushToast(client, { kind: 'error', title: 'Could not start a review guide', description: message });
     entry.error = message;
   } finally { entry.starting = false; }

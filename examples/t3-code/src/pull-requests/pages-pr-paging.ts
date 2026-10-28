@@ -6,8 +6,9 @@
 // apps/web/src/routes/_chat.pull-requests.tsx (environmentQueries, listTargets, page, loadMore, refreshList, ordered),
 // components/pullRequest/pullRequestList.logic.ts.
 import type { T3Client } from '../client/client';
-import { arr, str, type Obj } from '../client/domain';
+import { arr, num, str, type Obj } from '../client/domain';
 import { prEnvironments, readsPullRequests } from './pages-pr-environments';
+import { restoreListAnswers } from './pages-pr-refresh';
 import { isScratchProject, scratchRoot } from '../pages/pages-home';
 import { assignProjectsToEnvironments, findScopedProject, mergePullRequestLists, PR_MAX_PAGE_SIZE, PR_PAGE_SIZE, pullRequestEntryKey, resolveQueryEnvironmentIds,
   type MergedPullRequestList } from './pages-pr-routing';
@@ -76,6 +77,16 @@ export function foldAnswers(client: T3Client, answers: [string, Obj][]): MergedP
   for (const [key, login] of Object.entries(merged.viewers)) if (key.startsWith(`${client.environmentId} `)) merged.viewers[key.slice(client.environmentId.length + 1)] ??= login;
   merged.entries = merged.entries.map(entry => (entry.environmentId === client.environmentId ? (({ environmentId: _own, ...rest }) => rest)(entry) : entry));
   merged.errors = merged.errors.map(error => (error.environmentId === client.environmentId ? (({ environmentId: _own, ...rest }) => rest)(error) : error));
+  return merged;
+}
+
+/** restorePullRequestList: the answers kept for these reads (pages-pr-refresh.ts), folded as a read's are; null with none kept. */
+export function restoredPullRequestList(client: T3Client, targets: readonly ListTarget[]): MergedPullRequestList | null {
+  const merged = foldAnswers(client, restoreListAnswers(client, targets));
+  if (!merged) return null;
+  // Answers kept before the projects were reassigned between servers can overlap.
+  const seen = new Set<string>();
+  merged.entries = merged.entries.filter(entry => { const row = `${str(entry.host)}:${str(entry.repository)}#${num(entry.number)}`; if (seen.has(row)) return false; seen.add(row); return true; });
   return merged;
 }
 

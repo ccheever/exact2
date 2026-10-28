@@ -1,7 +1,7 @@
 // The pull request panel's host stack: the
 // `pullRequests.stack` read once the detail says the host keeps stacks, the saved membership the
 // thread links carry while it is out, the header's stack menu (n/m, layers top-down, "↳ base",
-// Merge stack, Rebase stack) and its confirmation. Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3)
+// Merge stack, Rebase stack) and its confirmation. Sources: T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3)
 // apps/web/src/components/pullRequest/{PullRequestStackMenu,PullRequestStackLayers,PullRequestStackHeader,
 // PullRequestStackLayerContent}.tsx, pullRequestStackSnapshot.ts (savedPullRequestStack,
 // pullRequestStackView: ported with their tests' names), apps/web/src/state/usePullRequestStack.ts, and the
@@ -13,6 +13,7 @@
 // polling is the server's (githubStackActions.ts): one `pullRequests.runAction` answers when GitHub has.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { terminologyOf } from '../details/git-logic';
 import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { isStackedPullRequestBase } from '../details/pr-row-logic';
@@ -187,13 +188,15 @@ export function presentStack(client: object, input: StackInput): PrStackView {
     note: plan.mergeHasClosed || plan.mergeLayers.some(layer => layer.isDraft === true) ? 'Every layer being merged must be open and ready for review.' : '',
   });
   view.mergeButton = view.canMerge && plan.selectedLayer?.state === 'open';
-  view.mergeTooltip = `Merge stack through #${number} into ${stack.base} (${plan.mergeLayers.length} ${plan.mergeLayers.length === 1 ? 'pull request' : 'pull requests'})`;
+  // The panel's host words (PullRequestStackMenu terminology).
+  const term = terminologyOf(str(input.detail.provider) || undefined), counted = (count: number) => `${count} ${count === 1 ? term.singular : term.plural}`;
+  view.mergeTooltip = `Merge stack through #${number} into ${stack.base} (${counted(plan.mergeLayers.length)})`;
   const confirm = ui.confirm?.key === input.key ? ui.confirm.action : null;
   if (confirm) {
     const layers = confirm === 'merge' ? plan.mergeLayers : plan.unmerged;
     Object.assign(view, {
       dialogOpen: true, dialogAction: confirm,
-      dialogTitle: confirm === 'merge' ? `Merge ${plan.mergeLayers.length} pull requests?` : `Rebase ${plan.unmerged.length} pull requests?`,
+      dialogTitle: confirm === 'merge' ? `Merge ${counted(plan.mergeLayers.length)}?` : `Rebase ${counted(plan.unmerged.length)}?`,
       dialogDescription: confirm === 'merge'
         ? `Merge #${number} and its unmerged layers below into ${stack.base} using ${input.mergeMethod}. GitHub checks their rules before merging or queueing them and rebases the remaining stack after merging.`
         : `Rebase the remote branches from bottom to top onto ${stack.base}. This rewrites branch history and may restart checks. If a layer fails, earlier updates remain.`,

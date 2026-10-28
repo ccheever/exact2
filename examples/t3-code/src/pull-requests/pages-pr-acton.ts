@@ -12,8 +12,9 @@ import { letGo } from '../client/let-go';
 import { fleet } from '../connections/settings-b-fleet';
 import { environmentRequest, prEnvironments, readsPullRequests } from './pages-pr-environments';
 import { resolvePickableEnvironments, type PickableEnvironment } from './pages-pr-routing';
-import { prState, writeTaskToDraft, type HandoffTask } from '../details/pr-row-actions';
-import { OFF_HEAD_CHECKOUT_TOAST, checkoutFailureDescription, preparePayload } from '../details/pr-row-logic';
+import { askedDescription, prState, writeTaskToDraft, type HandoffTask } from '../details/pr-row-actions';
+import { checkoutFailureDescription, offHeadCheckoutToast, preparePayload } from '../details/pr-row-logic';
+import { terminologyOf } from '../details/git-logic';
 import { ensureDraftThreadId, withHandoffThread } from '../composer/draft-thread-id';
 
 /** The reader's choice, for the pull request it was made on only (the panel shows another one every time it opens). */
@@ -68,16 +69,17 @@ export async function actOnHandoff(client: T3Client, native: Native, acting: Pic
   if (state.handoff) return '';
   state.handoff = kind;
   const draftKey = `${acting.environmentId}:new:${acting.projectId}`;
+  // The panel's host words (PullRequestDetailPanel terminology).
+  const term = terminologyOf(str(detail.provider) || undefined);
   try {
     if (kind === 'ask' || kind === 'explain') {
       if (task) writeTaskToDraft(client, draftKey, task);
       await moveTo(client, native, acting);
-      pushToast(client, { kind: 'success', title: 'Asked in a thread', description: (task?.prompt.length ?? 0) > 0
-        ? 'The question is in the composer — read it over, then send.' : 'The pull request is in the composer — type your question, then send.' });
+      pushToast(client, { kind: 'success', title: 'Asked in a thread', description: askedDescription(task ?? { prompt: '' }, term) });
       return 'sidebar:new-thread';
     }
     if (!acting.workspaceRoot) return '';
-    const loading = pushToast(client, { kind: 'loading', title: 'Preparing the pull request checkout...', key: 'pr-handoff' });
+    const loading = pushToast(client, { kind: 'loading', title: `Preparing the ${term.singular} checkout...`, key: 'pr-handoff' });
     let prepared: Obj;
     try {
       const threadId = await ensureDraftThreadId(client, native, draftKey);
@@ -85,7 +87,7 @@ export async function actOnHandoff(client: T3Client, native: Native, acting: Pic
         withHandoffThread(preparePayload({ ...detail, workspaceRoot: acting.workspaceRoot }, mode), threadId), { write: true });
     } catch (error) {
       if (letGo(error)) throw error;
-      pushToast(client, { kind: 'error', title: 'Could not prepare the pull request checkout', description: checkoutFailureDescription(error), key: 'pr-handoff' });
+      pushToast(client, { kind: 'error', title: `Could not prepare the ${term.singular} checkout`, description: checkoutFailureDescription(error), key: 'pr-handoff' });
       return '';
     }
     void loading;
@@ -93,10 +95,10 @@ export async function actOnHandoff(client: T3Client, native: Native, acting: Pic
     (client.local.composerControls.contexts ??= {})[draftKey] = { envMode: worktreePath ? 'worktree' : 'local', branch, worktreePath };
     if (task) writeTaskToDraft(client, draftKey, task);
     await moveTo(client, native, acting);
-    pushToast(client, prepared.isOnPullRequestHead === false ? { ...OFF_HEAD_CHECKOUT_TOAST, key: 'pr-handoff' }
-      : task ? { kind: 'success', title: 'Checkout ready', description: 'The task is in the composer — read it over, then send.', key: 'pr-handoff' }
+    pushToast(client, prepared.isOnPullRequestHead === false ? { ...offHeadCheckoutToast(term), key: 'pr-handoff' }
+      : task ? { kind: 'success', title: 'Checkout ready', description: 'The task is in the composer. Read it over, then send.', key: 'pr-handoff' }
       : { kind: 'success', title: mode === 'local' ? 'Checked out here' : 'Checked out', key: 'pr-handoff',
-        description: mode === 'local' ? "This repository is on the pull request's branch, with a thread open on it." : 'The pull request is in its own worktree, with a thread open on it.' });
+        description: mode === 'local' ? `This repository is on the ${term.singular}'s branch, with a thread open on it.` : `The ${term.singular} is in its own worktree, with a thread open on it.` });
     return 'sidebar:new-thread';
   } finally { state.handoff = ''; }
 }

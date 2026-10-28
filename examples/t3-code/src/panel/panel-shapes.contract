@@ -190,6 +190,7 @@ shape LinkedPrRow
   context: string
   speed: PrSpeedAction[]
   speedPending: bool
+  quickLabel: string
   key: string
   index: number
   number: number

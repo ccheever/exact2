@@ -70,7 +70,7 @@ describe('diff panel', () => {
     // The served panel marks changed words with Pierre's "word-alt" despite DiffPanel's `lineDiffType: "none"` (9c161462c9 oracle).
     expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false, true, false]);
     expect(opened.diffItems[1]!.gutter).toBe(33.3);
-    expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag']); // Shiki's heading ink
+    expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag+b']); // Shiki's heading ink, bold
   });
   test('a file change’s Open diff (turn-diff) opens the panel on that run’s turn and file (onOpenTurnDiff)', async () => {
     const { client, command, calls } = harness();
@@ -136,9 +136,17 @@ test('a replaced line pair projects word-alt segments on both sides, stacked and
   expect(hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => marked(row.segments))).toEqual(['', '', '', '']);
 });
 
-test('a Markdown list marker paints punctuation grey; the heading keeps its ink', () => {
-  const [file] = parsePatch(['diff --git a/notes/plan.md b/notes/plan.md', '--- a/notes/plan.md', '+++ b/notes/plan.md', '@@ -0,0 +1,4 @@',
-    '+# Plan', '+1. Write the outline.', '+  - Who reviews', '+3 is a number.', ''].join('\n'));
+test('a Markdown list marker paints punctuation grey; the heading keeps its ink, bold', () => {
+  const [file] = parsePatch(['diff --git a/notes/plan.md b/notes/plan.md', '--- a/notes/plan.md', '+++ b/notes/plan.md', '@@ -0,0 +1,5 @@',
+    '+# Plan', '+1. Write the outline.', '+  - Who reviews', '+3 is a number.', '+#hashtag', ''].join('\n'));
   const syntax = hunkRows(file!.hunks[0]!, file!.path).stacked.map(row => row.segments.filter(segment => segment.text.trim() !== '')[0]!);
-  expect(syntax.map(segment => [segment.text, segment.syntax])).toEqual([['# Plan', 'tag'], ['1.', 'punct'], ['-', 'punct'], ['3 is a number.', '']]);
+  // @pierre/highlights' `markup.heading` is weight 700: an ATX heading's tokens carry `+b`; `#hashtag` is no heading.
+  expect(syntax.map(segment => [segment.text, segment.syntax])).toEqual([['# Plan', 'tag+b'], ['1.', 'punct'], ['-', 'punct'], ['3 is a number.', ''], ['#hashtag', '']]);
+  // Outside Markdown a `#` line is code.
+  const [script] = parsePatch(['diff --git a/run.sh b/run.sh', '--- a/run.sh', '+++ b/run.sh', '@@ -0,0 +1,1 @@', '+# comment', ''].join('\n'));
+  expect(hunkRows(script!.hunks[0]!, script!.path).stacked[0]!.segments.some(segment => segment.syntax.endsWith('+b'))).toBe(false);
+  // Inside a fenced block a `#` line is the fence language's comment, not a heading.
+  const [fenced] = parsePatch(['diff --git a/README.md b/README.md', '--- a/README.md', '+++ b/README.md', '@@ -0,0 +1,3 @@', '+```sh', '+# install the tools', '+```', ''].join('\n'));
+  const comment = hunkRows(fenced!.hunks[0]!, fenced!.path).stacked[1]!.segments.filter(segment => segment.text.trim() !== '');
+  expect(comment.map(segment => [segment.text, segment.syntax])).toEqual([['# install the tools', 'com']]);
 });

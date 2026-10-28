@@ -1,15 +1,16 @@
 // The pull request row of the details card with the host's detail (MIT
-// reference, see LICENSE-T3, upstream 9c161462c9: chat/ThreadDetailsPrRow.tsx,
+// reference, see LICENSE-T3, upstream 7c3b3b3605ef: chat/ThreadDetailsPrRow.tsx,
 // pullRequest/PullRequestChecksPopover.tsx; the card's change breakdown at 74541bab17): the title takes the whole first
 // line; the second carries the number, the checks (rollup glyph, then
 // "completed/total" while runs are in flight or "N failed") with the popover they
 // open, and the one action ranked by what unblocks the merge next. The tooltip
 // card answers what opening the panel would.
 import type { T3Client } from '../client/client';
-import { arr, num, str, type Obj } from '../client/domain';
-import { isActing, normalRef, prState } from './pr-row-actions';
+import { arr, num, obj, str, type Obj } from '../client/domain';
+import { isActing, normalRef, prState, rowTerminology } from './pr-row-actions';
 import type { PrBreakdown } from '../pull-requests/pr-change-breakdown';
-import { CHECKS_HEADLINE, allowedMergeMethods, checksCount, checksList, checksRollup, emptyCard, prCard, rowAction, selectedMergeMethod, summarizeChecks, trailingAction, width12, type CheckRow, type PrCard } from './pr-row-logic';
+import { CHECKS_HEADLINE, allowedMergeMethods, checksCount, checksList, checksRollup, emptyCard, prCard, resolvePullRequestMergeMethod, rowAction, summarizeChecks, trailingAction, width12, type CheckRow, type PrCard } from './pr-row-logic';
+import { lastMergeMethod, projectDefaultMergeMethod } from '../pull-requests/pages-pr-actions';
 
 export type RowExtra = {
   destructive: boolean; suffix: boolean;
@@ -50,9 +51,10 @@ export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: {
   const conflicting = detail.state === 'open' && detail.mergeability === 'conflicting';
   // Counts beat the rollup's own wording where they are known.
   const count = checksCount(checks);
-  const method = selectedMergeMethod(allowedMergeMethods(detail), 'merge');
+  // The project's default merge method, else the one last chosen on this device (as the panel's Merge resolves it).
+  const method = resolvePullRequestMergeMethod(allowedMergeMethods(detail), null, projectDefaultMergeMethod(obj(client.config.settings), str(reference.projectId)), lastMergeMethod(client));
   const action = rowAction(detail), acting = isActing(client, reference);
-  const trailing = trailingAction(action, { handoff: state.handoff, actionPending: acting, method });
+  const trailing = trailingAction(action, { handoff: state.handoff, actionPending: acting, method, term: rowTerminology(client, reference, detail) });
   const { rowWidth, rowRight } = rowGeometry(input.inline, input.rightGap);
   const shownChecks = rollup && !conflicting && detail.isDraft !== true ? rollup : '';
   const summary = summarizeChecks(checks), list = checksList(checks, state.showAll.has(input.key));
