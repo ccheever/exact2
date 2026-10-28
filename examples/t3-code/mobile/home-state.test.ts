@@ -23,6 +23,15 @@ function fixture() {
   return { client, background, remote, view };
 }
 
+test('background transport failures stop an empty Home from displaying successful loading', () => {
+  const f = fixture();
+  Object.assign(f.client, { connection: 'disconnected', shellLoaded: false, shellLive: false });
+  f.client.shell = initialShell();
+  Object.assign(f.remote, { phase: 'reconnecting', message: 'The remote host is unreachable.', error: '', synchronized: -1 });
+  const view = f.view();
+  expect(view.loading).toBe(false); expect(view.emptyTitle).not.toBe('Connecting to environment');
+});
+
 test('Home context JSON carries the exact focused/background identity and the existing menu data', () => {
   const f = fixture(), rows = f.view().items.filter(item => item.kind === 'thread');
   expect(rows).toHaveLength(2);

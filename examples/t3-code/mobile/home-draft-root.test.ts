@@ -1,13 +1,75 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { answer } from './app';
-import { mobileClient } from './client';
+import { mobileClient, mobileConnectionSources } from './client';
 import { MobileDraftClient } from './mobile-draft-recovery';
 import { mobileHomeActionsObserve } from './home-actions';
 import { mobileNewTaskDraftCreate, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
 import { arr, obj, type Obj } from './shared/domain';
 import { nativeFiles, type Native, type Files } from './shared/protocol';
 import { fleet } from './shared/settings-b-fleet';
+import { reconnectOnLaunch } from './shared/r8-pointer-reconnect';
+
+test('an unidentified saved retry presents its real failure through the complete Home source chain', async () => {
+  if (process.env.T3_RETRY_HOME_TEST_PROCESS !== '1') {
+    const child = spawnSync(process.execPath, ['test', import.meta.path, '--test-name-pattern',
+      '^an unidentified saved retry presents its real failure through the complete Home source chain$'],
+    { env: { ...process.env, T3_RETRY_HOME_TEST_PROCESS: '1' }, encoding: 'utf8', timeout: 15_000 });
+    expect({ error: child.error?.message ?? '', status: child.status, signal: child.signal,
+      output: child.status === 0 ? '' : child.stdout + child.stderr }).toEqual({ error: '', status: 0, signal: null, output: '' });
+    expect(child.stderr).toContain('1 pass');
+    return;
+  }
+  const priorClient = { ...mobileClient }, priorFleet = { ...fleet }, calls: Obj[] = [];
+  const saved = [{ environmentId: 'retry-environment', origin: 'https://saved.test', mobileLabel: 'Retry Mac', enabled: true }];
+  const status = { state: 'reconnecting', origin: 'https://route.test', homeOrigin: 'https://saved.test', environmentId: '',
+    message: 'Could not connect to the server. Reconnecting in 6s…', failureKind: 'Network', traceId: '' };
+  const storage: Files = { fs: { async mkdir() {}, async readFile() { return ''; }, async atomicWriteFile() {} } };
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); calls.push(request);
+    return { ok: true, generation: 7, value: request.op === 'status' ? status : request.op === 'environments' ? { saved }
+      : request.op === 'readPreferences' || request.op === 'connectionPreferences' ? { text: '{"version":1}' } : {} };
+  } };
+  try {
+    Object.assign(mobileClient, new MobileDraftClient(), { generation: 7, origin: saved[0]!.origin });
+    Object.assign(fleet, { saved, entries: new Map() });
+    await reconnectOnLaunch(mobileClient, native, { state: 'disconnected', origin: saved[0]!.origin, environmentId: '' });
+    mobileClient.adoptStatus(status, 7);
+    await answer('snapshotRead', [], {} as never, storage, native);
+    const snapshot = obj(answer('snapshot', ['light', 't3-code', 0, 1791590400000], {} as never, storage, native));
+    expect(arr(snapshot.environments)[0]).toMatchObject({ environmentId: 'retry-environment', state: 'reconnecting', hasError: true, retrying: true });
+    expect(arr(snapshot.environments)[0]!.status).toContain('Could not connect to the server.');
+    const chrome = obj(answer('homeChrome', ['home-route', '', '', '', 'light', 34, true, snapshot.revision,
+      snapshot.environments, 'repository', 'compact'], {} as never, storage, native));
+    expect(obj(JSON.parse(String(chrome.configuration))).status).toEqual({ label: 'Reconnecting to Retry Mac', progress: false });
+    const home = obj(answer('homeView', [snapshot.revision, 1791590400000, '', 10, true, false, false, false, false,
+      '', '', '', 'repository', 'home-route', true, false, snapshot.environments, 'compact', true], {} as never, storage, native));
+    expect(home.loading).toBe(false); expect(home.emptyTitle).not.toBe('Connecting to environment');
+    expect(mobileClient.environmentId).toBe(''); expect(mobileClient.ready).toBe(false);
+    expect(calls.some(call => call.op === 'connect' && typeof call.fleet === 'string')).toBe(false);
+    status.homeOrigin = 'https://foreign.test';
+    await answer('snapshotRead', [], {} as never, storage, native);
+    const foreign = obj(answer('snapshot', ['light', 't3-code', 0, 1791590400000], {} as never, storage, native));
+    expect(arr(foreign.environments)[0]).toMatchObject({ state: 'available', hasError: false });
+    status.homeOrigin = saved[0]!.origin;
+    saved.push({ ...saved[0]!, environmentId: 'ambiguous' });
+    await answer('snapshotRead', [], {} as never, storage, native);
+    const ambiguous = obj(answer('snapshot', ['light', 't3-code', 0, 1791590400000], {} as never, storage, native));
+    expect(arr(ambiguous.environments)).toHaveLength(2);
+    expect(arr(ambiguous.environments).find(row => row.environmentId === 'retry-environment'))
+      .toMatchObject({ state: 'available', hasError: false });
+    expect(mobileConnectionSources().every(row => !row.focused)).toBe(true);
+    saved.pop();
+    await answer('snapshotRead', [], {} as never, storage, native);
+    Object.assign(mobileClient, { connection: 'connected', environmentId: 'retry-environment', generation: 8,
+      configLive: true, shellLive: true, shellLoaded: true, error: '' });
+    const recovered = obj(answer('snapshot', ['light', 't3-code', 0, 1791590400000], {} as never, storage, native));
+    expect(arr(recovered.environments)[0]).toMatchObject({ state: 'connected', hasError: false, retrying: false });
+    const recoveredChrome = obj(answer('homeChrome', ['home-route', '', '', '', 'light', 34, true, recovered.revision,
+      recovered.environments, 'repository', 'compact'], {} as never, storage, native));
+    expect(obj(JSON.parse(String(recoveredChrome.configuration))).status).toEqual({ label: '', progress: false });
+  } finally { Object.assign(mobileClient, priorClient); Object.assign(fleet, priorFleet); }
+});
 
 test('actual bare draft source waits for grouping preferences and uses the supplied mode', async () => {
   const priorClient = { ...mobileClient }, priorFleet = { ...fleet }, calls: Obj[] = [];

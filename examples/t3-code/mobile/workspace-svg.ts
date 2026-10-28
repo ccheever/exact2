@@ -1,12 +1,11 @@
 // Workspace SVG shares the root's live route, file authority and existing transports.
 // @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#workspace-svg-preview-gap
-import { mobileClient, mobileNative, mobileFocusedConnectionFacts } from './client';
+import { mobileClient, mobileNative, mobileConnectionSources } from './client';
 import type { T3Client } from './shared/client';
 import { obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 import { fleet, type EnvironmentFleet } from './shared/settings-b-fleet';
-import { environmentSources } from './shared/connections';
 import { workspaceOf } from './shared/r4-surfaces-panel';
 import { reviewOwner } from './review-owner';
 import { mobileSessionGrants } from './mobile-grants';
@@ -62,7 +61,7 @@ function scopeOf(visit: SvgVisit, client: T3Client, background: EnvironmentFleet
   return { ...visit, owner, environment, cwd, projectName, resource, draft };
 }
 function sourceOf(scope: Scope, client: T3Client, background: EnvironmentFleet) {
-  return environmentSources(client, background.saved, background.entries, mobileFocusedConnectionFacts(client)).find(source => source.environmentId === scope.environment);
+  return mobileConnectionSources(client, background).find(source => source.environmentId === scope.environment);
 }
 function subject(scope: Scope, client: T3Client, background: EnvironmentFleet) {
   return scope.environment === client.environmentId ? client : [...background.entries.values()].find(entry => entry.environmentId === scope.environment);

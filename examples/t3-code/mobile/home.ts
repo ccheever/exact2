@@ -4,7 +4,7 @@ import { blankHomeSwipe, type HomeSwipeData } from './home-swipe';
 // Mobile HomeScreen/threadListV2 at upstream 365aa87982; projection over the shared V2 shell.
 // @ref examples/t3-code/mobile/docs/1130.000-mobile-app-layout.decision.md#shared-typescript
 // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
-import { mobileClient } from './client';
+import { mobileClient, mobileConnectionSources } from './client';
 import { mobileOutboxPendingTasks, projectHomePending, mobileOutboxStatus, mobileOutboxOwner, type MobilePendingTask } from './mobile-outbox-presentation';
 import { mobilePendingTaskEditorsSnapshot, type MobilePendingTaskMarker } from './mobile-pending-task-state';
 import { homeDraftTitle } from './home-drafts';
@@ -289,7 +289,8 @@ export function mobileHome(now: number, options: HomeOptions = {}, client: T3Cli
   const catalog: HomeCatalogState = { loading: options.catalogLoaded === false,
     hasConnections: background.saved.length > 0 || !!client.environmentId, hasReadyEnvironment: client.ready || sources.some(source => !source.focused),
     hasLoadedShell: sources.length > 0, connecting: ['connecting', 'reconnecting'].includes(state) || entries.some(entry => ['connecting', 'reconnecting'].includes(entry.phase)),
-    connectionState: state, error: client.error || entries.find(entry => entry.error)?.error || '' };
+    connectionState: state, error: client.error || entries.find(entry => entry.error)?.error
+      || mobileConnectionSources(client, background).find(source => source.enabled && source.error)?.error || '' };
   const anyThreads = sources.some(source => source.shell.threads.some(thread => thread.archivedAt == null && thread.deletedAt == null));
   const anyContent = anyThreads || projectHomeDrafts(options.drafts ?? []).length > 0 || (options.pendingTasks?.length ?? 0) > 0 || (options.pendingEditors?.length ?? 0) > 0;
   const empty = anyContent ? null : mobileHomeEmpty(catalog, sources.reduce((sum, source) => sum + source.shell.projects.length, 0));

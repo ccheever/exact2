@@ -387,7 +387,9 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         guard wantsConnection, alive, let origin else { return }
         generation += 1; inbox.reset()
         let epoch = generation
-        setStatus(failures == 0 && !everConnected ? "connecting" : "reconnecting", "Connecting to \(origin.host ?? "the server")…")
+        let note = failureKind.isEmpty ? "Connecting to \(origin.host ?? "the server")…"
+            : message.replacingOccurrences(of: #"\s*Reconnecting in \d+s…$"#, with: "", options: .regularExpression)
+        setStatus(failures == 0 && !everConnected && failureKind.isEmpty ? "connecting" : "reconnecting", note)
         // A pairing tries its one address; a saved environment walks its routes (connectOverRoutes).
         guard credential.isEmpty else { return startRoute(credential: credential, epoch: epoch) }
         if routes.routes.isEmpty { routes.load(origin: origin.absoluteString, saved: savedEnvironments) }

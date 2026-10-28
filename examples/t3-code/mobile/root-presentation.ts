@@ -31,7 +31,7 @@ export function homeChromeView(args: unknown[]) {
   return mobileHomeChrome({ routeKey: str(routeKey), query: str(query), environmentId: str(environmentId), projectKey: str(projectKey),
     layout: layout === 'sidebar' ? 'sidebar' : 'compact', groupingMode: str(groupingMode), scheme: str(scheme), safeBottom: Number(safeBottom) || 0, liquidGlassSupported: liquidGlass === true,
     environments, workspace: {
-      connectionError: mobileClient.error || null, connectingEnvironments,
+      connectionError: mobileClient.error || str(arr(rows).find(row => row.hasError === true)?.status) || null, connectingEnvironments,
       hasConnectingEnvironment: connectingEnvironments.length > 0,
       hasPendingShellSnapshot: mobileClient.connection === 'connected' && !mobileClient.shellLoaded
         || entries.some(entry => entry.phase === 'connected' && entry.synchronized !== entry.generation),

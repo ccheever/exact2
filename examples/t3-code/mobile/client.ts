@@ -25,7 +25,7 @@ import { arr, obj, str, type Obj } from './shared/domain';
 import { letGo, letGoAware } from './shared/let-go';
 import { bridgeReply, ClientError, nativeFiles, parsePairing, type Files, type Native } from './shared/protocol';
 import { pairingFields } from './shared/r10-connect-pairing';
-import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
+import { EnvironmentFleet, fleet, trimOrigin } from './shared/settings-b-fleet';
 import type { T3Client } from './shared/client';
 
 export const mobileClient = new MobileDraftClient();
@@ -181,11 +181,16 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
 let snapshotReadStarted = 0, snapshotReadPublished = 0;
 let snapshotMetadata = { nativeAvailable: false, focusedStatus: {} as Obj, focusedGeneration: -1,
   focusedOrigin: '', focusedEnvironmentId: '', preferencesText: '{}', routingReady: false };
-/** Existing status read's facts are usable only by their matching live client. */
-export function mobileFocusedConnectionFacts(client: T3Client = mobileClient): Obj {
-  return client === mobileClient && snapshotMetadata.focusedGeneration === client.generation
+export function mobileConnectionSources(client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
+  const facts = client === mobileClient && snapshotMetadata.focusedGeneration === client.generation
     && snapshotMetadata.focusedOrigin === client.origin && snapshotMetadata.focusedEnvironmentId === client.environmentId
     ? snapshotMetadata.focusedStatus : {};
+  const saved = background.saved, homeOrigin = str(facts.homeOrigin);
+  const opening = !client.environmentId && client.connection !== 'disconnected' && homeOrigin
+    ? saved.filter(entry => trimOrigin(str(entry.origin)) === trimOrigin(homeOrigin)) : [];
+  const environmentId = client.environmentId || (opening.length === 1 ? str(opening[0]!.environmentId) : '');
+  return environmentSources({ connection: client.connection, origin: client.origin, environmentId,
+    statusMessage: client.statusMessage, config: client.config, scopes: client.scopes }, saved, background.entries, facts);
 }
 /** The stable root resource owns each native read/drain invocation. */
 export async function mobileSnapshotRead(nativeInput: Native | null | undefined, suppliedStorage: Files, now = 0) {
@@ -213,7 +218,7 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
       if (reading !== snapshotReadStarted) return { serial: snapshotReadPublished };
       if (status.ok) {
         const value = obj(status.value);
-        focusedStatus = { failureKind: str(value.failureKind), traceId: str(value.traceId), activeRouteId: str(value.activeRouteId) };
+        focusedStatus = { homeOrigin: str(value.homeOrigin), failureKind: str(value.failureKind), traceId: str(value.traceId), activeRouteId: str(value.activeRouteId) };
         focusedGeneration = status.generation; focusedOrigin = str(value.origin); focusedEnvironmentId = str(value.environmentId);
       }
       // A newer fleet/command adoption owns the catalog even while this read waits.
@@ -232,11 +237,9 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
 /** Pure rendering projection; never issues native IO or retains a prior graph. */
 export function mobileSnapshotProjection(now = 0) {
   mobileGitFeedbackObserve(mobileClient, now);
-  const { nativeAvailable, focusedGeneration, focusedOrigin, focusedEnvironmentId, preferencesText, routingReady } = snapshotMetadata;
+  const { nativeAvailable, preferencesText, routingReady } = snapshotMetadata;
   const savedCatalog = fleet.saved;
-  const focusedStatus = focusedGeneration === mobileClient.generation && focusedOrigin === mobileClient.origin
-    && focusedEnvironmentId === mobileClient.environmentId ? snapshotMetadata.focusedStatus : {};
-  const sources = environmentSources(mobileClient, savedCatalog, fleet.entries, focusedStatus);
+  const sources = mobileConnectionSources();
   const environments = sources.map(source => {
     const status = savedStatus(source.enabled, source.phase, source.error);
     const saved = savedCatalog.find(entry => str(entry.environmentId) === source.environmentId);

@@ -79,6 +79,17 @@ The normal clone pairs over LAN, saves that address, restarts, restores the
 conversation, and receives a fresh real provider reply. Independent source review
 found no introduced defect. The TestFlight build above includes this correction.
 Physical-phone pairing remains unproved.
+An unreachable-address drive now shows the saved environment's reconnection
+status without a loading spinner. Its header opens Environments. Native retries
+retain the failure reason; presentation resolves the saved owner before server
+discovery while the live client remains unidentified. Restoring the LAN address
+and restarting clears the failure header and restores the existing conversation.
+Source tests cover pending ownership, foreign/ambiguous origins, background
+failure and recovery. The shared source pins are unchanged.
+This drive changes the saved origin, which invalidates its old local cache; it
+does not qualify cached conversations during a real network outage. Canceling
+the system file picker restores an enabled composer. File/photo import and
+attachment preview/send remain unverified in this drive.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
 line, attaches it to the composer, sends it, and receives the requested provider
@@ -127,7 +138,7 @@ The inspector-supported Files/chat branch retains its existing search input.
 Source rows carry only source fields and reuse their
 highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
-Read failures show an error and Try again instead of an empty body. All 3,707
+Read failures show an error and Try again instead of an empty body. All 3,709
 mobile tests and strict app TypeScript pass. These phone fixes are not in the POC build.
 The Apple host preserves pull-to-refresh for a short file that also scrolls
 horizontally. Its new regression assertions pass, and the native short-file drive
@@ -147,7 +158,7 @@ one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
 unchanged from the original PR head. A bounded extraction attempt made no changes;
 the desktop checkpoint needs broader integration. Keep the failure visible.
 
-The full mobile suite passes 3,702 tests, strict app TypeScript passes, and the
+The full mobile suite passes 3,709 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
 with `QueueFull` on the former eager-send action and passes with coalesced text.
 
