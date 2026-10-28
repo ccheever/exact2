@@ -3,6 +3,8 @@ import { T3Client } from '../../src/client/client';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import { memoryFiles, png } from '../support/app-files-fixture';
+import { contractComponent } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const draft = `app:/data/snapshots/drafts/${id}.png`;
 function fixture() {
@@ -356,4 +358,18 @@ test('SnapShots turned off leave captures pending and report no failure', async 
   await f.client.adoptSnapshots(f.native, f.files);
   expect(f.client.error).toBe('');
   expect(f.client.local.snapshotDrafts).toEqual({});
+});
+
+// ComposerAttachmentStrip at 7c3b3b3605ef (4dcc244fe1): a pasted or dropped image's tile shows at once, after the ready
+// images and before the videos, disabled while it is prepared; the strip shows for it alone.
+test('the shelf draws the images still being prepared after the ready ones', () => {
+  const shelf = contractComponent('src/snapshot/snapshot.contract', 'SnapshotDrafts');
+  const scope = (images: unknown[], preparing: unknown[]) => ({ images, preparing, videos: [], draftFocusAfter: () => '', videoFocusAfter: () => '' });
+  const tile = { id: 'p1', name: 'Shot.png', source: '' };
+  expect(shelf.drawn('PreparingImageTile(', {}, scope([], [tile]))).toBe(true);
+  expect(shelf.drawn('testId="snapshot-drafts"', {}, scope([], []))).toBe(false);
+  const source = appText('src/snapshot/snapshot.contract');
+  const ready = source.indexOf('ImageDraftTile(id=image.id'), preparing = source.indexOf('PreparingImageTile('), videos = source.indexOf('VideoDraftTile(video=video');
+  expect(ready < preparing && preparing < videos).toBe(true);
+  expect(appText('src/composer/composer.contract')).toContain('preparing=data.composer.preparingImages');
 });

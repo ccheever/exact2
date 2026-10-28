@@ -329,8 +329,9 @@ component ChatColumn
           // detail loads the list holds only the footer (the status line, "Loading messages..."), with no row to return to.
           for owner in (data.threadLoading ? [] : [composerOwner]) key=owner
             box intersect=transcriptOpened(owner) position="absolute" top=0 left=0 width=0 height=0 pointer-events="none"
-          // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
-          if data.transcriptAway
+          // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing. It hides while
+          // find is open, as the reference's does.
+          if data.transcriptAway and not threadFind.open
             ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary=data.composer.endSummary)
       // The composer overlays the transcript (ChatView's data-chat-composer-overlay; composer-overlay.ts
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the

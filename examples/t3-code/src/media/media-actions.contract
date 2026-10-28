@@ -176,7 +176,12 @@ component FilesVideo
     if src == media.url
       local("media-video-error", media.url, message)
   view
-    video src controls=true playsinline=true preload="metadata" aria-label=media.name loadedmetadata=loaded play=started pause=stopped ended=stopped error=broke width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
+    // A refused signature or the newest URL's error is the failure slot, but a source still playing plays on until it
+    // pauses (MediaVideoPlayer's `failed` reads the source it plays).
+    if media.state == "failed" and not (playing and heldSrc != "")
+      MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
+    else
+      video src controls=true playsinline=true preload="metadata" aria-label=media.name loadedmetadata=loaded play=started pause=stopped ended=stopped error=broke width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
 
 // The Files surface's image or video file (WorkspaceImagePreview / WorkspaceVideoPreview).
 component FilesMedia
@@ -199,9 +204,6 @@ component FilesMedia
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" padding="1rem" box-sizing="border-box" testId="file-video"
         column width="100%" max-width="64rem" align-items="center"
           MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-video-actions")
-            if media.state == "failed"
-              MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
-            else
-              // A player per file (WorkspaceVideoPreview's key): another file's video starts with nothing held.
-              for shown in [media] key=media.retryKey
-                FilesVideo(media=shown, local=local)
+            // A player per file (WorkspaceVideoPreview's key): another file's video starts with nothing held.
+            for shown in [media] key=media.retryKey
+              FilesVideo(media=shown, local=local)

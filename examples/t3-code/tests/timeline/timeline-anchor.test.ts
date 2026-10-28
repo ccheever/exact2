@@ -159,6 +159,19 @@ describe('each thread keeps its own place', () => {
   });
 });
 
+// ChatView at 7c3b3b3605ef: the end pill shows while the transcript is away from its end and find is closed, and names
+// what waits at the end (scrollToEndSummary, bd3287b640).
+describe('the scroll-to-end pill', () => {
+  test('shows away from the end with the end summary, and not while find is open', () => {
+    const main = source('app-main.contract');
+    expect(main).toContain('ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary=data.composer.endSummary)');
+    const c = chat();
+    const scope = (away: boolean, open: boolean) => ({ ...c.scope, data: { ...(c.scope.data as Env), transcriptAway: away }, threadFind: { open } });
+    expect([column.drawn('ScrollToEnd(', c.state, scope(true, false)), column.drawn('ScrollToEnd(', c.state, scope(true, true)), column.drawn('ScrollToEnd(', c.state, scope(false, false))])
+      .toEqual([true, false, false]);
+  });
+});
+
 describe('one writer per navigation', () => {
   test('the marker beside the list reports each thread\'s transcript', () => {
     const main = source('app-main.contract');

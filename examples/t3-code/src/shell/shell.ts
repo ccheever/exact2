@@ -10,6 +10,7 @@ import { noteAutomationWindow } from '../browser/browser-automation';
 import { agentHoldWaiting, settleAgentHolds } from '../browser/browser-automation-run';
 import { threadTurnRunning } from '../browser/browser-capture';
 import { frameEntry } from '../browser/browser-frames';
+import { reportBrowserProfiles } from '../browser/browser-profile-report';
 import { migrateModelPreferences } from '../providers/model-preferences';
 import type { T3Client } from '../client/client';
 import { terminalAvailable, terminalOpen } from '../terminal/terminal-drawer-view';
@@ -285,6 +286,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     state.status = await nativeNotifyStatus(native, state.status, page.focused);
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
+    reportBrowserProfiles(client, native); // browser-profile-report.ts: server browsers keep this client's profiles and frame rate
     updateEverythingPass(client, native, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await coordinateGuides(client, native, state.status, now);
