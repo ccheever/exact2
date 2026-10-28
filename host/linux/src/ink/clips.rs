@@ -4,8 +4,11 @@ use exact_ink::path::Coverage;
 
 pub(super) struct Group {
     parent: Encoder,
+    target: Option<TextureId>,
+    clear: Option<[f64; 4]>,
     opacity: f32,
     mask: Option<Coverage>,
+    destination: Option<TextureId>,
 }
 
 impl Ink {
@@ -14,23 +17,61 @@ impl Ink {
         let parent = std::mem::replace(&mut self.encoder, next);
         self.groups.push(Group {
             parent,
+            target: self.draw_target.take(),
+            clear: self.draw_clear.replace([0.; 4]),
             opacity,
             mask,
+            destination: None,
         });
     }
 
+    pub(super) fn open_clip_group(&mut self, mask: Coverage) -> Result<()> {
+        // A clip changes coverage, not the backdrop root. Seed the layer with
+        // its parent's pixels, then replace under the parent's clips on close.
+        let source = self.flush()?;
+        let started = Instant::now();
+        let destination = self.pool.take(&mut self.device)?;
+        self.device
+            .copy_region(source, [0, 0], destination, [0, 0], self.size)?;
+        self.layer_ms += started.elapsed().as_secs_f64() * 1000.;
+        self.open_group(1., None);
+        self.groups.last_mut().unwrap().destination = Some(destination);
+        self.encoder
+            .push(
+                Instance::new(
+                    Kind::Layer,
+                    Brush::Image,
+                    [0., 0., self.size[0] as f32, self.size[1] as f32],
+                ),
+                Bindings {
+                    image: destination,
+                    ..Default::default()
+                },
+            )
+            .map_err(|_| Error::Invalid("clip layer background".into()))?;
+        self.encoder
+            .push_clip(Clip::Coverage(CoverageClip {
+                texture: mask.entry.texture,
+                rect: mask.rect,
+                uv: mask.entry.uv,
+            }))
+            .map_err(|_| Error::Invalid("clip layer mask".into()))?;
+        Ok(())
+    }
+
     pub(super) fn close_group(&mut self) -> Result<()> {
-        let Some(group) = self.groups.pop() else {
-            return Ok(());
-        };
-        let child = std::mem::replace(&mut self.encoder, group.parent).finish();
-        if self.error.is_some() {
+        self.close_masked_group(None)
+    }
+
+    pub(super) fn close_masked_group(&mut self, alpha_mask: Option<TextureId>) -> Result<()> {
+        if self.groups.is_empty() {
             return Ok(());
         }
-        let started = Instant::now();
-        let target = self.pool.take(&mut self.device)?;
-        self.device.render(&child, target, Some([0.; 4]))?;
-        self.layer_ms += started.elapsed().as_secs_f64() * 1000.;
+        let target = self.flush()?;
+        let group = self.groups.pop().unwrap();
+        self.encoder = group.parent;
+        self.draw_target = group.target;
+        self.draw_clear = group.clear;
         let mut instance = Instance::new(
             Kind::Layer,
             Brush::Image,
@@ -41,12 +82,21 @@ impl Ink {
             image: target,
             ..Default::default()
         };
+        if let Some(destination) = group.destination {
+            instance.flags |= flags::REPLACE;
+            bindings.destination = destination;
+        }
+        if let Some(mask) = alpha_mask {
+            instance.flags |= flags::LAYER_MASK;
+            bindings.color = mask;
+        }
         if let Some(mask) = group.mask {
             instance.set_mask(CoverageClip {
+                texture: mask.entry.texture,
                 rect: mask.rect,
                 uv: mask.entry.uv,
             });
-            bindings.path = mask.entry.texture;
+            bindings.mask = mask.entry.texture;
         }
         self.emit(instance, bindings)
     }
@@ -85,7 +135,7 @@ impl Ink {
             None => None,
         };
         if let Some(mask) = coverage {
-            self.open_group(1., Some(mask));
+            self.open_clip_group(mask)?;
             self.clips.push(true);
         } else {
             self.encoder

@@ -1,4 +1,4 @@
-//! The instanced painter's adapter. @ref LLP 1149 S0 C2, D1.2.
+//! The instanced painter's adapter. @ref LLP 1149 D1.2, D2, D3.1.
 use crate::image::Bitmap;
 use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::{Backend, FrameTarget, GradientPaint, Rect4, Shape, POINTER};
@@ -12,22 +12,31 @@ use std::time::Instant;
 use tiny_skia::{FillRule, Path, PathBuilder, Pixmap, Transform};
 
 mod clips;
+mod effects;
+mod stats;
+pub use stats::{Statistics, StatisticsReader};
 mod gradient;
 mod images;
+mod svg;
 #[cfg(test)]
 mod tests;
+mod text;
 
 /// Headless wgpu painter; its premultiplied pixels use the presenter's ordinary path.
 pub struct Ink {
     device: Wgpu,
     encoder: Encoder,
     paths: Atlas,
+    glyphs: exact_ink::glyph::Glyphs,
+    text_sigma: f32,
     ramps: Atlas,
     images: images::Images,
     pool: exact_ink::layer::Pool,
     groups: Vec<clips::Group>,
     clips: Vec<bool>,
     target: Option<TextureId>,
+    draw_target: Option<TextureId>,
+    draw_clear: Option<[f64; 4]>,
     size: [u32; 2],
     scale: f32,
     page: [u8; 4],
@@ -35,6 +44,7 @@ pub struct Ink {
     error: Option<String>,
     layer_ms: f64,
     last_ms: (f64, f64),
+    statistics: StatisticsReader,
 }
 
 impl Ink {
@@ -58,12 +68,16 @@ impl Ink {
             device,
             encoder: Encoder::new(1, 1),
             paths: Atlas::paths(),
+            glyphs: Default::default(),
+            text_sigma: 0.,
             ramps: Atlas::ramps(),
             images: images::Images::default(),
             pool: exact_ink::layer::Pool::default(),
             groups: Vec::new(),
             clips: Vec::new(),
             target: None,
+            draw_target: None,
+            draw_clear: Some([1.; 4]),
             size: [1, 1],
             scale: 1.,
             page: [255; 4],
@@ -71,6 +85,7 @@ impl Ink {
             error: None,
             layer_ms: 0.,
             last_ms: (0., 0.),
+            statistics: StatisticsReader::default(),
         }
     }
 
@@ -216,6 +231,7 @@ impl Backend for Ink {
 
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
         self.layer_ms = 0.;
+        self.text_sigma = 0.;
         self.error = None;
         self.scale = scale;
         self.size = [width, height].map(|n| (n * scale).round().max(1.) as u32);
@@ -228,6 +244,7 @@ impl Backend for Ink {
                 return Err(Error::Invalid("frame dimensions or scale".into()));
             }
             self.paths.begin(&mut self.device)?;
+            self.glyphs.begin(&mut self.device)?;
             self.ramps.begin(&mut self.device)?;
             self.images.begin(&mut self.device)?;
             self.pool.begin(&mut self.device, self.size)?;
@@ -235,6 +252,8 @@ impl Backend for Ink {
                 Some(t) => self.device.resize_target(t, self.size[0], self.size[1])?,
                 None => self.device.create_target(self.size[0], self.size[1])?,
             });
+            self.draw_target = self.target;
+            self.draw_clear = Some(self.clear);
             Ok(())
         })();
         self.accept(result);
@@ -257,6 +276,7 @@ impl Backend for Ink {
         {
             self.encoder = Encoder::new(self.size[0], self.size[1]);
             self.clear = color(c).map(f64::from);
+            self.draw_clear = Some(self.clear);
             return;
         }
         let result = self.shape_instance(shape, ts);
@@ -335,9 +355,8 @@ impl Backend for Ink {
         self.canvas(&pixels, dst, &[], Transform::identity());
     }
     fn island_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
-        if mode == 0 {
-            self.canvas(&pixels, dst, &[], ts);
-        }
+        let result = self.blended_image(&pixels, dst, ts, mode);
+        self.accept(result);
     }
     fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         let result = self.images.pixmap(&mut self.device, pixels);
@@ -346,17 +365,34 @@ impl Backend for Ink {
         }
     }
 
-    // C3 supplies swash glyphs and SVG paths.
-    fn text(
-        &mut self,
-        _: &mut TextEngine,
-        _: &Paragraph,
-        _: &[RunPaint],
-        _: (f32, f32),
-        _: Transform,
-    ) {
+    fn text_blur(&mut self, sigma: f32) {
+        self.text_sigma = sigma.max(0.);
     }
 
+    fn text(
+        &mut self,
+        text: &mut TextEngine,
+        paragraph: &Paragraph,
+        palette: &[RunPaint],
+        origin: (f32, f32),
+        ts: Transform,
+    ) {
+        let result = self.glyph_runs(text, paragraph, palette, origin, ts);
+        self.accept(result);
+    }
+
+    fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        let result = self.svg(s, ts);
+        self.accept(result);
+    }
+    fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        let result = self.css_clip(path, ts);
+        self.accept(result).unwrap_or(false)
+    }
+    fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
+        let result = self.svg_clip(clip, ts);
+        self.accept(result).unwrap_or(0)
+    }
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {
         let result = self.clip(shape, ts);
         self.accept(result);
@@ -377,6 +413,28 @@ impl Backend for Ink {
     fn pop_opacity(&mut self) {
         let r = self.close_group();
         self.accept(r);
+    }
+
+    fn push_mask(&mut self, _: &Shape, _: Transform) {
+        self.open_group(1., None);
+    }
+    fn pop_mask(
+        &mut self,
+        shape: &Shape,
+        mask: &std::result::Result<GradientPaint, [u8; 4]>,
+        ts: Transform,
+    ) {
+        let result = self.masked(shape, mask, ts);
+        self.accept(result);
+    }
+    fn backdrop_filter(
+        &mut self,
+        shape: &Shape,
+        filter: &exact_kernel::style::BackdropFilter,
+        ts: Transform,
+    ) {
+        let result = self.backdrop(shape, filter, ts);
+        self.accept(result);
     }
 
     fn pointer(&mut self, x: f32, y: f32) {
@@ -423,16 +481,8 @@ impl Backend for Ink {
         if let Some(e) = self.error.take() {
             return Err(e);
         }
-        // Match Gpu::render_scene's boundary: device encoding and submission.
-        // Layers were submitted during the walk; their device work counts too.
-        let started = Instant::now();
-        let frame =
-            std::mem::replace(&mut self.encoder, Encoder::new(self.size[0], self.size[1])).finish();
-        let target = self.target.ok_or("no frame begun")?;
-        self.device
-            .render(&frame, target, Some(self.clear))
-            .map_err(|e| e.to_string())?;
-        let render_ms = self.layer_ms + started.elapsed().as_secs_f64() * 1000.;
+        let target = self.flush().map_err(|e| e.to_string())?;
+        let render_ms = self.layer_ms;
         let readback = Instant::now();
         let bytes = self.device.readback(target).map_err(|e| e.to_string())?;
         let pixels = Pixmap::from_vec(
@@ -441,6 +491,7 @@ impl Backend for Ink {
         )
         .ok_or("invalid ink readback")?;
         self.last_ms = (render_ms, readback.elapsed().as_secs_f64() * 1000.);
+        self.update_statistics();
         Ok(pixels)
     }
     fn finish_for(&mut self, target: FrameTarget) -> std::result::Result<Option<Pixmap>, String> {

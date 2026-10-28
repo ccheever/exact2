@@ -2,6 +2,7 @@
 
 pub mod atlas;
 pub mod device;
+pub mod glyph;
 pub mod instance;
 pub mod layer;
 pub mod path;

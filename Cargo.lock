@@ -1552,6 +1552,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "naga 30.0.1",
+ "swash",
  "tiny-skia",
  "web-time",
  "wgpu 30.0.1",

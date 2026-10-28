@@ -1,0 +1,45 @@
+//! Completed-frame counters; a reader never borrows the painter. @ref LLP 1149 D8.
+use super::*;
+use exact_ink::atlas::Stats;
+use std::{cell::Cell, rc::Rc};
+
+/// Retained atlas storage and work performed in the last completed frame.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Statistics {
+    /// Grayscale coverage, one byte per atlas pixel.
+    pub glyphs: Stats,
+    /// Premultiplied colour glyphs, four bytes per atlas pixel.
+    pub color_glyphs: Stats,
+    /// Geometry and coverage clips share this atlas.
+    pub paths: Stats,
+    /// Gradient stop rows, independent of their placement.
+    pub ramps: Stats,
+}
+
+/// A snapshot handle remains readable while the presenter owns the backend.
+#[derive(Clone, Default)]
+pub struct StatisticsReader(Rc<Cell<Statistics>>);
+
+impl StatisticsReader {
+    /// Copy the last completed frame's counters.
+    pub fn read(&self) -> Statistics {
+        self.0.get()
+    }
+}
+
+impl Ink {
+    /// Observe counters after ownership passes to a presenter.
+    pub fn statistics(&self) -> StatisticsReader {
+        self.statistics.clone()
+    }
+
+    pub(super) fn update_statistics(&self) {
+        let (glyphs, color_glyphs) = self.glyphs.stats();
+        self.statistics.0.set(Statistics {
+            glyphs,
+            color_glyphs,
+            paths: self.paths.stats(),
+            ramps: self.ramps.stats(),
+        });
+    }
+}

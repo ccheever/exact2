@@ -11,51 +11,9 @@ impl Ink {
         let Some((mut instance, mut bindings)) = self.shape_instance(shape, ts)? else {
             return Ok(());
         };
-        let key: Vec<u32> = gradient
-            .stops
-            .iter()
-            .flat_map(|(at, c)| {
-                [
-                    at.to_bits(),
-                    u32::from_be_bytes([c.r(), c.g(), c.b(), c.a()]),
-                ]
-            })
-            .collect();
-        let ramp = if let Some(entry) = self.ramps.get(&key) {
-            entry
-        } else {
-            // Sample the oracle's expanded, straight-alpha stops at texel centers.
-            let stops = premultiplied_ramp(&gradient.stops)
-                .into_iter()
-                .map(|(at, c)| {
-                    tiny_skia::GradientStop::new(
-                        at,
-                        tiny_skia::Color::from_rgba8(c.r(), c.g(), c.b(), c.a()),
-                    )
-                })
-                .collect();
-            let Some(shader) = tiny_skia::LinearGradient::new(
-                tiny_skia::Point::from_xy(0.5, 0.),
-                tiny_skia::Point::from_xy(255.5, 0.),
-                stops,
-                tiny_skia::SpreadMode::Pad,
-                Transform::identity(),
-            ) else {
-                return Ok(());
-            };
-            let mut pixels =
-                Pixmap::new(256, 1).ok_or_else(|| Error::Invalid("ramp allocation".into()))?;
-            pixels.fill_rect(
-                tiny_skia::Rect::from_xywh(0., 0., 256., 1.).unwrap(),
-                &tiny_skia::Paint {
-                    shader,
-                    ..Default::default()
-                },
-                Transform::identity(),
-                None,
-            );
-            self.ramps
-                .insert(&mut self.device, key, [256, 1], pixels.data())?
+        let stops = premultiplied_ramp(&gradient.stops);
+        let Some(ramp) = self.ramp(&stops)? else {
+            return Ok(());
         };
         instance.kind_brush = (instance.kind_brush & 65535) | ((Brush::Gradient as u32) << 16);
         instance.flags |= ramp.row << flags::RAMP_SHIFT;
@@ -75,5 +33,57 @@ impl Ink {
         };
         bindings.ramp = ramp.texture;
         self.emit(instance, bindings)
+    }
+    pub(super) fn ramp(
+        &mut self,
+        stops: &[(f32, exact_kernel::Color)],
+    ) -> Result<Option<exact_ink::atlas::Entry>> {
+        let key: Vec<u32> = stops
+            .iter()
+            .flat_map(|(at, c)| {
+                [
+                    at.to_bits(),
+                    u32::from_be_bytes([c.r(), c.g(), c.b(), c.a()]),
+                ]
+            })
+            .collect();
+        let ramp = if let Some(entry) = self.ramps.get(&key) {
+            entry
+        } else {
+            // Sample the oracle's expanded, straight-alpha stops at texel centers.
+            let stops = stops
+                .iter()
+                .copied()
+                .map(|(at, c)| {
+                    tiny_skia::GradientStop::new(
+                        at,
+                        tiny_skia::Color::from_rgba8(c.r(), c.g(), c.b(), c.a()),
+                    )
+                })
+                .collect();
+            let Some(shader) = tiny_skia::LinearGradient::new(
+                tiny_skia::Point::from_xy(0.5, 0.),
+                tiny_skia::Point::from_xy(255.5, 0.),
+                stops,
+                tiny_skia::SpreadMode::Pad,
+                Transform::identity(),
+            ) else {
+                return Ok(None);
+            };
+            let mut pixels =
+                Pixmap::new(256, 1).ok_or_else(|| Error::Invalid("ramp allocation".into()))?;
+            pixels.fill_rect(
+                tiny_skia::Rect::from_xywh(0., 0., 256., 1.).unwrap(),
+                &tiny_skia::Paint {
+                    shader,
+                    ..Default::default()
+                },
+                Transform::identity(),
+                None,
+            );
+            self.ramps
+                .insert(&mut self.device, key, [256, 1], pixels.data())?
+        };
+        Ok(Some(ramp))
     }
 }

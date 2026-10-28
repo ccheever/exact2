@@ -12,6 +12,8 @@ pub enum Kind {
     Glyph,
     Coverage,
     Layer,
+    Blur,
+    ColorPass,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +44,10 @@ pub mod flags {
     pub const RAMP_SHIFT: u32 = 16;
     pub const RAMP_MASK: u32 = 1023 << RAMP_SHIFT;
     pub const SHADOW_LOCAL: u32 = 1 << 26;
+    pub const SVG_RADIAL: u32 = 1 << 27;
+    pub const REFLECT: u32 = 1 << 28;
+    pub const LAYER_MASK: u32 = 1 << 29;
+    pub const REPLACE: u32 = 1 << 30;
 }
 
 /// Twelve 16-byte vertex attributes, with no storage-buffer dependency.
@@ -148,6 +154,8 @@ pub struct Bindings {
     pub path: TextureId,
     pub ramp: TextureId,
     pub image: TextureId,
+    pub mask: TextureId,
+    pub destination: TextureId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,6 +208,7 @@ pub struct RoundedClip {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CoverageClip {
+    pub texture: TextureId,
     pub rect: [f32; 4],
     pub uv: [f32; 4],
 }
@@ -284,7 +293,11 @@ impl Encoder {
     }
 
     /// Re-clips an instance, including clips recorded inside a kept row (D4).
-    pub fn push(&mut self, mut instance: Instance, bindings: Bindings) -> Result<(), NeedsLayer> {
+    pub fn push(
+        &mut self,
+        mut instance: Instance,
+        mut bindings: Bindings,
+    ) -> Result<(), NeedsLayer> {
         if self.state.needs_layer {
             return Err(NeedsLayer);
         }
@@ -305,6 +318,7 @@ impl Encoder {
                 return Err(NeedsLayer);
             }
             instance.set_mask(clip);
+            bindings.mask = clip.texture;
         }
         let scissor = self.state.scissor;
         if scissor.width == 0 || scissor.height == 0 {
@@ -327,6 +341,10 @@ impl Encoder {
         }
         self.frame.instances.push(instance);
         Ok(())
+    }
+
+    pub fn take_frame(&mut self) -> Frame {
+        std::mem::take(&mut self.frame)
     }
 
     pub fn finish(self) -> Frame {

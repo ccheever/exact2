@@ -33,7 +33,7 @@ fn main() {
         },
     );
     let mut resources = msl::EntryPointResources::default();
-    for binding in 0..7 {
+    for binding in 0..9 {
         let key = naga::ResourceBinding { group: 0, binding };
         let mut target = msl::BindTarget::default();
         match binding {

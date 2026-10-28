@@ -27,9 +27,44 @@ pub struct Atlas {
     pages: Vec<Page>,
     entries: HashMap<Vec<u32>, Entry>,
     overflow: Vec<TextureId>,
+    stats: Stats,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Stats {
+    pub entries: usize,
+    pub bytes: u64,
+    pub misses: u64,
+    pub uploaded_bytes: u64,
+    pub overflow_bytes: u64,
+    pub overflow_textures: usize,
 }
 
 impl Atlas {
+    pub fn glyphs() -> Self {
+        Self::new([512, 512], Format::Alpha, 1, 16)
+    }
+
+    pub fn colors() -> Self {
+        Self::new([256, 256], Format::Rgba, 1, 16)
+    }
+
+    pub fn stats(&self) -> Stats {
+        Stats {
+            entries: self.entries.len(),
+            bytes: self.pages.len() as u64
+                * u64::from(self.size[0])
+                * u64::from(self.size[1])
+                * u64::from(self.format.channels()),
+            overflow_textures: self.overflow.len(),
+            ..self.stats
+        }
+    }
+
+    pub fn contains(&self, key: &[u32]) -> bool {
+        self.entries.contains_key(key)
+    }
+
     pub fn paths() -> Self {
         Self::new([512, 512], Format::Alpha, 1, 16)
     }
@@ -48,11 +83,13 @@ impl Atlas {
             pages: Vec::new(),
             entries: HashMap::new(),
             overflow: Vec::new(),
+            stats: Stats::default(),
         }
     }
 
     pub fn begin(&mut self, device: &mut impl Device) -> Result<()> {
         self.frame += 1;
+        self.stats = Stats::default();
         for id in self.overflow.drain(..) {
             self.entries.retain(|_, e| e.texture != id);
             device.retire_texture(id)?;
@@ -61,7 +98,10 @@ impl Atlas {
     }
 
     pub fn get(&mut self, key: &[u32]) -> Option<Entry> {
-        let entry = *self.entries.get(key)?;
+        let Some(&entry) = self.entries.get(key) else {
+            self.stats.misses += 1;
+            return None;
+        };
         if let Some(page) = self.pages.iter_mut().find(|p| p.id == entry.texture) {
             page.used = self.frame;
         }
@@ -134,6 +174,8 @@ impl Atlas {
                 mipmapped: false,
             })?;
             self.overflow.push(id);
+            self.stats.overflow_bytes +=
+                u64::from(padded[0]) * u64::from(padded[1]) * u64::from(self.format.channels());
             (id, [0, 0], padded)
         };
         let channels = self.format.channels() as usize;
@@ -144,6 +186,7 @@ impl Atlas {
             upload[start..start + row.len()].copy_from_slice(row);
         }
         device.upload_texture(texture, origin, padded, &upload)?;
+        self.stats.uploaded_bytes += upload.len() as u64;
         let entry = Entry {
             texture,
             uv: [
@@ -196,8 +239,11 @@ mod tests {
         let target = device.create_target(18, 1).unwrap();
         for frame in 0..3 {
             atlas.begin(&mut device).unwrap();
+            assert_eq!(atlas.stats().overflow_bytes, 0);
+            assert_eq!(atlas.stats().overflow_textures, 0);
             let mut encoder = Encoder::new(18, 1);
             for n in 0..18 {
+                assert!(atlas.get(&[frame, n]).is_none());
                 let alpha = (n * 11 + frame) as u8;
                 let entry = atlas
                     .insert(
@@ -227,8 +273,13 @@ mod tests {
             for (n, pixel) in pixels.chunks_exact(4).enumerate() {
                 assert_eq!(pixel, &[(n * 11 + frame as usize) as u8; 4]);
             }
-            assert_eq!(atlas.pages.len(), 16);
-            assert_eq!(atlas.overflow.len(), 2);
+            let stats = atlas.stats();
+            assert_eq!(stats.entries, 18);
+            assert_eq!(stats.bytes, 4 << 20);
+            assert_eq!(stats.misses, 18);
+            assert_eq!(stats.uploaded_bytes, 18 * 512 * 512);
+            assert_eq!(stats.overflow_bytes, 2 * 512 * 512);
+            assert_eq!(stats.overflow_textures, 2);
         }
     }
 }

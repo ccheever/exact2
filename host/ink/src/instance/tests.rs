@@ -58,6 +58,7 @@ fn batches_preserve_order_and_break_only_for_scissor_or_bindings() {
 fn clips_fill_slots_refuse_overflow_and_restore_after_pop() {
     let mut e = Encoder::new(100, 100);
     let mask = CoverageClip {
+        texture: TextureId(0),
         rect: [1., 2., 30., 40.],
         uv: [0.1, 0.2, 0.3, 0.4],
     };

@@ -106,3 +106,62 @@ fn path_key(key: &mut Vec<u32>, path: &Path, rule: FillRule) {
         }
     }
 }
+
+/// Each group is a union; successive groups intersect (an SVG clip's `then`).
+pub fn clip_union(
+    atlas: &mut Atlas,
+    device: &mut impl Device,
+    groups: &[Vec<(Path, FillRule)>],
+    transform: Transform,
+    viewport: [u32; 2],
+) -> Result<Coverage> {
+    let mut key = vec![u32::MAX, viewport[0], viewport[1]];
+    key.extend(
+        [
+            transform.sx,
+            transform.ky,
+            transform.kx,
+            transform.sy,
+            transform.tx,
+            transform.ty,
+        ]
+        .map(f32::to_bits),
+    );
+    let mut bounds = [viewport[0] as f32, viewport[1] as f32, 0., 0.];
+    for (n, group) in groups.iter().enumerate() {
+        key.push(group.len() as u32);
+        for (path, rule) in group {
+            path_key(&mut key, path, *rule);
+            if n == 0 {
+                if let Some(p) = path.clone().transform(transform) {
+                    let b = p.bounds();
+                    bounds[0] = bounds[0].min(b.left());
+                    bounds[1] = bounds[1].min(b.top());
+                    bounds[2] = bounds[2].max(b.right());
+                    bounds[3] = bounds[3].max(b.bottom());
+                }
+            }
+        }
+    }
+    let x = bounds[0].floor().clamp(0., viewport[0] as f32);
+    let y = bounds[1].floor().clamp(0., viewport[1] as f32);
+    let w = (bounds[2].ceil().clamp(0., viewport[0] as f32) - x).max(1.) as u32;
+    let h = (bounds[3].ceil().clamp(0., viewport[1] as f32) - y).max(1.) as u32;
+    let rect = [x, y, w as f32, h as f32];
+    if let Some(entry) = atlas.get(&key) {
+        return Ok(Coverage { rect, entry });
+    }
+    let ts = Transform::from_translate(-x, -y).pre_concat(transform);
+    let mut pixels = vec![255u8; w as usize * h as usize];
+    for group in groups {
+        let mut mask = Mask::new(w, h).ok_or_else(|| Error::Invalid("clip allocation".into()))?;
+        for (path, rule) in group {
+            mask.fill_path(path, *rule, true, ts);
+        }
+        for (a, b) in pixels.iter_mut().zip(mask.data()) {
+            *a = ((u16::from(*a) * u16::from(*b) + 127) / 255) as u8;
+        }
+    }
+    let entry = atlas.insert(device, key, [w, h], &pixels)?;
+    Ok(Coverage { rect, entry })
+}

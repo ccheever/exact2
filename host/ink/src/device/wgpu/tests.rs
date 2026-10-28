@@ -166,6 +166,7 @@ fn textures_brushes_clips_mips_and_retirement_reach_the_pixels() {
         path: white,
         ramp,
         image,
+        ..Default::default()
     };
     let target = device.create_target(64, 32).unwrap();
     let mut e = Encoder::new(64, 32);
@@ -211,6 +212,7 @@ fn textures_brushes_clips_mips_and_retirement_reach_the_pixels() {
     }))
     .unwrap();
     e.push_clip(Clip::Coverage(CoverageClip {
+        texture: white,
         rect: [4., 20., 16., 12.],
         uv: [0., 0., 1., 1.],
     }))
