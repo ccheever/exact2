@@ -45,12 +45,14 @@ pub fn frame_navigable(src: &str, sandbox: Option<&str>) -> bool {
         || opaque && scheme_end(&url).is_some_and(|at| url[..at].eq_ignore_ascii_case("data"))
 }
 
-/// Whether an iframe's `src` is resolved by the page's glue before the
-/// browser sees it (`data-app-src`): the app's own file, or a relative page
-/// whose query has a value beginning `app:` (raw or percent-escaped), which
-/// a bundled page is given as an object URL (LLP 1020.001 D7;
-/// `picker-glue.js` decides which pages are given files). The same test as
-/// rt.js `frame` and glue.js `appFrameSource`.
+/// Whether an iframe's literal `src` is resolved by the page's glue before
+/// the browser sees it (`data-app-src`): the app's own file, or a URL with
+/// no scheme or authority, as the URL parser reads it, whose query has a
+/// value beginning `app:` (raw or percent-escaped), which a bundled page is
+/// given as an object URL (LLP 1020.001 D7). Every such source resolves to
+/// the page's own origin, so navigation.js `pageGivenFiles` admits it too;
+/// `picker-glue.js` then decides which pages are given which files, and
+/// writes any other source through the host's navigation policy.
 pub fn frame_app_source(src: &str) -> bool {
     if src.starts_with("app:/") {
         return true;

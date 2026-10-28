@@ -1365,6 +1365,10 @@ mod tests {
             "https://e.dev/viewer.html?file=app:/cache/a",
             "//e.dev/viewer.html?file=app:/cache/a",
             "data:text/html,?file=app:/cache/a",
+            // A scheme the URL parser finds after its cleanup.
+            " javascript:alert(1)//?x=app:",
+            "java\tscript:alert(1)//?x=app:",
+            "\u{1}javascript:alert(1)//?x=app:",
         ] {
             assert!(!frame_app_source(browser), "{browser:?}");
         }

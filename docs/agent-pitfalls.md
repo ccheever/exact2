@@ -1330,12 +1330,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 - **A bundled page cannot fetch an `app:/` path.** A page under `assets/` handed
   `app:/tmp/a.pdf` in a message cannot load it: no browser fetches the `app:`
   scheme, and `readFile`'s bytes posted to the page stop at 16 MiB. Fix: name the
-  file in the page's own `src`, `` src=`assets/viewer/index.html?file=${path}` ``,
-  and read `new URLSearchParams(location.search).get('file')` as a URL: each
-  `app:/cache` or `app:/tmp` value there becomes one the page can fetch, until the
-  frame's `src` changes. `app:/data`, or a file that is not there, fails the frame
-  with `error` and no page: copy it into `app:/cache` first. (LLP 1020.001 D7,
-  2026-10-29.)
+  file in the page's own `src`, encoded,
+  `` src=`assets/viewer/index.html?file=${encodeURIComponent(path)}` `` (unencoded,
+  `report #2.pdf` or `a&b.pdf` is cut short), and read
+  `new URLSearchParams(location.search).get('file')` as a URL: each `app:/cache` or
+  `app:/tmp` value there becomes one the page can fetch, until the frame's `src`
+  changes. `app:/data`, a link or a file that is not there stays as written, and the
+  host logs `… is not given (…)`: copy the file into `app:/cache` first. Android
+  gives no files: its page sees the paths. (LLP 1020.001 D7, 2026-10-29.)
 
 - **A browser tab's title comes after its load.** On Apple a partitioned
   `iframe`'s `navigatesuccess` usually carries the old or an empty `title`: WebKit

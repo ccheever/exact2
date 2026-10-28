@@ -652,7 +652,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         documentNonce = nil
         revoked = false
         direct = true
-        assetPage = files.give(nil)
+        assetPage = files.give(nil, source: nil)
         localGuest = false
         expectedOrigin = nil
         let refusal: String?
@@ -790,7 +790,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         wrapperURL = URL(string: "\(origin)/frame/\(id)/index.html")!
         localGuest = local != nil && error == nil
         // Every serve gives the page's files anew, so the last serve's end.
-        assetPage = files.give(localGuest ? src.flatMap(WebArm.assetURL) : nil)
+        assetPage = files.give(localGuest ? src.flatMap(WebArm.assetURL) : nil, source: src)
         if assetPage != nil { wrapperURL = URL(string: "\(AssetScheme.origin)/.exact/frame/\(id)/index.html")! }
         #if os(iOS)
         // iOS lays a top-level document out by its viewport `<meta>` (980
@@ -837,7 +837,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let url = URL(string: "\(WebArm.localOrigin)/frame/\(id)/index.html")!
         wrapperURL = url
         localGuest = true
-        assetPage = files.give(nil)
+        assetPage = files.give(nil, source: nil)
         direct = true
         setPageBridge(false)
         expectedOrigin = guestOrigin(remote: nil, local: true)
@@ -1329,12 +1329,12 @@ public func exactWebSetDocument(_ handle: UnsafeMutableRawPointer?, _ bytes: Uns
     arm(handle)?.suppliedDocument = present == 0 ? nil : Data(UnsafeBufferPointer(start: bytes, count: Int(length)))
 }
 
-/// Before `exact_web_set_src`: `{"app:/cache/a.pdf": "/…/a.pdf"}`, each file
-/// the host resolved for the page's query, or absent for none (@ref LLP 1020.001 D7).
+/// Before `exact_web_set_src`: `{"app:/cache/a.pdf": "/…/cache"}`, each
+/// `app:/cache` or `app:/tmp` path the page's query names, to its root's
+/// directory; absent for none (@ref LLP 1020.001 D7).
 @_cdecl("exact_web_set_files")
 public func exactWebSetFiles(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
-    let files = present == 0 ? [:] : json(bytes, length).compactMapValues { ($0 as? String).map { URL(fileURLWithPath: $0) } }
-    arm(handle)?.files.supplied = files
+    arm(handle)?.files.supplied = present == 0 ? [:] : json(bytes, length).compactMapValues { $0 as? String }
 }
 
 @_cdecl("exact_web_set_sandbox")

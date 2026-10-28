@@ -35,7 +35,6 @@ private let exactWebAssetRead: WebAssetReadFn = { name, length, context, sink in
 
 private struct WebLoadError: Error { let message: String }
 private struct WebRequestError: Error { let message: String }
-struct WebGivenError: Error { let message: String }
 
 private final class WebModule {
     typealias CreateFn = @convention(c) (UInt32, UnsafeMutableRawPointer?, WebEventFn?, WebReplyFn?) -> UnsafeMutableRawPointer?
@@ -385,23 +384,20 @@ final class WebViews {
         let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
         let id = owner.id
         let appFile = src.hasPrefix("app:/") ? AppFiles.url(path) : nil
-        let named = src.hasPrefix("app:/") ? [] : WebViews.givenPaths(src)
+        // The app files the page's query names, by their roots; the arm gives
+        // those it can open. A value naming nothing it may give stays as written.
+        var given: [String: String] = [:]
+        for value in src.hasPrefix("app:/") ? [] : WebViews.givenPaths(src) {
+            let (root, why) = WebViews.givenRoot(value)
+            if let root { given[value] = root } else { FileHandle.standardError.write(Data("exact: iframe \(src): \(value) is not given (\(why))\n".utf8)) }
+        }
         WebViews.reads.async { [weak self] in
             let document = src.hasPrefix("app:/")
                 ? appFile.flatMap { try? Data(contentsOf: $0) }
                 : resolver?.bytes(name)
-            // The files the page's query names, resolved now: one that is not
-            // given fails the frame, as a missing `app:/` source does.
-            var given: [String: String] = [:], refused: String?
-            for path in named where refused == nil {
-                switch WebViews.givenFile(path) {
-                case .success(let file): given[path] = file.path
-                case .failure(let why): refused = "\(path): \(why.message)"
-                }
-            }
             DispatchQueue.main.async {
                 guard let self, self.entries[id] === entry, entry.sourceRevision == revision, let handle = entry.handle, let module = self.module else { return }
-                if let failure = src.hasPrefix("app:/") && document == nil ? "file unavailable" : refused {
+                if src.hasPrefix("app:/"), document == nil {
                     entry.fileFailed = true
                     entry.loading = false
                     self.send(nil as Data?, to: handle, using: module.setFiles)
@@ -409,7 +405,7 @@ final class WebViews {
                     self.send(entry.sandbox, to: handle, using: module.setSandbox)
                     self.send(nil as String?, to: handle, using: module.setSrc)
                     if let session = self.session, entry.owner?.handlers.contains("error") == true {
-                        session.apply(session.runtime.media(id, event: "error", payload: "iframe: \(src): \(failure)", now: session.now()))
+                        session.apply(session.runtime.media(id, event: "error", payload: "iframe: \(src): file unavailable", now: session.now()))
                     }
                     return
                 }
@@ -442,23 +438,18 @@ final class WebViews {
         }
     }
 
-    /// The file a page is given for `path` (@ref LLP 1020.001 D7): a regular
-    /// file under `app:/cache` or `app:/tmp`, named with no `.`, `..` or empty
-    /// part, whose links resolve inside its root.
-    static func givenFile(_ path: String) -> Result<URL, WebGivenError> {
+    /// The directory of the root below which `path` names a file a page may
+    /// be given, or why it names none (@ref LLP 1020.001 D7): `app:/cache` or
+    /// `app:/tmp`, with no `.`, `..` or empty part. The arm opens the file
+    /// below it, following no link.
+    static func givenRoot(_ path: String) -> (root: String?, why: String) {
         let parts = path.hasPrefix("app:/") ? path.dropFirst(5).split(separator: "/", omittingEmptySubsequences: false) : []
         guard parts.count >= 2, parts[0] == "cache" || parts[0] == "tmp",
               !parts.dropFirst().contains(where: { $0.isEmpty || $0 == "." || $0 == ".." || $0.contains("\0") }) else {
-            return .failure(WebGivenError(message: "a page is given app:/cache and app:/tmp files only"))
+            return (nil, "a page is given app:/cache and app:/tmp files only")
         }
-        guard let file = AppFiles.url(path) else { return .failure(WebGivenError(message: "file unavailable")) }
-        let root = parts.dropFirst().reduce(file) { url, _ in url.deletingLastPathComponent() }.resolvingSymlinksInPath().path
-        let real = file.resolvingSymlinksInPath()
-        guard real.path.hasPrefix(root.hasSuffix("/") ? root : root + "/"),
-              (try? real.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else {
-            return .failure(WebGivenError(message: "file unavailable"))
-        }
-        return .success(real)
+        guard let file = AppFiles.url(path) else { return (nil, "this app has no file roots here") }
+        return (parts.dropFirst().reduce(file) { url, _ in url.deletingLastPathComponent() }.path, "")
     }
 
     /// A new partition made the arm a new web view, or it shows a local PDF's
