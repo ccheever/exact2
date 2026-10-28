@@ -1,7 +1,8 @@
 // The data seam's bytes, and the store's presence calls (below), for
 // prelude.js: base64 for what crosses the seam
 // as JSON, a string's UTF-8 length, a stream message's data, a long
-// poll's terms as the seam carries them (LLP 1016.000 D8), a fetch's file
+// poll's terms as the seam carries them (LLP 1016.000 D8), an upload's
+// option and events, a fetch's file
 // options, an image call's options and an answer's timers (here, beside the
 // prelude, under its line cap). Natively a
 // binary message (a byte stream's bytes, a socket's frame; LLP 1016.000)
@@ -72,6 +73,25 @@
     if (!parts.length || parts.length > 2 || parts.some(function (p) { return !p; })) return "exactLongPoll.from is the reply's field the cursor comes from, a name, or two joined by one `.`";
     if (poll.sameCursor !== undefined && poll.sameCursor !== "heartbeat" && poll.sameCursor !== "event") return "exactLongPoll.sameCursor is \"heartbeat\" (the default) or \"event\"";
     return { cursor: poll.cursor, from: poll.from, same_cursor_event: poll.sameCursor === "event" ? true : undefined };
+  }
+  // `exactUploadProgress` (LLP 1016.000 D10), checked as the runner and the web's
+  // ts-stream.js check it: true for an upload whose stream reports its progress, nothing, or why it is refused.
+  function uploadOf(init, stream, method, url) {
+    var upload = init ? init.exactUploadProgress : undefined;
+    if (upload === undefined || upload === false) return undefined;
+    if (upload !== true) return "exactUploadProgress is true or false";
+    if (!stream) return "exactUploadProgress reports an upload's progress to its stream: give exactStream too";
+    if (/^wss?:/i.test(String(url))) return "exactUploadProgress: a WebSocket sends no body";
+    if (init.exactLongPoll !== undefined) return "exactUploadProgress: a long poll sends no body";
+    if (method === "GET" || method === "HEAD") return "exactUploadProgress: a GET or HEAD request sends no body";
+    return true;
+  }
+  // An upload's event for its mapper, as XMLHttpRequest names them: `progress` for the host's count of the body's
+  // bytes sent, and `load` for the reply, whatever its status, which ends the stream.
+  function uploadEvent(o) {
+    if (o.response) return { type: "load", status: o.response.status, data: o.response.body, lastEventId: "", coalesced: 0 };
+    var sent = JSON.parse(o.message.data);
+    return { type: "progress", loaded: sent.loaded, total: sent.total, lengthComputable: true, data: "", lastEventId: "", coalesced: o.message.coalesced };
   }
   // The store's presence calls (LLP 1133.010 D5), for prelude.js's `store`,
   // over its host door: a name's occupancy (op 18 kept, 19 locked or
@@ -407,6 +427,8 @@
     messageData: messageData,
     gateDecode: door ? gateDecode : undefined,
     longPollOf: longPollOf,
+    uploadOf: uploadOf,
+    uploadEvent: uploadEvent,
     presence: presence,
     sockets: sockets,
   });

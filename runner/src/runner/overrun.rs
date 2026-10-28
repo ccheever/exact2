@@ -106,6 +106,7 @@ impl<D: DataSource> Runner<D> {
             continuation: None,
             keepable: None,
             stream: None,
+            upload: false,
             grant: None,
             ask_again: false,
             origin: self.writes.tick(),

@@ -46,6 +46,11 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         stream: j.get("stream").and_then(Json::as_bool).unwrap_or(false),
         socket: j.get("socket").and_then(Json::as_bool).unwrap_or(false),
         bytes: j.get("bytes").and_then(Json::as_bool).unwrap_or(false),
+        // `exactUploadProgress` (LLP 1016.000 D10).
+        upload_progress: j
+            .get("upload_progress")
+            .and_then(Json::as_bool)
+            .unwrap_or(false),
         // `exactLongPoll` (LLP 1016.000 D8): its cursor parameter and the reply field it is taken from.
         long_poll: match j.get("long_poll") {
             None | Some(Json::Null) => None,
@@ -121,8 +126,10 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         due_ms: None,
         wake_ms: None,
     };
-    // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
-    match request.long_poll_refusal().or(request.ceiling_refusal()) {
+    // A long poll's terms, checked as every host checks them (LLP 1016.000 D8), and an upload's.
+    match (request.long_poll_refusal().or(request.ceiling_refusal()))
+        .or(request.upload_progress_refusal())
+    {
         Some(why) => Err(why.into()),
         None => match request.listen_refusal() {
             Some(why) => Err(why),

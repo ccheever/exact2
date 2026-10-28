@@ -449,3 +449,57 @@ test('a retry asks no sooner than the floor, a busy body is never read, and a cu
     r.server.stop(true);
   } finally { longPollTiming.heartbeatMs = 1000; }
 });
+
+// LLP 1016.000, an upload (D10): Fetch tells no bytes
+// sent, so the page sends it by XMLHttpRequest. Each `upload` progress event is
+// a message of the bytes sent; the reply, any status, read whole within the
+// ceiling, is the outcome; nothing asks for events. A redirect out of the
+// grants, an abort and the deadline end it as a fetch's would.
+test('an upload goes by XMLHttpRequest: its bytes sent are messages, its reply the outcome', async () => {
+  const made = [];
+  class Xhr {
+    constructor() { this.upload = {}; this.headers = []; made.push(this); }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader(name, value) { this.headers.push([name, value]); }
+    send(body) { this.body = body; }
+    abort() { this.onabort?.(); }
+    getAllResponseHeaders() { return 'content-type: application/json\r\n'; }
+    answer(status, text, url = this.url) { this.status = status; this.response = new TextEncoder().encode(text).buffer; this.responseURL = url; this.onload(); }
+  }
+  const saved = globalThis.XMLHttpRequest;
+  globalThis.XMLHttpRequest = Xhr;
+  try {
+    const tick = () => new Promise((r) => setTimeout(r, 5)), decode = (o) => new TextDecoder().decode(o.body);
+    const host = (sent, controller = new AbortController()) => ({ grantSet: normalized('net.fetch https://example.test'), controllers: new Set(), controller, message: (m) => sent.push([m.event, m.data]) });
+    const op = { method: 'POST', url: 'https://example.test/upload', headers: [['content-type', 'image/png']], body: btoa('12345678'), stream: true, upload: true, maxResponseBytes: 64 };
+    const sent = [], done = request(op, host(sent));
+    await tick();
+    const xhr = made[0];
+    assert.deepEqual([xhr.method, xhr.url, xhr.headers, [...xhr.body]], ['POST', op.url, [['content-type', 'image/png']], [...'12345678'].map((c) => c.charCodeAt(0))]);
+    xhr.upload.onprogress({ lengthComputable: true, loaded: 4, total: 8 });
+    xhr.upload.onprogress({ lengthComputable: true, loaded: 8, total: 8 });
+    xhr.answer(201, '{"id":"a1"}');
+    const end = await done;
+    assert.deepEqual(sent, [['exact:progress', '{"loaded":4,"total":8}'], ['exact:progress', '{"loaded":8,"total":8}']]);
+    assert.deepEqual([end.kind, end.status, end.headers, decode(end)], [0, 201, 'content-type: application/json', '{"id":"a1"}']);
+
+    const away = request(op, host([]));
+    await tick();
+    made[1].answer(200, 'ok', 'https://other.example/landed');
+    const left = await away;
+    assert.deepEqual([left.kind, decode(left)], [2, "outside the app's grants (net.fetch): redirected to https://other.example"]);
+
+    const big = request(op, host([]));
+    await tick();
+    made[2].answer(200, 'x'.repeat(65));
+    assert.deepEqual([(await big).kind, decode(await big)], [2, 'HTTP response exceeds limit']);
+
+    const controller = new AbortController(), aborted = request(op, host([], controller));
+    await tick();
+    controller.abort();
+    assert.equal((await aborted).kind, 4);
+
+    const late = await request({ ...op, timeoutMs: 20 }, host([]));
+    assert.deepEqual([late.kind, decode(late)], [10, 'the request timed out after 20 ms']);
+  } finally { globalThis.XMLHttpRequest = saved; }
+});

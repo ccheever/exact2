@@ -313,3 +313,48 @@ fn not_modified_representation_length_does_not_count_against_body_limit() {
     assert_eq!(response.headers.get("content-length"), Some("100"));
     server.join().unwrap();
 }
+
+/// An upload's progress (Exact patch 22): URLSession's `didSendBodyData`
+/// reaches the request's hook while the body goes out, before the headers,
+/// rising to the whole.
+#[test]
+fn an_uploads_bytes_sent_are_told_before_its_headers() {
+    use crate::stdlib::fetch::Sent;
+    const SIZE: usize = 16 << 20;
+    let (url, server) = server(move |mut stream| {
+        // Slowly, so the body is still going out while the hook is told.
+        let mut chunk = vec![0; 256 << 10];
+        let mut took = 0;
+        while took < SIZE {
+            let n = stream
+                .read(&mut chunk[..(SIZE - took).min(256 << 10)])
+                .unwrap();
+            assert!(n > 0, "the body ended at {took}");
+            took += n;
+            thread::sleep(Duration::from_millis(4));
+        }
+        stream
+            .write_all(b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .unwrap();
+    });
+    let told = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = told.clone();
+    let mut request = Request::get(&url);
+    request.method = "POST".into();
+    request.body = Some(vec![7; SIZE]);
+    request.sent = Some(Sent(std::sync::Arc::new(move |loaded, total| {
+        seen.lock().unwrap().push((loaded, total))
+    })));
+    let response = DarwinTransport::new().send(&request).unwrap();
+    assert_eq!(response.status, 201);
+    server.join().unwrap();
+    let told = told.lock().unwrap();
+    let total = SIZE as u64;
+    assert!(
+        told.iter().any(|&(n, _)| n < total),
+        "nothing before the whole: {told:?}"
+    );
+    assert!(told.windows(2).all(|w| w[0].0 <= w[1].0), "{told:?}");
+    assert!(told.iter().all(|&(_, t)| t == total), "{told:?}");
+    assert_eq!(told.last(), Some(&(total, total)));
+}

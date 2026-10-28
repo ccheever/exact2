@@ -152,6 +152,14 @@ pub struct Request {
     /// last one, never dropped. Unset, such a body is the stream's one
     /// answer. Set by TypeScript's `fetch(url, {exactStream})`.
     pub bytes: bool,
+    /// An HTTP stream that is an upload (LLP 1016.000 D10): the host
+    /// delivers the body's bytes sent as they go, each a
+    /// [`Message::upload_progress`], and the reply, read whole within the
+    /// ceiling, is its one answer. It is in flight until that reply, for
+    /// `pending(…)` and every clock, as a plain request is. Set by
+    /// TypeScript's `fetch(url, {exactStream, exactUploadProgress: true})`
+    /// and `Request::upload_progress()` (`upload.rs`).
+    pub upload_progress: bool,
     /// An HTTP stream that is a long poll (LLP 1016.000 D8): the host asks
     /// the URL, delivers each reply as one [`Message`] (its `id` the new
     /// cursor), and asks again with the cursor taken from that reply, one
@@ -163,7 +171,8 @@ pub struct Request {
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
-    /// URLSession's 60-second idle timeout). A stream has no deadline.
+    /// URLSession's 60-second idle timeout). A stream has no deadline; an
+    /// upload, which ends at its reply, may.
     /// Set by TypeScript's `fetch(url, {exactTimeout})` and [`Request::timeout`].
     pub timeout_ms: Option<u32>,
     /// The body is this app file's bytes (`app:/…`), read by the host when it
@@ -310,6 +319,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -374,6 +384,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -402,6 +413,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -695,12 +707,13 @@ impl Request {
     }
 
     /// Why this request's deadline is refused, if it is: zero, over
-    /// [`MAX_TIMEOUT_MS`], on a stream, or on work that is not HTTP.
+    /// [`MAX_TIMEOUT_MS`], on a stream that is not an upload, or on work
+    /// that is not HTTP.
     pub fn timeout_refusal(&self) -> Option<&'static str> {
         let ms = self.timeout_ms?;
         if ms == 0 || ms > MAX_TIMEOUT_MS {
             Some("a request timeout must be 1 to 3600000 ms")
-        } else if self.stream {
+        } else if self.stream && !self.upload_progress {
             Some("a stream has no timeout")
         } else if self.storage.is_some()
             || self.continuation.is_some()

@@ -128,6 +128,35 @@ async function readBytes(response, limit, message, controller) {
   } finally { reader.releaseLock?.(); }
 }
 
+// An upload by XMLHttpRequest (LLP 1016.000 D10):
+// each `upload` progress event is a message of the bytes sent, and the reply,
+// any status, read whole within `limit`, is the outcome, as `request` gives
+// one. A reply whose last hop the grants do not admit is refused.
+function upload(url, method, headers, body, limit, message, signal, admits) {
+  const encoder = new TextEncoder(), failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(String(text)) });
+  return new Promise(resolve => {
+    const xhr = new globalThis.XMLHttpRequest(), abort = () => xhr.abort();
+    const end = o => { signal.removeEventListener('abort', abort); xhr.onabort = xhr.onerror = xhr.onload = xhr.onprogress = xhr.upload.onprogress = null; resolve(o); };
+    try {
+      xhr.open(method, url);
+      xhr.responseType = 'arraybuffer';
+      for (const [name, value] of headers) xhr.setRequestHeader(name, value);
+    } catch (error) { return resolve(failed(2, error?.message ?? error)); }
+    xhr.upload.onprogress = e => { if (e.lengthComputable) message({ event: 'exact:progress', id: '', data: JSON.stringify({ loaded: e.loaded, total: e.total }), coalesced: 0, received: performance.now() }); };
+    xhr.onprogress = e => { if (e.loaded > limit) { end(failed(2, 'HTTP response exceeds limit')); xhr.abort(); } };
+    xhr.onload = () => {
+      if (xhr.responseURL && !admits(xhr.responseURL)) return end(failed(2, `outside the app's grants (net.fetch): redirected to ${new URL(xhr.responseURL).origin}`));
+      const bytes = new Uint8Array(xhr.response ?? new ArrayBuffer(0));
+      end(bytes.length > limit ? failed(2, 'HTTP response exceeds limit') : { kind: 0, status: xhr.status, headers: xhr.getAllResponseHeaders().trim().split(/\r?\n/).filter(Boolean).join('\n'), body: bytes });
+    };
+    xhr.onerror = () => end(failed(1, 'TypeError: Failed to fetch'));
+    xhr.onabort = () => end(failed(4, 'request aborted'));
+    if (signal.aborted) return end(failed(4, 'request aborted'));
+    signal.addEventListener('abort', abort, { once: true });
+    xhr.send(body);
+  });
+}
+
 // A long poll (LLP 1016.000 D8), as the native executor's executor_longpoll.rs:
 // ask, deliver each 2xx JSON reply as one message whose `id` is the cursor at
 // `from`, and ask again with it in the `cursor` query parameter, one request
@@ -460,6 +489,15 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     const ended = expired() ? failed(10, `the request timed out after ${op.timeoutMs} ms`) : signal.aborted ? failed(4, 'request aborted') : !active() ? failed(4, 'request source unloaded') : null;
     if (ended) { target?.close(); return ended; }
   }
+  // An upload's progress (LLP 1016.000 D10): Fetch tells no bytes sent, so it goes by
+  // XMLHttpRequest, which follows every redirect; where a hop might ask the person (D6) it is not sent.
+  if (op.stream && op.upload) {
+    try {
+      if (redirectFor(op.origin, 'follow', op.reachState) !== 'follow') return failed(2, 'NotAllowedError: an upload follows its redirects, and one could reach a less public address space before the person answers');
+      const o = await upload(url, method, headers, decodedBody ?? fileBody ?? null, op.maxResponseBytes ?? 1024 * 1024, message, signal, u => admitsNetwork(effective, u, 'fetch'));
+      return o.kind === 4 && deadline?.aborted && !controller.signal.aborted ? failed(10, `the request timed out after ${op.timeoutMs} ms`) : o;
+    } finally { controllers.delete(controller); }
+  }
   // A browser answers a `manual` redirect with an opaque-redirect response
   // (Fetch §2.2.6: status 0, no Location)
   const init = { method, headers, redirect: redirectFor(op.origin, op.redirect ?? 'follow', op.reachState), cache: cache === 'reload' ? 'reload' : 'default', signal };
@@ -504,7 +542,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 export function streamed(req, grantSet, message, controller, bodyFile, protocol) {
   let body = '';
   for (const b of req.raw ?? []) body += String.fromCharCode(b);
-  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, redirect: req.redirect, longPoll: req.longPoll, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, redirect: req.redirect, longPoll: req.longPoll, upload: req.upload, timeoutMs: req.timeoutMs, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
     { grantSet, controllers: new Set(), controller, message, bodyFile, protocol, localAssetURL: url => new URL(url, location.href).href,
       loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
 }

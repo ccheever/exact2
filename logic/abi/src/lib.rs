@@ -316,6 +316,13 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 "a held request cannot cross the Rust module seam yet".into(),
             )),
         ),
+        // Nor an upload's progress: refused, never sent as a plain stream.
+        Ok(Answer::Later(r)) if r.upload_progress => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "an upload's progress cannot cross the Rust module seam yet".into(),
+            )),
+        ),
         // Nor has it a file body (LLP 1108 D6 R2): refused, never sent empty.
         Ok(Answer::Later(r)) if r.body_from.is_some() => encode_result(
             w,
@@ -488,6 +495,7 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
         stream: tag >= 9,
         socket: false,
         bytes: false,
+        upload_progress: false,
         long_poll: None,
         timeout_ms: None,
         body_from: None,

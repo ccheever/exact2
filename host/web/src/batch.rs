@@ -689,6 +689,11 @@ impl Batch {
         if r.request.stream {
             s.push_str(",\"stream\":true");
         }
+        // An upload (LLP 1016.000 D10): the page sends it with XMLHttpRequest and
+        // delivers its bytes sent as messages, then its reply.
+        if r.request.upload_progress {
+            s.push_str(",\"upload\":true");
+        }
         // A long poll (D8): the page asks again with each reply's cursor.
         if let Some(poll) = &r.request.long_poll {
             s.push_str(",\"longPoll\":{\"cursor\":");

@@ -88,6 +88,7 @@ pub mod surface_record;
 pub mod time;
 pub mod tools;
 pub mod transport;
+pub mod upload;
 pub mod uses;
 pub mod viewport;
 pub mod vm;
@@ -129,6 +130,7 @@ pub use runner::{
 };
 pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
 pub use runner::{CallHow, WakeHow};
+pub use upload::UPLOAD_PROGRESS;
 /// The binding core's names (LLP 1121 D12): what `contract tamber gen rust`
 /// writes (`pub const SURFACE_CARD: Token<Color>`) and resolves.
 pub mod tamber {

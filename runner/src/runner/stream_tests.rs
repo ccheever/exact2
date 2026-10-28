@@ -15,6 +15,8 @@ struct Scripted {
     long_poll: bool,
     /// … and asked of native work, which no host may run as one.
     native: bool,
+    /// Its stream is an upload that tells its bytes sent (LLP 1016.000 D10).
+    upload: bool,
 }
 
 impl DataSource for Scripted {
@@ -31,6 +33,12 @@ impl DataSource for Scripted {
                 r.stream = true;
                 r
             }),
+            (_, Some(Value::Number(n))) if self.upload => {
+                let mut r = crate::Request::get(&format!("https://example.test/up?wave={n}"))
+                    .upload_progress();
+                r.method = "POST".into();
+                Answer::stream(r)
+            }
             (_, Some(Value::Number(n))) if self.long_poll => Answer::stream(
                 crate::Request::get(&format!("https://example.test/changes?wave={n}"))
                     .long_poll("since", "seq"),
@@ -57,6 +65,9 @@ impl DataSource for Scripted {
             Outcome::Message(m) if self.reopen_on_gap && m.coalesced > 0 => Ok(Answer::stream(
                 crate::Request::get("https://example.test/events").header("last-event-id", "1"),
             )),
+            Outcome::Message(m) if m.sent().is_some() => {
+                Ok(Answer::Now(Value::Number(m.sent().unwrap().0 as f64)))
+            }
             Outcome::Message(m) => Ok(Answer::Now(Value::Number(
                 m.data
                     .parse()
@@ -397,4 +408,44 @@ fn a_response_that_is_not_an_event_stream_ends_it() {
     .unwrap();
     assert!(!r.holds(ticket), "a response that is not a stream ends it");
     assert_eq!(value(&r, "progress"), Value::Number(-2.));
+}
+
+/// An upload (LLP 1016.000 D10) is in flight until its reply, for
+/// `pending(…)`, `state.pending` and every clock, while each count of its
+/// bytes sent commits; the reply ends it.
+#[test]
+fn an_upload_is_pending_until_its_reply_while_its_progress_commits() {
+    let mut r = boot_with(Scripted {
+        upload: true,
+        ..Scripted::default()
+    });
+    let out = r.take_requests();
+    let ticket = out[0].ticket;
+    assert!(out[0].request.stream && out[0].request.upload_progress);
+    for loaded in [1024, 4096] {
+        let sent = Outcome::Message(Message::upload_progress(loaded, 4096));
+        assert!(r.fulfill(ticket, sent).unwrap().is_some(), "each commits");
+        assert_eq!(value(&r, "progress"), Value::Number(loaded as f64));
+        assert_eq!(
+            value(&r, "busy"),
+            Value::Bool(true),
+            "pending until the reply"
+        );
+        assert!(r.has_pending(), "every clock waits for it");
+        assert_eq!(r.in_flight(), [("progress".to_string(), ticket)]);
+        assert!(r.holds(ticket));
+    }
+    let reply = Outcome::Response(Response {
+        status: 201,
+        headers: Vec::new(),
+        body: b"{}".to_vec(),
+    });
+    assert!(r.fulfill(ticket, reply).unwrap().is_some());
+    assert_eq!(
+        value(&r, "progress"),
+        Value::Number(-2.),
+        "the reply is shaped"
+    );
+    assert_eq!(value(&r, "busy"), Value::Bool(false));
+    assert!(!r.has_pending() && r.in_flight().is_empty() && !r.holds(ticket));
 }

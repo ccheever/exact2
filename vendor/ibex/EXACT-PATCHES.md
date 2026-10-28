@@ -364,6 +364,21 @@ refuses a tool's, a wake's or a package event's reach to the local network
 while the person has not decided. Without a gate nothing changes. Replay on a
 refresh.
 
+## Local patch 22, an upload's bytes sent
+
+`stdlib/fetch.rs` gives `Request` an optional `sent` hook (`Sent`), told
+`(loaded, total)` as the body goes out and `(total, total)` by the time the
+headers have arrived (exact2 LLP 1016.000 D10, XMLHttpRequest's upload
+progress). `transport/darwin_http.mm` records URLSession's `didSendBodyData`
+on the exchange, and `ibex2_darwin_http_headers` takes the bytes the caller
+last saw, returning 2 when they change before the headers, so
+`transport/darwin.rs` tells the hook on the opening thread and waits again.
+`transport/rustls_http.rs` sends such a body through a reader that tells the
+hook each read ureq takes, with an explicit `content-length`. Without a hook
+nothing changes. Tests: `darwin_stream_tests.rs`
+`an_uploads_bytes_sent_are_told_before_its_headers`, `stream_tests.rs`
+`the_portable_transport_tells_an_uploads_bytes_sent`. Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

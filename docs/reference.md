@@ -1186,7 +1186,7 @@ exchange, headers and body: `fetch(url, { exactTimeout: 10000 })`. When it
 passes the request is cancelled and the fetch rejects with a `FetchError`
 whose `kind` is `Timeout` (`the request timed out after 10000 ms`). The same
 holds on Apple, Linux, the web's wasm host and the web build; a stream
-(`exactStream`) takes none.
+(`exactStream`) takes none, except an upload (below).
 
 A long poll, a request the server holds until something changes, says so with
 `exactHeld: true`: `fetch(url + '?wait=25', { exactHeld: true })` (LLP
@@ -1248,6 +1248,45 @@ open, with `grant`, the grant line that admitted it. The same holds on Hermes, t
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
+
+An **upload** that tells its progress (LLP 1016.000 D10) is a stream with
+`exactUploadProgress: true` beside its body, for a percentage the view draws
+while the person goes on working. Make it a resource's answer, keyed by what
+it uploads:
+
+```ts
+if (source === "upload") return fetch(uploadUrl, {
+  method: "POST", headers: { "content-type": "image/png" }, exactBodyFrom: path,
+  exactUploadProgress: true, exactTimeout: 300000,
+  exactStream: (e) => e.type === "progress" ? { status: "uploading", progress: e.loaded / e.total }
+    : e.type === "load" && e.status < 300 ? { status: "ready", progress: 1 }
+    : { status: "failed", progress: 0 },
+});
+```
+
+As the body (`body` or `exactBodyFrom`) goes out, the mapper gets
+XMLHttpRequest's upload progress, `{type: 'progress', loaded, total,
+lengthComputable: true}`: `loaded` is the bytes the platform has written
+(URLSession's `didSendBodyData` on Apple, the portable transport's writes on
+Linux, Windows and Android, `xhr.upload` on the web), `total` the body's
+length, and the last has `loaded === total`. They coalesce to the newest, as a
+stream's messages do. The reply is read whole within the ceiling
+(`exactIndependentHttp.maxResponseBytes`, 1 MiB unless given) and ends the
+stream as `{type: 'load', status, data}`, whatever its status, as
+XMLHttpRequest's `load`. A failure ends it as any stream's `error` does, of kind
+`Timeout` once its `exactTimeout` passes (an upload may take one). No
+`Accept: text/event-stream` is added. It is in flight until that reply: `pending(…)` reads true,
+`state.pending` lists it, and every clock waits for it, as for a fetch, while
+each progress event commits as it comes. No answer awaits it, so it holds
+nothing else back: several uploads run beside a source's other work (each a
+stream, of the 16 a native app may have open). It must be an `http:` or
+`https:` request other than GET or HEAD, without `exactLongPoll`, and with
+`redirect` left to follow (XMLHttpRequest can only follow), or it is a
+`TypeError`. On the web a cross-origin upload asks a CORS preflight, as any
+XMLHttpRequest with an upload listener does. An older prelude would ignore the
+option and read the reply as a byte stream, so it moves `typescriptRuntime` to
+5. A Rust source's stream takes `Request::upload_progress()` and reads each
+message with `Message::sent()`; the Rust module seam refuses it.
 
 A **long poll** (LLP 1016.000 D8) is a stream with `exactLongPoll: {cursor,
 from}` beside `exactStream`, for an endpoint that holds each request until it

@@ -882,6 +882,7 @@ impl<D: DataSource> Runner<D> {
             continuation: request.continuation,
             keepable: keepable.then(|| request.clone()),
             stream: sockets::stream_count(&request),
+            upload: request.stream && request.upload_progress,
             grant: request
                 .stream
                 .then(|| {

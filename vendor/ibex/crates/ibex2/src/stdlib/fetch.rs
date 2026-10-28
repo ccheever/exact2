@@ -254,6 +254,22 @@ pub struct Request {
     /// The platform transport's own request timeout. A caller that needs the
     /// whole exchange bounded also aborts its signal (LLP 0068.000 §4).
     pub timeout: Option<std::time::Duration>,
+    /// Told the body's bytes as they are sent (Exact patch 22).
+    pub sent: Option<Sent>,
+}
+
+/// An upload's progress, XMLHttpRequest's `upload` events: the body's bytes
+/// sent so far and its length, `(loaded, total)`. A transport calls it on
+/// the thread that opened the request, as the platform reports bytes
+/// written, and with `(total, total)` by the time the response's headers
+/// have arrived. A redirect that sends the body again counts from zero.
+#[derive(Clone)]
+pub struct Sent(pub std::sync::Arc<dyn Fn(u64, u64) + Send + Sync>);
+
+impl std::fmt::Debug for Sent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Sent")
+    }
 }
 
 impl Request {
@@ -267,6 +283,7 @@ impl Request {
             redirect: RedirectMode::Follow,
             max_body: None,
             timeout: None,
+            sent: None,
         }
     }
 

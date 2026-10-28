@@ -227,6 +227,8 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// An upload's stream ([`Request::upload_progress`]): in flight until its reply.
+    upload: bool,
     /// A stream's: the grant line that admits it (`state.streams`).
     grant: Option<String>,
     /// A topic its resource watches changed while it was in flight: its
@@ -262,10 +264,10 @@ pub struct StreamCount {
 }
 
 impl PendingReq {
-    /// In flight: every request, and a stream until its first message.
-    /// What `pending(…)` reads, held requests included.
+    /// In flight: every request, a stream until its first message, and an
+    /// upload until its reply. What `pending(…)` reads, held requests included.
     fn in_flight(&self) -> bool {
-        self.stream.is_none_or(|s| s.messages == 0)
+        self.upload || self.stream.is_none_or(|s| s.messages == 0)
     }
 
     /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9),

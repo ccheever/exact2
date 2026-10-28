@@ -88,6 +88,35 @@ impl Transport for Scripted {
                 redirected: false,
             });
         }
+        // An upload: its bytes sent told a quarter, a half and the whole,
+        // each when the test feeds a step, as a platform tells them; then a
+        // JSON reply, which is no event stream.
+        if request.url.ends_with("/upload") {
+            assert_eq!(
+                request.headers.get("accept"),
+                None,
+                "an upload asks for no event stream"
+            );
+            let sent = request.sent.clone().expect("an upload's hook");
+            let total = request.body.as_ref().map_or(0, Vec::len) as u64;
+            let (tx, rx) = channel();
+            self.0.feeds.lock().unwrap().push(Some(tx));
+            for loaded in [total / 4, total / 2, total] {
+                rx.recv()
+                    .map_err(|_| HostError::Failed("the test let go".into()))?;
+                (sent.0)(loaded, total);
+            }
+            headers.set_response("content-type", "application/json");
+            return Ok(ibex2::stdlib::fetch::Response {
+                status: 201,
+                status_text: String::new(),
+                headers,
+                body: br#"{"id":"a1"}"#.to_vec(),
+                url: request.url.clone(),
+                redirected: false,
+            }
+            .into_stream(request.body_limit(), signal.clone()));
+        }
         // A held reply: until the test ends it (retirement aborts it).
         if request.url.ends_with("/hold") {
             let end = Instant::now() + Duration::from_secs(5);
@@ -147,6 +176,24 @@ fn stream(ticket: u64, path: &str, ceiling: u32) -> RequestOut {
     RequestOut {
         ticket,
         target: "progress".into(),
+        request,
+        forced: false,
+    }
+}
+
+/// An upload (LLP 1016.000 D10): a POST stream of `size` bytes.
+fn upload(ticket: u64, path: &str, size: usize) -> RequestOut {
+    let mut request = Request::get(&format!("https://example.test{path}"))
+        .independent_http(4096)
+        .upload_progress();
+    request.method = "POST".into();
+    request.body = vec![7; size];
+    let exact_runner::Answer::Later(request) = exact_runner::Answer::stream(request) else {
+        unreachable!()
+    };
+    RequestOut {
+        ticket,
+        target: "upload".into(),
         request,
         forced: false,
     }
@@ -816,4 +863,57 @@ fn a_server_event_named_as_the_long_poll_reply_is_an_ordinary_event() {
     assert_eq!(data(&next(&core, &woke).1), ("2", 1));
     drop(tx);
     assert!(matches!(next(&core, &woke).1, Outcome::Failed { .. }));
+}
+
+#[test]
+fn an_upload_tells_its_bytes_sent_then_its_reply_ends_it() {
+    let (core, script, woke) = setup();
+    core.run_owned(upload(1, "/upload", 4000), None).unwrap();
+    let step = feed(&script, 0);
+    for loaded in [1000, 2000, 4000] {
+        step.send(Vec::new()).unwrap();
+        let (ticket, outcome) = next(&core, &woke);
+        match outcome {
+            Outcome::Message(m) => assert_eq!((ticket, m.sent()), (1, Some((loaded, 4000)))),
+            other => panic!("expected the bytes sent, got {other:?}"),
+        }
+    }
+    // The reply, read whole though it is a 2xx that is no event stream.
+    let (ticket, end) = next(&core, &woke);
+    assert_eq!(ticket, 1);
+    assert!(
+        matches!(&end, Outcome::Response(r) if r.status == 201 && r.body == br#"{"id":"a1"}"#),
+        "{end:?}"
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !settled(&core) {
+        assert!(Instant::now() < deadline, "the upload kept its reservation");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn an_upload_is_refused_where_it_could_send_no_body() {
+    let (core, _script, _woke) = setup();
+    let mut get = upload(1, "/upload", 4000);
+    get.request.method = "GET".into();
+    get.request.body.clear();
+    assert_eq!(
+        core.run_owned(get, None),
+        Err("exactUploadProgress: a GET or HEAD request sends no body")
+    );
+}
+
+#[test]
+#[ignore = "async lane: waits 50 ms of wall clock for an upload's deadline; bun scripts/async.mjs runs it"]
+fn an_uploads_deadline_ends_it_as_a_timeout() {
+    let (core, _script, woke) = setup();
+    let mut held = upload(1, "/hold", 4000);
+    held.request.timeout_ms = Some(50);
+    core.run_owned(held, None).unwrap();
+    let (_, end) = next(&core, &woke);
+    assert!(
+        matches!(&end, Outcome::Failed { kind: FailureKind::Timeout, message } if message == "the request timed out after 50 ms"),
+        "{end:?}"
+    );
 }
