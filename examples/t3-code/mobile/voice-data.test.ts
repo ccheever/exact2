@@ -1,17 +1,19 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { mobileDraftChanged } from './draft';
 import { T3Client } from './shared/client';
+import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
+import { mobileNewTaskDraftCreate, mobileNewTaskDraftBind } from './mobile-new-task-drafts';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { mobileVoiceAction, mobileVoiceBlocksSubmission, mobileVoiceObserveDraft, mobileVoiceSnapshot, mobileVoiceStatus } from './voice-data';
 import { resetVoiceInputGlobalsForTests } from './voice-controller';
-import { mobileComposerTarget } from './composer-target';
+import { mobileComposerTarget, mobileComposerTargetWriteText } from './composer-target';
 import { queuedEditThreadKey, queuedEditEndMemory, mobileQueuedEditLookup, mobileQueuedEditWriteText } from './queued-edit-state';
 import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-memory';
 
 beforeEach(resetVoiceInputGlobalsForTests);
-function fixture() {
-  const client = new T3Client(); client.origin = 'https://voice.test'; client.environmentId = 'env'; client.projectId = 'p';
+function fixture(client: T3Client = new T3Client()) {
+  client.origin = 'https://voice.test'; client.environmentId = 'env'; client.projectId = 'p';
   client.threadId = 'one'; client.local.drafts[client.draftKey] = 'Hello world';
   const calls: Obj[] = []; let saves = 0; let currentSession = '';
   const status: Obj = { available: true, locale: 'en-US', event: 0, levels: [-160, -20], elapsed: 0 };
@@ -284,4 +286,50 @@ test('late external caret reply cannot clear a newer selection', async () => {
   await mobileComposerStageSelection(f.client, target, 'Queued world', 2, 2, f.native);
   release(); await expect(old).rejects.toMatchObject({ kind: 'superseded' });
   expect(mobileVoiceSnapshot(target.editorOwner, f.client)).toMatchObject({ selectionOwner: target.editorOwner, selectionStart: 2 });
+});
+
+async function newTaskVoiceFixture() {
+  const f = fixture(new MobileDraftClient());
+  f.storage.fs.readFile = async () => new TextEncoder().encode('{"version":1}').buffer;
+  const handles = mobileDraftRecoveryHandles(f.client, f.native, f.storage);
+  await f.client.command('dismiss-error', '', '', 0, handles.native, handles.storage);
+  Object.assign(f.client, { threadId: '', origin: 'https://voice.test', environmentId: 'env', projectId: 'p' });
+  f.client.local.drafts['env:one'] = 'Hello world';
+  const draft = mobileNewTaskDraftCreate(f.client, { id: 'voice-revision', origin: f.client.origin,
+    environmentId: f.client.environmentId, projectId: f.client.projectId, createdAt: '2026-10-28T00:00:00Z' });
+  expect(mobileNewTaskDraftBind(f.client, draft.key, 'new-task-flow')).toBe(true);
+  expect(mobileComposerTargetWriteText(f.client, mobileComposerTarget(f.client), 'Hello world')).toBe(true);
+  const initialSaves = f.saves(); f.calls.length = 0;
+  return { ...f, saves: () => f.saves() - initialSaves };
+}
+describe('independent new-task voice revisions', () => {
+  test('unchanged saved draft accepts transcription in its captured selection', async () => {
+    const f = await newTaskVoiceFixture();
+    expect((await f.action('start')).data.phase).toBe('recording');
+    expect((await f.action('stop')).data.phase).toBe('idle');
+    expect(f.client.draft).toBe('Hello spoken words'); expect(f.saves()).toBe(1);
+    expect(f.client.local.drafts['env:one']).toBe('Hello world');
+  });
+  test('edit then revert without a voice observation refuses the transcript', async () => {
+    const f = await newTaskVoiceFixture(); await f.action('start'); const target = mobileComposerTarget(f.client);
+    expect(mobileComposerTargetWriteText(f.client, target, 'Changed')).toBe(true);
+    expect(mobileComposerTargetWriteText(f.client, target, 'Hello world')).toBe(true);
+    expect((await f.action('stop')).data.error).toContain('draft changed');
+    expect(f.client.draft).toBe('Hello world'); expect(f.saves()).toBe(0);
+    expect(f.calls.some(call => call.action === 'selection-commit')).toBe(false);
+  });
+  test('edit then revert during status readiness refuses recording', async () => {
+    const f = await newTaskVoiceFixture(), target = mobileComposerTarget(f.client), original = f.native.later;
+    f.native.later = async request => {
+      const reply = await original(request);
+      if (obj(request).action === 'status') {
+        expect(mobileComposerTargetWriteText(f.client, target, 'Changed')).toBe(true);
+        expect(mobileComposerTargetWriteText(f.client, target, 'Hello world')).toBe(true);
+      }
+      return reply;
+    };
+    expect((await f.action('start')).message).toContain('draft changed');
+    expect(f.calls.some(call => call.action === 'permission')).toBe(false);
+    expect(f.client.draft).toBe('Hello world'); expect(f.saves()).toBe(0);
+  });
 });

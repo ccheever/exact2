@@ -1,5 +1,6 @@
 // @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#answer-lifetime
 import { mobileClient } from './client';
+import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
 import { mobileVoiceDocumentCapture, mobileVoiceDocumentCurrent, mobileVoiceDocumentCommit, type VoiceDocumentCapture } from './voice-document';
 import type { T3Client } from './shared/client';
 import { activeInput, pendingRequests } from './shared/requests';
@@ -92,7 +93,7 @@ function readTarget(runtime: Runtime): VoiceDraftSnapshot | null {
   // Navigation preserves a captured target; an ended edit never falls back to an ordinary draft.
   const text = mobileComposerTargetText(runtime.client, target.content);
   if (text === null || !mobileVoiceDocumentCurrent(runtime.client, target.document)) return null;
-  const revision = target.document?.kind === 'owned' ? target.document.intent.revision : target.content.kind === 'queued-edit' ? mobileComposerTargetRevision(runtime.client, target.content) : target.revision;
+  const revision = target.document?.kind === 'owned' ? target.document.intent.revision : target.content.kind === 'queued-edit' || mobileNewTaskDraftIsKey(target.content.key) ? mobileComposerTargetRevision(runtime.client, target.content) : target.revision;
   if (revision === null) return null;
   return { ownerKey: target.key, text, revision, selection: { start: 0, end: 0 } };
 }
@@ -196,13 +197,15 @@ export async function mobileVoiceAction(op: string, start: number, end: number, 
       if (!client.projectId || !client.environmentId) return result('This draft is no longer available.');
       const content = mobileComposerTargetRequire(client);
       if (focusedOwner !== content.editorOwner) return result('This draft is no longer available.');
+      const text = mobileComposerTargetText(client, content), contentRevision = mobileComposerTargetRevision(client, content);
+      if (text === null || contentRevision === null) return result('This draft is no longer available.');
       const document = mobileVoiceDocumentCapture(client, content);
       await mobileVoiceStatus(native, client);
       if (!mobileComposerTargetCurrent(client, content)) return result('This draft is no longer available.');
-      if (!mobileVoiceDocumentCurrent(client, document)) return result('The draft changed before voice input could start.');
+      if (mobileComposerTargetText(client, content) !== text || mobileComposerTargetRevision(client, content) !== contentRevision
+        || !mobileVoiceDocumentCurrent(client, document)) return result('The draft changed before voice input could start.');
       if (!runtime.status.available) return result(runtime.status.reason || 'Voice transcription is not available.');
-      const key = content.editorOwner, text = mobileComposerTargetText(client, content), contentRevision = mobileComposerTargetRevision(client, content);
-      if (text === null) return result('This draft is no longer available.');
+      const key = content.editorOwner;
       if (start < 0 || end < 0) {
         const selected = await invoke(runtime, 'selection', { owner: key, text });
         if (!mobileComposerTargetCurrent(client, content) || mobileComposerTargetText(client, content) !== text || mobileComposerTargetRevision(client, content) !== contentRevision || !mobileVoiceDocumentCurrent(client, document)) return result('The draft changed before voice input could start.');
@@ -224,9 +227,9 @@ export async function mobileVoiceAction(op: string, start: number, end: number, 
         commitScope.pending.push(mobileComposerStageSelection(client, content, value, selected.start, selected.end, commitScope.native, selectionDocument).catch(error => { commitScope.failed ??= error; }));
         commitScope.pending.push(mobileComposerTargetPersist(client, content, commitScope.native, commitScope.storage).catch(error => { commitScope.failed ??= error; }));
       }, selection, changed => { target.observer = changed; return () => { target.observer = undefined; }; });
-      // Queued content has its own monotonic revision. Read it directly so an edit/revert
-      // between voice observations cannot evade the copied controller's comparison.
-      await runtime.session.start({ ...sourceTarget, label, ...(content.kind === 'queued-edit' || document ? { readDraft: () => {
+      // Read saved revisions for independent drafts and queued edits so an edit/revert
+      // between voice observations still invalidates the captured selection.
+      await runtime.session.start({ ...sourceTarget, label, ...(content.kind === 'queued-edit' || mobileNewTaskDraftIsKey(content.key) || document ? { readDraft: () => {
         const current = readTarget(runtime); return current ? { ...current, selection } : null;
       } } : {}) });
     } else if (op === 'stop') await runtime.session.controller.stop();

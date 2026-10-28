@@ -116,6 +116,10 @@ once the live catalogue loads. Current checkout selects `main` correctly. The
 new-task editor still displays raw attachment references; image send from that
 editor is not yet qualified. Automation text replacement failed, which alone
 does not establish an app typing-loss defect.
+New-task dictation now captures the saved text/revision before readiness and reads
+that monotonic revision at completion. Regression tests cover edit/revert during
+readiness and between voice observations, plus an unchanged draft. The two stale
+cases fail against the previous code. Native dictation itself remains unqualified.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
 line, attaches it to the composer, sends it, and receives the requested provider
@@ -164,7 +168,7 @@ The inspector-supported Files/chat branch retains its existing search input.
 Source rows carry only source fields and reuse their
 highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
-Read failures show an error and Try again instead of an empty body. All 3,713
+Read failures show an error and Try again instead of an empty body. All 3,716
 mobile tests and strict app TypeScript pass. These phone fixes are not in the POC build.
 The Apple host preserves pull-to-refresh for a short file that also scrolls
 horizontally. Its new regression assertions pass, and the native short-file drive
@@ -184,7 +188,7 @@ one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
 unchanged from the original PR head. A bounded extraction attempt made no changes;
 the desktop checkpoint needs broader integration. Keep the failure visible.
 
-The full mobile suite passes 3,713 tests, strict app TypeScript passes, and the
+The full mobile suite passes 3,716 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
 with `QueueFull` on the former eager-send action and passes with coalesced text.
 
