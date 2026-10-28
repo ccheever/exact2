@@ -190,7 +190,7 @@ impl Composition {
         if self.active {
             return Ok(());
         }
-        // Commit only after the first image has been submitted. The carrier
+        // Commit only after drawing the first image into the swap chain. The carrier
         // has released GDI; alpha now belongs to DWM. @ref LLP 1115.004 D4.3.
         unsafe {
             let hwnd = self._window.hwnd;
@@ -282,8 +282,8 @@ impl D3d11 {
         let swap = composition.swap.clone();
         let mut did_present;
         unsafe {
-            // Before Commit, DXGI considers the unattached visual occluded.
-            // Its first image must be queued before that visual becomes visible.
+            // Before Commit, DXGI can consider the unattached visual occluded.
+            // A TEST present would prevent drawing its first image.
             if composition.active && !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
                 return Ok(0.);
             }

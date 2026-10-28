@@ -1095,3 +1095,249 @@ Raw desktop images, per-frame/startup logs and parsed startup samples are in
 `target/ink-s2-nucbox/`; Mac check logs are in `target/ink-s2-mac-bcbda9/`.
 The remote fixtures record every child PID and close or terminate only their
 own children. Temporary desktop tasks are removed after the runs.
+
+
+## S2.2
+
+**Windows Ink still defaults to wgpu.** The paired median first-screen overhead
+is 6.316 ms at 1024×720 and 9.710 ms at 1920×1080, within the 10 ms startup bar.
+The complete promotion gate does not pass: the GDI-to-composition fixture fails
+its window-style assertion, the measured switch includes a late frame interval,
+and lock/unlock has no confirmed operator. `device/selected.rs` and LLP 1149
+D12 remain unchanged. This chunk is not qualified for the default.
+
+### Implementation
+
+- `device/d3d11.rs` publishes the prepared COM objects through a channel and
+  wakes the window. `try_finish` never waits for the worker; the existing
+  blocking `finish` remains available to headless callers. Tests cover pending,
+  failed and disconnected workers, and rendering after the thread transfer.
+- `host/windows/src/window.rs` and `host/linux/src/app.rs` boot the real window
+  on the CPU. At least one softbuffer frame precedes polling the prepared
+  device. Preparation failure leaves CPU presentation available.
+- `host/linux/src/presenter/painter.rs` uploads the CPU picture for the first
+  composition frame, then installs Ink. The carrier releases softbuffer and
+  its caret patches before attachment. After that point, recovery remains on
+  composition, including WARP; there is no return to GDI.
+- `device/d3d11/composition.rs` draws the first swap-chain buffer before
+  committing the visual. An unattached visual can report `OCCLUDED` even from
+  a real present; activation retries that buffer after the commit. The desktop
+  fixture checks sampled pixels, window styles and the transparent backdrop.
+  Its style check fails on this NucBox, as recorded below.
+- `device/d3d11/desktop_tests.rs` compares CPU startup, wgpu readback and the
+  migrating path using the same executable. The window logs the migration
+  frame and reads its DXGI timestamp before submitting the next frame.
+
+The first-picture copy preserves the CPU painter's output during the handoff.
+This follows the one-way presentation boundary in
+[Microsoft's flip-model guidance](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/for-best-performance--use-dxgi-flip-model).
+The fixture failure leaves the backdrop and absence of flash unqualified.
+
+### Startup measurement
+
+The machine, display, SDK and profiles are those of S2.1. Executed renderer
+commit: `1febad510c`; subsequent edits change comments and this report only.
+Shelf's SHA-256 is
+`BD2F2C6C11606FFD75591DD0C0CFA20ACA3373C6C0D58575F25C630E49AC03D5`.
+The optimized desktop test runs ten rotating rounds per size, three arms per
+round, 120 frames per process: 60 launches and 7,200 frames. Each launch has
+fresh isolated app storage. No builds or other GPU tests overlap this series.
+All arms use the same baked Shelf. `WGPU_BACKEND=dx12` selects the portable
+arm's backend. These are warm-machine, fresh-process results.
+
+Milliseconds, median [minimum–maximum] across ten launches. DWM is the
+process-age synchronization proxy for Shelf's complete `library-count` screen,
+not a display timestamp. The DXGI column is the first composition frame's
+displayed timestamp relative to process creation; its present ID was available
+in all 20 migrating launches. All 20 start with CPU frame one and migrate on
+frame two. In this series, frame two also contains the complete first screen.
+
+| Pixels | Path | DWM first-screen proxy | DXGI first composition |
+|---|---|---:|---:|
+| 1024×720 | CPU / softbuffer | 167.933 [161.612–203.972] | — |
+| 1024×720 | Ink wgpu / readback / softbuffer | 861.309 [837.997–1072.975] | — |
+| 1024×720 | CPU → D3D11 composition | 174.683 [166.352–184.741] | 186.714 [178.211–197.352] |
+| 1920×1080 | CPU / softbuffer | 175.614 [171.317–229.214] | — |
+| 1920×1080 | Ink wgpu / readback / softbuffer | 872.208 [863.187–1427.343] | — |
+| 1920×1080 | CPU → D3D11 composition | 185.482 [179.422–196.336] | 197.245 [192.044–207.803] |
+
+Paired differences subtract the CPU launch in the same round. CPU is the
+cheaper first-pixel path. The startup medians pass, but individual migrating
+launches exceed 10 ms; the ranges are retained rather than discarded.
+
+| Pixels | wgpu readback minus CPU | Migrating path minus CPU |
+|---|---:|---:|
+| 1024×720 | 696.194 [669.421–869.003] | 6.316 [-37.620–23.129] |
+| 1920×1080 | 692.593 [636.525–1252.405] | 9.710 [-48.427–25.019] |
+
+The first-present-return clock below starts at host entry, unlike the
+process-age columns above. The full device and pipeline times occur on the
+worker; they must not be added to the main-thread paint times.
+
+| Phase, ms | 1024×720 | 1920×1080 |
+|---|---:|---:|
+| CPU-only first present returned | 126.578 [124.557–151.758] | 132.185 [129.755–177.842] |
+| Migrating path's CPU first present returned | 128.880 [122.166–132.528] | 134.452 [130.509–145.302] |
+| wgpu readback first present returned | 818.314 [805.491–1033.339] | 828.006 [819.350–1390.827] |
+| Asynchronous device creation | 44.726 [41.376–49.129] | 44.763 [41.298–48.021] |
+| DXBC pipeline objects | 2.755 [2.247–3.101] | 2.739 [2.490–3.098] |
+| Composition creation, before activation | 1.816 [1.697–2.166] | 2.002 [1.790–2.488] |
+| Migration frame's paint and handoff | 11.136 [10.544–12.074] | 16.532 [16.015–17.313] |
+
+### Migration intervals and backdrop
+
+The per-frame log spans the migration, but it does **not** establish a
+switch without late frames. Each migrating run has an interval above 25 ms from
+frame two to frame three. That interval includes the complete-first-screen
+DWM/DXGI synchronization probe. It is not a clean measurement of an
+uninstrumented migration, nor evidence that the observed gap is harmless.
+No production pacing claim is made from these samples.
+
+| Interval, ms | 1024×720 | 1920×1080 |
+|---|---:|---:|
+| CPU frame 1 → migration frame 2 | 19.217 [18.533–21.023] | 25.034 [24.419–25.486] |
+| Migration frame 2 → Ink frame 3 | 40.338 [34.378–50.383] | 44.639 [39.689–48.526] |
+| Ink frame 3 → frame 4 | 16.910 [16.742–17.283] | 16.930 [16.737–17.071] |
+| Per-run interval p50 | 16.639 [16.618–16.672] | 16.642 [16.603–16.661] |
+| Per-run interval p95 | 17.097 [17.038–17.305] | 17.096 [17.018–17.140] |
+
+The GDI handoff fixture samples desktop pixels after DWM synchronization while
+activating a buffer with the same opaque color. The final run recorded eight
+samples from 13.357 to 295.620 ms, all `COLORREF 0x336699`. The sample spacing
+is 33–50 ms; this is not a per-refresh proof of no flash. `WS_EX_LAYERED` was
+absent, but `WS_EX_NOREDIRECTIONBITMAP` was also absent after activation,
+failing the assertion at `composition.rs:513`. The subsequent Mica attribute
+and transparent-pixel assertions were not reached. Constant pixels alone
+cannot establish that the composition handoff succeeded.
+
+The same style assertion failed through three fix rounds. Work on that issue
+stopped under `rules/RULES.md`; the code builds, the failing ignored native test
+remains, and the default is unchanged. This report does not infer why Windows
+did not retain the expected style.
+
+### Desktop journeys
+
+These comparisons use actual desktop client pixels and a fresh process at the
+same position and size. The normal band is mean maximum RGB error below 5/255
+and fewer than 6% of pixels above 32/255. A passing comparison does not replace
+the separate backdrop and intermediate-frame checks.
+
+| Journey | Result | Mean error /255 | Pixels above 32/255 |
+|---|---|---:|---:|
+| Drag-resize through 800×600, 1280×900, 1920×1080 and 1024×720 | Comparison passed | 0.399863 | 0% |
+| Minimize and restore | Passed | 0 | 0% |
+| Idle focused field | Passed; three transitions, 20 changed pixels | 0 | 0% |
+| Settings 100% → 150% → 100% | Return comparison passed; intermediate image has residual text | 0.001006 | 0.001221% |
+| Forced GPU TDR | Passed; CPU composition, then hardware after 1,017.028 ms | 0 | 0% |
+| Sleep and wake | Comparison passed after physical desktop returned | 0.031217 | 0% |
+| Lock and unlock | Not attempted; no unlock operator confirmed | — | — |
+
+The native DPI test observed HWND DPI 96 → 144 → 96. Settings was restored to
+100% and closed. Inspection of
+[`dpi-150.png`](../../target/ink-s22-nucbox/desktop/dpi-150.png) shows faint
+residual text at the previous 100% positions. Its automated comparison only
+checks the return to 100%; it does not qualify that intermediate image.
+This is another reason not to promote the window path.
+
+The sleep test requested a 15-second resume timer. `SetSuspendState` returned
+after 74,360 ms, and the complete test took 79.82 seconds. Windows recorded
+sleep/resume and a Modern Standby exit whose reason is
+`SetThreadExecutionState`. The fixture wakes the physical display after resume
+and waits for its original 5120×1440 extent. These results do not isolate the
+wake source or qualify a timer-only wake. No sleep or sign-in policy changed.
+Unlock cannot be automated without credentials; no operator was confirmed, so
+no lock was issued and no manual lock/unlock result is claimed.
+
+### Native test results
+
+Tests below ran in the signed-in NucBox desktop. The failing GDI fixture is the
+third handoff fix round; no further fix was attempted. The remaining rows are
+independent test runs, not retries of that failure.
+
+| Filter | Verbatim result |
+|---|---|
+| gdi_picture_migrates_without_layering_and_alpha_reaches_mica | `test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.74s` |
+| shelf_startup_series | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 152.49s` |
+| shelf_resize | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 6.12s` |
+| shelf_minimize_restore | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 2.00s` |
+| shelf_idle_caret | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 2.89s` |
+| shelf_dpi_roundtrip | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 4.19s` |
+| shelf_device_loss | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 8.51s` |
+| shelf_sleep_wake | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 79.82s` |
+| direct_window_blinks_without_a_softbuffer_surface | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.19s` |
+| exact-ink nonignored unit tests | `test result: ok. 26 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 7.73s` |
+
+The pinned filters set `EXACT_REQUIRED=1` and `WGPU_BACKEND=dx12`, using their
+normal CPU, Vello and Ink arms. Missing devices are not silently skipped.
+`EXACT_INK_DEVICE` selects Ink's device in each row.
+
+| Device | Suite | Verbatim result |
+|---|---|---|
+| d3d11 | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 14.48s` |
+| d3d11 | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 2.60s` |
+| d3d11 | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 101 filtered out; finished in 1.09s` |
+| d3d11 | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 1.23s` |
+| d3d11 | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.90s` |
+| d3d11 | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 4.57s` |
+| d3d11 | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.83s` |
+| d3d11 | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 0.82s` |
+| d3d11 | exact-windows | `test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.13s` |
+| wgpu | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 70.77s` |
+| wgpu | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 7.03s` |
+| wgpu | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 101 filtered out; finished in 2.23s` |
+| wgpu | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 6.87s` |
+| wgpu | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 2.04s` |
+| wgpu | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 13.35s` |
+| wgpu | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.98s` |
+| wgpu | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.90s` |
+| wgpu | exact-windows | `test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s` |
+
+### Mac checks
+
+All six checks pass, including both Clippy and formatting, as does the explicit
+`exact-linux` library/integration run. These ran after the final executable
+change; subsequent changes are comments and this report.
+
+| Command | Exit | Seconds |
+|---|---:|---:|
+| `cargo build --all-targets --keep-going` | 0 | 0.74 |
+| `cargo test --tests --no-fail-fast` | 0 | 107.67 |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | 0.95 |
+| `cargo fmt --all -- --check` | 0 | 5.32 |
+| `bun scripts/caps.mjs` | 0 | 1.99 |
+| `bun scripts/boot.mjs` | 0 | 0.02 |
+| `cargo check --workspace --all-targets --keep-going` | 0 | 27.34 |
+| `cargo test -p exact-linux --lib --tests --no-fail-fast` | 0 | 65.67 |
+
+Mac named filters use Ink's wgpu device:
+
+| Filter | Verbatim result |
+|---|---|
+| paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 2.07s` |
+| borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 0.96s` |
+| tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.92s` |
+| backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 1.36s` |
+| gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.96s` |
+| visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 1.44s` |
+| materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.65s` |
+| image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.69s` |
+
+The final executable source also passes the Mac's Windows cross-compilation
+checks for `exact-windows --all-targets` (`x86_64-pc-windows-gnu`) and
+`exact-ink --tests` (`x86_64-pc-windows-msvc`). Native Shelf, `exact-ink`,
+`exact-windows`, pinned and image test builds completed on the NucBox before
+execution. Windows builds retain the three existing `exact-linux` warnings.
+
+Raw results and desktop captures are in `target/ink-s22-nucbox/`: `startup/`
+holds the per-launch logs, `startup-samples.json` their parsed frames,
+`regressions/` the native stdout/stderr, and `desktop/` the screenshots and
+journey logs. Mac gate logs are in `target/ink-s22-mac-final/`; named filters
+are in `target/ink-s22-mac/`. The two temporary desktop tasks were removed.
+
+To reproduce, build Shelf with `bun host/windows/build.mjs shelf` and the
+native test executables with `cargo test -p exact-ink -p exact-windows
+--profile host-dev --lib --no-run`. Put the Windows SDK's `fxc.exe` on `PATH`
+for both builds. Set `INK_SHELF` to that executable and run the individual
+ignored desktop filters with `--nocapture --test-threads=1`. The startup test
+now needs only this one executable; it no longer reads `INK_SHELF_BEFORE`.
+Do not run `shelf_lock_unlock` unattended.
