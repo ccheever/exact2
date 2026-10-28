@@ -8,10 +8,11 @@
 //   anything else is the "Image unavailable · <alt>" label), ChatMarkdownAssetImage and
 //   ChatMarkdownVideo;
 // - a video's `error` (MediaVideoPlayer onError) and Retry (onRetry, "Retrying…" while it runs);
-// - T3 Code 7c3b3b3605ef (#23106): a Files media URL carries the file's revision (`fileRevision`, which older servers omit;
-//   else the workspace revision), and a Files video keeps the URL it loaded while that revision holds, so a URL signed
-//   again never reloads it (MediaVideoPlayer's playbackSource; FilesMedia's player holds a changed file's URL until
-//   playback pauses).
+// - T3 Code 7c3b3b3605ef (#23106): a Files video is signed again for each workspace revision, its URL carries the file's
+//   revision (`fileRevision`, which older servers omit; else the workspace revision), and it keeps the URL it loaded
+//   while that revision holds, so a URL signed again never reloads it (MediaVideoPlayer's playbackSource; FilesMedia's
+//   player holds a changed file's URL until playback pauses). A Files image keeps its signature and reloads by the
+//   workspace revision on its URL (WorkspaceImagePreview).
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -94,11 +95,12 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
   const inside = mediaFileReference(absolutePath, cwd).relativePath !== undefined;
   const resource = client.threadId ? { _tag: kind === 'video' || !inside ? 'media-file' : 'workspace-file', threadId: client.threadId, path: absolutePath } : { _tag: 'draft-workspace-file', cwd, path: absolutePath };
   const key = `files:${JSON.stringify([client.environmentId, client.threadId, cwd, absolutePath, kind])}`;
-  // A new workspace revision signs again, which reports whether the file itself changed (`fileRevision`).
-  const entry = await mint(client, native, key, resource, now, revision !== '' && refreshDue(client, key, revision));
-  const fileRevision = entry?.fileRevision ?? '', shownRevision = fileRevision || revision;
+  // A video is signed again for a new workspace revision, which reports whether the file itself changed (`fileRevision`).
+  const video = kind === 'video';
+  const entry = await mint(client, native, key, resource, now, video && revision !== '' && refreshDue(client, key, revision));
+  const fileRevision = video ? entry?.fileRevision ?? '' : '';
   const latest = entry && !entry.error ? (fileRevision ? fileRevisedUrl(entry.url, fileRevision) : revisedUrl(entry.url, revision)) : '';
-  const url = kind === 'video' ? loadedUrl(stateOf(client), key, latest, shownRevision) : latest;
+  const url = video ? loadedUrl(stateOf(client), key, latest, fileRevision || revision) : latest;
   const source: MediaActionSource = { kind, name: previewPath, src: url || null, reference: mediaFileReference(absolutePath, cwd), asset: { resource } };
   // WorkspaceImagePreview / WorkspaceVideoPreview: a refused signature, or the picture's or player's onError for this URL.
   const failed = !!entry?.error || mediaFailed(client, url);
@@ -110,7 +112,7 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
   };
 }
 
-/** FilePreviewPanel's revision suffix for a server that reports the file's revision. */
+/** WorkspaceVideoPreview's revision suffix for a server that reports the file's revision. */
 const fileRevisedUrl = (url: string, revision: string) => `${url}${url.includes('?') ? '&' : '?'}file-revision=${encodeURIComponent(revision)}`;
 /** MediaVideoPlayer's playbackSource: the URL a Files video loaded stays while its revision holds, one signed again included. */
 function loadedUrl(state: MediaState, key: string, latest: string, revision: string): string {

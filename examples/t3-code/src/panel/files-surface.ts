@@ -747,11 +747,10 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   // A PDF is framed at its URL: WebKit's PDF view reads it, and a revision loads it again inside the frame.
   const source = frame && minted.url ? (pdf ? { src: minted.url, error: '' } : await mediaFrameSource('html', minted.url)) : null;
   const page = { url: source?.src ?? '', error: minted.error || source?.error || '' };
-  // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo). An image's
-  // URL carries the workspace revision, so a change loads it again (WorkspaceImagePreview's revisionSuffix). A video's
-  // carries none: the reference's follows the file's own revision (MediaVideoPlayer, `fileRevision`), which the shell
-  // task's media-views.ts would pass; the workspace's would reload it after every command.
-  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, isWorkspaceImagePreviewPath(previewPath) ? revision : '', now) : NO_MEDIA;
+  // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo). A workspace
+  // change signs it again, and its URL carries the file's own revision where the server reports one (`fileRevision`,
+  // media-views.ts filesMediaView), so a video reloads only when its file changed, and not before playback pauses.
+  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, revision, now) : NO_MEDIA;
   // WorkspaceAudioPreview: an audio file plays from its `media-file` URL; a refused URL or the player's error is a failure.
   const audio = !!previewPath && !media.kind && !isWorkspaceVideoPreviewPath(previewPath) && isWorkspaceAudioPreviewPath(previewPath);
   const sound = audio ? await audioPage(client, native, cwd, absolute, revision, now) : null;
