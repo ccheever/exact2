@@ -4,8 +4,7 @@
 // is one resource, `loadWindow`, answering one contiguous run of at most 300 messages around `anchor`
 // ("" is the live tail).
 // Paging moves the anchor a page ahead of the reader (`scrolled`, with `reachstart` and `reachend`
-// behind it, and `leadOlder`, which keeps 100 rows above a reader reading back as each page lands); a
-// jump replaces the window and places its target with `scrollIntoView`.
+// behind it, and `leadOlder`); a jump replaces the window and places its target with `scrollIntoView`.
 use Run, Block, Media, Embed, Reaction, ReplyRef, Message, Window, Channel, Guild, Category, Gateway, Session, Ack, Sent, EditTarget, Suggestion, EmojiChoice, SwitchTarget, RoleTag, Profile, RailEntry, MemberRow, Pasted, MediaPreferences, Place, Viewport, Page, noAnswers, channelOf, connected, draftOf, withDraft, placeOf, piece, keyOf, Time, typingDot from "./shapes.contract"
 use MessageLanguage, Translated, withTranslated, pendingLineOf from "./translate.contract"
 use translatorAvailability, createTranslator, translate, createLanguageDetector, TranslatorAvailability, TranslatorInfo, TranslatorResult, LanguageDetectorInfo from "@exact/translation"
@@ -253,7 +252,6 @@ component Excord
   derive rows = win.channel == open ? win.rows : []
   derive keys = rows.map(r => r.key)
   derive lastKey = match rows.at(-1) { case some(r) => r.key, case none => "" }
-  // The first visible row's place in the window (`scrolled` keeps its key).
   derive topAt = keys.indexOf(topKey)
   derive dividerKey = match first(rows.filter(r => r.isNew)) { case some(r) => r.key, case none => "" }
   // The window answers the reader's present request (a page or a jump has
@@ -364,15 +362,11 @@ component Excord
   // ack chose its newest) and after a failed ack, at most three times.
   task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
-  // The lead holds with no scroll event (F1): a page that lands while the reader, away from the live end, is
-  // still within 100 rows of the window's first row moves the anchor there, and the next page goes out at once.
-  // One page a step, so it asks none beyond the page that brings the lead to 100 rows (rows already cached can
-  // stand further above). At the live end a short tail gets its one page, as before; after a jump it waits
-  // for the target's highlight to clear (2.5 s), so the jump's placement is settled before rows go above it.
-  task leadOlder when reading and current and target == "" and highlight == "" and away and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
+  // The lead (F1), with no scroll event: a page a step to the window's top while fewer than 100 rows stand above a reader in
+  // history (not a short live tail); after a jump, once its highlight clears, so its placement has settled.
+  task leadOlder when reading and current and target == "" and highlight == "" and (away or (anchor != "" and win.hasAfter)) and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
     after(1, older)
-  // The page the window lacks, while the channel is read (leaving aborts the page in flight, and none is
-  // asked behind the list); a failed one is asked again, at most three times.
+  // The page the window lacks while the channel is read; a failed one is asked again, at most three times.
   task fetchPage when reading and win.channel == open and not signedOutNow and win.need != "" and not historyFailed and not pending(paged) and not pending(editPaged) key=`${pageKey}/${pageTries}`
     after(1, pageNow)
   // The bar says what was unread when the channel opened: its label is held from
@@ -576,16 +570,11 @@ component Excord
     send joined = viewChannel("")
 
   // The window: the reader's place decides which run of history it holds.
-  // The reader is at the end within the last row's height of it (§3.7). The
-  // window anchors at its first row when the first visible row comes within
-  // 100 rows of it (15 at the live end, which a short tail must not leave by
-  // itself), and the data module fetches the page before it; `leadOlder` moves
-  // the anchor there again as each page lands, until 100 rows stand above the
-  // reader (x2-perf4's fling plan, F1: a fling up travels 60-90 rows, so it
-  // meets loaded rows, not the top). Toward the newest end, 15 rows and one page,
-  // as before. `reachstart` alone gives one viewport of lead, which a fling
-  // overruns. A page is asked only of a window that answers the present
-  // request, whatever else is refreshing.
+  // The reader is at the end within the last row's height of it (§3.7). The window anchors at its first
+  // row when the first visible row comes within 100 rows of it (15 at the live end, which a short tail must
+  // not leave by itself), and `leadOlder` keeps that lead as pages land (F1: a fling travels 60-90 rows);
+  // toward the newest end, 15 rows and one page. `reachstart` alone gives one viewport of lead, which a
+  // fling overruns. A page is asked only of a window that answers the present request, whatever else is refreshing.
   action scrolled(x: number, y: number, e: ScrollEvent)
     if not scrolling
       scrolling = true

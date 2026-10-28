@@ -6,7 +6,7 @@ import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
-import { abortPages, applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live, type Upload } from './live';
+import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live, type Upload } from './live';
 import { emojiChoices, resolveMentions, suggest, switchTargets } from './compose';
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { avatarUrl, clip, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
@@ -312,20 +312,10 @@ export function loadWindow(channel: string, asked: string, since: string): Windo
   // A tail shorter than a page (a cold channel that heard a message, or one whose older rows a fresh
   // READY left unconfirmed) is filled with one page before it.
   if (!anchor) {
-    if (!firstId && (w.fetchLatest || w.rows.length)) {
-      need = 'latest';
-      // Jump to Present replaces the window too: a page loading toward the old one's edge is aborted (F1).
-      const tail = JSON.stringify(QUERIES.latest(''));
-      abortPages(live, (other, query) => other !== channel || JSON.stringify(query) === tail);
-    }
+    if (!firstId && (w.fetchLatest || w.rows.length)) need = 'latest';
     else if (firstId && rows.length < 50 && hasBefore) { need = 'before'; cursor = firstId; }
   }
-  else if (pos < 0) {
-    need = 'around'; cursor = anchor;
-    // A jump replaces the window: a page still loading toward the old one's edge is aborted (F1).
-    const jump = JSON.stringify(QUERIES.around(anchor));
-    abortPages(live, (other, query) => other !== channel || JSON.stringify(query) === jump);
-  }
+  else if (pos < 0) { need = 'around'; cursor = anchor; }
   else if (pos < EDGE && hasBefore) { need = 'before'; cursor = firstId; }
   else if (rows.length - 1 - pos < EDGE && hasAfter) { need = 'after'; cursor = rows[rows.length - 1].id ?? ''; }
   const firstKey = rows[0] ? (rows[0].id ?? rows[0].key) : '';

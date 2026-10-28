@@ -4,7 +4,7 @@ import * as S from './discord/store.ts';
 import { snowflakeFromMs } from './discord/ids.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
 import { constants as zlibConstants, createDeflate } from 'node:zlib';
-import { abortPages, applyEvent, call, clock, connect, createLive, digest, loadSession, page, pastedToken, recordIdentify, signIn, signOut, view } from './live.ts';
+import { applyEvent, call, clock, connect, createLive, digest, loadSession, page, pastedToken, recordIdentify, signIn, signOut, view } from './live.ts';
 import { unlockSession } from './lock.ts';
 import { createRenderer, windowOf, type Stored } from './render.ts';
 
@@ -809,101 +809,21 @@ test('F1. with the anchor at the first row, one older page is named; re-anchored
   expect(longest).toBe(299);
 });
 
-test('F1. a jump aborts the older page in flight through the window; the abort is no failure and the jump\'s page goes out', async () => {
-  const app = await rig.app(); await app.dial();
-  const channel = rig.fixture.world.generalChannelId, history = rig.fixture.world.messages[channel], path = historyPath(channel);
-  expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
-  const top = (await app.window(channel)).firstId;
-  const edge = await app.window(channel, top);
-  expect(edge.need).toBe('before');
-  const held = rig.hold(path);
-  const older = app.ask('loadPage', [channel, edge.need, edge.cursor]);
-  const request = await held.entered;
-  // The reader jumps to a message no page holds: the window names its around page and aborts the older one.
-  const target = history[100].id;
-  const jump = await app.window(channel, target);
-  expect(jump).toMatchObject({ need: 'around', cursor: target });
-  expect(request.signal.aborted).toBe(true);
-  expect(await older).toEqual({ ok: true, error: '' });
-  expect(ids((await app.window(channel)).rows)).toEqual(ids(history.slice(-49)));
-  // The jump's own page is not refused as "still loading", and it lands.
-  expect(await app.ask('loadPage', [channel, 'around', target])).toEqual({ ok: true, error: '' });
-  const landed = await app.window(channel, target);
-  expect(landed.need).toBe('');
-  expect(ids(landed.rows)).toContain(target);
-  expect(new URL(rig.requests.at(-1)!.url).searchParams.get('around')).toBe(target);
-});
-
-test('a history page in flight is aborted by leaving or switching channels, and a jump keeps only its own; an abort is no failure', async () => {
-  const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
-  live.token = 'a'.repeat(60);
-  const signals: AbortSignal[] = [];
-  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(((_url: string, init: RequestInit) => new Promise<Response>((_, reject) => {
-    signals.push(init.signal!);
-    init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-  })) as any);
-  try {
-    // Reading A, its older page out; opening B aborts it, and A may page again.
-    view(live, 'A');
-    const older = page(live, 'A', { before: '900', limit: 50 });
-    expect(live.paging.has('A')).toBe(true);
-    view(live, 'B');
-    expect(signals[0].aborted).toBe(true);
-    // An aborted page is no failure: it resolves with nothing landed.
-    await expect(older).resolves.toBeUndefined();
-    expect(live.paging.has('A')).toBe(false);
-    // Back on A, its page may be asked again.
-    view(live, 'A');
-    const again = page(live, 'A', { before: '900', limit: 50 });
-    expect(live.paging.has('A')).toBe(true);
-    view(live, 'B');
-    await expect(again).resolves.toBeUndefined();
-    // B's own page stands while B is read; leaving (viewing none) aborts it.
-    const own = page(live, 'B', { before: '800', limit: 50 });
-    view(live, 'B');
-    expect(signals[2].aborted).toBe(false);
-    view(live, '');
-    expect(signals[2].aborted).toBe(true);
-    await expect(own).resolves.toBeUndefined();
-    // A jump in C: the page toward the old edge goes, the jump's own page around its target stays.
-    view(live, 'C');
-    const edge = page(live, 'C', { before: '700', limit: 50 });
-    const jump = { around: '500', limit: 50 };
-    abortPages(live, (channel, query) => channel !== 'C' || JSON.stringify(query) === JSON.stringify(jump));
-    expect(signals[3].aborted).toBe(true);
-    await expect(edge).resolves.toBeUndefined();
-    const around = page(live, 'C', jump);
-    abortPages(live, (channel, query) => channel !== 'C' || JSON.stringify(query) === JSON.stringify(jump));
-    expect(signals[4].aborted).toBe(false);
-    view(live, '');
-    await expect(around).resolves.toBeUndefined();
-  } finally { fetchSpy.mockRestore(); }
-});
-
-test('an abort while a page\'s body is still arriving gives the route\'s slot back, so the next page goes out', async () => {
+test('a page whose body fails after its headers gives the route\'s slot back, so the next page goes out', async () => {
   const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
   live.token = 'a'.repeat(60);
   let asked = 0;
-  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(((_url: string, init: RequestInit) => {
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((() => {
     asked++;
-    // The headers are in; the body fails when the request is aborted.
-    const body = new ReadableStream({ start(controller) {
-      init.signal!.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
-    } });
+    // The headers are in; the connection drops while the body arrives.
+    const body = new ReadableStream({ start(controller) { queueMicrotask(() => controller.error(new TypeError('connection reset'))); } });
     return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
   }) as any);
   try {
     view(live, 'A');
-    const first = page(live, 'A', { before: '900', limit: 50 });
-    await Bun.sleep(0);
-    view(live, 'B');
-    await expect(first).resolves.toBeUndefined();
-    view(live, 'A');
-    const second = page(live, 'A', { before: '900', limit: 50 });
-    await Bun.sleep(0);
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('connection reset');
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('connection reset');
     expect(asked).toBe(2);
-    view(live, '');
-    await expect(second).resolves.toBeUndefined();
   } finally { fetchSpy.mockRestore(); }
 });
 

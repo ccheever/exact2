@@ -86,8 +86,7 @@ export interface Live {
   typedAt: Map<string, number>;
   ackToken: string | null;
   // Channels with a history page in flight: one at a time each (§2).
-  // The history page in flight, by channel (one each, Excord's RFC): its query, and the way to abort it.
-  paging: Map<string, { query: S.HistoryQuery; abort: AbortController }>;
+  paging: Set<string>;
   // `channel:anchor` for an anchor whose page did not hold it (a deleted message, a link past the
   // channel's end, an empty channel): the window shows the channel's end rather than ask again.
   missed: Set<string>;
@@ -126,7 +125,7 @@ export function createLive(origins: Origins): Live {
   return { origins, store: S.createStore(), gw: null, socket: null, identity: null, token: '',
     limiter: rest.limiterInit(), nonces: { lastMs: null, sequence: 0 }, applied: new Set(), arrived: new Map(),
     history: new Map(), sidebar: 0, dmList: 0, channelList: 0, elsewhere: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
-    ackToken: null, paging: new Map(), missed: new Set(), sends: new Map(), attempt: 0, ready: false,
+    ackToken: null, paging: new Set(), missed: new Set(), sends: new Map(), attempt: 0, ready: false,
     queue: [], drainer: 0, outbox: [], closing: null, account: 0, snapshots: 0, signedOut: false };
 }
 
@@ -567,15 +566,7 @@ function subscribe(live: Live, socket: StreamSocket | null = live.socket): void 
 /** The view's channel changed ("" for the lists): the snapshot's versions follow it, and op 37 names it. */
 export function view(live: Live, channel: string): void {
   live.viewing = { channel, guild: channel ? S.channel(live.store, channel)?.guild_id ?? '' : '' };
-  // Leaving a channel, or opening another, aborts what was still loading for the one left (F1).
-  abortPages(live, other => other === channel);
   subscribe(live);
-}
-
-/** Abort every history page in flight that `keep` doesn't keep (by its channel and query): no answer is
- * wanted any more. */
-export function abortPages(live: Live, keep: (channel: string, query: S.HistoryQuery) => boolean): void {
-  for (const [channel, pending] of live.paging) if (!keep(channel, pending.query)) pending.abort.abort();
 }
 
 export class RestError extends Error {
@@ -584,7 +575,7 @@ export class RestError extends Error {
 
 /** One REST request: admitted by the rate limiter (a request it would hold is refused, since a data
  * module cannot wait), then reported back to it. */
-export async function call(live: Live, request: rest.RestRequest, signal?: AbortSignal): Promise<any> {
+export async function call(live: Live, request: rest.RestRequest): Promise<any> {
   if (!live.token) throw new RestError(0, 'Signed out');
   // The limits are the account's: a reply that lands after a sign-out settles the old one's.
   const limiter = live.limiter, account = live.account;
@@ -595,16 +586,17 @@ export async function call(live: Live, request: rest.RestRequest, signal?: Abort
   }
   let response: Response;
   try {
-    response = await fetch(request.url, { method: request.method, headers: request.headers, body: request.body, signal });
+    response = await fetch(request.url, { method: request.method, headers: request.headers, body: request.body });
   } catch (error) {
     rest.onResponse(limiter, request, 0, () => null, null, clock.now);
     throw error;
   }
-  // The body can fail after the headers (an abort, a dropped connection): the route's slot is given back too.
+  // The body can fail after the headers (a dropped connection): the route's slot is given back, with what the
+  // headers said of its limits.
   let text: string;
   try { text = await response.text(); }
   catch (error) {
-    rest.onResponse(limiter, request, 0, () => null, null, clock.now);
+    rest.onResponse(limiter, request, response.status, name => response.headers.get(name), null, clock.now);
     throw error;
   }
   let body: any = null;
@@ -618,17 +610,10 @@ export async function call(live: Live, request: rest.RestRequest, signal?: Abort
 /** One history page into the store, verifying what it holds; one in flight per channel. */
 export async function page(live: Live, channelId: string, query: S.HistoryQuery): Promise<void> {
   if (live.paging.has(channelId)) throw new RestError(429, 'A page of this channel is still loading');
-  const pending = { query, abort: new AbortController() };
-  live.paging.set(channelId, pending);
+  live.paging.add(channelId);
   const since = S.storeSeq(live.store);
   try {
-    let messages: unknown;
-    try { messages = await call(live, rest.history(context(live), channelId, query), pending.abort.signal); }
-    catch (error) {
-      // A page aborted because the reader left, switched or jumped (`abortPages`) is no failure: nothing lands.
-      if (pending.abort.signal.aborted) return;
-      throw error;
-    }
+    const messages = await call(live, rest.history(context(live), channelId, query));
     if (Array.isArray(messages)) {
       const sidebar = S.sidebarVersion(live.store), identities = live.store.identityRevision;
       S.applyHistoryPage(live.store, channelId, query, messages, { since });
@@ -640,7 +625,7 @@ export async function page(live: Live, channelId: string, query: S.HistoryQuery)
       if (moved || channelId !== live.viewing.channel) live.elsewhere++;
     }
   } finally {
-    if (live.paging.get(channelId) === pending) live.paging.delete(channelId);
+    live.paging.delete(channelId);
   }
 }
 
