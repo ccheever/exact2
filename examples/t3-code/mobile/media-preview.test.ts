@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
+import { setDraftFiles } from './shared/composer-editor-files';
+import { mobileComposerContextCapture, mobileComposerContextCommit } from './composer-command-context';
 import { obj, type Obj } from './shared/domain';
 import { type Native } from './shared/protocol';
 import { mobileMediaPrepare, mobileMediaShare, mobileMediaForget, mobileMediaURL } from './media-preview';
@@ -41,6 +43,25 @@ describe('mobile media preview ownership', () => {
     expect(value.sourceJSON).not.toContain('file:'); expect(f.calls).toHaveLength(0);
     f.client.projectId = 'another'; f.client.threadId = '';
     expect((await prepare(f, imageId, 'draft-preview', 'composer')).error).toContain('no longer available');
+  });
+  test('pictures selected through Files keep file storage while image context owns their preview', async () => {
+    const f = fixture(), client = f.client, source = `[icon.png](t3-context://v1/image/${imageId})`;
+    setDraftFiles(client.local, [{ id: imageId, contextId: imageId, draftKey: client.draftKey, environmentId: client.environmentId,
+      name: 'icon.png', mimeType: 'application/octet-stream', sizeBytes: 567032, source: 'attached', attachmentId: '', status: 'staged' }]);
+    const guard = mobileComposerContextCapture(client, { kind: 'ordinary', key: client.draftKey, origin: client.origin, generation: client.generation });
+    expect(guard).not.toBeNull();
+    expect(mobileComposerContextCommit(client, guard!, source, { version: 1, kind: 'image', contextId: imageId,
+      attachmentId: imageId, label: 'icon.png', name: 'icon.png', mimeType: 'application/octet-stream', sizeBytes: 567032 })).toBe(true);
+    client.connection = 'disconnected';
+    const value = await prepare(f, imageId, 'files-image', 'composer');
+    expect(value).toMatchObject({ ready: true, error: '', kind: 'image' });
+    expect(JSON.parse(value.sourceJSON)).toMatchObject({ id: imageId, source: 'draft-file', kind: 'image', name: 'icon.png' });
+    expect(f.calls).toHaveLength(0);
+    client.local.drafts[client.draftKey] = '';
+    expect((await prepare(f, imageId, 'removed-reference', 'composer')).ready).toBe(false);
+    client.local.drafts[client.draftKey] = source;
+    setDraftFiles(client.local, []);
+    expect((await prepare(f, imageId, 'removed-bytes', 'composer')).ready).toBe(false);
   });
   test('removed, disconnected and route-owner mismatches do not mint URLs', async () => {
     const f = fixture(); expect((await prepare(f, 'missing')).ready).toBe(false);

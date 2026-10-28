@@ -1,4 +1,5 @@
 import { mobileComposerTarget } from './composer-target';
+import { mobileComposerContextRead } from './composer-command-context';
 import { mobileQueuedEditCurrent } from './queued-edit-state';
 // Pinned365aa87982 FilePreviewModal/VideoPreviewModal.ios resolve once per presentation.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#media-presentation
@@ -7,7 +8,7 @@ import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
-import { referencedFiles } from './shared/composer-editor-files';
+import { draftFiles, referencedFiles } from './shared/composer-editor-files';
 import { videoMimeType } from './shared/r4-composer-video';
 import { assetUrl } from './shared/settings-b-icons';
 
@@ -25,8 +26,12 @@ function selected(client: T3Client, scope: string, id: string): { attachment: Ob
     }
     const image = client.snapshotDrafts.find(item => item.id === id);
     if (image) return { attachment: image, source: 'draft-image' };
-    const file = referencedFiles(client.local, client.draftKey, client.draft).find(item => item.id === id);
-    if (file) return { attachment: { ...file }, source: 'draft-file' };
+    const context = mobileComposerContextRead(client);
+    const imageReference = context.ok && context.context?.records.some(record => record.kind === 'image' && record.attachmentId === id);
+    const files = imageReference ? draftFiles(client.local).filter(file => file.draftKey === client.draftKey && file.environmentId === client.environmentId)
+      : referencedFiles(client.local, client.draftKey, client.draft);
+    const file = files.find(item => item.id === id);
+    if (file) return { attachment: { ...file, ...(imageReference ? { type: 'image' } : {}) }, source: 'draft-file' };
   } else if (scope === 'transcript') {
     for (const row of arr(client.projection.visibleTurnItems)) {
       const attachment = arr(obj(row.item).attachments).find(item => item.id === id);
