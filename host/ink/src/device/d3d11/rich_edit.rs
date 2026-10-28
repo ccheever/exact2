@@ -135,7 +135,9 @@ impl RichEdit {
         unsafe {
             self.services.TxGetText(&mut text)?;
         }
-        Ok(text.to_string())
+        let text = text.to_string();
+        // RichEdit includes the document's implicit final paragraph marker.
+        Ok(text.strip_suffix('\r').unwrap_or(&text).to_owned())
     }
     /// Flush Direct2D on the same immediate device before Ink samples the image.
     pub fn draw(&self, device: &mut D3d11) -> Result<TextureId> {
