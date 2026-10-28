@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day in time order, grouped by hour with opaque sticky headers that also show a count. Rows show time, coloured line badge, destination, platform, and a Delayed status in amber with a clock icon."},
+      {"n": 2, "status": "pass", "note": "A large station card at the top opens a sheet with all 20 stations, alphabetical, with a bottom search field ('park' filters to Elm Park and Glen Park). Tapping a station checks it, but you have to tap Done to close the sheet."},
+      {"n": 3, "status": "partial", "note": "The Now button scrolls correctly to the next departure, marked NEXT in green. But the list does not open there: at 19:24 it launched scrolled to 22:00 (22:04 at the top), and after a station change it landed at 23:00."},
+      {"n": 4, "status": "pass", "note": "A horizontal row of chips (All, Red, Blue, Green, Yellow, Orange). Filtering updates the count and jumps to the next matching departure."},
+      {"n": 5, "status": "pass", "note": "Past rows are clearly dimmed: grey time and text, washed-out badges."},
+      {"n": 6, "status": "pass", "note": "Star toggles. The Saved tab lists saved departures grouped by hour. The saved item and the chosen station (Glen Park) both survived relaunch. Swipe left offers Unsave."}
+    ],
+    "bugs": [
+      "On launch the list opens around 22:00 instead of at the next departure (19:28 at 19:24). After a station change it opens at 23:00. You have to tap Now every time.",
+      "Choosing a station in the picker does not close the sheet; you must also tap Done."
+    ],
+    "tells": [
+      "A large custom card for the station plus a chip row stay fixed at the top and never collapse. The list only gets about the lower half of the screen (about 5 rows).",
+      "The chip row cuts off the last visible chip ('Gre…') with no fade.",
+      "Custom green theme and a pale grey background instead of the system grouped background. Inline title, no large title.",
+      "Marketing copy on the Saved tab ('A little less searching. A little more going.', 'Saved for your everyday journeys.'). The Now button also appears on Saved, where it means little.",
+      "The navigation title does not grow at the largest text size, though the content reflows well."
+    ],
+    "scroll": "Smooth UITableView-style scrolling with real momentum and rubber-banding at the top. Opaque hour headers pin and hand off cleanly. No blank or popping rows. The list viewport is short because of the fixed header block.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Hour sections in time order with sticky headers. Rows show time, coloured letter badge, platform, destination, and a 'Delayed N min' line. But the pinned header has no background, so the row scrolling under it shows through and overlaps the hour text. Status is plain grey, not highlighted."},
+      {"n": 2, "status": "pass", "note": "The station name and chevron at the top open a native sheet with a search field ('park' filters correctly). Picking a station closes the sheet and jumps to now. Stations are in data order, not alphabetical."},
+      {"n": 3, "status": "pass", "note": "Opens at the next departure (19:28 at 19:24). The Now button returns there from anywhere."},
+      {"n": 4, "status": "pass", "note": "A native pull-down menu (All lines, Red…Orange) with a checkmark. The list and count update. No colour swatches in the menu."},
+      {"n": 5, "status": "partial", "note": "Past rows are barely dimmed: the time is slightly greyer and the badges keep full colour. Hard to tell past from upcoming at a glance."},
+      {"n": 6, "status": "pass", "note": "Star toggles. The Saved tab (large title) shows the departure with 'From Glen Park'. The saved item and the station survived relaunch."}
+    ],
+    "bugs": [
+      "The sticky hour header is transparent: the content of the row under it shows through and overlaps the hour label (e.g. '18:41 Platform 4' drawn under '18:00').",
+      "After changing the line filter, an hour header ('18:00') was drawn up in the status bar, next to the clock.",
+      "At the largest text size the station button turns invisible (it is still in the accessibility tree, but nothing is drawn), and the 'All lines' filter turns a washed-out cyan.",
+      "Past departures are hardly dimmed."
+    ],
+    "tells": [
+      "The pinned section header has no material or background.",
+      "No swipe action to unsave in the Saved list.",
+      "Delayed status is plain grey text, with no warning colour or icon.",
+      "The station list is in arbitrary order.",
+      "At the largest text the row layout stacks awkwardly: the star floats alone on its own line under each row."
+    ],
+    "scroll": "Native collection-view scrolling with good momentum and rubber-banding. The full-height list feels roomier than A's. But the see-through pinned header makes rows visibly overlap the hour label while scrolling.",
+    "scores": {"features": 7, "platform": 7, "polish": 5, "overall": 6}
+  },
+  "better": "A",
+  "why": "A is the more finished app: the status shows clearly, past rows are properly dimmed, the hour headers are opaque, the Saved list has swipe actions, and it holds up at the largest text size. Its main failure is that it opens at the wrong hour instead of now. B opens at the right place and uses more stock controls, but it has a see-through sticky header, a header drawn into the status bar, almost no dimming, and an invisible station name at the largest text size."
+}

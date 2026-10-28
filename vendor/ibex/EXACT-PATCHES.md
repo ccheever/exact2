@@ -342,6 +342,28 @@ is not a regular file, and creates `.exact-<hex>.partial` beside the target thro
 pinned parent. `publish` syncs it and renames it over the target; a `Staged` dropped
 unpublished removes it. The stub for other platforms refuses. Replay on a refresh.
 
+## Local patch 20, the `local-network` grant source
+
+`grant.rs` adds `fetch.local-network` and `websocket.local-network` (exact2 LLP
+1133.036 D5, ruled 2026-10-26), written `net.fetch local-network` and
+`net.websocket local-network`, with the word `development` for loopback too. It
+admits a host the URL writes as an RFC 1918, link-local or unique-local
+address (an IPv4-mapped IPv6 address by its IPv4), a link-local IPv6 address,
+or a `.local` name; never a name that merely resolves to one. exact2's
+`grants` crate holds the same test. Replay on a refresh.
+
+## Local patch 21, a host's check at every fetch hop and WebSocket open
+
+`boundary.rs` adds `HopGate` and `HostError::NotAllowed { reason }` (shown
+`NotAllowedError: <reason>`); `host.rs` gives `Fetch` and `WebSocket` an
+optional gate (`with_gate`); `stdlib/fetch.rs` (`fetch_stream_gated`,
+`admit_hop`), `fetch_async.rs` (`start_gated`) and `websocket.rs`
+(`open_gated`) ask it after the grants admit each hop, a redirect's included,
+and before anything is sent (exact2 LLP 1133.036 D6): exact2's Apple executor
+refuses a tool's, a wake's or a package event's reach to the local network
+while the person has not decided. Without a gate nothing changes. Replay on a
+refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.

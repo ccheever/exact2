@@ -508,7 +508,8 @@ impl<D: DataSource> Runner<D> {
     /// the substitute too, so its period is polled and a tool's join can
     /// find the app's consumers.
     pub(in crate::runner) fn sampled_reader(&mut self, row: &ModulesRow, args: &Json) {
-        if !self.substitute_polls(row) || self.route(row) != Route::Substitute {
+        let joinable = self.substitute(row)["join"] == true;
+        if !(self.substitute_polls(row) || joinable) || self.route(row) != Route::Substitute {
             return;
         }
         if let Some((Reader::Resource(i), _)) = self.extensions.samples.asking.clone() {

@@ -1,0 +1,24 @@
+dev.bakeoff.photos.b49a337: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 18.47 s of motion
+  ok    hitch ratio (ms/s)                     2.7
+  tell  longest frame (ms)                     39.8
+  ok    main thread p95 (ms/frame)             4.61
+  n/a   tracking ratio                         –
+  n/a   touch-to-content lag (frames)          –
+  bad   glide after a still lift (pt)          196.7
+  ok    deceleration τ (ms; .normal 500)       500
+  ok    momentum hand-off (content/asked)      1.06
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.8
+  n/a   rubber band (overscroll/finger)        –
+  n/a   rubber band settle (s)                 –
+  ok    status-bar scroll to top (s)           0.95
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  n/a   scrub: hitch ratio (ms/s)              –
+  n/a   scrub: longest frame (ms)              –
+  n/a   scrub: blank samples (share)           –
+  n/a   scrub: blanks while held (share)       0
+  10 ok, 1 tell, 1 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 2.7):
+    status-bar: 3 late frames (0 on a timer's tick), 50 ms late; Exact host 43 ms (in Core Animation 11) · Exact runtime (main waits on exact.owner) 5 ms; in display links and ports 26 ms, events 17 ms, the main queue 5 ms

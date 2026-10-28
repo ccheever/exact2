@@ -98,6 +98,7 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         },
         redirect: Redirect::parse(j.get("redirect").and_then(Json::as_str))?,
         held: j.get("held").and_then(Json::as_bool).unwrap_or(false),
+        reach: Default::default(),
     };
     // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
     match request.long_poll_refusal().or(request.ceiling_refusal()) {

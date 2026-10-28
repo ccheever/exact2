@@ -666,6 +666,10 @@ package final class Runtime {
     package func hostGo(_ location: String, now: Double) -> Batch {
         on { read(exact_host_go(rt, write(location), now)) }
     }
+    /// A received share, `{"root", "target", "share", "inbox"?}` (LLP 1133.024 D2–D4).
+    package func share(_ json: String, now: Double) -> Batch { on { read(exact_share(rt, write(json), now)) } }
+    /// The files of a share claimed before the boot, once storage is configured.
+    package func landShare() -> Batch { on { read(exact_share_land(rt)) } }
     /// A package's call of the app's handler (LLP 1133.016 D15 item 1),
     /// `{"extension", "handle", "handler", "args"}`: the runner's answer,
     /// JSON, goes to `reply(ctx, …)` once, now or when the handler's work lands.

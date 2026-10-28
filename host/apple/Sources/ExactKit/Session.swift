@@ -485,7 +485,7 @@ public final class ExactSession {
         self.app = app
         self.label = label
         let runtime = Runtime()
-        PresenceKeychain.install() // before the first boot reads the backend (LLP 1133.010 D6)
+        PresenceKeychain.install(); LocalNetworkFact.install() // before the first boot reads the backend (LLP 1133.010 D6), the fact (LLP 1133.036 D8)
         if ActivityLibrary.packaged { runtime.linkActivities() }
         // Motion starts at the first frame that shows it, until an agent owns the clock (LLP 1003.001 D7).
         if !ExactEnv.agentFreezes { _ = runtime.startOnFrame(true, at: 0) }
@@ -804,7 +804,7 @@ public final class ExactSession {
         var size = size
         let t = CACurrentMediaTime()
         primePreferences()
-        primeTime()  // `prepare` primes again; the fallback boot reads this
+        primeTime(); claimColdShare()  // `prepare` primes again; the fallback boot reads this
         if let bytes = app.lastPlan {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.

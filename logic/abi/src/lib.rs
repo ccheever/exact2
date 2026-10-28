@@ -494,6 +494,7 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
         body_to: None,
         redirect: Redirect::Follow,
         held: false,
+        reach: Default::default(),
         http: if tag != 1 {
             let limit = r.u32().map_err(error)?;
             if limit == 0 || limit > 64 << 20 {

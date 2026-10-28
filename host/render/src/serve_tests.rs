@@ -26,6 +26,22 @@ fn a_scheme_line_is_a_scheme_source() {
 }
 
 #[test]
+fn a_local_network_line_admits_local_names_and_no_address_range() {
+    // LLP 1133.036 D5: no CSP source names a private range, so a served page
+    // reaches `.local` names by the line and an address only by a line naming it.
+    let policy = csp(
+        "net.fetch local-network\nnet.websocket local-network development",
+        Path::new("/nonexistent"),
+    );
+    assert!(
+        policy.contains(
+            "connect-src 'self' http://*.local:* https://*.local:* ws://*.local:* wss://*.local:*;"
+        ),
+        "{policy}"
+    );
+}
+
+#[test]
 fn connect_sources_use_app_grants_even_when_a_request_has_a_narrower_source_scope() {
     let policy = csp(
         "net.fetch https://a.test\nnet.fetch https://b.test\nnet.fetch https://c.test",

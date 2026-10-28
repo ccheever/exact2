@@ -34,6 +34,9 @@ package protocol GroupedLists: AnyObject {
     func rows(for id: UInt32) -> [[UInt32]]?
     /// Row geometry from the native layout, never the hidden authored boxes.
     func projectedRect(for node: NodeView, in scroll: UIScrollView) -> CGRect?
+    /// The rows between what `scroll` shows and the one holding `node` sized
+    /// by their cells, so `projectedRect` is where the row will stay.
+    func measure(toward node: NodeView, in scroll: UIScrollView)
     /// Visible rows in native reading order, for preserving the reading position.
     func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)]
     /// Whether a list draws `id` (a row, or a row's toggle or detail button).

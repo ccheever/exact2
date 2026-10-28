@@ -1,0 +1,29 @@
+# Fieldnotes on the Linux host: one executable with the runner, the kernel,
+# the baked plan, the notes' TypeScript as Hermes bytecode and the Rust
+# backup source (both written by build.rs, never committed). Its share
+# target (LLP 1133.024 D9) is driven here headless.
+[package]
+name = "fieldnotes-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Fieldnotes on the Linux host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "fieldnotes-linux"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+fieldnotes-data = { path = "../data" }
+exact-data-host = { path = "../../../data/host" }
+exact-logic = { path = "../../../logic" }
+exact-linux = { path = "../../../host/linux" }
+exact-js = { path = "../../../js" }
+
+[build-dependencies]
+fieldnotes-data = { path = "../data" }
+exact-js-bake = { path = "../../../js/bake" }

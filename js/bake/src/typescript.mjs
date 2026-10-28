@@ -118,6 +118,13 @@ function keyedGrants(node, origin, at, development) {
 /** A build that is not production (`EXACT_UPDATE_TRUST` unset or `development`, as `bake/src/compat.rs` reads it). */
 const developmentTrust = (env) => env.EXACT_UPDATE_TRUST === undefined || env.EXACT_UPDATE_TRUST === 'development';
 
+/** A `net.fetch local-network` or `net.websocket local-network` line, as the native bake's entry matches it too. */
+export const LOCAL_NETWORK_LINE = /^([ \t]*net\.(?:fetch|websocket)[ \t]+local-network)[ \t]*$/gm;
+/** In a development build each such line gains the word that admits loopback as well (LLP 1133.036 D5), so a
+ * drive's fixture on this machine stands in for a device on the LAN. A production build's lines stay as written,
+ * and its bake refuses the word. */
+export const developmentLocalNetwork = (spec, env=process.env) => developmentTrust(env) ? spec.replace(LOCAL_NETWORK_LINE, '$1 development') : spec;
+
 /** Whether an origin's host is a private-network address: RFC 1918 IPv4, link-local IPv4 (RFC 3927),
  * unique-local IPv6 (fc00::/7, RFC 4193) or link-local IPv6 (fe80::/10, RFC 4291). */
 export function privateNetwork(origin) {

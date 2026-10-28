@@ -56,6 +56,7 @@ extension ExactSession {
         }
         appFileRoots = AppFiles.learn(runtime) // the roots storage configured
         apply(batch)
+        landColdShare() // a share claimed before the boot lands in the storage just configured
         dataGeneration = drawnGeneration
         activityOutput?.drain()
         storeRefresh.activated = { [weak self] in

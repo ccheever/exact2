@@ -818,7 +818,10 @@ impl<D: DataSource> Runner<D> {
                     && !p.refused
                     && p.refusal.is_none()
                     && p.args != args
-                    && p.keepable.as_ref() == Some(&request)
+                    // Who asked it is stamped as it goes out (LLP 1133.036
+                    // D6), so it is no part of the same request.
+                    && (p.keepable.as_ref())
+                        .is_some_and(|k| request == Request { reach: request.reach, ..k.clone() })
             }) {
                 p.args = args;
                 // (new arguments: a new streak after a turn over its budget)
@@ -853,6 +856,7 @@ impl<D: DataSource> Runner<D> {
         self.number_data_call(&mut request);
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
+        request.reach = self.reach_of(self.origin_for(Some(target)));
         self.note_handles(ticket, &source, &request.body);
         self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);

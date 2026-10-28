@@ -1097,6 +1097,16 @@ impl<D: DataSource> Host<D> {
         self.told(answer, "place")
     }
 
+    /// A share's files under its token as they stand (LLP 1133.024 D3).
+    pub fn set_shared(
+        &mut self,
+        token: &str,
+        files: exact_runner::share_in::SharedFiles,
+    ) -> Option<String> {
+        let answer = self.runner.set_shared(token, files);
+        self.told(answer, "share")
+    }
+
     /// A told fact's answer: its commit, nothing when the fact is unchanged,
     /// or the refusal named by `what`.
     fn told(

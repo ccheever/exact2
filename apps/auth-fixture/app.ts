@@ -23,26 +23,33 @@ import { credentials, PublicKeyCredential } from '@exact/passkeys';
 export const appId = 'com.exact.authfixture';
 const ISSUER = 'http://127.0.0.1:4331';
 const ORIGIN = 'https://auth-fixture.exact.test';
-export const grants = [
-  `net.fetch ${ISSUER}`,
-  `auth.session ${ISSUER}`,
-  // The native callback: the client id's hostname reversed (AT Protocol).
-  'auth.callback test.exact.auth-fixture:/oauth',
-  `auth.callback ${ORIGIN}/.exact/auth/callback`,
-  'secret.keep fixture.session',
-  'secret.keep fixture.pending',
-  'secret.keep fixture.dpop',
-  // The fixture's relying party, and the web drive's (the page is a loopback one).
-  'auth.passkey auth-fixture.exact.test',
-  'auth.passkey localhost',
-  'device.attestation',
-].join('\n');
+// The passkey relying party's server: the fixture server, unless the bake selects the fixture's public origin
+// (LLP 1133.011 §13 question 4) with `EXACT_BACKEND_ORIGIN=https://exact-auth-fixture.expo.app`, whose host is
+// then the RP ID. Sign-in and the attestation checks use the fixture server either way.
+export const origin = 'http://127.0.0.1:4331';
+export const grants = {
+  'http://127.0.0.1:4331': ['net.fetch http://127.0.0.1:4331', 'auth.session http://127.0.0.1:4331',
+    // The native callback: the client id's hostname reversed (AT Protocol).
+    'auth.callback test.exact.auth-fixture:/oauth', 'auth.callback https://auth-fixture.exact.test/.exact/auth/callback',
+    'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
+    // The fixture's relying party, and the web drive's (the page is a loopback one).
+    'auth.passkey auth-fixture.exact.test', 'auth.passkey localhost', 'device.attestation'],
+  'https://exact-auth-fixture.expo.app': ['net.fetch http://127.0.0.1:4331', 'auth.session http://127.0.0.1:4331',
+    'net.fetch https://exact-auth-fixture.expo.app',
+    'auth.callback test.exact.auth-fixture:/oauth', 'auth.callback https://auth-fixture.exact.test/.exact/auth/callback',
+    'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
+    'auth.passkey exact-auth-fixture.expo.app', 'auth.passkey localhost', 'device.attestation'],
+};
 // The Google Cloud project Play Integrity bills (LLP 1133.020 §3.2);
 // unused on Apple.
 const CLOUD_PROJECT = '000000000000';
-// The RP ID: the app's origin natively; on the web the development page's,
-// a loopback one for this fixture, whose callback is an http(s) URL.
-const rpId = () => (/^https?:\/\//.test(authCallback()) ? 'localhost' : 'auth-fixture.exact.test');
+// The RP ID: on the web the page's host, `localhost` for any loopback page; natively the relying party's
+// host when it is public, else the app's origin's.
+const rpId = () => {
+  const page = /^https?:\/\/([^/:]+)/.exec(authCallback());
+  if (page) return page[1] === '127.0.0.1' ? 'localhost' : page[1];
+  return /^https:\/\//.test(origin) ? origin.slice('https://'.length) : 'auth-fixture.exact.test';
+};
 // One client id per application type (after review, item 3).
 const CLIENT = {
   native: `${ORIGIN}/.exact/auth/client-metadata.native.json`,
@@ -174,12 +181,20 @@ async function signIn(store: Store, nowMs: number) {
   return { ok: true, message: `Signed in as ${handle}` };
 }
 
-async function relyingParty(path: string, body: unknown) {
-  const response = await fetch(`${ISSUER}${path}`, {
+async function post(server: string, path: string, body: unknown) {
+  const response = await fetch(`${server}${path}`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
   return response.json();
 }
+const relyingParty = (path: string, body: unknown) => post(origin, path, body);
+
+// The relying party keeps nothing: each passkey it registered is a record it signed, which the app keeps
+// (`fixture.passkeys`) and sends back. Dropping a record is the server forgetting that passkey.
+interface Kept { id: string; record: string }
+const kept = (store: Store): Kept[] => JSON.parse(store.get('fixture.passkeys') ?? '[]');
+const keep = (store: Store, list: Kept[]) => store.set('fixture.passkeys', JSON.stringify(list));
+const records = (store: Store) => kept(store).map(k => k.record);
 
 // What a hand-built app shows for a ceremony's failure: nothing for a
 // cancel or a request a newer one replaced, the line for a passkey the
@@ -193,22 +208,23 @@ function failed(e: any) {
 
 // The server's list after a sign-in, so the credential manager hides a
 // passkey the server forgot (D11).
-async function signedInAs(store: Store, done: { userId: string; handle: string }) {
-  store.set('fixture.session', JSON.stringify({ handle: done.handle, did: done.userId, passkey: true }));
-  const { ids } = await relyingParty('/passkey/accepted', { userId: done.userId });
+async function signedInAs(store: Store, done: { userId: string; handle: string }, credentialId: string) {
+  store.set('fixture.session', JSON.stringify({ handle: done.handle, did: done.userId, passkey: credentialId }));
+  const { ids } = await relyingParty('/passkey/accepted', { userId: done.userId, records: records(store) });
   await PublicKeyCredential.signalAllAcceptedCredentials({ rpId: rpId(), userId: done.userId, allAcceptedCredentialIds: ids });
   return { ok: true, message: `Signed in as ${done.handle}` };
 }
 
 async function createPasskey(store: Store, username: string) {
-  const kept = store.get('fixture.session');
-  const name = kept ? String(JSON.parse(kept).handle) : username.trim() || 'fixture.test';
-  const { publicKey } = await relyingParty('/passkey/register/options', { username: name, rpId: rpId() });
+  const session = store.get('fixture.session');
+  const name = session ? String(JSON.parse(session).handle) : username.trim() || 'fixture.test';
+  const { publicKey } = await relyingParty('/passkey/register/options', { username: name, rpId: rpId(), records: records(store) });
   let response;
   try { response = await credentials.create({ publicKey }); } catch (e) { return failed(e); }
   const done = await relyingParty('/passkey/register', { response });
   if (!done.ok) return { ok: false, message: `The server refused the passkey (${done.error})` };
-  return signedInAs(store, done);
+  keep(store, [...kept(store), { id: done.credentialId, record: done.record }]);
+  return signedInAs(store, done, done.credentialId);
 }
 
 // Conditional requests in a row that ended in an error other than AbortError
@@ -229,14 +245,27 @@ async function passkeySignIn(store: Store, mediation?: 'conditional') {
     return failed(e);
   }
   refusedSuggestions = 0;
-  const done = await relyingParty('/passkey/sign-in', { response });
+  const list = kept(store), at = list.findIndex(k => k.id === response.id);
+  const done = await relyingParty('/passkey/sign-in', { response, record: at < 0 ? null : list[at].record });
   if (done.error === 'unknown-credential') {
     // A passkey whose registration the server never kept: the credential manager forgets it.
+    if (at >= 0) keep(store, list.filter((_, i) => i !== at));
     await PublicKeyCredential.signalUnknownCredential({ rpId: rpId(), credentialId: response.id });
     return { ok: false, message: 'That passkey is not for an account here' };
   }
   if (!done.ok) return { ok: false, message: `The server refused the sign-in (${done.error})` };
-  return signedInAs(store, done);
+  // The record with the sign count this assertion carried.
+  keep(store, list.map((k, i) => (i === at ? { id: k.id, record: done.record } : k)));
+  return signedInAs(store, done, response.id);
+}
+
+// The server forgets the passkey this session signed in with (drive 9's signal): its next use is unknown.
+function forgetPasskey(store: Store) {
+  const session = store.get('fixture.session');
+  const id = session ? JSON.parse(session).passkey : undefined;
+  if (typeof id !== 'string') return { ok: false, message: 'Not signed in with a passkey' };
+  keep(store, kept(store).filter(k => k.id !== id));
+  return { ok: true, message: 'The server forgot this passkey' };
 }
 
 const errorName = (e: unknown) => String((e as any)?.name ?? (e as any)?.code ?? 'Error');
@@ -245,7 +274,7 @@ const errorName = (e: unknown) => String((e as any)?.name ?? (e as any)?.code ??
 // fresh challenge, and what the server concluded. A `NetworkError` keeps
 // the key, so the same challenge is tried once more (D3).
 async function proveOnce(account: string | undefined) {
-  const { challenge } = await relyingParty('/attest/challenge', {});
+  const { challenge } = await post(ISSUER, '/attest/challenge', {});
   const ask = () => attest({ clientData: challenge, account, android: { cloudProjectNumber: CLOUD_PROJECT } });
   let proof, failure = '';
   try { proof = await ask(); } catch (e) {
@@ -253,7 +282,7 @@ async function proveOnce(account: string | undefined) {
     failure = `Failed: NetworkError; retried. `;
     try { proof = await ask(); } catch (again) { return { ok: false, unknown: false, message: `${failure}Failed: ${errorName(again)}` }; }
   }
-  const verdict = await relyingParty('/attest/verify', { ...proof, clientData: challenge });
+  const verdict = await post(ISSUER, '/attest/verify', { ...proof, clientData: challenge });
   return { ok: verdict.ok === true, unknown: verdict.error === 'unknown-key', message: failure + String(verdict.message) };
 }
 
@@ -276,6 +305,7 @@ export const answer: Answer = (source, args, store) => {
     case 'createPasskey': return createPasskey(store, args[0] as string) as never;
     case 'signInWithPasskey': return passkeySignIn(store) as never;
     case 'suggestPasskey': return passkeySignIn(store, 'conditional') as never;
+    case 'forgetPasskey': return forgetPasskey(store) as never;
     case 'passkeyIdle': return { ok: true, message: '' } as never;
     case 'checkBuild': return checkBuild(store) as never;
     case 'signOut':

@@ -6,6 +6,11 @@ export const transportSecurity = (section, keys = {}) => {
   return Object.keys(ats).length ? { NSAppTransportSecurity: ats } : {};
 };
 
+/** `NSAllowsLocalNetworking`, which lets `URLSession` load `http:` from a local host: the development client's
+ * `host.ios.localNetworking`, or a `net.fetch local-network` or `net.websocket local-network` line
+ * (`reach.localNetworking`, LLP 1133.036 D5). */
+export const localNetworking = (section, reach) => (section?.localNetworking || reach?.localNetworking ? { NSAllowsLocalNetworking: true } : {});
+
 /** The iOS rows for background work (LLP 1133.017 D14): `UIBackgroundModes`, the manifest's
  * `host.ios.backgroundModes` with the modes the grant lines derive (`reach.backgroundModes`), and
  * `BGTaskSchedulerPermittedIdentifiers`, the identifiers they permit after the bundle id `id`. `fetch` and `processing` come only from a grant line, so a mode has one way to be declared. `only`: the

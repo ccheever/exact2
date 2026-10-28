@@ -279,6 +279,32 @@ test('the wasm early GET follows a return chain and is claimed at the granted fi
   } finally { origin.stop(true); middle.stop(true); final.stop(true); }
 });
 
+test('a tool\'s request to the local network from a public page waits for the person, sent by neither path (LLP 1133.036 D6)', async () => {
+  globalThis.exact ??= {};
+  const { fetchEarly } = await import('./module-glue.js');
+  const was = globalThis.location, sent = [], real = globalThis.fetch;
+  let hits = 0;
+  const light = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch() { hits++; return new Response('{}'); } });
+  globalThis.location = { hostname: 'lights.example', origin: 'https://lights.example', href: 'https://lights.example/' };
+  globalThis.fetch = (url, init) => { sent.push(String(url)); return real(url, init); };
+  try {
+    const set = normalized('device.local-network lanPurpose\nnet.fetch local-network development');
+    const host = { grantSet: set, controllers: new Set(), moduleLoader: null };
+    const lan = { method: 'GET', url: 'http://192.168.1.40/json/si', headers: [], origin: 'tool', reachState: 'prompt' };
+    expect(fetchEarly(lan, set)).toBe(null);
+    const refused = await request(lan, host);
+    expect([refused.kind, new TextDecoder().decode(refused.body)]).toEqual([2, 'NotAllowedError: person-required']);
+    const denied = await request({ ...lan, url: `${light.url}json/si`, reachState: 'denied' }, host);
+    expect([denied.kind, new TextDecoder().decode(denied.body)]).toEqual([2, 'NotAllowedError: local network access is denied']);
+    const socket = await request({ ...lan, url: `ws://127.0.0.1:${light.port}/`, stream: true }, { ...host, grantSet: normalized('device.local-network lanPurpose\nnet.websocket local-network development') });
+    expect(new TextDecoder().decode(socket.body)).toBe('NotAllowedError: person-required');
+    expect([sent, hits]).toEqual([[], 0]);
+    // The app's own reach is the ask, and goes.
+    const own = await request({ method: 'GET', url: `${light.url}json/si`, headers: [] }, host);
+    expect([own.kind, own.status, hits]).toEqual([0, 200, 1]);
+  } finally { light.stop(true); globalThis.fetch = real; globalThis.location = was; }
+});
+
 test('a scheme line admits every origin of its scheme, and a request names the line that admitted it', async () => {
   const set = normalized('net.fetch https://api.example\nnet.fetch http:\nnet.websocket wss://feed.example\nnet.websocket ws:');
   expect([

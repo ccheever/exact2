@@ -163,7 +163,7 @@ action add
 text items.join(", ")
 ```
 ### a dated record
-The write reads the clock, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
+The write reads the clock, not a ticked `now`, and stores `at`; `performanceNow()` alone is 0 each launch. `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
 ```contract
 shape Time
   epochAtZero: number
@@ -175,7 +175,7 @@ action log
   days = days.concat([formatDate(at, time.utcOffset, "iso")])
 ```
 ### a test, and verify
-By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert, `clock held` for an `exactHeld` reply; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for iPhone; `--shots <dir>` keeps screenshots.
+By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert, `clock held` for an `exactHeld` reply; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs them, checks each one's last screen and relaunches once; `verify ios` last; `--shots <dir>` keeps screenshots.
 ```contract-test
 test "a pick survives a relaunch"
   tap "pick"

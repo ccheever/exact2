@@ -293,6 +293,8 @@ extension Presenter {
         let grouped = groupedLists?.scroller(for: target.id).flatMap { scroll in
             scroll.window === target.window && groupedLists?.projectedRect(for: target, in: scroll) != nil ? scroll : nil
         }
+        // UIKit's `scrollToRow` lands on the row: estimated rows on the way would not.
+        if let grouped { groupedLists?.measure(toward: target, in: grouped) }
         var scrollers: [UIScrollView] = []
         for view in sequence(first: target.superview, next: { $0?.superview }).compactMap({ $0 }) {
             if let sv = view as? UIScrollView, sv.isScrollEnabled { scrollers.append(sv) }

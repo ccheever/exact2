@@ -8,7 +8,9 @@
 //! A scheme-wide line (`net.fetch https:`) is not among them: a request's
 //! route can choose what a source fetches, and on the server nothing stands
 //! between that choice and the operator's own network. Such a source keeps
-//! its placeholder, and the client fetches it after adoption.
+//! its placeholder, and the client fetches it after adoption. So is
+//! `net.fetch local-network` (LLP 1133.036 D5): with it a visitor could point
+//! the server at the operator's own network.
 use exact_plan::{Plan, Value};
 use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Store, Target,
@@ -23,21 +25,32 @@ pub struct Anonymous<D> {
 impl<D: DataSource> Anonymous<D> {
     /// Wrap `inner`; its grants narrow to what a render holds.
     pub fn new(inner: D) -> Self {
-        let grants = inner
-            .grants()
-            .lines()
-            .map(str::trim)
-            .filter(|line| {
-                let mut words = line.split_whitespace();
-                words.next() == Some("net.fetch")
-                    && words
-                        .next()
-                        .is_some_and(|target| !target.ends_with(':') || target.contains('/'))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let grants = held(inner.grants());
         Self { inner, grants }
     }
+}
+
+/// The lines of `spec` a render holds (module doc).
+fn held(spec: &str) -> String {
+    spec.lines()
+        .map(str::trim)
+        .filter(|line| {
+            let mut words = line.split_whitespace();
+            words.next() == Some("net.fetch")
+                && words.next().is_some_and(|target| {
+                    (!target.ends_with(':') || target.contains('/')) && target != "local-network"
+                })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
+#[test]
+fn a_render_holds_no_scheme_wide_or_local_network_line() {
+    let spec = "net.fetch https://api.test\nnet.fetch https:\nnet.fetch local-network\n\
+                net.fetch local-network development\nnet.websocket wss://a.test\nfs.read /x";
+    assert_eq!(held(spec), "net.fetch https://api.test");
 }
 
 impl<D: DataSource> DataSource for Anonymous<D> {

@@ -53,7 +53,7 @@ function fetchNow(input, options) {
       try { target = input instanceof Request ? input : String(input); init = captured(options); } catch (e) { return Promise.reject(e); }
       return Promise.resolve().then(() => {
         if (call.socketConflict) throw new Error(SOCKET_AND_FETCH);
-        return fetchWith(tsGrantSet, target, init);
+        return fetchWith(tsGrantSet, target, init, null, undefined, undefined, call.origin);
       });
     }
     return fetchOf(input, options, call);
@@ -76,8 +76,11 @@ function captured(options) {
   else if (typeof FormData === 'function' && body instanceof FormData) { init.body = new FormData(); for (const [k, v] of body) init.body.append(k, v); }
   return init;
 }
+// The origin a fetch carries (LLP 1133.036 D6): its answer's, or, after the answer's first await, where no call is
+// traced, the least privileged of the answers in flight (LLP 1133.002 D12).
+export const fetchOrigin = () => answering.call?.origin ?? ([...answering.untraced].find(c => !c.settled)?.origin ?? 'app');
 function fetchOf(input, options, call) {
-  if (options?.exactStream === undefined && options?.exactBodyFrom === undefined && options?.exactBodyTo === undefined) return fetchWith(tsGrantSet, input, options);
+  if (options?.exactStream === undefined && options?.exactBodyFrom === undefined && options?.exactBodyTo === undefined) return fetchWith(tsGrantSet, input, options, null, undefined, undefined, fetchOrigin());
   if (options.exactStream !== undefined && options.exactBodyTo !== undefined) return Promise.reject(new TypeError("exactBodyTo: a stream's body is its messages, not a file"));
   let redirect;
   try { redirect = redirectOf(input, options); } catch (e) { return Promise.reject(e); }
@@ -105,9 +108,10 @@ function fetchOf(input, options, call) {
       deadline?.addEventListener('abort', timedOut, { once: true });
       stop = () => { signal?.removeEventListener?.('abort', aborted); deadline?.removeEventListener('abort', timedOut); };
     });
+    const origin = fetchOrigin();
     return Promise.race([import('./ts-body-from.js'), ended]).finally(stop).then(m => {
       if (call?.socketConflict) throw new Error(SOCKET_AND_FETCH);
-      return m.fromFile(input, init, redirect, started);
+      return m.fromFile(input, init, redirect, started, origin);
     });
   }
   return options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
@@ -119,7 +123,7 @@ export const files = { appId: null };
 // (js/src/prelude.js): the stream is the answer's, so its fetch is made while
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
-export const answering = { call: null, sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start) }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js
+export const answering = { call: null, untraced: new Set(), sockets: false, mapper: null, loose: () => {}, heldReply: () => {}, ordinary: start => ordinary(start) }; // the hooks: held.js's, set by the page's entry; `ordinary` for ts-data.js
 function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no

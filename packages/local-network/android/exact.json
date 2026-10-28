@@ -1,0 +1,27 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/local-network@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidLocalNetworkStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [
+    "nsdManager"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.localnetwork.LocalNetworkModule"
+}

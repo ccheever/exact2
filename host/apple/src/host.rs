@@ -2,13 +2,12 @@
 //!
 //! @ref LLP 1008 §1
 //!
-//! After every commit the host walks the receipt (destroy, create, props,
-//! style, children — the web host's rule: the view tree mirrors the kernel
-//! tree), feeds the motion engine the commit (LLP 1003 §4), and seeks it to
-//! the app's clock before laying out the roots under the viewport. Layout
-//! projects the explicitly registered Height, then emits changed frames and
-//! scroll content sizes; other presentation values follow. The kernel is the single source of
-//! truth; the mirror is a memo of what the presenter has been told.
+//! After every commit the host walks the receipt (destroy, create, props, style, children — the
+//! web host's rule: the view tree mirrors the kernel tree), feeds the motion engine the commit
+//! (LLP 1003 §4), and seeks it to the app's clock before laying out the roots under the viewport.
+//! Layout projects the explicitly registered Height, then emits changed frames and scroll content
+//! sizes; other presentation values follow. The kernel is the single source of truth; the mirror
+//! is a memo of what the presenter has been told.
 
 use crate::{batch::Batch, style};
 use exact_kernel::motion::{motion_node, node_key, targets, MotionSync};
@@ -98,6 +97,8 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+#[path = "share_in.rs"]
+mod share_in;
 #[path = "snapshot.rs"]
 pub(crate) mod snapshot;
 pub(crate) use scale::LaunchLayout;

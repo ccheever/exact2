@@ -927,7 +927,10 @@ impl<D: DataSource> Runner<D> {
         // A sampled source's tool or wake reader joins a stream the app's own
         // consumers run, as it runs; one that would start it is refused
         // (LLP 1133.013 D4, D11).
-        let joins = (sub["samples"]["stream"].as_str()).is_some_and(|s| self.app_rate(s).is_some());
+        // A reader of a `join` name joins a group the app's own readers run
+        // (LLP 1133.036 D3).
+        let joins = (sub["samples"]["stream"].as_str()).is_some_and(|s| self.app_rate(s).is_some())
+            || self.joins_running(row, args);
         if applies && app_only && origin != CallOrigin::App && !joins {
             return Err(format!("person-required ({} origin)", origin.word()));
         }

@@ -15,6 +15,7 @@
 //! each process links one app archive because the C names are fixed.
 mod control_text;
 mod navigation;
+mod share;
 use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
@@ -73,6 +74,9 @@ pub struct Bridge<D: DataSource> {
     /// The date and place last told before a boot (`set_launch_time`,
     /// `set_launch_place`): a runner booted later reads them from its first settle.
     launch_facts: exact_runner::time::Launch,
+    /// A share claimed before the boot, and whether its files move from an inbox: they land once
+    /// storage is configured (`share_land`).
+    cold_share: Option<(exact_runner::share_in::Claimed, bool)>,
     /// The host's live clock while it owns time, kept for every boot (`set_live_clock`)
     live_clock: Option<LiveClockFn>,
     input: Vec<u8>,
@@ -129,6 +133,7 @@ impl<D: DataSource> Bridge<D> {
             preferences: exact_runner::Preferences::NONE,
             launch_layout: crate::host::LaunchLayout::NONE,
             launch_facts: exact_runner::time::Launch::NONE,
+            cold_share: None,
             live_clock: None,
             input: Vec::new(),
             output: Vec::new(),

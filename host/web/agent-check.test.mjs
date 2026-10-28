@@ -394,6 +394,9 @@ test('two texts drawn over each other run together, unless one stands on the opa
   expect(kindsOf([{ ...row, beneath: { ...bar, by: 9 } }, { ...tab, solid: true }])).toEqual(['3 overlap']); // under something else
   // The tab's label running past its bar's edge meets the row outside the fill: they run together there.
   expect(kindsOf([{ ...row, beneath: { ...bar, x: 20, w: 15 } }, { ...tab, solid: true }])).toEqual(['3 overlap']);
+  // A list's section header pinned over its rows as they pass under it (contacts at the largest text size, bake-off r28).
+  expect(kindsOf([row, { ...tab, pinned: true }])).toEqual([]);
+  expect(judge({ ...vp, items: [{ ...row, control: 'press' }, { ...tab, pinned: true }] }, null)).toEqual([]);
 });
 
 test('a page with every finding class has each found, by testId, in the scheme it shows in; a clean page has none', async () => {

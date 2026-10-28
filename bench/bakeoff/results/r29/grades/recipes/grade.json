@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list of all 160 recipes. Each row shows the title, the category (tinted), a clock and the time, a star and the rating, and a chevron. Favorited rows show a small heart."},
+      {"n": 2, "status": "pass", "note": "A scrolling row of chips (All plus all nine categories) stays pinned under the search field. The search matches titles and ingredients and combines with the category: Soups + 'garlic' gives the same 6 results as B. The empty result is a ContentUnavailable-style screen naming the query, with a 'Search All Categories' button."},
+      {"n": 3, "status": "pass", "note": "A Sort menu in the toolbar offers Name A to Z, Time quickest first and Rating highest first, each with an icon and a checkmark. All three work, and the choice survives a relaunch."},
+      {"n": 4, "status": "partial", "note": "The detail screen shows the category, title, rating, total time, a native stepper for servings, bulleted ingredients and numbered steps in circle badges. Stepping works, the minimum is 1 and the minus button greys out there. But scaled amounts mix decimals and fractions ('0.57 cup oil', '⅛ tsp cumin', '0.29 cloves ginger'), which reads badly for a recipe."},
+      {"n": 5, "status": "pass", "note": "A heart in the detail toolbar adds and removes the recipe. A full swipe right on a list row also favorites it. The Favorites tab shows a count subtitle and has a swipe-left 'Remove' action. The empty state reads 'No Favorites Yet' with useful text and a Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "Favorites survived a relaunch."}
+    ],
+    "bugs": [
+      "Scaled ingredient amounts switch between decimals and fractions in the same list ('0.43 g chickpeas' next to '⅛ tsp cumin'), and some are odd amounts like '0.29 cloves ginger'."
+    ],
+    "tells": [
+      "While searching, there is an empty band between the pinned search field and the category chips.",
+      "Custom orange accent with chip-style category filters; tasteful, but the chips are hand-built rather than a system control.",
+      "The detail screen puts a large hand-laid title in the content with no navigation title until you scroll (acceptable, but unlike a standard large-title push).",
+      "VoiceOver reads '1 servings' (plural not handled)."
+    ],
+    "scroll": "The long list scrolls smoothly when dragged slowly and when flung, with no blank or popping rows. It keeps its position after a push and pop and rubber-bands normally at the top. The search field and chips stay pinned.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of all 160 recipes. Each row shows the title, 'Category · time', a star and the rating, and a chevron. A header line reads 'All Recipes · 160 recipes · by name'."},
+      {"n": 2, "status": "pass", "note": "A filter menu in the toolbar lists All plus all nine categories with a checkmark. The search field ('Title or ingredient') matches titles and ingredients and combines with the category (Soups + 'garlic' gives 6). The empty result is a 'No Recipes' screen with a Show All Recipes button."},
+      {"n": 3, "status": "pass", "note": "A sort menu offers Name, Time and Rating. All three work, the header shows the current sort, and the choice survives a relaunch."},
+      {"n": 4, "status": "pass", "note": "The detail screen shows the title, category and rating, the time, a native stepper for servings, 'Ingredients for N' with amounts in their own column, and numbered steps. Scaled amounts are tidy fractions (½, 1¾, ⅛). The minimum is 1 and the minus button disables there."},
+      {"n": 5, "status": "pass", "note": "A heart in the detail toolbar adds and removes the recipe. The Favorites tab lists saved recipes with a 'Swipe left to remove' hint and a working Delete action. The empty state reads 'No Favorites Yet' with useful text and a Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "Favorites survived a relaunch."}
+    ],
+    "bugs": [
+      "A horizontal swipe on a row in the main list opens the recipe instead of doing nothing or showing swipe actions."
+    ],
+    "tells": [
+      "The main list has no swipe actions, so you cannot favorite from the list.",
+      "Category filtering is hidden in a toolbar menu with no visible chip or scope bar, so it is less discoverable.",
+      "The detail screen repeats the title: it appears in the inline navigation bar and again as a bold header in the first card.",
+      "Empty-state titles are regular weight rather than the bold of ContentUnavailableView, and the Browse/Show All buttons are untinted grey.",
+      "The quantity column on the detail screen is very wide, leaving a large gap before each ingredient name.",
+      "The Favorites delete action looks unusual: a round button with a 'Delete' caption underneath and a greyed, rounded row.",
+      "The search keyboard opens with Shift on (auto-capitalized)."
+    ],
+    "scroll": "The list scrolls smoothly when dragged slowly and when flung, with no blank or late-loading rows. It keeps its position after a push and pop and rubber-bands at the top. The search field collapses into the nav bar as standard.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet the whole spec and handle dark mode and the largest text size well. A feels more like a finished iPhone app: categories are one tap away in visible chips, there are swipe actions in both lists, and favorited rows show a heart. B's main list has no swipe actions, its filter is hidden in a menu, and its detail screen repeats the title. B's clean fraction scaling beats A's mix of decimals and fractions, but that is not enough to outweigh A's advantages."
+}

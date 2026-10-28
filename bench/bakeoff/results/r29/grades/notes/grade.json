@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, Pinned section first then Notes, newest first; bold title, date + one-line preview, relative dates (time today, Yesterday, weekday, then short date). Long titles truncate to one line."},
+      {"n": 2, "status": "pass", "note": "Standard search field under the large title; filters title and body as you type; proper 'No Results for …' empty state with icon; Close button."},
+      {"n": 3, "status": "pass", "note": "Editor with multi-line title and body, no Save needed; edited note moves to top of Notes with today's time and its timestamp updates live. Yellow checkmark Done button dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "Compose button in bottom toolbar opens an empty note with keyboard up; leaving it empty discards it (count stays 90); a note with text is kept and listed first."},
+      {"n": 5, "status": "pass", "note": "Swipe left = Delete, swipe right = Pin/Unpin (full swipe works), long-press context menu with Pin/Unpin and Delete; pin and delete also in the editor toolbar."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' centred in the bottom toolbar, like Apple Notes; updates on create/delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new note, deletion, pins and unpins all kept after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "When scrolled, the search field stays pinned under the small title and list text shows through it, so the top of the screen looks busy (the blurred row text under 'Search' is hard to read past).",
+      "Delete has no confirmation or undo (this matches system behaviour, but there's no Recently Deleted).",
+      "The '90 Notes' toolbar label doesn't grow at the largest text size (system toolbar behaviour)."
+    ],
+    "scroll": "Smooth UITableView feel: slow drags track the finger, flings decelerate naturally, rubber-bands at the top, and the large title collapses into an inline 'Notes'. No blank or popping rows, and the scroll position is kept when coming back from a note.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, newest first, title + date + preview, relative dates. Every row has a disclosure chevron, which takes space and cuts previews short ('Ask about podcast…') even when there is room for more."},
+      {"n": 2, "status": "pass", "note": "Bottom-placed search field (iOS 26 style); filters title and body as you type; 'No Results' empty state (no icon)."},
+      {"n": 3, "status": "partial", "note": "Edits autosave and move the note to the top. But the title is a single-line text field, so long titles show truncated in the editor ('Meeting notes with the design te…'). When the body is focused, the content scrolls up so the date and title slide under the nav bar even for short notes. There's no Done button to dismiss the keyboard."},
+      {"n": 4, "status": "pass", "note": "Compose button in the nav bar opens an empty note with keyboard; an empty note is discarded and the count stays 90; a note with text is kept and listed first."},
+      {"n": 5, "status": "pass", "note": "Swipe left = Delete; long-press context menu has Pin/Unpin and Delete; pin button in the editor. No leading swipe to pin: swiping right on a row opens the note instead."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' as a subtitle under the large title (and under the inline title when scrolled); updates on create/delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new note, deletion and unpin all kept after relaunch."}
+    ],
+    "bugs": [
+      "Swiping right on a row opens the note instead of showing a pin action.",
+      "In the editor, focusing the body scrolls the timestamp and title up under the navigation bar even when the note is short, so the title disappears while you type.",
+      "Long titles are cut off with an ellipsis in the editor (single-line title field), so you can't read the whole title while editing it."
+    ],
+    "tells": [
+      "Disclosure chevrons on every note row, which Notes-style lists don't use; they cut the preview width.",
+      "No keyboard Done/dismiss button in the editor, and no delete in the editor.",
+      "The note count is a tiny caption tucked under the large title rather than a toolbar label.",
+      "The empty-search state has no icon, unlike the system ContentUnavailableView.",
+      "At the largest text size, row titles hyphenate across three lines and the date and preview stack (acceptable); the editor title truncates to 'Podcast rec…'."
+    ],
+    "scroll": "Scrolling is smooth with natural deceleration and rubber-banding; the large title collapses into an inline 'Notes / 90 Notes'. There are no blank or popping rows, and the position is kept on return.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet the whole spec and look native in light, dark and large text, but A's editor is better finished: a multi-line title, a Done button, and pin/delete in the editor. It also offers the full set of list gestures (swipe right to pin, swipe left to delete, long-press menu). B truncates long titles in the editor, slides the title under the nav bar when you type in the body, opens a note when you swipe right instead of pinning, and its chevrons cut the previews short."
+}

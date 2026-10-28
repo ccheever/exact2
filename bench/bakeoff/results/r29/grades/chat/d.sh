@@ -1,0 +1,4 @@
+#!/bin/bash
+app=$1; shift
+case $app in A) b=dev.bakeoff.chat.bfd3468;; B) b=dev.bakeoff.chat.bb75f6c;; esac
+exec bun /Users/ccheever/projects/exact2-bakeoff/bench/bakeoff/drive.mjs --udid 82D8930B-3C17-48B9-8264-4B173F6DF361 --app $b "$@"

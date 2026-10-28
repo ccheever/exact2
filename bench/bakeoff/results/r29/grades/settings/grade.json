@@ -1,0 +1,43 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All seven sections are present in an inset grouped list. Account has inline Name/Email text fields and Sign Out with an alert confirmation, which leads to a signed-out state with Sign In. Reading has a slider with A/A glyphs, a Font row, a segmented control and a preview card. Appearance has a Theme row, Library has Sort plus two switches, and the Notifications master switch reveals the time, three toggles and a footer. Storage shows Used, Books and Cache, and Clear Cache confirms with an alert, then shows 0 MB and disables the button. About has Version, Privacy and Terms pages and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort push onto checkmark lists with a back button, the way iPhone Settings does. The reminder time uses the compact system DatePicker with wheels in a popover."},
+      {"n": 3, "status": "pass", "note": "The preview changes typeface, size and line spacing live. A footer reads e.g. 'Georgia, 29 pt, relaxed spacing.'"},
+      {"n": 4, "status": "pass", "note": "After relaunch the name, font size, font, spacing, theme, sort, cellular, notifications, reminder time, sub-toggles and cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "Reset is at the bottom with a Cancel/Reset alert. It restored every setting and kept the account, as its footer says."}
+    ],
+    "bugs": [
+      "Rate the App shows a home-made 'Enjoying Paperback?' alert. 'Rate Now' only adds a 'Thanks for rating' footer; no system review prompt or store page appears."
+    ],
+    "tells": [
+      "Rating uses a custom pre-prompt alert instead of the system StoreKit review sheet.",
+      "Turning notifications on never asks for iOS notification permission.",
+      "The Sepia theme only tints the preview card; the rest of the screen stays plain light.",
+      "The Privacy and Terms pages repeat the nav-bar title as a large bold heading in the body.",
+      "In the signed-out Account card the explanation text sits almost against the top edge of the card, with too little padding.",
+      "At the largest text size the inline Name and Email fields cut their values off with an ellipsis ('Jordan Read…', 'jordan@pape…')."
+    ],
+    "scroll": "The scroll is a native collection view: smooth drags, flings with normal deceleration, rubber-band past the top, a blurred scroll-edge nav bar, and position kept after pushing and popping pickers. No blank rows or rows popping in.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present. Account has an avatar row (initials) that pushes an editable Account page, and Sign Out confirms with a system confirmation dialog. The signed-out state offers Sign In, which opens a real sheet with Name, Email, Password, Cancel and a disabled-until-valid Sign In. Reading has a slider, a Font row, a segmented control and a 'Chapter 1' preview. Appearance is an inline checkmark list with swatches. The Notifications master switch reveals the time, three toggles and a footer that tracks the time. Storage has a Books/Cache usage bar, and Clear Cache confirms in a dialog that names the size, then shows Zero KB and disables the button. About has Version, Privacy and Terms pages and Rate Paperback."},
+      {"n": 2, "status": "pass", "note": "Font and Sort push onto checkmark lists that pop back automatically after a choice. Theme is an inline checkmark list. The time uses the compact system DatePicker."},
+      {"n": 3, "status": "pass", "note": "The preview reflects font, size and spacing live, and its accessibility value describes the current settings."},
+      {"n": 4, "status": "pass", "note": "After relaunch the edited name, size 29, Georgia, Relaxed, Sepia, Author sort, cellular, notifications at 10:00 PM, cleared cache and signed-out state were all kept."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings is a centred destructive button with a confirmation dialog. It restored all defaults, kept the account, and the footer changes to 'All settings are at their defaults.'"}
+    ],
+    "bugs": [],
+    "tells": [
+      "The coloured dot in the storage legend does not grow with Dynamic Type; at the largest size it is tiny beside the text.",
+      "In dark mode the preview cell is a slightly different shade from the rest of the Reading card, which leaves a visible seam.",
+      "At the largest text size the email under the account name is middle-truncated ('alex.morg…ample.com')."
+    ],
+    "scroll": "The scroll is a native collection view: smooth drags and flings, rubber-band at both ends, a blurred scroll-edge nav bar, and position kept across push/pop. No blank or popping rows.",
+    "scores": {"features": 9, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement with native lists, pickers, switches and persistence, and neither has a functional bug in the spec items. B goes further in system ways: real notification-permission and StoreKit review prompts, a Sepia theme that tints the whole screen, a proper sign-in sheet and account page, and a storage usage bar. A instead uses a custom rating pre-prompt, never asks for notification permission, and its Sepia only tints the preview."
+}

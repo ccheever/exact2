@@ -5,7 +5,8 @@
 // web) with `openAuthSession`, and its answer exchanges the code.
 //
 // Passkeys (LLP 1133.011 §10) against the same server's relying party: a
-// button registers one, another signs in with one, and while the sign-in
+// button registers one, another signs in with one, a third has the server
+// forget the one signed in with (drive 9's signal), and while the sign-in
 // screen shows, a conditional `get` offers them in the username field's
 // suggestions. Each ceremony is data code's (`app.ts`); the view reads only
 // what the server answered.
@@ -65,6 +66,8 @@ component AuthFixture
   action signInPasskey
     send passkey = signInWithPasskey()
     send suggested = passkeyIdle()
+  action forget
+    send passkey = forgetPasskey()
   action suggest
     send suggested = suggestPasskey()
   action check
@@ -87,6 +90,9 @@ component AuthFixture
         if not session.signedIn
           button press=signInPasskey disabled=pending(passkey) testId="sign-in-passkey"
             text "Sign in with a passkey"
+        if session.signedIn
+          button press=forget disabled=pending(passkey) testId="forget-passkey"
+            text "Forget this passkey"
       match passkey
         case some(p)
           text p.message testId="passkey" font-size=14

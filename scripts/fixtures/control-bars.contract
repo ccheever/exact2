@@ -2,7 +2,9 @@
 // `board`: an inline title, a segmented switcher, cards; `chat`: an inline
 // title, a transcript, a composer; `caption`: a caption between the bar and
 // the cards (no bar); `painted`: a switcher row the author painted (no bar);
-// `large`: a large title over the switcher (no band). The buttons that pick
+// `large`: a large title over the switcher (no band); `filled`: a transcript
+// in a box over a composer its author filled (no bar; the top still under the
+// bar, bake-off r28's chat). The buttons that pick
 // a shape are placed absolutely, out of flow, so they are nobody's bar.
 // `thread` is pushed: the chat recipe's virtualized transcript over a composer,
 // shown when its messages arrive while the push runs, as a fetched thread's are.
@@ -63,10 +65,18 @@ component ControlBars
               row testId="filter" margin="8px 16px" background-color="-exact-secondary-grouped-background"
                 button press=show("all") testId="filter-all" flex=1
                   text "All"
-            scroll testId="list" flex=1 min-height=0
-              text "list top" testId="list-top" padding=16
-              for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] key=i
-                text `Card ${i}: a task on the board` padding=16 border-bottom="1px solid -exact-separator"
+            if shape == "filled"
+              column flex=1 min-height=0
+                scroll testId="wrapped" flex=1 min-height=0
+                  for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] key=i
+                    text `Message ${i}` padding=16
+              row testId="filled-composer" padding="6px 12px" background-color="-exact-background"
+                textarea value=draft input=edit rows=1 placeholder="Message" aria-label="Message" flex=1 min-width=0
+            else
+              scroll testId="list" flex=1 min-height=0
+                text "list top" testId="list-top" padding=16
+                for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] key=i
+                  text `Card ${i}: a task on the board` padding=16 border-bottom="1px solid -exact-separator"
             if shape == "chat"
               row testId="composer" align-items="flex-end" margin="6px 12px" padding="4px 4px 4px 12px" border-radius=20 border="1px solid -exact-separator"
                 textarea value=draft input=edit rows=1 placeholder="Message" aria-label="Message" testId="field" flex=1 min-width=0 border="none" background-color="transparent"
@@ -83,5 +93,7 @@ component ControlBars
                 text "painted"
               button press=pick("large") testId="pick-large"
                 text "large"
+              button press=pick("filled") testId="pick-filled"
+                text "filled"
               button press=open testId="pick-thread"
                 text "thread"

@@ -190,6 +190,9 @@ pub struct Request {
     /// is held (a stream already stops counting at its first message).
     /// Set by TypeScript's `fetch(url, {exactHeld: true})` and [`Request::held`].
     pub held: bool,
+    /// Who asked it, for the check at each fetch hop and WebSocket open
+    /// (LLP 1133.036 D6). The runner stamps it when the request goes out.
+    pub reach: crate::local_network::Reach,
 }
 
 /// The event of a long poll's message that is a reply but no event (LLP
@@ -299,6 +302,7 @@ impl Request {
             body_to: None,
             redirect: Redirect::Follow,
             held: false,
+            reach: Default::default(),
         }
     }
 
@@ -359,6 +363,7 @@ impl Request {
             body_to: None,
             redirect: Redirect::Follow,
             held: false,
+            reach: Default::default(),
         }
     }
 
@@ -383,6 +388,7 @@ impl Request {
             body_to: None,
             redirect: Redirect::Follow,
             held: false,
+            reach: Default::default(),
         }
     }
 

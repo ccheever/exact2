@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Mine are blue on the right and Sam's grey on the left, oldest first. Centred day headings ('Wed, Jul 1', 'Sunday', 'Today') appear where the day changes. Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send adds the bubble at the bottom and clears the composer. Send is disabled when the field is empty or holds only spaces. Sending while scrolled far up returns to the bottom."},
+      {"n": 3, "status": "pass", "note": "The composer rides above the keyboard and the newest messages stay visible. Dragging down or tapping the thread dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "A 'Sam is typing…' bubble appears, then '👍' or a canned reply (e.g. 'Haha, nice') about 2 s later. Two quick sends get two replies."},
+      {"n": 5, "status": "pass", "note": "Long press opens the system context menu with Copy and Delete. Copy pastes correctly. Delete removes the message and stays deleted after relaunch."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches message 1 with no blank rows. A round jump-to-newest button appears when far up and works."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The empty composer is an oversized two-line box (about 66 pt tall) with a small send button tucked in its bottom-right corner. It does not look like the single-line capsule of Messages.",
+      "In the long-press menu, the lifted preview of a grey bubble turns white, losing its bubble colour.",
+      "A message that is only an emoji ('👍') is drawn as a small coloured bubble instead of a large bare emoji as in Messages.",
+      "Day headings show only the date, never the time; Messages shows both.",
+      "The nav bar is a plain 'Sam' title with no avatar and no typing status.",
+      "The typing indicator is an italic text bubble ('Sam is typing…'), not animated dots."
+    ],
+    "scroll": "Slow drags and hard flings both feel native, with no blank rows, pop-in or jumps, and it reaches the first message cleanly. Content blurs under the bar at the top.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Mine are blue on the right and Sam's grey on the left, with tailed corners. Day headings show the date and time ('Wed, Jul 1  3:20 AM', 'Today 6:45 PM'). Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send adds the bubble at the bottom and clears the field. Send is disabled when the field is empty or holds only spaces. Sending while scrolled far up returns to the bottom."},
+      {"n": 3, "status": "pass", "note": "The composer stays above the keyboard and the newest messages stay visible. Dragging the thread down dismisses the keyboard interactively; tapping the thread does not."},
+      {"n": 4, "status": "pass", "note": "Animated typing dots with 'Sam is typing…' below them, and 'typing…' under Sam's name in the nav bar. A canned reply arrives about 2 s later. Two quick sends get two replies."},
+      {"n": 5, "status": "pass", "note": "Long press opens the system context menu with Copy and Delete, and the preview keeps the bubble's look. Copy pastes correctly. Delete removes the message and stays deleted after relaunch."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches message 1 with no blank rows. A round scroll-to-newest button appears when far up and works."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive relaunch."}
+    ],
+    "bugs": [
+      "At launch, the newest history message is drawn on screen but missing from the accessibility tree (VoiceOver would not reach it until scrolling)."
+    ],
+    "tells": [
+      "At the largest text size, the arrow in the send button grows larger than its circle and spills over the edge.",
+      "Tapping the thread does not dismiss the keyboard; only dragging does.",
+      "The send button is a separate grey circle beside the field, not inside it as in Messages. This is minor."
+    ],
+    "scroll": "Native feel: smooth slow drags, and flings that land with no blank rows or pop-in, all the way to the first message. Pulling past the top and returning behave normally.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and scroll equally well. B feels more like Messages: animated typing dots and a 'typing…' subtitle under Sam's name, an avatar in the nav bar, large bare emoji, day headings with times, a single-line capsule composer, and long-press previews that keep the bubble's look. A's oversized empty composer, white previews and plain styling read more hand-built, though B's send arrow overflows its circle at the largest text size."
+}

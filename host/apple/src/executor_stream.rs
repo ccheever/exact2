@@ -68,7 +68,7 @@ pub(super) fn run(
         };
         let bindings = admitted.and_then(|g| {
             ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&g))
-                .map(|g| host().endow(g))
+                .map(|g| super::reach::gate_bindings(host().endow(g), request.reach))
                 .map_err(|e| format!("the app's grants did not parse: {e}"))
         });
         match bindings {

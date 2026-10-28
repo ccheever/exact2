@@ -335,6 +335,7 @@ impl<D: DataSource> Presenter<D> {
             self.collection.data_ready();
             self.queue_collections();
         }
+        self.land_cold_share();
         if let Some(u) = self.updates.as_mut() {
             u.boot_succeeded();
         }

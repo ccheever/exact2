@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed with author, handle and relative time ('16m ago'). Text shows in full, images are full width at their own aspect ratio with rounded corners, and carousels are horizontal rows of image+title cards with a '9 photos' header that snap card by card."},
+      {"n": 2, "status": "pass", "note": "The heart toggles to a filled red heart and the count changes 872→873→872. The reply count is shown with a bubble icon."},
+      {"n": 3, "status": "pass", "note": "Tapping the text opens a 'Post' screen with the image and a full timestamp. The image is only marginally larger (378 vs 362 pt). Tapping a feed or carousel image opens a black full-screen viewer that closes on a swipe down; the X button also closes it."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds 3 made-up text posts at the top and shows a '3 new moments' toast. They persist across relaunch."},
+      {"n": 5, "status": "pass", "note": "The compose button opens a sheet with a placeholder. Post stays disabled for empty or whitespace-only text. A new post appears at the top as 'You @you'."},
+      {"n": 6, "status": "pass", "note": "A like, the composed post and refreshed posts all survive relaunch."}
+    ],
+    "bugs": [
+      "The '3 new moments' toast after a refresh is drawn on top of the 'A little closer.' header text, so the two overlap while it shows."
+    ],
+    "tells": [
+      "Heavily custom editorial theme: cream background, serif 'Feed' inline title, a logo glyph and an 'A little closer. / Everyday moments, shared. / LATEST' hero header, instead of a system large title.",
+      "The navigation bar is an opaque solid strip that clips content, not the system scroll-edge blur or material.",
+      "Each post has a small '↗' arrow affordance, which looks like a web card.",
+      "At the largest text size the heart icon stays tiny while its count and the reply bubble grow huge, so the action row is mismatched.",
+      "Pastel avatar circles keep their light-mode colours in dark mode.",
+      "Carousels are clipped at the content margins instead of bleeding to the screen edge.",
+      "A custom toast is used for refresh feedback.",
+      "The detail screen's image is hardly larger than in the feed."
+    ],
+    "scroll": "Smooth through 400 posts. Fast flings show no blank rows or images popping in, scroll position is kept after opening a post and coming back, and the carousels page cleanly. The scroll-bar page estimate shifts as rows are measured, but there is no visible jump.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed with author, handle and relative time ('· 16m'). Text shows in full, images are full width at their own aspect ratio with rounded corners, and carousels are horizontal rows of rounded image cards with titles below that bleed to the screen edge and scroll freely."},
+      {"n": 2, "status": "pass", "note": "Like toggles (872→873→872) and is exposed to accessibility as a toggle with a 'Like/Unlike' state. The reply count is shown."},
+      {"n": 3, "status": "pass", "note": "Tapping the text opens a 'Post' screen where the image goes edge to edge, which is somewhat larger. Tapping an image or carousel card opens a black full-screen viewer with a title; a swipe down or the X button closes it."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh (and a toolbar refresh button) adds 3 made-up posts at the top. They persist."},
+      {"n": 5, "status": "pass", "note": "The compose button opens a sheet with a 'New Post' title, Cancel and a blue Post button that stays disabled for empty or whitespace-only text. The new post appears at the top as 'You @you'."},
+      {"n": 6, "status": "pass", "note": "A like, the composed post and refreshed posts all survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The redundant refresh button in the navigation bar duplicates pull to refresh.",
+      "The detail image runs edge to edge but keeps rounded corners against the screen edges.",
+      "In dark mode the disabled Post button looks almost the same as an enabled one, and the text caret is dark blue on near-black (hard to see).",
+      "At the largest text size the avatar grows to about 140 pt and squeezes the name into a narrow column ('Maya / Chen'), though nothing truncates.",
+      "Mostly stock: system large title that collapses into an inline title over the glass bar blur, plain separators, system sheet and keyboard."
+    ],
+    "scroll": "Smooth through 400 posts. Fast flings render images immediately with no blank rows, the large title collapses natively under a blurred bar, and scroll position is kept when returning from a post. The carousels scroll freely without snapping.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and persist correctly, and both scroll smoothly through 400 posts. B looks and behaves like a stock iOS app: native large title collapsing under the glass bar, a system sheet, and carousels that bleed to the edge. A is a handsome but bespoke editorial design whose opaque bar, hero header, web-like arrows, toast overlapping the header and non-scaling heart icon give it away as custom."
+}

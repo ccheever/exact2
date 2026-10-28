@@ -364,10 +364,13 @@ pub const DEVICES: &[Device] = &[
         keeps_no_answers: true,
         ..ROW
     },
-    // Local network privacy (TN3179): macOS 15 and iOS 14 ask before the app
-    // first reaches a LAN address, and show this text. Deviation: the web's
-    // Local Network Access prompt is the browser's own, and Android asks
-    // for nothing, so the row writes Apple keys only.
+    // @ref LLP 1133.036 D7 — local network privacy (TN3179): macOS 15 and
+    // iOS 14 ask before the app first browses or reaches a LAN address, and
+    // show this text. The `net.dns-sd` and `local-network` lines it requires
+    // derive `NSBonjourServices`, `NSAllowsLocalNetworking` and Android's
+    // multicast permission (`bake/src/reach.rs`). Deviation: the web's Local
+    // Network Access prompt is the browser's own, and Android asks nothing
+    // until the host targets API 37, so the row writes Apple keys only.
     Device {
         name: "local-network",
         ios: &["NSLocalNetworkUsageDescription"],

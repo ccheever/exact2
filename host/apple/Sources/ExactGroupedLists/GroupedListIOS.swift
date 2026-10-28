@@ -456,6 +456,8 @@ final class GroupedListHost: GroupedLists {
         lists.values.first { $0.collection === scroll }?.projectedRect(for: node)
     }
 
+    func measure(toward node: NodeView, in scroll: UIScrollView) { lists.values.first { $0.collection === scroll }?.measure(toward: node) }
+
     func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)] {
         lists[id]?.scrollAnchors() ?? []
     }
@@ -473,8 +475,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     unowned let host: GroupedListHost
     let collection: UICollectionView
     private(set) var model = GroupedListModel()
-    private var source: GroupedSource!
-    private var rows: [UInt32: GroupedListModel.Row] = [:]
+    private(set) var source: GroupedSource!
+    private(set) var rows: [UInt32: GroupedListModel.Row] = [:]
     /// Some row is custom: its views, carried, are laid out by the kernel.
     private(set) var carriesCustomRows = false
     /// Each row's symbol tint as last configured.
@@ -489,7 +491,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     #if !os(tvOS)
     private var switches: [UInt32: UISwitch] = [:]
     #endif
-    /// Custom rows: the parent the presenter put each in, to give it back.
+    /// `measure` is moving the list: nothing it passes is the reader's scroll.
+    var measuring = false
+    /// Custom rows: the parent the presenter put each in, to give it back, and its authored inertness there.
     var carried: [UInt32: (parent: UIView, frame: CGRect, inert: Bool)] = [:]
     /// Each parent rows are carried from, the order of its children (`noteHome`).
     var homes: [ObjectIdentifier: [UInt32]] = [:]
@@ -731,14 +735,14 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         snapshot.reconfigureItems(changed.filter { $0 != flipping })
         #if os(iOS)
-        // Sections each headed by one letter (Contacts' A to Z) have UIKit's
-        // section index at the trailing edge, as a hand-built list of them
-        // does (`indexTitles(for:)`); a jump lands on a section's first row.
-        let lettered = next.sections.allSatisfy { s in s.header.map { $0.count == 1 && ($0.first!.isLetter || $0 == "#") } == true }
-        source.titles = lettered ? Dictionary(next.sections.map { ($0.view, $0.header!) }, uniquingKeysWith: { a, _ in a }) : [:]
+        // Sections each headed by one letter (Contacts' A to Z) have UIKit's section index at the trailing edge, as a
+        // hand-built list of them does (`indexTitles(for:)`); a jump lands on a section's first row. Sections above
+        // the letters (Favorites) are left out of it.
+        let letter = { (s: GroupedListModel.Section) in s.header.map { $0.count == 1 && ($0.first!.isLetter || $0 == "#") } == true }
+        let letters = next.sections.drop { !letter($0) }
+        source.titles = letters.allSatisfy(letter) ? Dictionary(letters.map { ($0.view, $0.header!) }, uniquingKeysWith: { a, _ in a }) : [:]
         #endif
-        // Headers and footers live in the sections' layout: one that came,
-        // went or changed lays the list out again.
+        // Headers and footers live in the sections' layout: one that came, went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
             || previous.sections.map { [$0.headerLook, $0.footerLook] } != next.sections.map { [$0.headerLook, $0.footerLook] }
             || !recarded.isEmpty // separators are the section layout's
@@ -1265,8 +1269,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let other as NodeView in cell.contentView.subviews where other !== row { sendHome(other) }
         if carried[id] == nil, let parent = row.superview {
             noteHome(parent)
-            // Its inertness is its authored ancestors', which a cell is not.
-            carried[id] = (parent, row.frame, row.inert)
+            // Its inertness is its authored ancestors', which a cell is not; a presentation's is read when a touch lands (`pressable`).
+            carried[id] = (parent, row.frame, row.authoredInert)
         }
         guard let place = carried[id] else { return }
         look(id, row: row)
@@ -1330,7 +1334,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         collection.removeFromSuperview()
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { owner.scrollViewDidScroll(scrollView) }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { if !measuring { owner.scrollViewDidScroll(scrollView) } }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { owner.scrollViewWillBeginDragging(scrollView) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         owner.scrollViewDidEndDragging(scrollView, willDecelerate: decelerate)
@@ -1366,7 +1370,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// disabled, not inert (its node or an ancestor, the section included).
     private func pressable(_ id: UInt32) -> Bool {
         guard let row = rows[id], row.pressable || radio(row) != nil, !row.disabled, let node = host.presenter.views[id] else { return false }
-        return !(carried[id]?.inert ?? node.inert)
+        return !(carried[id]?.inert ?? false) && !node.inert
     }
     /// The radio a row's tap checks, unless it is disabled or inert.
     private func radio(_ row: GroupedListModel.Row) -> UInt32? {
@@ -1385,11 +1389,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             || node?.props["accessibilitySelected"] == "true" || current { cell.accessibilityTraits.insert(.selected) }
     }
 
-    /// An inert row's cell takes no touch and is no element, as its node.
+    /// An inert row's cell takes no touch and is no element, as its node: by an authored `inert` only. A cell keeps what it was configured with
+    /// until a batch changes its row, and a row inserted while a sheet is up (an expense its form saves) is configured under the sheet, which keeps touches and VoiceOver off the list by itself.
     private func interact(_ cell: UICollectionViewCell, _ id: UInt32) {
         assign(cell, \.accessibilityIdentifier, host.presenter.views[id]?.props["testId"])
         if let row = rows[id], !row.custom { accessibility(cell, id, row) }
-        let inert = carried[id]?.inert ?? host.presenter.views[id]?.inert ?? false
+        let inert = carried[id]?.inert ?? host.presenter.views[id]?.authoredInert ?? false
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
         let node = host.presenter.views[id]
@@ -1471,19 +1476,23 @@ final class GroupedCollectionView: UICollectionView, GroupedScroller {
     }
 }
 
-/// The list's data, and its section index: each section's title, read
-/// against the sections UIKit has, which it asks about before and after a
-/// snapshot is applied. No index unless every section has a title and a row.
+/// The list's data, and its section index: each lettered section's title, read against the sections UIKit has, which it
+/// asks about before and after a snapshot is applied. No index unless every section from the first with a title on has
+/// one, and every section has a row.
 final class GroupedSource: UICollectionViewDiffableDataSource<UInt32, UInt32> {
     var titles: [UInt32: String] = [:]
+    /// How many sections stand above the first titled one.
+    private func lead(_ shown: NSDiffableDataSourceSnapshot<UInt32, UInt32>) -> Int {
+        shown.sectionIdentifiers.firstIndex { titles[$0] != nil } ?? shown.numberOfSections
+    }
     override func indexTitles(for collectionView: UICollectionView) -> [String]? {
-        let shown = snapshot()
-        let all = shown.sectionIdentifiers.compactMap { titles[$0] }
+        let shown = snapshot(), lead = lead(shown)
+        let all = shown.sectionIdentifiers.dropFirst(lead).compactMap { titles[$0] }
         let full = shown.sectionIdentifiers.allSatisfy { shown.numberOfItems(inSection: $0) > 0 }
-        return all.count > 1 && all.count == shown.numberOfSections && full ? all : nil
+        return all.count > 1 && all.count == shown.numberOfSections - lead && full ? all : nil
     }
     override func collectionView(_ collectionView: UICollectionView, indexPathForIndexTitle title: String, at index: Int) -> IndexPath {
-        IndexPath(item: 0, section: index)
+        IndexPath(item: 0, section: lead(snapshot()) + index)
     }
 }
 

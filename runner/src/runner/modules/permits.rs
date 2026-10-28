@@ -269,8 +269,10 @@ impl<D: DataSource> Runner<D> {
             // A request that answers the status answers a denial with it.
             let fails = self.denial_fails(&sub, &args) && !(send && sub["deniedAnswers"] == true);
             // `unknown` (an answer the platform hides, `keyed.rs`) admits as
-            // `granted` does.
-            let admits = state == "granted" || state == "unknown";
+            // `granted` does, except where the host keeps the fact and
+            // `unknown` means a reach may ask (`network.rs`).
+            let host_fact = self.permission_named(&row, name)["fact"] == "host";
+            let admits = state == "granted" || state == "unknown" && !host_fact;
             match (state, waits) {
                 ("granted" | "unknown" | "denied", Waits::Permission) if admits || !fails => {
                     self.retire_hold(hold);

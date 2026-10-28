@@ -37,7 +37,7 @@ import { parseDrag, dragArguments, dragTap, duringAllowed, duringOp, heldDown, h
 import { peekLogs, takeWorldLogs, driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
 import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp, postCommand, postInto } from './agent-keys.mjs';
 import { jsonLines, hangup, waitAtMost, bootRefusal, simulatorConsole, REPLY_MS, AWAY } from './agent-wire.mjs';
-import { openStdio } from './agent-stdio.mjs';
+import { openStdio } from './agent-stdio.mjs'; import { appShareTarget, driverShare, webShareLocation } from './share-target.mjs';
 import { heldClock, inFlightNote, untilClock } from './agent-held.mjs';
 export { jsonLines, hangup };
 export { MalformedOperation, resizeArguments, postCommand, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
@@ -63,6 +63,9 @@ export async function assertWebDistApp(dist, app) {
 const openWeb = async options => (await import('./agent-launch.mjs')).exclusiveWebStore(options, () => openWebUnlocked(options));
 async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env, mediaClock = 'wall', lineHeight = null, port: fixed = null }) {
   env = { ...process.env, ...env };
+  // A launch location (`--url /share?text=hi`, LLP 1038 D5) is a path on the page this carrier serves.
+  const location = pageURL?.startsWith('/') ? pageURL : null; if (location) pageURL = undefined;
+  if (location && browser !== 'chrome') throw new Error(`--url ${location}: a launch location on the web is Chrome's drive`);
   if (!pageURL) await (await import('./agent-test.mjs')).backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   if (browser !== 'chrome') {
     const { openPlaywrightWeb } = await import('./agent-playwright.mjs');
@@ -231,7 +234,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     }
     // The page: this carrier's own server over dist/, or a URL the caller
     // named — the dev server, so a drive can watch an edit arrive.
-    const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
+    const page = pageURL ? new URL(pageURL) : new URL(location ?? '/', `http://127.0.0.1:${port}/`);
     page.searchParams.set('agent', '1');
     for (const [key, value] of Object.entries(facts)) page.searchParams.set(key, value);
     if (storage !== undefined) page.searchParams.set('storage', storage); if ((env?.EXACT_HATCHES ?? process.env.EXACT_HATCHES) === 'off') page.searchParams.set('hatches', 'off'); // the second: LLP 1075.003.000.001 §2.6
@@ -714,6 +717,12 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     if (!m) throw new Error(`size: [width, height] or "<width>x<height>", not ${JSON.stringify(size)}`);
     size = [Number(m[1]), Number(m[2])];
   }
+  // @ref LLP 1133.024 D9 — a cold share: the web's location, or the native host's claim before its boot.
+  if (url?.startsWith('share:')) {
+    const target = appShareTarget(app), share = driverShare(url, process.cwd());
+    if (host === 'web') url = webShareLocation(target, share);
+    else { env = { ...(env ?? {}), EXACT_AGENT_SHARE: JSON.stringify({ target, share }) }; url = undefined; }
+  }
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'android', 'windows', 'host', 'host-ios'].includes(host)) {
     // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
     // HTTP(S) keeps the existing development-plan locator form.
@@ -1021,6 +1030,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async type(target, text) {
       if (text?.message !== undefined) return postInto(s, target, text.message, { host, timing }); // `type <surface> message <text>`, `post` (LLP 1139.004 D1)
       if (holdOf(target)) { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); return s.answer('type', target, typeof text === 'object' && text !== null ? JSON.stringify(text) : text); }
+      if (typeof text === 'string' && text.startsWith('share:')) return s.share(target, text);
       const options = typeof text === 'object' && text !== null ? text : { text };
       if (/^Gamepad/.test(options.key ?? '')) return padOp({ op: 'type', s, target, opts: options, host, timing }); // a pad button on a world canvas (LLP 1127.003 D3)
       keyArguments(options); if (options.key != null) await validateKey(options.key, carrier);
@@ -1034,6 +1044,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const scrolled = node.depth === 0 ? null : await s.reveal(node.id);
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, options.clipboard ? 'clipboard' : 'type', { ...options, text: String(options.text ?? '') });
       return s.landed({ ...r, typed: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
+    },
+    /** A share another app sends (LLP 1133.024 D9): `type <root> "share:?text=…&files=<path>"`, handed with the app's `share_target` to the host's claim path; the web takes its text as its GET share target's location. */
+    async share(target, href) {
+      const shareTarget = appShareTarget(app), share = driverShare(href, process.cwd());
+      if (host === 'web') return s.type(target, webShareLocation(shareTarget, share));
+      const node = await s.find(target);
+      return s.landed({ ...(await s.op({ op: 'share', id: node.id, target: shareTarget, share })), carrier: host, mode: timing });
     },
     /** Answer held device request `@N` (LLP 1069.007 D4), resolved before any view: `tap @N <choice>` (`cancel`, or a choice the capability declares) or `type @N <value>` (a fixture path, a URL, JSON). `@<id>` names the hold by the node its answer arrives at (a picker's `id`) or by its capability (`@open-directory`, `@pick`), whatever its ticket (files F11). The hold is consumed once; a stale ticket is refused by name. The reply says `delivery: "substituted"`. */
     async answer(op, target, value) {

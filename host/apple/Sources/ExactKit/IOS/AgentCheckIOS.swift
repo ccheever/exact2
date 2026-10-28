@@ -478,6 +478,14 @@ extension Agent {
                 if let n = cur as? NodeView { item["of"] = Int(n.id); break }
                 up = cur.superview
             }
+            // A list's section header, which a plain list pins over its rows as they scroll under it, on UIKit's
+            // own edge effect: a row meeting it is not running into it (contacts at the largest text size, bake-off r28).
+            var list: UIView? = label.superview
+            while let l = list, !(l is UICollectionView) { list = l.superview }
+            if let list = list as? UICollectionView,
+               list.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).contains(where: { label.isDescendant(of: $0) }) {
+                item["pinned"] = true
+            }
             items.append(item)
         }
 
