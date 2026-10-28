@@ -2586,18 +2586,27 @@ Syntax is only the first layer. In particular:
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
   different literals, are separate paths (LLP 1088 D8). The walk reads the root's
   actions with every call expanded, where a caller and its callees are one commit.
-- Behind a call, a read of a state, mutation or router slot that another frame
-  (the action's own body, or another call) assigned earlier on the same path is
-  `analyze-call-stale-read` (LLP 1089 D3): the reader would see the starting
-  value, and neither body shows it. Pass the value as an argument, from a `let`
-  bound before the write for the old value or the assigned expression for the
-  new one. A derive, a resource and `pending(m)` read settled values and are not
-  refused; the same walk's exclusive paths are separate. The same read in the
-  frame that assigned the slot is the warning `analyze-read-after-assign`
-  (LLP 1116.003 D6), unless the paths that assigned it exclude the read or decide
-  the condition it is in (`if phase == 1` … `phase = 2`, then `if phase == 2`),
-  or a record copy left the field it reads unchanged (`s = S(s, f=…)`, then `s.g`).
-  `pending`/`failed` operate on declarations, not arbitrary values.
+- A read of a state or mutation slot that the action assigned earlier on the
+  same path sees the starting value, since writes land when the action ends: it
+  is the warning `analyze-read-after-assign` (LLP 1116.003 D6; LLP 1035.005.002
+  C2), in the action's own body or behind a call (the action's body, or another
+  call, assigned it; LLP 1089 D3), one rule at one severity. The message names
+  the repair: bind the value, `let next = …`, assign `next`, read or pass `next`;
+  a `let` bound before the write keeps the old value. Not named: a read on a
+  path exclusive with the assignment's, a condition the assignment's path
+  decides (`if phase == 1` … `phase = 2`, then `if phase == 2`), and a field a
+  record copy left unchanged (`s = S(s, f=…)`, then `s.g`). A derive, a resource
+  and `pending(m)` read settled values. In 1,029 bake-off builds the body's read
+  was met in 86 and the call's in 2, which is why the call's is no longer a
+  refusal. `pending`/`failed` operate on declarations, not arbitrary values.
+- An action that both sends a nonqueued mutation and assigns it on one path, in
+  either order and through calls, is warned of (`analyze-send-assigned`, LLP
+  1035.005.002 C1): a send is asked when the action runs; once the writes land,
+  a request still in flight for a mutation the action assigned is forgotten and
+  its reply dropped, and the slot keeps the assigned value (LLP 1016 D5). The
+  message names the three intents' spellings; a `queue` mutation's assignment
+  drops no queued work (LLP 1092 D4) and is not named. No bake-off build wrote
+  the combination; Weird Castle's logout means it.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.
 - Scrollers need bounds; virtualized lists have specific axis, template, and

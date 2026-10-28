@@ -170,7 +170,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     width::text_px_width(&root.view, &checked.file.styles, lowered, &mut out);
     svg::use_foreign_object(&root.view, &mut out);
     out.extend(
-        contract_analyze::read_after_assign(checked)
+        contract_analyze::warnings(checked)
             .into_iter()
             .map(|e| LowerError {
                 id: e.id,

@@ -594,7 +594,7 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `` text `${n} cards` `` | `lower-count-plural` (warning) | `` `${n} ${n == 1 ? "card" : "cards"}` `` |
 | `0% rotate=-2deg` in `keyframes` | `syntax-unquoted-length` | `0% rotate="-2deg"`, each keyframe on one line |
 | `tags.find(t => …)` | `syntax-method-call` | `first(tags.filter(t => …))`; in each row of a list, `lower-row-lookup` (warning): join it in the data module |
-| a helper action reading state its caller just set | `analyze-call-stale-read` | `let next = …` in the caller, `n = next`, pass `next` |
+| a helper action reading state its caller just set | `analyze-read-after-assign` (warning) | `let next = …` in the caller, `n = next`, pass `next` |
 | `width=120` on a box of text | `lower-text-px-width` (warning) | `width="7.5rem"`, or let the content size it |
 | `numberOfLines`, `ellipsizeMode`, `resizeMode`, `textTransform`, `fontVariant` | `lower-unknown-attr` | `line-clamp`, `text-overflow`, `object-fit`, `text-transform`, `font-variant-numeric` |
 | `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
@@ -871,12 +871,13 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
   is its callee's statements in the caller's one commit, and every statement
-  reads the state the action started with (LLP 1089 D2). The compiler refuses the
-  read (`analyze-call-stale-read`), naming both lines. Fix: pass the value the
-  helper should see, `follow(next)`, or a `let` bound before the assignment for
-  the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
-  the workaround.) In the action's own body the same read is a warning,
-  `analyze-read-after-assign`: `now = performanceNow()` then `if now >= endsAt`
+  reads the state the action started with (LLP 1089 D2). The compiler warns of
+  the read (`analyze-read-after-assign`, naming both lines; a warning since LLP
+  1035.005.002 C2, as the same read in the action's own body is). Fix: pass the
+  value the helper should see, `follow(next)`, or a `let` bound before the
+  assignment for the old one. (Spreadsheet F21 and Files F27 diaries, where a
+  copied block was the workaround.) In the action's own body the same read is
+  the same warning: `now = performanceNow()` then `if now >= endsAt`
   tests the last tick's time (focus-timer's phases changed 250 ms late in two
   bake-off rounds). Fix: `let stamp = performanceNow()`, `now = stamp`, and read
   `stamp`.

@@ -1068,21 +1068,6 @@ component Child
     button press=go
       text "a"
 ---
-== analyze-call-stale-read
-# A callee reads the state the action started with: a slot its caller
-# assigned first is stale behind the call (LLP 1089 D3).
-component A
-  state sel = 0
-  state seen = 0
-  action follow
-    seen = sel
-  action go
-    sel = 2
-    follow()
-  view
-    button press=go
-      text "a"
----
 == type-share-argument
 # `share` takes the Web Share API's names, named (LLP 1069.003 D1).
 component A

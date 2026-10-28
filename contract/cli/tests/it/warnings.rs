@@ -581,6 +581,54 @@ fn a_field_the_copy_left_alone_is_not_named() {
     assert_eq!(warned(src), [(REREAD.to_string(), 13)]);
 }
 
+const SEND_ASSIGNED: &str = "analyze-send-assigned";
+
+#[test]
+fn a_send_and_an_assignment_of_one_mutation_on_one_path_is_named_once_in_either_order() {
+    // LLP 1035.005.002 C1: no bake-off build wrote it; Weird Castle's
+    // logout (send, then `session = none`) means it. A warning, with what the
+    // runner does and the three intents' spellings.
+    let after = go("send saved = keep(count)\nsaved = none");
+    assert_eq!(warned(&after), [(SEND_ASSIGNED.to_string(), 11)]);
+    let (_, warnings) = contract::compile_warned(&after);
+    assert_eq!(
+        warnings[0].message,
+        "`go` both sends `saved` and assigns it on one path: it sends in `go` at line 10 and assigns in `go` at line 11. A send is asked when the action runs; once the writes land, a request still in flight for a mutation the action assigned is forgotten and its reply dropped, and `saved` keeps the assigned value (LLP 1016 D5), whichever line comes first. To clear an old result before a retry, keep the send and hide the result while `pending(saved)`; to sign out, forget the sign-in mutation here and send the logout through a mutation of its own; to dismiss an answer, assign alone"
+    );
+    // The reset written first drops the new request just the same.
+    let before = go("saved = none\nsend saved = keep(count)");
+    assert_eq!(warned(&before), [(SEND_ASSIGNED.to_string(), 11)]);
+    // Through a call, the calls are named; once a mutation an action.
+    let called = "shape Ack\n  ok: bool\ncomponent App\n  mutation saved as shape Ack\n  state count = 0\n  action clear\n    saved = none\n  action go\n    send saved = keep(count)\n    clear()\n    saved = none\n  view\n    button \"go\" press=go\n";
+    assert_eq!(warned(called), [(SEND_ASSIGNED.to_string(), 7)]);
+    assert!(
+        contract::compile_warned(called).1[0]
+            .message
+            .starts_with("`go` both sends `saved` and assigns it on one path: it sends in `go` at line 9 and assigns in `clear` (called at line 10)."),
+    );
+}
+
+#[test]
+fn exclusive_arms_and_a_queue_send_beside_an_assignment_are_not_named() {
+    for (case, body) in [
+        (
+            "arms",
+            "if mode == \"a\"\n  send saved = keep(count)\nelse\n  saved = none",
+        ),
+        (
+            "exclusive literals",
+            "if mode == \"a\"\n  send saved = keep(count)\nif mode == \"b\"\n  saved = none",
+        ),
+        ("the assignment alone", "saved = none"),
+    ] {
+        assert_eq!(warned(&go(body)), [], "{case}");
+    }
+    // A queue's assignment clears the displayed answer and drops no queued
+    // work (LLP 1092 D4): nothing to say.
+    let queued = "shape Ack\n  ok: bool\ncomponent App\n  mutation saved as shape Ack queue\n  state count = 0\n  action go\n    send saved = keep(count)\n    saved = none\n  view\n    button \"go\" press=go\n";
+    assert_eq!(warned(queued), []);
+}
+
 const UNLABELLED: &str = "lower-button-unlabelled";
 
 /// One screen of buttons, its view's lines at 6 on, with a `Pill`
