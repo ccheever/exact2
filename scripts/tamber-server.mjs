@@ -147,12 +147,12 @@ function spawnContract(appDir) {
  * design it serves now (a live edit's) as `{digest, source}`, `source` the
  * SHA-256 of the design file it was made from, or null for the plan's own.
  * `pairTtlMs` is a paired token's lifetime (`--pair-ttl`), `clock` the
- * pairing's time (tests), `remote()` the run's open remote doors (stage 10
+ * pairing's time (tests), `watchDir` fs.watch (tests), `remote()` the run's open remote doors (stage 10
  * B's `list()`), shown with each pairing code. The returned `pairing` is the
  * run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`); `canvas(pairing)`
  * makes that gateway (scripts/tamber-canvas.mjs; null for none), which
  * `canvas` answers once its port is open (`openCanvas`). */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = pairing => canvasGateway({ pairing }), importLimits }) {
+export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = watch, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = pairing => canvasGateway({ pairing }), importLimits }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -422,8 +422,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const refresh = () => ask({ method: 'hello', paths: true }, { wait: first ? 0 : answerMs, done: read });
   // The app's directory (where a new design beside it appears) and the
   // design's, whatever the first read gave, and any other holding a file.
-  // A directory removed and made again is watched again (by its inode).
-  const watchAll = paths => {
+  // A directory removed and made again is watched again (by its inode), and
+  // read again once its watch is set: what landed in it between the read
+  // and the watch (a checkout filling it) has no event of its own.
+  const watchAll = (paths, fresh = true) => {
+    let added = false;
     // Each file's directory and every one between it and the app's, whose
     // names are holders too: a directory replaced (a checkout) is found by
     // its parent's event (a Contract source under `src/ui/`).
@@ -443,7 +446,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       watchers.delete(dir);
       if (ino === null) continue;
       try {
-        watchers.set(dir, { ino, watcher: watch(dir, (_, name) => {
+        watchers.set(dir, { ino, watcher: watchDir(dir, (_, name) => {
           // A design file, or one that may be: `.tamber`, the design's own
           // name (app.json may name any), a directory a design is in, or a
           // name the platform did not give; and the app's own Contract
@@ -452,8 +455,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
           if (n && !n.endsWith('.tamber') && !n.endsWith('.contract') && n !== design && !holders.has(n)) return;
           clearTimeout(timer); timer = setTimeout(rescan, settle);
         }) });
+        added = true;
       } catch (e) { log(`tamber: cannot watch ${dir}: ${e.message}`); }
     }
+    if (added && fresh) { clearTimeout(timer); timer = setTimeout(rescan, settle); }
   };
   // The directories that held a design file or a Contract source.
   const holding = new Set();
@@ -465,7 +470,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (writing) { again = true; return; }
     void refresh();
   };
-  watchAll([]);
+  watchAll([], false);
   const ready = refresh();
   // Paired clients (stage 10 A2, scripts/tamber-pairing.mjs). A burn or a
   // rate-limit hit is logged with its peer and told to the clients without
