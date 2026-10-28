@@ -489,7 +489,7 @@ component BlockBody
       // An image line draws through its media chip (media-views.ts markdownMediaChips).
       if chips.filter((c) => c.kind == "media" and c.href == block.href).length > 0
         for chip in chips.filter((c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
+          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`, label=chip.label, menu=chip.menu)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     // A quote reads in the prose's own ink beside a 2px bar of it at 35% (border-inline-start), on its start side.
@@ -698,7 +698,7 @@ component FlowRuns
         // link's favicon leads it when the image starts the link.
         if run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu)
         // With no media chip (a pull request's text) an image inside a link's text is the link's word, its alt text.
         if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0 and webLink(run.link)
           link href=run.link press=open(run.link) contextmenu=linkMenu(run.link) contextPopover="chat-link-menu" aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0 title=""
@@ -1390,7 +1390,7 @@ component CellRuns
           ContextChipBox(run=run)
         if not run.mono and run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`)
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`, label=chip.label, menu=chip.menu)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)
           text min-width=0 font-size="0.875rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=color
             FindParts(parts=run.findParts)

@@ -6,6 +6,7 @@ import { filesMediaView, markdownImageHref, markdownImages, markdownMedia, markd
 import { toasts } from '../../src/shell/toast';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const native: Native = { available: true, watch() {}, later: async () => ({}) };
 const fileImage: MediaActionSource = { kind: 'image', name: 'logo.png', src: 'http://127.0.0.1:3/api/assets/x/logo.png', reference: { kind: 'file', path: '/repo/screens/logo.png', relativePath: 'screens/logo.png' },
@@ -177,22 +178,38 @@ describe('media views', () => {
     await mediaLocal(client, native, 'image-error', image.url, 'HTTP 404');
     expect(await filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', '', 1000)).toMatchObject({ state: 'failed', failText: 'Unable to load workspace image.' });
   });
-  // FilePreviewPanel and MediaVideoPlayer at 7c3b3b3605ef (#23106): the file's revision rides on the URL, a re-signed URL
-  // keeps the loaded video, and a changed file loads once playback pauses.
-  test('Files: a video keeps its source across a re-sign, and takes a changed file once paused', async () => {
+  // FilePreviewPanel and MediaVideoPlayer at 7c3b3b3605ef (#23106): the file's revision rides on the URL, and a URL signed
+  // again for an unchanged file keeps the loaded video.
+  test('Files: a video keeps its URL while the file is unchanged, and takes a changed file\'s', async () => {
     let signature = 0, revision = 'r1';
     const { client } = fakeClient(() => ({}), { rpc: async () => ({ relativeUrl: `/api/assets/clip.mp4?sig=${++signature}`, fileRevision: revision }) });
     const view = (workspace: string) => filesMediaView(client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', workspace, 1000);
     const first = await view('w1');
     expect(first.url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=1&file-revision=r1');
-    // A command changed the workspace, not this file: it signs again, and the loaded source stays.
+    // A command changed the workspace, not this file: it signs again, and the loaded URL stays.
     expect((await view('w2')).url).toBe(first.url);
-    // The file changed while it plays: the source holds until playback pauses.
-    await mediaLocal(client, native, 'video-play', first.retryKey, '');
     revision = 'r2';
-    expect((await view('w3')).url).toBe(first.url);
-    await mediaLocal(client, native, 'video-pause', first.retryKey, '');
     expect((await view('w3')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=3&file-revision=r2');
+    // Retry video signs again and takes the new URL, the file unchanged.
+    await mediaLocal(client, native, 'retry', first.retryKey, '');
+    expect((await view('w3')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=4&file-revision=r2');
+  });
+  test('Files: a playing video holds its URL until playback pauses or ends, and another file loads at once', () => {
+    const player = contractComponent('src/media/media-actions.contract', 'FilesMedia');
+    const calls: unknown[][] = [];
+    const scope = (url: string, retryKey = 'files:clip') => ({ media: { url, retryKey }, local: (...args: unknown[]) => calls.push(args) });
+    const state = player.state();
+    const src = (url: string, retryKey?: string) => player.derives(state, scope(url, retryKey)).videoSrc;
+    player.call('started', state, scope('/clip?r1'), []);
+    expect(src('/clip?r2')).toBe('/clip?r1');
+    expect(src('/other?r1', 'files:other')).toBe('/other?r1');
+    player.call('stopped', state, scope('/clip?r2'), []);
+    expect(src('/clip?r2')).toBe('/clip?r2');
+    // A player error reports the URL it played, and the next play holds the latest.
+    player.call('started', state, scope('/clip?r2'), []);
+    player.call('broke', state, { ...scope('/clip?r3'), ...player.derives(state, scope('/clip?r3')) }, ['decode']);
+    expect(calls).toEqual([['media-video-error', '/clip?r2', 'decode']]);
+    expect(src('/clip?r3')).toBe('/clip?r3');
   });
   test('Files: without a file revision the workspace revision rides on the URL', async () => {
     const { client } = fakeClient(() => ({}));
@@ -214,6 +231,59 @@ describe('media views', () => {
     // The image line's chip, then the same image's as a media run (markdownInlineImages).
     expect(markdownMediaChips('![Logo](screens/logo.png)\n![Logo](screens/logo.png)', '/repo').filter(chip => !chip.href.startsWith('t3-image:'))).toEqual([{ href: 't3-file:screens/logo.png', kind: 'media', label: 'Logo', size: 'image', tip: '/repo/screens/logo.png',
       detail: encodeMediaSource(markdownMedia('Logo', 'screens/logo.png', '', '/repo').source!), icon: 'environment', target: 'media:/repo/screens/logo.png' }]);
+  });
+  // ChatMarkdown's img renderer at 7c3b3b3605ef (#21363): a sound is its audio chip and a host file of no media kind its
+  // file chip; MarkdownMedia draws them by the chip's `size`.
+  test('Markdown: a sound plays in its audio chip, named by its file, and its name opens the host file', () => {
+    expect(markdownMedia('Take', 'clips/take.mp3', 't3-file:clips/take.mp3', '/repo')).toMatchObject({ kind: 'audio', access: 'environment', key: 'media:/repo/clips/take.mp3',
+      name: 'take.mp3', openPath: '/repo/clips/take.mp3', resource: { _tag: 'media-file', path: '/repo/clips/take.mp3' }, source: null });
+    expect(markdownMedia('Take', 'https://cdn.example/a/take.ogg?x=1', '', '/repo')).toMatchObject({ kind: 'audio', access: 'direct', key: 'https://cdn.example/a/take.ogg?x=1', name: 'take.ogg' });
+    expect(markdownMedia('Take', '~/take.wav', '', '/repo')).toMatchObject({ kind: 'audio', access: 'blocked', name: 'take.wav' });
+    // An attachment's Markdown has no thread to sign through: "Audio unavailable".
+    expect(markdownMedia('', 'take.m4a', '', '/repo', { thread: false })).toMatchObject({ kind: 'audio', access: 'blocked', name: 'take.m4a' });
+    expect(markdownMediaChips('![Take](clips/take.mp3)', '/repo').filter(chip => !chip.href.startsWith('t3-image:'))).toEqual([
+      { href: 't3-file:clips/take.mp3', kind: 'media', label: 'Take', size: 'audio', tip: 'take.mp3', detail: '/repo/clips/take.mp3', icon: 'environment', target: 'media:/repo/clips/take.mp3' }]);
+  });
+  test('Markdown: a file of no media kind written as an image is its file chip', () => {
+    const [chip] = markdownMediaChips('![report](docs/report.pdf)', '/repo', { cwd: '/repo' }).filter(entry => !entry.href.startsWith('t3-image:'));
+    expect(chip).toMatchObject({ href: 't3-file:docs/report.pdf', kind: 'media', label: 'report.pdf', size: 'file', tip: '/repo/docs/report.pdf', detail: '', target: 'docs/report.pdf' });
+    expect(chip!.icon).not.toBe('');
+    expect(markdownMedia('', '/repo/a.pdf:3', '', '/repo').file).toMatchObject({ label: 'a.pdf · L3', tip: '/repo/a.pdf:3', target: '' });
+    // A picture still loads as one; a name that is no file (no extension) stays an image, as the reference's does.
+    expect(markdownMedia('', 'shots/a.png', '', '/repo').kind).toBe('image');
+    expect(markdownMedia('', 'render', '', '/repo').kind).toBe('image');
+  });
+  // markdownImages.ts at 7c3b3b3605ef: a network path outside the project is blocked, so nothing asks the server to sign
+  // it (its realpath would make Windows send the user's credentials to that host).
+  test('Markdown: a network-path image is unavailable and is never signed', async () => {
+    const text = '![cat](file://attacker.test/share/cat.jpg)\n![dog](\\\\attacker.test\\share\\dog.png)\n![own](/repo/own.png)';
+    const { client, rpcs } = fakeClient(() => ({}), { projection: { visibleTurnItems: [{ item: { text } }], messages: [], thread: {} } });
+    expect(markdownMediaChips(text, '/repo').filter(chip => !chip.href.startsWith('t3-image:')).map(chip => [chip.label, chip.icon])).toEqual([['cat', 'blocked'], ['dog', 'blocked'], ['own', 'environment']]);
+    await markdownMediaUrls(client, native, '/repo', 5);
+    expect(rpcs.map(rpc => rpc.resource)).toEqual([{ _tag: 'media-file', path: '/repo/own.png', threadId: 't1' }]);
+  });
+  test('Markdown: MarkdownMedia draws a file chip, an audio chip or its unavailable label by the chip\'s kind', () => {
+    const media = contractComponent('src/media/media-markdown.contract', 'MarkdownMedia');
+    const scope = (kind: string, access: string) => ({ kind, access, target: 'media:/repo/a', urls: [], alt: '' });
+    const drawn = (marker: string, kind: string, access: string) => media.drawn(marker, {}, scope(kind, access));
+    expect([drawn('MarkdownFileChip(', 'file', 'pdf'), drawn('AudioChip(', 'file', 'pdf'), drawn('MarkdownMediaBody(', 'file', 'pdf')]).toEqual([true, false, false]);
+    const label = 'MediaUnavailableLabel(alt=alt, kind=kind';
+    expect([drawn('AudioChip(', 'audio', 'environment'), drawn(label, 'audio', 'environment'), drawn('MarkdownMediaBody(', 'audio', 'direct')]).toEqual([true, false, false]);
+    expect([drawn(label, 'audio', 'blocked'), drawn('AudioChip(', 'audio', 'blocked'), drawn(label, 'file', 'blocked')]).toEqual([true, false, false]);
+    expect([drawn('MarkdownFileChip(', 'image', 'blocked'), drawn(label, 'image', 'blocked')]).toEqual([false, true]);
+  });
+  test('Markdown: a sound is signed as a media file, a file chip is not', async () => {
+    const items = [{ item: { text: '![t](/tmp/take.mp3)\n![r](/tmp/report.pdf)' } }];
+    const { client, rpcs } = fakeClient(() => ({}), { projection: { visibleTurnItems: items, messages: [], thread: {} } });
+    expect((await markdownMediaUrls(client, native, '/repo', 5)).map(entry => entry.id)).toEqual(['media:/tmp/take.mp3']);
+    expect(rpcs.map(rpc => rpc.resource)).toEqual([{ _tag: 'media-file', path: '/tmp/take.mp3', threadId: 't1' }]);
+  });
+  test('Markdown: a sound\'s name opens its file beside the thread; a web sound\'s opens nothing', async () => {
+    const { client } = fakeClient(() => ({}));
+    const opened: string[] = [];
+    await mediaLocal(client, native, 'open-file', '/repo/clips/take.mp3', '', { openFile: async path => { opened.push(path); } });
+    await mediaLocal(client, native, 'open-file', '', '', { openFile: async path => { opened.push(path); } });
+    expect(opened).toEqual(['/repo/clips/take.mp3']);
   });
   test('Markdown: host-path media are signed for the shown thread; a refusal is listed', async () => {
     const items = [{ item: { text: '![a](/tmp/a.png)\n![b](/tmp/b.mp4)\n![c](https://x/c.png)' } }];

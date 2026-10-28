@@ -148,11 +148,23 @@ component FilesMedia
   props
     media: MediaView
     local: action
-  // The video's playback tells the data module when a changed file may load (media-views.ts playbackUrl).
-  action played
-    local("media-video-play", media.retryKey, "")
-  action paused
-    local("media-video-pause", media.retryKey, "")
+  // MediaVideoPlayer's playbackSource: the data module keeps a video's URL while the file is unchanged (media-views.ts
+  // loadedUrl), and a changed file's URL that comes while the video plays loads once playback pauses or ends. `heldFor` is
+  // the file the held URL belongs to, so another file opened during playback loads at once.
+  state playing = false
+  state held = ""
+  state heldFor = ""
+  derive videoSrc = playing and held != "" and heldFor == media.retryKey ? held : media.url
+  action started
+    if not playing or heldFor != media.retryKey
+      held = media.url
+      heldFor = media.retryKey
+    playing = true
+  action stopped
+    playing = false
+  action broke(message: string)
+    local("media-video-error", videoSrc, message)
+    playing = false
   view
     if media.state == "loading"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" role="status" aria-label=(media.kind == "video" ? "Loading video" : "Loading image") testId="file-media-loading"
@@ -172,4 +184,4 @@ component FilesMedia
             if media.state == "failed"
               MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
             else
-              video media.url controls=true playsinline=true preload="metadata" aria-label=media.name error=local("media-video-error", media.url) play=played pause=paused ended=paused width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
+              video videoSrc controls=true playsinline=true preload="metadata" aria-label=media.name error=broke play=started pause=stopped ended=stopped width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"

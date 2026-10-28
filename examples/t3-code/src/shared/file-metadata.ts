@@ -6,7 +6,7 @@ import { arr, obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { fileIconToken } from './timeline-files';
 import { markdownLinks } from '../timeline/message-chips';
-import { markdownLinkHref } from '../media/media-views';
+import { chatFileLink } from '../timeline/markdown-file-links';
 import { letGo } from '../client/let-go';
 import { isNetworkPath } from '../media/media-reference';
 
@@ -45,9 +45,12 @@ export function metadataPath(path: string, cwd = ''): string | null {
 function cwdOf(client: T3Client): string {
   return str(obj(obj(client.projection).thread).worktreePath) || str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
 }
-/** Shared by prompt mentions and Markdown file chips; context records carry their original paths. */
+/**
+ * Shared by prompt mentions and Markdown file chips; context records carry their original paths. A link is asked for
+ * when it is a file link (ChatMarkdown's markdownFileLinkMetaByHref, T3 Code 7c3b3b3605ef): no web link or network path.
+ */
 export function textFilePaths(text: string): string[] {
-  return [...markdownLinks(text).filter(link => !link.image && markdownLinkHref(link.href).startsWith('t3-file:')).map(link => link.href),
+  return [...markdownLinks(text).filter(link => !link.image && chatFileLink(link.href)).map(link => link.href),
     ...[...text.matchAll(/(?:^|\s)@([^\s\[\]<>"'`]+)/g)].map(match => match[1]!)];
 }
 export function visibleFilePaths(client: T3Client): string[] {

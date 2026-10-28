@@ -9,8 +9,9 @@
 //   ChatMarkdownVideo;
 // - a video's `error` (MediaVideoPlayer onError) and Retry (onRetry, "Retrying…" while it runs);
 // - T3 Code 7c3b3b3605ef (#23106): a Files media URL carries the file's revision (`fileRevision`, which older servers omit;
-//   else the workspace revision), and a Files video keeps the source it loaded while the revision holds, so a re-signed URL
-//   never reloads it, and a changed file loads once playback pauses (MediaVideoPlayer's playbackSource).
+//   else the workspace revision), and a Files video keeps the URL it loaded while that revision holds, so a URL signed
+//   again never reloads it (MediaVideoPlayer's playbackSource; FilesMedia's player holds a changed file's URL until
+//   playback pauses).
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -18,9 +19,12 @@ import { assetUrl } from '../settings/settings-b-icons';
 import { wakeShell } from '../client/command-waits';
 import { revisedUrl } from '../panel/files-rendered-html';
 import { mediaFileReference, mediaUrlReference } from './media-reference';
-import { classifyMarkdownImageSource, isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, markdownImageSourceFragment, mediaKindFromPath, normalizeMarkdownLinkDestination } from './media-source';
+import { classifyMarkdownImageSource, fileBasename, isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, markdownImageSourceFragment, mediaKindFromPath, normalizeMarkdownLinkDestination, splitFilePathPosition, splitMarkdownLinkSearchAndHash } from './media-source';
 import { encodeMediaSource, externalWebLinkHost, mediaTooltip, openMediaLink, resolveProtocolRelativeMediaUrl, showMediaMenu, type MediaActionSource } from './media-actions';
 import { letGo } from '../client/let-go';
+import { chatFileLink } from '../timeline/markdown-file-links';
+import { workspaceLookupPath } from '../timeline/workspace-file-lookup';
+import { fileIconToken } from '../shared/timeline-files';
 
 /** A media slot as Contract draws it (media-actions.contract MediaView). */
 export type MediaView = {
@@ -29,12 +33,12 @@ export type MediaView = {
 };
 export const NO_MEDIA: MediaView = { kind: '', state: '', url: '', name: '', tip: '', source: '', failText: '', openUrl: '', openLabel: '', openIcon: '', retryKey: '', retrying: false };
 
-/** `playing`: the Files videos (by key) whose playback runs; `shown`: the source each one loaded, with its revision. */
-type MediaState = { failed: Set<string>; retrying: Set<string>; playing: Set<string>; shown: Map<string, { url: string; revision: string }> };
+/** `shown`: the URL each Files video (by key) loaded, with the revision it was signed for. */
+type MediaState = { failed: Set<string>; retrying: Set<string>; shown: Map<string, { url: string; revision: string }> };
 const states = new WeakMap<T3Client, MediaState>();
 function stateOf(client: T3Client): MediaState {
   let state = states.get(client);
-  if (!state) { state = { failed: new Set(), retrying: new Set(), playing: new Set(), shown: new Map() }; states.set(client, state); }
+  if (!state) { state = { failed: new Set(), retrying: new Set(), shown: new Map() }; states.set(client, state); }
   return state;
 }
 /** A video whose player reported `error` for this URL (MediaVideoPlayer failedSrc). */
@@ -94,7 +98,7 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
   const entry = await mint(client, native, key, resource, now, revision !== '' && refreshDue(client, key, revision));
   const fileRevision = entry?.fileRevision ?? '', shownRevision = fileRevision || revision;
   const latest = entry && !entry.error ? (fileRevision ? fileRevisedUrl(entry.url, fileRevision) : revisedUrl(entry.url, revision)) : '';
-  const url = kind === 'video' ? playbackUrl(stateOf(client), key, latest, shownRevision) : latest;
+  const url = kind === 'video' ? loadedUrl(stateOf(client), key, latest, shownRevision) : latest;
   const source: MediaActionSource = { kind, name: previewPath, src: url || null, reference: mediaFileReference(absolutePath, cwd), asset: { resource } };
   // WorkspaceImagePreview / WorkspaceVideoPreview: a refused signature, or the picture's or player's onError for this URL.
   const failed = !!entry?.error || mediaFailed(client, url);
@@ -108,15 +112,12 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
 
 /** FilePreviewPanel's revision suffix for a server that reports the file's revision. */
 const fileRevisedUrl = (url: string, revision: string) => `${url}${url.includes('?') ? '&' : '?'}file-revision=${encodeURIComponent(revision)}`;
-/**
- * MediaVideoPlayer's playbackSource: the source a Files video loaded stays while its revision holds, a re-signed URL
- * included; a new revision (a changed file) takes the latest source once playback pauses.
- */
-function playbackUrl(state: MediaState, key: string, latest: string, revision: string): string {
+/** MediaVideoPlayer's playbackSource: the URL a Files video loaded stays while its revision holds, one signed again included. */
+function loadedUrl(state: MediaState, key: string, latest: string, revision: string): string {
   const shown = state.shown.get(key);
-  if (shown && (shown.revision === revision || state.playing.has(key))) return shown.url;
+  if (shown?.revision === revision) return shown.url;
+  state.shown.delete(key);
   if (latest) state.shown.set(key, { url: latest, revision });
-  else state.shown.delete(key);
   if (state.shown.size > 64) state.shown.delete(state.shown.keys().next().value!);
   return latest;
 }
@@ -136,19 +137,33 @@ export function urlScheme(href: string): string | null {
   return href.slice(0, colon);
 }
 const windowsDrive = (href: string) => /^[A-Za-z](?::|%3a)(?:[\\/]|%2f|%5c)/i.test(href);
-/** markdown_links.rs link_href: a reference as written, an emptied anchor, a file link as `t3-file:`, a kept URL or fragment, or nothing. */
-export function markdownLinkHref(href: string): string {
+const reference = (lower: string) => lower.startsWith('t3-context://') || lower.startsWith('t3-citation://');
+/** markdown_links.rs kept_by_transform: references, Windows drive paths and `file:` URLs pass, and any href without a scheme or with a safe one. */
+function keptByTransform(href: string): boolean {
   const lower = href.toLowerCase();
-  if (lower.startsWith('t3-context://') || lower.startsWith('t3-citation://')) return href;
+  if (reference(lower) || lower.startsWith('t3-thread://v1/') || lower.startsWith('file:') || windowsDrive(href)) return true;
   const scheme = urlScheme(href);
-  if (!lower.startsWith('file:') && !windowsDrive(href) && scheme !== null && !SAFE_SCHEMES.test(scheme)) return NO_HREF;
-  if (lower.startsWith('file:') || windowsDrive(href) || (!!href && !href.startsWith('#') && !href.startsWith('//') && scheme === null)) return `t3-file:${href}`;
-  return href; // a fragment (`#notes`) stays the anchor's href
+  return scheme === null || SAFE_SCHEMES.test(scheme);
 }
-/** markdown.rs's resolver for an image's src: as a link, but an emptied source or a fragment loads nothing. */
+/**
+ * markdown_links.rs link_href: a reference as written, an emptied anchor, a file link (chatFileLink, T3 Code
+ * 7c3b3b3605ef) as `t3-file:`, else the href as written (a fragment, a bare name, a web URL or a network path).
+ */
+export function markdownLinkHref(href: string): string {
+  if (reference(href.toLowerCase())) return href;
+  if (!keptByTransform(href)) return NO_HREF;
+  return chatFileLink(href) ? `t3-file:${href}` : href;
+}
+/**
+ * markdown_links.rs media_href for an image's src: a file source (a `file:` URL, a Windows drive path, or one with no
+ * scheme that is not a fragment or protocol-relative) as `t3-file:`; an emptied source or a fragment loads nothing.
+ */
 export function markdownImageHref(src: string): string {
-  const href = markdownLinkHref(src);
-  return href === NO_HREF || href.startsWith('#') ? '' : href;
+  const lower = src.toLowerCase();
+  if (reference(lower)) return src;
+  if (!keptByTransform(src) || src.startsWith('#')) return '';
+  const file = lower.startsWith('file:') || windowsDrive(src) || (!!src && !src.startsWith('//') && urlScheme(src) === null);
+  return file ? `t3-file:${src}` : src;
 }
 /**
  * The image lines of a message, as markdown.rs reads them (src trimmed and cut at a title's quote): one image spanning
@@ -266,11 +281,29 @@ const allImages = (text: string) => [...markdownImages(text), ...markdownInlineI
  * a thread to sign a host path through (AttachmentFilePreview's ChatMarkdown has none: such media is unavailable).
  */
 export type MediaScope = { cwd?: string; thread?: boolean };
-export type MarkdownMedia = { href: string; kind: 'image' | 'video'; alt: string; access: 'direct' | 'environment' | 'blocked'; key: string; fragment: string; source: MediaActionSource | null; originalUrl: string };
+/**
+ * `kind` "audio" is a sound (InlineAudioPreview: its `resource` signed for a host file, else a direct `key`); "file" a file
+ * that is no media, drawn as its file chip (`file`).
+ */
+export type MarkdownMedia = {
+  href: string; kind: 'image' | 'video' | 'audio' | 'file'; alt: string; access: 'direct' | 'environment' | 'blocked'; key: string; fragment: string;
+  source: MediaActionSource | null; originalUrl: string; resource?: Obj; name?: string; openPath?: string; file?: MarkdownFileChip;
+};
+/** A file chip's face and press (markdown.contract's file link chips): its label, full path, Pierre icon and the path a lookup resolves. */
+export type MarkdownFileChip = { label: string; tip: string; icon: string; target: string };
 /** ChatMarkdown's `img` renderer for one image: where its bytes load from and its actions. */
 export function markdownMedia(alt: string, src: string, href: string, root: string, scope: MediaScope = {}): MarkdownMedia {
   const classified = classifyMarkdownImageSource(normalizeMarkdownLinkDestination(src), root || undefined);
-  const kind = mediaKindFromPath(src) ?? 'image', name = alt || kind, cwd = scope.cwd ?? root;
+  const mediaKind = mediaKindFromPath(src), cwd = scope.cwd ?? root;
+  // T3 Code 7c3b3b3605ef (#21363): a sound plays in its audio chip, and a host file of no media kind is its file chip.
+  if (mediaKind === 'audio') return markdownAudio(alt, src, href, classified, scope);
+  if (mediaKind === null && classified._tag === 'WorkspaceFile' && chatFileLink(src)) {
+    const { hash } = splitMarkdownLinkSearchAndHash(normalizeMarkdownLinkDestination(src)), { path, line, column } = splitFilePathPosition(classified.path, hash);
+    const label = [fileBasename(path), line ? `L${line}${column ? `:C${column}` : ''}` : ''].filter(Boolean).join(' · ');
+    return { href, kind: 'file', alt, access: 'environment', key: path, fragment: '', originalUrl: '', source: null,
+      file: { label, tip: line ? `${path}:${line}${column ? `:${column}` : ''}` : path, icon: fileIconToken(path), target: workspaceLookupPath(src, root, cwd) } };
+  }
+  const kind = mediaKind ?? 'image', name = alt || kind;
   if (classified._tag === 'Direct') {
     const mediaSrc = resolveProtocolRelativeMediaUrl(classified.uri), reference = mediaUrlReference(classified.uri);
     return { href, kind, alt, access: 'direct', key: mediaSrc, fragment: '', originalUrl: externalWebLinkHost(classified.uri) !== null ? classified.uri : '',
@@ -279,11 +312,23 @@ export function markdownMedia(alt: string, src: string, href: string, root: stri
   // ChatMarkdownAssetImage: a `media-file` of the thread, the source's fragment on its signed URL, its reference and
   // "Open in file viewer" relative to `cwd` (workspaceRoot); with no thread, ChatMarkdownImageFallback.
   if (classified._tag === 'WorkspaceFile' && scope.thread !== false) {
-    const reference = mediaFileReference(classified.path, cwd || undefined), fragment = markdownImageSourceFragment(src);
-    return { href, kind, alt, access: 'environment', key: `media:${classified.path}${fragment}`, fragment, originalUrl: '',
-      source: { kind, name, src: null, reference, asset: { resource: { _tag: 'media-file', path: classified.path } }, ...(reference.relativePath ? { openFile: reference.relativePath } : {}) } };
+    const reference = mediaFileReference(classified.path, cwd || undefined), fragment = markdownImageSourceFragment(src), resource = { _tag: 'media-file', path: classified.path };
+    return { href, kind, alt, access: 'environment', key: `media:${classified.path}${fragment}`, fragment, originalUrl: '', resource,
+      source: { kind, name, src: null, reference, asset: { resource }, ...(reference.relativePath ? { openFile: reference.relativePath } : {}) } };
   }
   return { href, kind, alt, access: 'blocked', key: '', fragment: '', originalUrl: '', source: null };
+}
+/**
+ * ChatMarkdown's audio: named by its file (else its alt, else "Audio"); a host file plays from its signed `media-file`
+ * and opens beside the thread, a web URL plays as written, and anything else is "Audio unavailable · <alt>".
+ */
+function markdownAudio(alt: string, src: string, href: string, classified: ReturnType<typeof classifyMarkdownImageSource>, scope: MediaScope): MarkdownMedia {
+  const filePath = classified._tag === 'WorkspaceFile' ? classified.path : null;
+  const name = fileBasename(filePath ?? src.split(/[?#]/, 1)[0] ?? '') || alt || 'Audio';
+  const common = { href, kind: 'audio', alt, fragment: '', source: null, originalUrl: '', name } as const;
+  if (filePath !== null && scope.thread !== false) return { ...common, access: 'environment', key: `media:${filePath}`, resource: { _tag: 'media-file', path: filePath }, openPath: filePath };
+  if (classified._tag === 'Direct') return { ...common, access: 'direct', key: resolveProtocolRelativeMediaUrl(classified.uri) };
+  return { ...common, access: 'blocked', key: '' };
 }
 
 /** The Markdown documents on screen whose images open the expanded preview, by the owner
@@ -314,6 +359,9 @@ export function markdownMediaChips(text: string, root: string, scope: MediaScope
     if (seen.has(image.href)) return [];
     seen.add(image.href);
     const media = markdownMedia(image.alt, image.src, image.href, root, scope);
+    // A file chip carries its label, full path, Pierre icon and lookup path as a link chip does; a sound its name and the file it opens.
+    if (media.file) return [{ href: image.href, kind: 'media', label: media.file.label, size: 'file', tip: media.file.tip, detail: '', icon: media.file.icon, target: media.file.target }];
+    if (media.kind === 'audio') return [{ href: image.href, kind: 'media', label: image.alt, size: 'audio', tip: media.name ?? '', detail: media.openPath ?? '', icon: media.access, target: media.key }];
     return [{ href: image.href, kind: 'media', label: image.alt, size: media.kind, tip: media.source ? mediaTooltip(media.source) : '', detail: media.source ? encodeMediaSource(media.source) : '',
       icon: media.access, target: media.key }];
   });
@@ -325,7 +373,7 @@ export function markdownMediaChips(text: string, root: string, scope: MediaScope
  * skips the request so the label can say to pair again), or a given document's. `threadId` names the thread they sign through (a draft's own id in Files, as the reference's draft
  * thread ref; the server signs an absolute `media-file` path without looking the thread up).
  * A rendered Markdown file passes its workspace's `mutationId` (ChatMarkdownAssetImage at 74541bab17): when it changes,
- * or the connection comes back, each image is signed again so an edited file's picture reloads; a video is not.
+ * or the connection comes back, each image is signed again so an edited file's picture reloads; a video or a sound is not.
  */
 export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, texts?: string[], scope: MediaScope & { threadId?: string; mutationId?: string | null } = {}): Promise<{ id: string; url: string }[]> {
   const out: { id: string; url: string }[] = [];
@@ -336,15 +384,16 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
   for (const text of texts ?? arr(client.projection.visibleTurnItems).map(row => str(obj(row.item).text))) {
     for (const image of allImages(text)) {
       const media = markdownMedia(image.alt, image.src, image.href, root, scope);
-      if (media.access === 'environment' && media.source?.asset) wanted.set(media.key, media);
+      if (media.access === 'environment' && media.resource) wanted.set(media.key, media);
     }
   }
   // An unread grant (no scopes yet) may still ask the host, as useFilesystemReadAccess's pending state does not refuse.
   const blocked = client.ready && !client.scopes?.includes('filesystem:read');
   for (const [key, media] of [...wanted].slice(-32)) {
     if (blocked) { out.push({ id: `media-failed:${key.slice('media:'.length)}`, url: '' }, { id: `media-noaccess:${key.slice('media:'.length)}`, url: '' }); continue; }
-    const resource = { ...media.source!.asset!.resource, threadId }, id = `md:${client.environmentId}|${threadId}|${key}`;
-    const entry = await mint(client, native, id, resource, now, scope.mutationId !== undefined && media.kind !== 'video' && refreshDue(client, id, scope.mutationId));
+    const resource = { ...media.resource!, threadId }, id = `md:${client.environmentId}|${threadId}|${key}`;
+    // InlineAudioPreview signs a sound once, as a video is.
+    const entry = await mint(client, native, id, resource, now, scope.mutationId !== undefined && media.kind === 'image' && refreshDue(client, id, scope.mutationId));
     if (!entry) continue;
     out.push(entry.error ? { id: `media-failed:${key.slice('media:'.length)}`, url: '' } : { id: key, url: entry.url + media.fragment });
   }
@@ -356,21 +405,22 @@ type Hooks = { urlOf?: (id: string) => string | null; openFile?: (relativePath: 
 export async function mediaLocal(client: T3Client, native: Native, op: string, id: string, value: string, hooks: Hooks = {}): Promise<string> {
   const state = stateOf(client);
   if (op === 'menu') { await showMediaMenu(client, native, id, value, hooks); return ''; }
+  // A Markdown sound's name opens its file beside the thread (InlineAudioPreview's onOpen); a web URL's opens nothing.
+  if (op === 'open-file') { if (id) await hooks.openFile?.(id); return ''; }
   if (op === 'video-error' || op === 'image-error') {
-    // A held source that failed is dropped, so the next view loads the latest one (MediaVideoPlayer onError).
-    for (const [key, shown] of state.shown) if (shown.url === id) { state.shown.delete(key); state.playing.delete(key); }
+    // A loaded URL that failed is dropped, so the next view takes the latest one (MediaVideoPlayer onError).
+    for (const [key, shown] of state.shown) if (shown.url === id) state.shown.delete(key);
     if (id) state.failed.add(id);
     if (state.failed.size > 64) state.failed.delete(state.failed.values().next().value!);
     return '';
   }
-  if (op === 'video-play') { if (id) state.playing.add(id); return ''; }
-  if (op === 'video-pause') { state.playing.delete(id); return ''; }
   if (op === 'retry') {
     if (!id || state.retrying.has(id)) return '';
     state.retrying.add(id);
     await wakeShell(native);
     try {
       if (value) state.failed.delete(value);
+      state.shown.delete(id);
       if (id.startsWith('attachment:')) hooks.forgetAttachment?.(id.slice('attachment:'.length));
       else {
         // useAssetUrlRefresh: sign the same resource again while "Retrying…" shows.
