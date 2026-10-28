@@ -283,6 +283,14 @@ test('source presentation preserves every line and trailing newline of a large r
   expect(data.rows[6175]?.text).toBe(''); expect(data.copyContents).toBe(contents);
 });
 
+test('source width counts displayed UTF-16 columns across the complete file', () => {
+  const read = { contents: 'short\n\t😀 longest line\n', error: '' };
+  const present = () => mobileFilePresentation({ owner: 'owner', revision: 1, projectName: 'Project', loading: false, error: '', read }, 'width.txt');
+  expect(present().maxColumns).toBe('    😀 longest line'.length);
+  read.contents = 'tiny'; expect(present().maxColumns).toBe(4);
+  read.error = 'Unavailable'; expect(present().maxColumns).toBe(0);
+});
+
 test.each([
   ['docs/guide.md#draft', true],
   ['docs/guide.mdx?raw=1', true],

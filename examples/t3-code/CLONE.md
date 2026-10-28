@@ -96,14 +96,17 @@ separators. File title, subtitle and actions now share the native navigation bar
 with the reference editor style. Unwrapped source uses the regular platform
 monospace font and reference gutter geometry. Wrapped source uses Menlo and the
 reference token traits and insets. One virtualized viewport now pans every line
-together while its opaque line-number gutter stays fixed. The normal iPhone
+together while its opaque line-number gutter stays fixed. Its shared width uses
+the longest displayed UTF-16 line and a measured platform monospace character,
+capped like the reference. Tiny files stay within the viewport; a short wide
+file stops at its final character after repeated pans. The normal iPhone
 drive verifies this on the large schema file, including newly revealed rows,
 wrapping after a pan, a pull to refresh, and opening a second file. Wrapping
 remounts the viewer and resets both offsets as the reference does. The header
 hairline and Markdown code styling still differ. Source rows carry only source fields and reuse their
 highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
-Read failures show an error and Try again instead of an empty body. All 3,705
+Read failures show an error and Try again instead of an empty body. All 3,706
 mobile tests and strict app TypeScript pass. These phone fixes are not in the POC build.
 A paired learned route still retains its learned marker.
 T3 Connect relay login remains unconfigured in the clone; direct pairing is the

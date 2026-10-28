@@ -18,7 +18,7 @@ export interface FileTreeSnapshot { owner: string; revision: number; title: stri
   rows: FileTreeItem[]; loading: boolean; error: string; truncated: boolean; emptyTitle: string; emptyDetail: string }
 export interface FileSourceRow { id: string; text: string; newNumber: string; selected: boolean; tokens: ThreadCodeToken[] }
 export interface FileSnapshot { owner: string; revision: number; path: string; title: string; subtitle: string;
-  loading: boolean; error: string; contents: string; copyContents: string; rows: FileSourceRow[]; truncated: boolean; notice: string;
+  loading: boolean; error: string; contents: string; copyContents: string; rows: FileSourceRow[]; maxColumns: number; truncated: boolean; notice: string;
   markdown: boolean; initialRowId: string; svg: boolean; svgSource: string; svgRetry: string; svgFailure: string;
   svgSharing: boolean; svgCanRead: boolean; svgShareAction: string; svgShareMessage: string; svgShareReceipt: string; fullPath: string; relativePath: string; svgPhase: string; svgTitle: string;
   svgDetail: string; svgTrace: string; svgTraceCopy: string; svgRetrying: boolean; svgRetryAllowed: boolean; svgSymbol: string }
@@ -150,7 +150,7 @@ export function mobileFileSnapshot(path: string, dark = false, initialLine = 0, 
     loading: access.file.checking || state.loading > 0, error: access.permissionError || access.file.error, read }, path, dark, initialLine);
 }
 type SourceRead = { contents: string; error?: string; truncated?: boolean };
-type SourceProjection = Pick<FileSnapshot, 'contents' | 'rows' | 'initialRowId'>;
+type SourceProjection = Pick<FileSnapshot, 'contents' | 'rows' | 'maxColumns' | 'initialRowId'>;
 const sourceProjections = new WeakMap<SourceRead, { raw: string; error: string | undefined; path: string;
   dark: boolean; initialLine: number; value: SourceProjection }>();
 function sourceProjection(read: SourceRead | undefined, path: string, dark: boolean, initialLine: number): SourceProjection {
@@ -163,20 +163,21 @@ function sourceProjection(read: SourceRead | undefined, path: string, dark: bool
   const rows: FileSourceRow[] = read && !read.error ? lines.map((text, at) => ({ id: `source-line:${at}`, text: text.replace(/\t/g, '    '),
     newNumber: String(at + 1), selected: at === target, tokens: (tokens[at] ?? []).map(token => ({ id: token.id, text: token.text.replace(/\t/g, '    '),
       color: token.color, weight: token.weight, slant: token.slant })) })) : [];
-  const value = { contents, rows, initialRowId: target >= 0 ? `source-line:${target}` : '' };
+  const maxColumns = rows.reduce((longest, row) => Math.max(longest, row.text.length), 0);
+  const value = { contents, rows, maxColumns, initialRowId: target >= 0 ? `source-line:${target}` : '' };
   if (read) sourceProjections.set(read, { raw: read.contents, error: read.error, path, dark, initialLine, value });
   return value;
 }
 /** Thread and draft workspaces share source rendering, not read/cache ownership. */
 export function mobileFilePresentation(input: { owner: string; revision: number; projectName: string; loading: boolean; error: string;
   read?: SourceRead }, path: string, dark = false, initialLine = 0): FileSnapshot {
-  const read = input.read, { contents, rows, initialRowId } = sourceProjection(read, path, dark, initialLine);
+  const read = input.read, { contents, rows, maxColumns, initialRowId } = sourceProjection(read, path, dark, initialLine);
   const parent = path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'), 0));
   const absolute = path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
   return { owner: input.owner, revision: input.revision, path, title: path.split(/[\\/]/).at(-1) || 'File',
     subtitle: absolute ? parent : [input.projectName, parent].filter(Boolean).join(' · '),
     loading: input.loading, error: input.error || read?.error || '', contents, copyContents: read?.error || input.error ? '' : read?.contents ?? '',
-    rows,
+    rows, maxColumns,
     truncated: read?.truncated === true, notice: read?.truncated ? 'Preview limited to the first 1 MB of a truncated file.' : '',
     markdown: /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? ''), initialRowId,
     svg: false, svgSource: '', svgRetry: '', svgFailure: '', svgSharing: false, svgCanRead: false, svgShareAction: '', svgShareMessage: '', svgShareReceipt: '', fullPath: '', relativePath: '',
