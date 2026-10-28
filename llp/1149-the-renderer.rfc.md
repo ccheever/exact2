@@ -759,6 +759,23 @@ frames through `softbuffer` and migrates to the composition swap chain when the 
 ready, which takes the device off the first frame's path entirely. The pinned suites and
 `exact-windows`'s tests pass with both devices on the NucBox; the six checks on the Mac.
 
+**S2.2, 2026-10-28** (`lane/ink-s2` at `ac5742d498`): the device is off the first frame's
+path. The window presents its first frame through `softbuffer` from the CPU painter (about
+695 ms cheaper to first pixel than wgpu's readback would have been), the D3D11 device
+readies on its thread, and the composition swap chain takes over on frame two; twenty of
+twenty launches did exactly that. The paired overhead over today's `softbuffer` first
+screen is now 6.3 ms at 1024×720 and 9.7 ms at 1920×1080, within the stage's 10 ms bar;
+the first composition frame is displayed 187 to 197 ms after process start in the
+`gpu-dev` build. **The default is still wgpu**, because the migration is not yet
+qualified: the handoff fixture fails on `WS_EX_NOREDIRECTIONBITMAP`, which a window that
+began on GDI cannot acquire after creation (three fix rounds, stopped; the fix is a change
+of approach, S2.3: the window is created for composition from the start and its first
+frames come through a WARP device, which creates in 14 ms, with the hardware swap chain
+replacing WARP's when the hardware device is ready); the 150% DPI capture shows faint
+residual text; the frame intervals across the migration include the synchronization
+probe, so a switch without a late frame is not established; lock and unlock stays untested.
+Every pinned suite and `exact-windows`'s tests pass with both devices on the NucBox.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
