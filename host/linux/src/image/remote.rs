@@ -478,12 +478,14 @@ impl Downloads {
             }
             // Discord's CDN, and the person's own account: never asked again
             // sooner than the server says.
-            // One that cannot be read is the longest a picture on screen waits.
+            // One that cannot be read waits an hour: past what a picture on
+            // screen waits, so not in this showing (`image.rs`).
             let after = matches!(response.status, 429 | 503)
                 .then(|| response.headers.get("retry-after"))
                 .flatten()
                 .map(|value| {
-                    let wait = retry_after(value, SystemTime::now()).unwrap_or(MOST_RETRY_AFTER);
+                    let wait =
+                        retry_after(value, SystemTime::now()).unwrap_or(Duration::from_secs(3600));
                     // The server's number, held to ten years: past that it is never anyway.
                     let wait = wait.min(Duration::from_secs(10 * 365 * 86_400));
                     let now = Instant::now();

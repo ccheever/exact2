@@ -618,6 +618,9 @@ fn run<D: DataSource + Default>(
                 log(&format!("exact: {e}"));
             }
         }
+        // A picture that landed in this turn's syncs (the cache's, at once)
+        // sends its load now: its decode woke nothing.
+        trace(c"exact image loads", || p.deliver_image_loads());
         if p.module_pending() {
             p.first_pixel();
         }

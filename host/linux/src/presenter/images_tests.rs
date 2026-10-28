@@ -253,3 +253,47 @@ fn a_load_waiting_is_sent_only_to_the_node_and_source_it_landed_for_and_owes_a_t
     p.apply_reports(Vec::new());
     assert_eq!(loads(&mut p), 1.);
 }
+
+#[test]
+fn a_load_is_not_sent_once_an_earlier_loads_action_changed_its_source() {
+    // Two pictures land in one pass; the first's load changes the second's source.
+    let source = r#"component App
+  state second = "pictures/b.png"
+  state loads = 0
+  action first
+    second = "pictures/c.png"
+  action loaded
+    loads = loads + 1
+  view
+    column width=300 height=300
+      image "pictures/a.png" width=20 height=20 load=first testId="one"
+      image second width=20 height=20 load=loaded testId="two"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (300., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let event = |p: &Presenter<()>, test_id: &str, source: &str| {
+        let k = p.host().kernel();
+        let node = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
+        let packed = u64::from(node.key.index) | (u64::from(node.key.generation) << 32);
+        (node.id, packed, source.to_owned())
+    };
+    let one = event(&p, "one", "pictures/a.png");
+    let two = event(&p, "two", "pictures/b.png");
+    p.images.load_events.extend([one, two]);
+    p.apply_reports(Vec::new());
+    let state = crate::agent::handle(&mut p, r#"{"op":"state"}"#);
+    let state: serde_json::Value = serde_json::from_str(&state).unwrap();
+    assert_eq!(
+        state["slots"]["second"], "pictures/c.png",
+        "the first's load ran"
+    );
+    assert_eq!(state["slots"]["loads"], 0., "{state}");
+}

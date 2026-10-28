@@ -26,6 +26,38 @@ impl<D: DataSource> Presenter<D> {
         self.apply_reports(reports)
     }
 
+    /// A source's first picture sends its `load` to an image that hears it
+    /// (LLP 1011 §4) and is still that node showing that source as it is
+    /// sent: since it landed, input, a timer or an earlier load's action may
+    /// have changed either. (Dispatching at the host's own time runs no timer
+    /// first: those due by it have run.) Whether any was sent.
+    pub(crate) fn deliver_image_loads(&mut self) -> bool {
+        let mut loads = false;
+        for (id, key, source) in std::mem::take(&mut self.images.load_events) {
+            let same = self.host.kernel().node(id).is_some_and(|n| {
+                n.node_type == NodeType::Image
+                    && (u64::from(n.key.index) | (u64::from(n.key.generation) << 32)) == key
+                    && n.props.str(PropId::ImageSource) == Some(source.as_str())
+            });
+            if !same
+                || !self
+                    .host
+                    .runner()
+                    .handlers_of(id)
+                    .contains(&EventKind::Load)
+            {
+                continue;
+            }
+            let sent = self.host.dispatch_at(id, Event::Load, self.host.now());
+            let after = self.after_commit();
+            if let Some(error) = sent.or(after) {
+                self.host.log(error);
+            }
+            loads = true;
+        }
+        loads
+    }
+
     /// Milliseconds until the pictures owe a turn: at once while a `load`
     /// waits to be sent (a picture from the cache lands in a paint's sync,
     /// with no decode to wake the loop), else when a picture on screen asks
@@ -59,32 +91,8 @@ impl<D: DataSource> Presenter<D> {
                 self.host.log(error);
             }
         }
-        // After the sizes: a source's first picture sends its `load`, to an
-        // image that hears it (LLP 1011 §4) and is still that node showing
-        // that source (an earlier load's action may have changed either).
-        let mut loads = false;
-        for (id, key, source) in std::mem::take(&mut self.images.load_events) {
-            let same = self.host.kernel().node(id).is_some_and(|n| {
-                n.node_type == NodeType::Image
-                    && (u64::from(n.key.index) | (u64::from(n.key.generation) << 32)) == key
-                    && n.props.str(PropId::ImageSource) == Some(source.as_str())
-            });
-            if !same
-                || !self
-                    .host
-                    .runner()
-                    .handlers_of(id)
-                    .contains(&EventKind::Load)
-            {
-                continue;
-            }
-            let sent = self.host.dispatch_at(id, Event::Load, self.host.now());
-            let after = self.after_commit();
-            if let Some(error) = sent.or(after) {
-                self.host.log(error);
-            }
-            loads = true;
-        }
+        // After the sizes.
+        let loads = self.deliver_image_loads();
         any || loads
     }
 

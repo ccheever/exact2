@@ -364,9 +364,11 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   asking again may mend (the network, a timeout, a 5xx, 408 or 429; not
   another 4xx, a bad URL or a body over the cap) is asked again after 1, 2,
   4, 8, 16 and 30 s, six times a showing, never sooner than a 429's or 503's
-  `Retry-After` (an unreadable one is 5 minutes; a showing that starts more
-  than 5 minutes before it asks nothing), and from nothing once it leaves the screen and
-  shows again (2026-10-28; Apple keeps its one try). The body spools to a file in a directory of the process's
+  `Retry-After`, and not again in a showing for one further off than 5
+  minutes, or unreadable (taken as an hour); the wait is kept by URL, so a
+  picture mounted anew meanwhile asks nothing either. Its retries start from
+  nothing once it leaves the screen and shows again (2026-10-28; Apple keeps
+  its one try). The body spools to a file in a directory of the process's
   own under `exact/images/` in the user's cache (`XDG_CACHE_HOME` or
   `~/.cache`; `%LOCALAPPDATA%` on Windows), locked for the process's life as
   Apple's `RasterSpool` is, so the first spool of a launch removes the
