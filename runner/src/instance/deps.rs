@@ -227,6 +227,18 @@ impl FromIterator<Reads> for ReadsTable {
     }
 }
 
+#[cfg(test)]
+impl ReadsTable {
+    /// Index `i`'s reads as a scan that stopped at undecodable code leaves
+    /// them (`opaque`), for a test of a body nothing more is known of.
+    pub(crate) fn set_opaque(&mut self, i: usize) {
+        let mut reads = self[i].clone();
+        reads.opaque = true;
+        self.reads.push(reads);
+        self.at[i] = (self.reads.len() - 1) as u32;
+    }
+}
+
 impl std::ops::Index<usize> for ReadsTable {
     type Output = Reads;
     fn index(&self, i: usize) -> &Reads {

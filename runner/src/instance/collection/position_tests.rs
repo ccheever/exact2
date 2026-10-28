@@ -634,3 +634,43 @@ fn a_kept_moved_row_lit_in_the_same_commit_as_the_prepend_shows_it_and_so_does_t
         );
     }
 }
+
+#[test]
+fn a_moved_row_whose_body_is_opaque_reevaluates_as_before() {
+    // theme2's condition: a body whose scan stopped at code it couldn't decode can't say whether it reads its
+    // position, so a move keeps it all-dirty. The body's reads are made opaque in place; its bindings are not.
+    for virtualized in [false, true] {
+        let mut h = Harness::from_parts(
+            plan_with(100, false, false, virtualized, false),
+            vec![values(100), Value::Number(0.0)],
+        );
+        let read = |h: &Harness| {
+            if virtualized {
+                texts(h)
+            } else {
+                plain_texts(h)
+            }
+        };
+        if virtualized {
+            h.send(h.feedback(640.0));
+        }
+        h.sites.deps.bodies.set_opaque(0);
+        assert!(h.sites.deps.bodies[0].reads_position());
+        let before = read(&h);
+        h.slots[0] = prepended(100);
+        h.update().unwrap();
+        let after = read(&h);
+        let kept = kept(&before, &after);
+        assert!(kept >= 8);
+        assert!(
+            h.tree.last_work.bindings_evaluated >= kept,
+            "virtualized {virtualized}: {} for {kept} kept rows",
+            h.tree.last_work.bindings_evaluated
+        );
+        for (root, t) in &after {
+            if let Some((_, was)) = before.iter().find(|(r, _)| r == root) {
+                assert_eq!(t, was);
+            }
+        }
+    }
+}
