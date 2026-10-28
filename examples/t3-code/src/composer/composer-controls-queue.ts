@@ -3,12 +3,13 @@
 // packages/client-runtime/src/state/threadWorkflows.ts (deriveThreadQueueWorkflowState,
 // getUserQueuedThreadRuns), packages/client-runtime/src/queuedRunEdit.ts (makeQueuedRunEditStore,
 // queuedRunEditBlockedReason) and chat/useQueuedRunEdit.ts (beginEdit, cancelEdit, saveEdit).
-import { arr, obj, str, type Obj } from '../client/domain';
+import { applyShell, arr, initialShell, obj, str, type Obj } from '../client/domain';
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { editView, endLostEdit, removeExisting, restoreThreadDraft, saveEdit, startEdit, type QueuedEditing } from './queued-edit-attachments';
 import { citationsToPlainText, replaceContextReferences } from './composer-editor-menu';
 import { pendingRequests } from './requests';
+import { wakeShell } from '../client/command-waits';
 
 /** A queued message in full, as a sent turn reads: each context chip as its label, an image chip nothing when the row
  *  shows thumbnails, and each quote as its text. */
@@ -78,24 +79,57 @@ export function queuedEdit(client: T3Client): QueuedEditing | undefined {
   return client.threadId ? editStore(client).edits.get(client.draftKey) : undefined;
 }
 
+// makeQueuedRunsAtom's deleted thread, which reads as having no runs. The server reports an archive on the active shell
+// as it reports a deletion (`thread.removed`), and a fresh snapshot leaves both out, so a thread missing from the active
+// shell is "missing" until the archived shell tells them apart (checkMissingEditThreads): an archived thread keeps its
+// edit, since its queue stays editable. An archived one is looked at again a minute later, in case it was deleted there.
+type Presence = { state: 'missing' | 'checking' | 'archived' | 'deleted'; at: number };
+const presences = new WeakMap<QueuedEditing, Presence>();
+const ARCHIVED_RECHECK_MS = 60_000;
+
 /**
- * Whether the edit's run left the queue (makeQueuedRunsAtom). A deleted thread has no runs: the shell reports its removal
- * (`thread.removed`, which drops the row) or marks it deleted. Absence alone is not deletion, since an archived thread
- * leaves the shell with its queue intact. Otherwise the open thread's projection decides, and elsewhere the shell tells
- * a run that started (the reference watches the thread's detail; this client follows one thread, so a queued run that
- * another client removes settles once its thread is open again). Unknown reads as still queued.
+ * Whether the edit's run left the queue. A deleted thread did. Otherwise the open thread's projection decides, and
+ * elsewhere the shell tells a run that started (the reference watches the thread's detail; this client follows one
+ * thread, so a queued run that another client removes settles once its thread is open again). Unknown reads as still
+ * queued.
  */
 function runLeftQueue(client: T3Client, edit: QueuedEditing): boolean {
   if (client.environmentId !== edit.environmentId) return false;
-  if (client.removedThreadIds.has(edit.threadId)) return true;
   const shell = client.shell.threads.find(thread => thread.id === edit.threadId);
-  if (shell && shell.deletedAt != null) return true;
+  if (shell) presences.delete(edit);
+  else if (client.shellLoaded && !presences.has(edit)) presences.set(edit, { state: 'missing', at: 0 });
+  if (shell?.deletedAt != null || presences.get(edit)?.state === 'deleted') return true;
   if (client.threadId === edit.threadId) {
     if (!client.thread || str(obj(client.projection.thread).id) !== edit.threadId) return false;
     return !arr(client.projection.runs).some(run => run.id === edit.runId && run.status === 'queued');
   }
   if (!shell) return false;
   return shell.activeRunId === edit.runId || (shell.latestRunId === edit.runId && shell.latestRunStartedAt != null);
+}
+
+/**
+ * Tells archive from deletion for each edit whose thread left the active shell, by the archived shell snapshot, and
+ * wakes the window when one was deleted, so the next snapshot ends its edit. `now`: the clock an archived thread's
+ * next look is timed by.
+ */
+export async function checkMissingEditThreads(client: T3Client, native: Native, now: number): Promise<void> {
+  const due = [...editStore(client).edits.values()].filter(edit => {
+    const presence = presences.get(edit);
+    return edit.environmentId === client.environmentId && !!presence
+      && (presence.state === 'missing' || (presence.state === 'archived' && now - presence.at >= ARCHIVED_RECHECK_MS));
+  });
+  if (!due.length) return;
+  for (const edit of due) presences.set(edit, { state: 'checking', at: now });
+  let archived: Set<string>;
+  try {
+    const snapshot = applyShell(initialShell(), await client.restAccess(native).read('orchestration.getArchivedShellSnapshot'));
+    archived = new Set(snapshot.threads.filter(thread => thread.deletedAt == null).map(thread => str(thread.id)));
+  } catch {
+    for (const edit of due) if (presences.get(edit)?.state === 'checking') presences.set(edit, { state: 'missing', at: now });
+    return;
+  }
+  for (const edit of due) if (presences.get(edit)?.state === 'checking') presences.set(edit, { state: archived.has(edit.threadId) ? 'archived' : 'deleted', at: now });
+  if (due.some(edit => presences.get(edit)?.state === 'deleted')) await wakeShell(native);
 }
 /** Each edit whose run left the queue ends once, wherever the user is: a changed edit is kept or discarded with a toast. */
 export function settleQueuedEdits(client: T3Client): void {

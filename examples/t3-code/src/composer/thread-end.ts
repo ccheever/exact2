@@ -159,9 +159,9 @@ export function queuedTurnRows(client: T3Client): Message[] {
 
 /**
  * The timeline's footer (ChatView timelineFooter): `before` (the pending handoff), what the thread is doing now, the
- * status line, then the queued turns. While the thread's detail loads there is no status line or queue yet, and the
- * footer is ThreadNow's sync line ("Loading messages..."): the timeline asks for it before it has a thread. Call it
- * once a snapshot (syncStatus).
+ * status line, then the queued turns. The timeline asks for it before the thread's detail arrives too: ThreadNow's sync
+ * line says "Loading messages...", and the status line, which reads the shell, still shows ("Snoozed, 2h left"). Call
+ * it once a snapshot (syncStatus).
  */
 export function threadEndRows(client: T3Client, before: Message[], status: Message | null): Message[] {
   return [...before, ...threadNowRows(client), ...(status ? [status] : []), ...queuedTurnRows(client)];

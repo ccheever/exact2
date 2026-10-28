@@ -158,20 +158,22 @@ describe('model picker catalog', () => {
   });
 });
 
-// ChatComposer's ariaLabel at 7c3b3b3605ef: "Message <thread title>", a draft's thread being "New thread"
-// (buildLocalDraftThread), so switching threads lands focus on a field that names it.
+// ChatComposer's ariaLabel at 7c3b3b3605ef: "Message <thread title>" by the shell's title (ChatView's serverThread), a
+// draft's thread being "New thread" (buildLocalDraftThread), so switching threads lands focus on a field that names it.
 describe('the field names its thread', () => {
-  test('"Message <thread title>"; on a new draft "Message New thread"', async () => {
+  test('"Message <title>" from the shell, also while the thread loads; on a new draft "Message New thread"', async () => {
     const { opened } = await import('../support/composer-controls-fixture');
     const { snapshot } = await import('../../src/client/presentation');
     const { appText } = await import('../support/app-files');
-    const { value } = await import('../support/contract-action-fixture');
-    const labels = appText('src/composer/composer.contract').split('\n').filter(line => line.includes('textarea id="composer"')).map(line => /aria-label=(`[^`]*`)/.exec(line)![1]!);
-    expect(labels).toHaveLength(2);
+    const labels = appText('src/composer/composer.contract').split('\n').filter(line => line.includes('textarea id="composer"'));
+    expect(labels.every(line => line.includes('aria-label=data.composer.fieldLabel'))).toBe(true);
     const { client } = await opened();
-    for (const label of labels) expect(value(label, { data: snapshot(client) })).toBe(`Message ${snapshot(client).threadTitle}`);
-    client.threadId = '';
+    const title = String(client.shell.threads.find(thread => thread.id === client.threadId)!.title);
+    expect(snapshot(client).composer.fieldLabel).toBe(`Message ${title}`);
+    // Its detail still loading: the shell already has the title.
     client.thread = null;
-    for (const label of labels) expect(value(label, { data: snapshot(client) })).toBe('Message New thread');
+    expect(snapshot(client).composer.fieldLabel).toBe(`Message ${title}`);
+    client.threadId = '';
+    expect(snapshot(client).composer.fieldLabel).toBe('Message New thread');
   });
 });

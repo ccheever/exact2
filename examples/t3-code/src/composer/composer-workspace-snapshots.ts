@@ -54,8 +54,11 @@ export class WorkspaceDiscovery {
     if (shown && !this.shown) { this.attempts.clear(); this.failures.clear(); }
     this.shown = shown;
     const instanceId = str(provider.instanceId);
-    if (!shown || !environment || !instanceId || !cwd) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
-    const base = JSON.stringify([environment, generation, instanceId, cwd]);
+    const base = shown && environment && instanceId && cwd ? JSON.stringify([environment, generation, instanceId, cwd]) : '';
+    // Nothing watches the folder, provider or environment the composer moved from: its state goes with it
+    // (useProviderWorkspaceSnapshotRefresh's atom family drops a node with its last subscriber).
+    if (this.selected && this.selected.base !== base) { this.attempts.delete(this.selected.base); this.failures.delete(this.selected.base); }
+    if (!base) { this.selected = undefined; return { key: '', needed: false, timer: false, wake: this.wake }; }
     let attempt = this.attempts.get(base);
     const complete = now === undefined ? hasCompleteProviderWorkspaceSnapshot(provider, cwd) : hasCurrentProviderWorkspaceSnapshot(provider, cwd, now);
     const recent = attempt?.requestedAt !== undefined && now !== undefined && now - attempt.requestedAt < PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS;
@@ -66,8 +69,9 @@ export class WorkspaceDiscovery {
       this.attempts.set(base, attempt);
     }
     attempt.observedComplete = complete;
-    // A complete snapshot, by reply or by subscription, ends the failure count.
-    if (complete) { attempt.complete = true; this.failures.delete(base); }
+    if (complete) attempt.complete = true;
+    // Any complete snapshot ends the run of failures, a stale one too (planProviderWorkspaceSnapshotRefresh).
+    if (hasCompleteProviderWorkspaceSnapshot(provider, cwd)) this.failures.delete(base);
     this.selected = attempt;
     // After its last allowed failure a scan waits out the TTL from its request.
     const exhausted = (this.failures.get(base) ?? 0) >= WORKSPACE_SNAPSHOT_MAX_ATTEMPTS && recent;
@@ -92,6 +96,8 @@ export class WorkspaceDiscovery {
       // call was pending. Never replace that knowledge with an older partial reply.
       attempt.complete = attempt.complete || complete;
       if (attempt.complete) { this.failures.delete(base); return { key, retry: false, wake: this.wake }; }
+      // A dropped folder's late failure is not counted: its state went with its last watcher.
+      if (!this.attempts.has(base)) return { key, retry: false, wake: this.wake };
       const failed = (this.failures.get(base) ?? 0) + 1;
       this.failures.set(base, failed);
       // The last attempt keeps its request time, so the snapshot TTL holds off the next scan.

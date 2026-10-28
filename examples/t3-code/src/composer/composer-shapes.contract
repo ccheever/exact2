@@ -88,7 +88,7 @@ shape NoticeMachine
 shape PreparingImage
   id: string
   name: string
-  // The taken image as an `app:/` copy for its thumbnail; "" until it is made.
+  // A 256 px thumbnail of the taken image (an `app:/` PNG); "" until it is made, or for none.
   source: string
 // An attachment the queued edit keeps.
 shape QueueEditAttachment
@@ -157,6 +157,8 @@ shape FanoutMark
 shape ComposerView
   placeholder: string
   modelTip: string
+  // The prompt field's accessible name: "Message <thread title>".
+  fieldLabel: string
   fanout: bool
   fanoutLabel: string
   fanoutAria: string

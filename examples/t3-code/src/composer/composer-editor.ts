@@ -37,6 +37,7 @@ import { composerSourceSession } from './composer-rich-state';
 import { composerHistoryComplete, composerHistoryRecall } from './composer-prompt-history';
 import { importDroppedThread } from './composer-thread-import';
 import { parseFleetThreadId } from '../connections/settings-b-fleet';
+import { checkMissingEditThreads } from './composer-controls-queue';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -227,6 +228,8 @@ export const localId = (): string => uuid();
 /** The `composerEditor` resource: the menu for the trigger at the caret, the prompt-length line, and where the drawers go. */
 export async function composerEditorView(client: T3Client, native: Native | null | undefined, now = 0): Promise<ComposerEditorView> {
   preserveCitationDraft(client);
+  // A queued edit whose thread left the active shell: archived or deleted (composer-controls-queue.ts).
+  if (native?.available) void checkMissingEditThreads(client, native, now).catch(() => undefined);
   const view = await editorView(client, native, now);
   return { ...view, foldLimit: client.ready ? foldLimit(client) : 0, drawer: { ...composerDrawer(layoutFrames(client)), hold: composerStackHold(holds(client), client.snapshotOwner, layoutFrames(client)) } }; // composer-editor-drawer.ts
 }

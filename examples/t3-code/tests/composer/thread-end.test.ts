@@ -6,7 +6,7 @@ import { arr, obj, type Obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
 import { toasts } from '../../src/shell/toast';
 import { endSummary, queuedTurnRows, threadEndRows, threadNowRows } from '../../src/composer/thread-end';
-import { queuedEdit } from '../../src/composer/composer-controls-queue';
+import { checkMissingEditThreads, queuedEdit } from '../../src/composer/composer-controls-queue';
 import { opened } from '../support/composer-controls-fixture';
 
 /** A running, steerable turn on t1 with `count` queued messages, as the server holds them. */
@@ -30,6 +30,7 @@ async function go(context: Awaited<ReturnType<typeof opened>>, id: string) {
   await context.client.refresh(context.native, context.disk);
 }
 const bubbles = (rows: ReturnType<typeof queuedTurnRows>) => rows.filter(row => row.kind === 'queued');
+const lost = (client: Awaited<ReturnType<typeof opened>>['client']) => toasts(client).filter(toast => toast.title === 'Queued message is no longer queued');
 
 describe('queued turns at the end of the timeline (QueuedRunsControl)', () => {
   test('a long queue shows its first two bubbles and "Show all N queued"; the button shows the rest', async () => {
@@ -107,22 +108,49 @@ describe('the queued edit (makeQueuedRunEditStore)', () => {
       .toEqual(['Your unsaved edit in “Thread t1” was kept in the composer.']);
     expect(client.local.drafts[`${client.environmentId}:t1`]).toBe('changed while queued');
   });
-  test('a thread deleted while its edit is open elsewhere ends the edit; one that leaves the shell otherwise keeps it', async () => {
-    const context = await queue(1), { client, native, disk, command } = context;
+  // The pinned server reports an archive on the active shell as it reports a deletion (ShellStream.ts thread.removed,
+  // location "active"); the archived shell tells them apart (queuedRunEdit.ts makeQueuedRunsAtom).
+  test('a thread that leaves the active shell keeps its edit while archived; deleted, the edit ends once, unnamed', async () => {
+    const context = await queue(1), { client, native, disk, command } = context, now = Date.parse('2026-10-28T00:00:00Z');
     await command('cclocal:queued-edit', 'q1');
     await command('draft', '', 'changed while queued');
     await go(context, 't2');
-    // Archived: the shell drops the row, and the archive keeps the queue, so the edit stays.
-    native.emit('shell', { kind: 'thread.updated', sequence: client.shell.sequence + 1, location: 'archive', thread: { ...client.shell.threads.find(thread => thread.id === 't1'), archivedAt: '2026-10-28T00:00:00.000Z' } });
+    const row = { ...client.shell.threads.find(thread => thread.id === 't1')! };
+    const leave = async () => {
+      native.emit('shell', { kind: 'thread.removed', sequence: client.shell.sequence + 1, location: 'active', threadId: 't1' });
+      await client.refresh(native, disk);
+      snapshot(client);
+      await checkMissingEditThreads(client, native, now);
+      snapshot(client);
+    };
+    native.archived = [{ ...row, archivedAt: '2026-10-28T00:00:00.000Z' }];
+    await leave();
+    expect(lost(client)).toHaveLength(0);
+    // Unarchived, the row is back and so is the edit.
+    native.archived = [];
+    native.emit('shell', { kind: 'thread.updated', sequence: client.shell.sequence + 1, location: 'active', thread: row });
     await client.refresh(native, disk);
     snapshot(client);
-    expect(toasts(client).filter(toast => toast.title === 'Queued message is no longer queued')).toHaveLength(0);
-    // Deleted (thread.removed): the edit ends once, with its toast.
-    native.emit('shell', { kind: 'thread.removed', sequence: client.shell.sequence + 1, location: 'archive', threadId: 't1' });
-    await client.refresh(native, disk);
+    await go(context, 't1');
+    expect(queuedEdit(client)?.runId).toBe('q1');
+    await go(context, 't2');
+    // Deleted: not in the archive either. Its row is gone, so the toast names no thread (useQueuedRunEdit.ts).
+    await leave();
+    expect(lost(client).map(toast => toast.description)).toEqual(['Your unsaved edit was kept in the composer.']);
     snapshot(client);
+    expect(lost(client)).toHaveLength(1);
+  });
+  test('a deletion seen only in a fresh snapshot, after a reconnect, ends the edit too', async () => {
+    const context = await queue(1), { client, native, command } = context;
+    await command('cclocal:queued-edit', 'q1');
+    await command('draft', '', 'changed while queued');
+    await go(context, 't2');
+    // The reconnect's snapshot no longer lists t1, and the archive does not hold it.
+    client.shell = { ...client.shell, threads: client.shell.threads.filter(thread => thread.id !== 't1') };
     snapshot(client);
-    expect(toasts(client).filter(toast => toast.title === 'Queued message is no longer queued')).toHaveLength(1);
+    await checkMissingEditThreads(client, native, Date.parse('2026-10-28T00:00:00Z'));
+    snapshot(client);
+    expect(lost(client)).toHaveLength(1);
   });
   test('a save keeps its claim until it finishes, and a stale save never clears a newer edit', async () => {
     const { client, native, command } = await queue(2);

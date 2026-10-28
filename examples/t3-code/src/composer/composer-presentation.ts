@@ -47,8 +47,8 @@ type ComposerSource = {
   local: { drafts: Record<string, string>; deviceSettings: { planModeEnabled: boolean } };
   /** The composer's draft (T3Client.draft); the ultrathink flow reads it. */
   draft?: string;
-  /** composer-provider-selection.ts: the project defaults and whether the catalog arrived. */
-  shell?: { projects: Obj[] }; configLive?: boolean;
+  /** composer-provider-selection.ts: the project defaults and whether the catalog arrived; the field's name: the thread rows' titles. */
+  shell?: { projects: Obj[]; threads?: Obj[] }; configLive?: boolean;
 };
 
 /**
@@ -156,6 +156,15 @@ export function controlsWidth(presentation: Obj): number {
 
 // The last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
 const footerSteps = new WeakMap<object, FooterSteps>();
+/**
+ * ChatComposer's ariaLabel: "Message <title>" by the title the shell carries (ChatView's serverThread; the detail's until
+ * the shell lists it), "Message New thread" on a draft (buildLocalDraftThread), "Message" with neither.
+ */
+function fieldLabel(client: ComposerSource): string {
+  const shellTitle = client.threadId ? str(client.shell?.threads?.find(thread => thread.id === client.threadId)?.title) : '';
+  const title = client.threadId ? shellTitle || str(obj(client.projection.thread).title) : 'New thread';
+  return title ? `Message ${title}` : 'Message';
+}
 export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
   const keyContext = { terminalOpen: requests.terminalOpen === true }; // ChatComposer: the real terminalOpen, terminalFocus false
   const providers = arr(client.config.providers);
@@ -193,7 +202,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
       projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
-    modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel,
+    modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel, fieldLabel: fieldLabel(client),
     traitsLabel: display.label,
     providerIcon: acpInstanceIcon(client.config, provider),
     ...layout, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,

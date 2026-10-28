@@ -13,7 +13,8 @@ import { acceptComposerEdit, observeComposer } from '../support/composer-field-f
 import { fileChipLink } from '../../src/composer/composer-editor-files';
 import { toasts } from '../../src/shell/toast';
 import { addAttachedFiles, attachIncoming, cancelPreparingImage, preparingImages } from '../../src/composer/composer-controls-attach';
-import { DRAFTS, STAGED, classifyAttachment, fileAttachmentMimeType, handleName, mimeTypeOfName } from '../../src/composer/composer-attach-stage';
+import { DRAFTS, STAGED, classifyAttachment, fileAttachmentMimeType, handleName, mimeTypeOfName, previewSource } from '../../src/composer/composer-attach-stage';
+import { contractComponent } from '../support/contract-action-fixture';
 import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldResource } from '../../src/composer/composer-field-bridge';
 import { primary, type PrimaryTarget } from '../../src/connections/local-primary';
@@ -55,6 +56,8 @@ async function opened() {
 }
 const ops = (native: EditorBackend, op: string) => native.calls.filter(call => call.op === op);
 const under = (store: Map<string, Uint8Array>, folder: string) => [...store.keys()].filter(path => path.startsWith(`${folder}/`));
+/** The staging's own compressions, without a preparing tile's thumbnail (composer-attach-stage.ts previewSource). */
+const staging = (compressed: Record<string, unknown>[]) => compressed.filter(call => !String(call.to).includes('/composer-stage/preview-'));
 const incoming = (files: string[], extra: Partial<{ picked: Obj[]; asText: boolean }> = {}) => ({ files, picked: [], asText: false, target: '', ...extra });
 afterEach(() => { primary.target = null; });
 
@@ -92,7 +95,7 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     const [image] = client.local.snapshotDrafts[client.draftKey] ?? [];
     expect(image).toMatchObject({ name: 'small.png', mimeType: 'image/png', sizeBytes: shot.byteLength });
     expect(store.get(`${DRAFTS}/${str(image!.id)}.png`)).toEqual(shot);
-    expect(compressed).toEqual([]);
+    expect(staging(compressed)).toEqual([]);
     expect(client.error).toBe('');
   });
 
@@ -106,7 +109,7 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     await attachIncoming(client, native, 'pick', incoming([], { picked: [{ path: 'app:/tmp/picked/1/photo.jpg', name: 'photo.jpg', type: 'image/jpeg', size: photo.byteLength }] }));
     await attachIncoming(client, native, 'drop', incoming(['doc:/4/big.jpg', 'doc:/5/huge.gif', 'doc:/6/shot.heic', 'doc:/7/photo.webp']));
     // compressImage reads app files: a dropped image is copied to the scratch folder first.
-    expect(compressed.map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.maxBytes, call.type])).toEqual([
+    expect(staging(compressed).map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.maxBytes, call.type])).toEqual([
       ['app:/tmp/composer-stage/id/wide.png', 2000, 10 * 1024 * 1024, 'image/png'],
       ['app:/tmp/composer-stage/id/big.jpg', 2000, 10 * 1024 * 1024, 'image/jpeg'],
       // Every re-encoding is within 2000 px, as reencodeWithinBudget caps it; an opaque WebP becomes a JPEG.
@@ -134,7 +137,7 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(draftFiles(client.local)).toMatchObject([{ name: 'big.bin', sizeBytes: big.byteLength, status: 'staged' }, { name: 'big.bin', sizeBytes: big.byteLength, status: 'staged' }]);
     expect(under(store, STAGED).map(path => store.get(path)!.byteLength)).toEqual([big.byteLength, big.byteLength]);
     // Their headers are never read: the dropped image is re-encoded from its scratch copy, the picked one from its own file.
-    expect(compressed.map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.type])).toEqual([
+    expect(staging(compressed).map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.type])).toEqual([
       ['app:/tmp/composer-stage/id/huge.png', 2000, 'image/png'], ['app:/tmp/picked/2/huge.png', 2000, 'image/png']]);
     expect(under(store, 'app:/tmp/composer-stage')).toEqual([]);
     expect(client.local.snapshotDrafts[client.draftKey]).toMatchObject([{ name: 'huge.png', mimeType: 'image/png' }, { name: 'huge.png', mimeType: 'image/png' }]);
@@ -176,21 +179,37 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(client.local.snapshotReleases).toContain(cancelled!.id);
     void store;
   });
-  test('a preparing tile shows a thumbnail of the image it takes, an app copy removed once the image is in', async () => {
+  test('a preparing tile shows a 256 px thumbnail of the image it takes, removed once the image is in', async () => {
     const { client, native } = await opened();
-    const { fs, store } = memoryFiles({ 'doc:/1/shot.png': png(4, 3, 64) });
+    const { fs, store, compressed } = memoryFiles({ 'doc:/1/shot.png': png(4, 3, 64) });
     let release: () => void = () => {};
     const readFile = fs.readFile;
     fs.readFile = async (path: string) => { if (path.startsWith('doc:')) await new Promise<void>(resolve => { release = resolve; }); return readFile(path); };
     const taking = attachIncoming(client, native, 'paste', incoming(['doc:/1/shot.png']));
-    for (let turn = 0; turn < 5; turn++) await new Promise(resolve => setTimeout(resolve, 0));
+    for (let turn = 0; turn < 8; turn++) await new Promise(resolve => setTimeout(resolve, 0));
     const [tile] = preparingImages(client);
-    expect(tile!.source).toBe(`app:/tmp/composer-stage/preview-${tile!.id}/shot.png`);
-    expect(store.get(tile!.source)).toEqual(png(4, 3, 64));
+    const folder = `app:/tmp/composer-stage/preview-${tile!.id}`;
+    expect(tile!.source).toBe(`${folder}/thumbnail.png`);
+    // ComposerImageThumbnail: 256 px; compressImage reads an app copy of the pasted file, which goes once it is made.
+    expect(compressed.find(entry => entry.to === tile!.source)).toMatchObject({ from: `${folder}/shot.png`, maxDimension: 256, type: 'image/png' });
+    expect(store.has(`${folder}/shot.png`)).toBe(false);
+    expect(store.has(tile!.source)).toBe(true);
     release();
     await taking;
     expect(preparingImages(client)).toEqual([]);
     expect(store.has(tile!.source)).toBe(false);
+  });
+  test('a source past 50 MB gets no thumbnail; a tile draws its thumbnail or, without one, the name (ComposerImageThumbnail)', async () => {
+    const { fs, compressed } = memoryFiles({ 'doc:/1/huge.png': png(4, 3, 64) });
+    const stat = fs.stat;
+    fs.stat = async (path: string) => ({ ...(await stat(path)), size: 51 * 1024 * 1024 });
+    expect(await previewSource({ path: 'doc:/1/huge.png', name: 'huge.png', type: 'image/png' }, 'big')).toBe('');
+    expect(compressed).toEqual([]);
+    const tile = contractComponent('src/composer/composer-editor.contract', 'PreparingImageTile');
+    for (const source of ['', 'app:/tmp/composer-stage/preview-a/thumbnail.png']) {
+      const scope = { id: 'a', name: 'shot.png', source, command: () => {} };
+      expect([tile.drawn('testId=`preparing-thumbnail-', {}, scope), tile.drawn('text name ', {}, scope)]).toEqual([source !== '', source === '']);
+    }
   });
   test('what cannot be attached is named, as addComposerAttachments reports it', async () => {
     const { client, native } = await opened();

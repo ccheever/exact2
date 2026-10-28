@@ -172,19 +172,23 @@ async function stageImage(fs: StageFiles, source: AttachSource, size: number, id
 }
 
 /**
- * PreparingComposerImage's `file`: the taken image as its preparing tile shows it, an `app:/` path (a picked image is a
- * copy already; a dropped or pasted one is copied), or '' when it cannot be copied.
+ * ComposerImageThumbnail: a 256 px PNG thumbnail of the taken image for its preparing tile, or '' (the tile shows the
+ * name) for a source past 50 MB, as prepareImageForAttachment refuses those, or one that cannot be read. compressImage
+ * reads only an app file, so a dropped or pasted image is copied first and the copy goes once the thumbnail is made.
  */
 export async function previewSource(source: AttachSource, imageId: string): Promise<string> {
-  if (source.path.startsWith('app:/')) return source.path;
-  const fs = files(), dir = `${SCRATCH}/preview-${imageId}`, to = `${dir}/${scratchName(source.name)}`;
+  const fs = files(), dir = `${SCRATCH}/preview-${imageId}`, thumbnail = `${dir}/thumbnail.png`;
+  let copy = '';
   try {
+    const { size } = await fs.stat(source.path);
+    if (!(size > 0) || size > MAX_COMPRESSIBLE_SOURCE_BYTES) return '';
     await mkdir(fs, dir);
-    await fs.copyFile(source.path, to);
-    return to;
-  } catch { return ''; }
+    if (!source.path.startsWith('app:/')) { copy = `${dir}/${scratchName(source.name)}`; await fs.copyFile(source.path, copy); }
+    await fs.compressImage(copy || source.path, thumbnail, { maxDimension: 256, maxBytes: 256 * 1024, type: 'image/png' });
+    return thumbnail;
+  } catch { return ''; } finally { if (copy) await fs.rm(copy).catch(() => undefined); }
 }
-/** A copy `previewSource` made, removed once its tile is gone (a picked image's copy stays with the picker's). */
+/** The thumbnail `previewSource` made, removed with its folder once its tile is gone. */
 export async function releasePreview(path: string): Promise<void> {
   if (!path.startsWith(`${SCRATCH}/preview-`)) return;
   const fs = files();

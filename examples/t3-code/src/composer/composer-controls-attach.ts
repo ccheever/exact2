@@ -48,9 +48,9 @@ export function questionRefuses(client: T3Client): boolean {
 }
 
 // preparingComposerImages: images taken into a draft and still being prepared (a large screenshot takes a moment to
-// re-encode), by attachment key. The strip shows each at once, under the id its image will take, as a thumbnail of its
-// source (`source`, an `app:/` copy; '' until the copy is made, when the tile shows the name); it holds its slot until
-// the image joins the draft, and removing its tile cancels it.
+// re-encode), by attachment key. The strip shows each at once, under the id its image will take, as a 256 px thumbnail
+// of its source (`source`; '' until it is made, or for none, when the tile shows the name); it holds its slot until the
+// image joins the draft, and removing its tile cancels it.
 type Preparing = { id: string; name: string; source: string };
 const preparing = new WeakMap<T3Client, Map<string, Preparing[]>>();
 function preparingIn(client: T3Client, key: string): Preparing[] { return preparing.get(client)?.get(key) ?? []; }

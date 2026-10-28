@@ -161,8 +161,6 @@ export class T3Client {
   /** load() found keys desktop-settings.json took over: the next refresh saves without them. */
   private dropLegacyKeys = false;
   shellLoaded = false;
-  // Threads the shell reported removed (deleted): a queued edit on one ends (composer-controls-queue.ts runLeftQueue).
-  removedThreadIds = new Set<string>();
   private synchronizedGeneration = -1;
   private synchronizationEpoch = 0;
   private nextRefreshEpoch = 0;
@@ -645,7 +643,6 @@ export class T3Client {
           } else if (key === 'shell') {
             if (item.kind === 'synchronized') this.shellLive = true;
             else { this.shell = applyShell(this.shell, item); this.shellLoaded = true; }
-            if (item.kind === 'thread.removed') this.removedThreadIds.add(str(item.threadId));
             if ((item.kind === 'thread.removed' && item.threadId === this.threadId)
               || (item.kind === 'thread.updated' && item.location === 'archive' && obj(item.thread).id === this.threadId)) {
               this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
