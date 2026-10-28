@@ -584,3 +584,116 @@ component App
     attach(&mut p);
     assert_eq!(p.scroll_of(port), (100., 0.));
 }
+
+/// An ordinary horizontal scroller (no scroll bindings) under a route the picture hides; `next` builds a fresh one.
+const STAGED: &str = r#"routes nav
+  home "/"
+    photo "/photo"
+component App
+  state wide = 2000
+  state shown = true
+  state n = 0
+  action open
+    nav = push(nav, "/photo")
+  action close
+    nav = back(nav)
+  action shrink
+    wide = 400
+  action remove
+    shown = false
+  action next
+    n = n + 1
+    wide = 2000
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationPresentation=(e.name == "photo" ? "fullscreen" : "push") position="absolute" inset=0
+          if e.name == "home"
+            button "Open" testId="open" press=open
+            button "Shrink" testId="shrink" press=shrink
+            button "Remove" testId="remove" press=remove
+            button "Next" testId="next" press=next
+            if shown
+              for k in [n] key=k
+                scroll testId="port" width=300 height=100 overflow-x="scroll" overflow-y="hidden"
+                  box width=wide height=80
+          if e.name == "photo"
+            button "Close" testId="close" press=close
+"#;
+
+fn boot_staged() -> Presenter<()> {
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(STAGED),
+        (),
+        (400., 600.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert_eq!(error, None);
+    p.frame();
+    attach(&mut p);
+    p
+}
+
+/// The scroller at x 800, shrunk to 400 px under the picture, and shown again: the clamp (x 100) is staged.
+fn stage_clamp(p: &mut Presenter<()>) -> ViewId {
+    let port = named(p, "port");
+    assert_eq!(p.scroll_to(port, (800., 0.)), Some((800., 0.)));
+    attach(p);
+    press(p, "open");
+    press(p, "shrink");
+    commit(p, "close");
+    assert!(p.pump(p.host.now()).is_none());
+    assert_eq!(p.cursors_left(port), (true, 1), "the clamp staged");
+    port
+}
+
+#[test]
+fn a_staged_clamp_leaves_no_cursor_after_its_acknowledgement() {
+    // Round 1, Astra (c2 MINOR): the cursor made only to carry the clamp outlived its acknowledgement and
+    // its node, as ordinary scrollers are kept and no binding pass sweeps them.
+    let mut p = boot_staged();
+    let port = stage_clamp(&mut p);
+    attach(&mut p);
+    assert_eq!(p.scroll_of(port), (100., 0.));
+    assert_eq!(
+        p.cursors_left(port),
+        (false, 0),
+        "retired by its acknowledgement"
+    );
+    press(&mut p, "remove");
+    assert_eq!(
+        p.cursors_left(port),
+        (false, 0),
+        "nothing left of the scroller"
+    );
+}
+
+#[test]
+fn fresh_scrollers_shown_and_hidden_leave_no_staging_cursors() {
+    // Each scroller is destroyed for a fresh one, either after its clamp is painted or before.
+    let mut p = boot_staged();
+    let mut ports = Vec::new();
+    for round in 0..6 {
+        let port = stage_clamp(&mut p);
+        if round % 2 == 0 {
+            attach(&mut p);
+        }
+        press(&mut p, "next");
+        assert_ne!(named(&p, "port"), port, "a fresh scroller");
+        ports.push(port);
+    }
+    for port in ports {
+        assert!(
+            !p.cursors_left(port).0,
+            "{port:?}'s cursor dropped with its node"
+        );
+    }
+    assert_eq!(
+        p.cursors_left(named(&p, "port")).1,
+        0,
+        "no staging cursors left"
+    );
+}

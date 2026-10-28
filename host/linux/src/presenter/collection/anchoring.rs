@@ -8,7 +8,7 @@ impl<D: DataSource> Presenter<D> {
 
     pub(in crate::presenter) fn arm_scroll_anchors(&mut self) {
         self.collection.cursors.retain(|&view, cursor| {
-            !cursor.anchored
+            !(cursor.anchored || cursor.staging)
                 || view == PAGE
                 || self
                     .host
@@ -175,7 +175,7 @@ impl<D: DataSource> Presenter<D> {
             let cursor = self.collection.cursors.entry(view).or_default();
             cursor.bind(key, 0);
             cursor.ordinary = true;
-            cursor.anchored = true;
+            (cursor.anchored, cursor.staging) = (true, false);
             let before_model = cursor.model_scroll;
             let offset = if view == PAGE {
                 &mut self.page

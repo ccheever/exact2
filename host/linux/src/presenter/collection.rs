@@ -84,6 +84,9 @@ struct Cursor {
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
     ordinary: bool,
+    /// Only carries a hidden scroller's clamp to its first shown frame: its acknowledgement
+    /// or its node's removal ends it, unless an anchor or a binding takes it on.
+    staging: bool,
     anchored: bool,
     /// The part of the sequence's correction already applied to the reader.
     rebased: f32,
@@ -526,7 +529,7 @@ impl<D: DataSource> Presenter<D> {
             let cursor = self.collection.cursors.entry(view).or_default();
             let was_bound = cursor.key == Some(node.key);
             cursor.bind(node.key, 0);
-            cursor.ordinary = true;
+            (cursor.ordinary, cursor.staging) = (true, false);
             let before_model = cursor.model_scroll;
             let offset = self.scroll.entry(view).or_default();
             let current = cursor

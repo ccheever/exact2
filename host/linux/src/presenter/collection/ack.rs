@@ -51,6 +51,8 @@ impl<D: DataSource> Presenter<D> {
             let correction = accepted.rebase - cursor.rebased;
             cursor.rebased = accepted.rebase;
             let survives = !current.same_target(&accepted);
+            // A staging cursor's work ends with the position it staged.
+            let retire = !survives && cursor.staging;
             if survives {
                 self.dirty = true;
             } else {
@@ -70,6 +72,9 @@ impl<D: DataSource> Presenter<D> {
             if moved && view != PAGE {
                 self.collection.scroll_event(view, accepted.key);
                 self.executor.notify();
+            }
+            if retire {
+                self.collection.cursors.remove(&view);
             }
         }
         self.finish_collection_scroll_ends();
@@ -202,10 +207,20 @@ impl<D: DataSource> Presenter<D> {
             .entry(view)
             .or_insert_with(|| Cursor {
                 ordinary: true,
+                staging: true,
                 ..Cursor::default()
             });
         cursor.bind(key, cursor.sequence);
         cursor.model_offset(key, to, true, Origin::Clamp, &mut input.clone());
         self.dirty = true;
+    }
+    /// Whether `view` has a cursor, and how many staging cursors there are.
+    #[cfg(test)]
+    pub(in crate::presenter) fn cursors_left(&self, view: ViewId) -> (bool, usize) {
+        let cursors = &self.collection.cursors;
+        (
+            cursors.contains_key(&view),
+            cursors.values().filter(|c| c.staging).count(),
+        )
     }
 }
