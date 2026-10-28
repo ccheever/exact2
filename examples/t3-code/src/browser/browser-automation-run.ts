@@ -125,10 +125,24 @@ export function agentDriving(client: object, runtimeId: string, turnRunning: (en
   }
   return now < tab.idleUntil;
 }
-/** Whether a hold may still end (a turn to watch, an idle wait to finish): the shell's clock must keep running. */
+/** Whether a hold ends on the clock (a request to finish, an idle wait to run out): the shell's clock must keep running.
+ *  A turn's end needs no clock: it comes as a shell change, which `settleAgentHolds` reads. */
 export function agentHoldWaiting(client: object, now: number): boolean {
-  for (const tab of host(client).tabs.values()) if (tab.runs > 0 || tab.agentTurn || now < tab.idleUntil) return true;
+  for (const tab of host(client).tabs.values()) if (tab.runs > 0 || now < tab.idleUntil) return true;
   return false;
+}
+/**
+ * Each shell answer, before the clock is decided: a tab whose frame is gone (its tab, thread or environment went) is
+ * forgotten, and a tab whose thread's turn ended starts its FOCUS_IDLE wait, shown or hidden alike.
+ */
+export function settleAgentHolds(client: object, now: number, live: (runtimeId: string) => boolean,
+  turnRunning: (environmentId: string, threadId: string) => boolean): void {
+  const tabs = host(client).tabs;
+  for (const [runtimeId, tab] of tabs) {
+    if (tab.runs > 0) continue;
+    if (!live(runtimeId)) { tabs.delete(runtimeId); continue; }
+    if (tab.agentTurn) agentDriving(client, runtimeId, turnRunning, now);
+  }
 }
 
 // ── The page's scripts, media and diagnostics (before the agent needs them) ─────────────────────

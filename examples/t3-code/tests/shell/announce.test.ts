@@ -9,7 +9,7 @@ import {
 } from '../../src/shell/announce';
 import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import type { T3Client } from '../../src/client/client';
-import type { Obj } from '../../src/client/domain';
+import { str, type Obj } from '../../src/client/domain';
 
 const firstRun = "run-1";
 const secondRun = "run-2";
@@ -429,6 +429,37 @@ describe('the window\'s regions (clone)', () => {
     expect(announcements(c, 1_500, fleet).thread).toBe('');
     write.busy = false; write.pending = undefined;
     expect(announcements(c, 2_000, fleet).thread).toBe('');
+  });
+  // useLocalDispatchState's callers: an unstarted thread's first message into a new worktree (useComposerSend) and
+  // Implement in a new thread (useProposedPlanSend) are sends of the open thread too.
+  it('a launch that reuses the open thread, or starts a new one from it, is the open thread\'s send', () => {
+    for (const payload of [{ threadId: 't1', reuseExistingThread: true }, { threadId: 't9' }]) {
+      const c = client({ runs: [], runtimeRequests: [] }, [{ id: 't1', title: 'Plan', latestRunId: null, status: 'idle' }]);
+      const write = c as unknown as { busy: boolean; pending: Obj | undefined };
+      announcements(c, 1_000, fleet);
+      write.busy = true;
+      write.pending = { method: 'orchestration.launchThread', threadId: str(payload.threadId), payload };
+      expect(announcements(c, 1_500, fleet).thread).toBe('Working');
+    }
+  });
+  // ChatView.logic.ts hasServerAcknowledgedLocalDispatch: a send stays in flight past its reply until the thread moves.
+  it('a shell answer between the send\'s reply and its run\'s first event does not say Working again', () => {
+    const c = client({ runs: [run('r1', 'completed', 1)], runtimeRequests: [], messages: [{ id: 'm1', role: 'user' }] },
+      [{ id: 't1', title: 'B', latestRunId: 'r1', status: 'completed', activityRunStatus: 'completed', activeRunId: null, updatedAt: '2026-10-27T00:01:00Z' }]);
+    const write = c as unknown as { busy: boolean; pending: Obj | undefined };
+    // Each change of the region's text is a new announcement (a repeat gets a no-break space).
+    const spoken: string[] = [];
+    let at = 1_000, last = '';
+    const step = () => { const text = announcements(c, at += 600, fleet).thread; if (text && text !== last) spoken.push(text); last = text; };
+    step();
+    write.busy = true; write.pending = { method: 'orchestration.dispatchCommand', threadId: 't1', payload: { type: 'message.dispatch' } }; step();
+    // The reply: the request is done, but the shell still shows the last settled run.
+    write.busy = false; write.pending = undefined; step(); step();
+    c.projection = { runs: [run('r1', 'completed', 1), run('r2', 'running', 2)], runtimeRequests: [], messages: [{ id: 'm1', role: 'user' }, { id: 'm2', role: 'user' }] };
+    c.shell.threads[0] = { id: 't1', title: 'B', latestRunId: 'r2', status: 'running', activityRunStatus: 'running', activeRunId: 'r2', latestRunStartedAt: '2026-10-27T00:02:00Z' }; step();
+    c.projection = { runs: [run('r1', 'completed', 1), run('r2', 'completed', 2)], runtimeRequests: [], messages: c.projection.messages };
+    c.shell.threads[0] = { ...c.shell.threads[0], status: 'completed', activityRunStatus: 'completed', activeRunId: null }; step();
+    expect(spoken).toEqual(['Working', 'Done']);
   });
   it('another thread\'s send in flight is not this thread\'s work: its first turn says Working, then Done', () => {
     const c = client({ runs: [], runtimeRequests: [] }, [{ id: 't1', title: 'B', latestRunId: null, status: 'idle' }]);

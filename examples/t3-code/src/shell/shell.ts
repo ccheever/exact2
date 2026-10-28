@@ -7,8 +7,9 @@ import { updateEverythingPass, updateEverythingState } from '../sidebar/update-e
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
 import { noteAutomationWindow } from '../browser/browser-automation';
-import { agentHoldWaiting } from '../browser/browser-automation-run';
-import { noteNow } from '../composer/composer-controls';
+import { agentHoldWaiting, settleAgentHolds } from '../browser/browser-automation-run';
+import { threadTurnRunning } from '../browser/browser-capture';
+import { frameEntry } from '../browser/browser-frames';
 import { migrateModelPreferences } from '../providers/model-preferences';
 import type { T3Client } from '../client/client';
 import { terminalAvailable, terminalOpen } from '../terminal/terminal-drawer-view';
@@ -274,7 +275,6 @@ async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise
 export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false,
   page: { focused: boolean; visible: boolean } = { focused: true, visible: true }, chatShown = true) {
   const highlightPending = highlightPendingSince();
-  noteNow(client, now); // the clock an agent's Browser hold reads (browser-automation-run.ts agentDriving)
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
@@ -298,6 +298,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const menu = titleMenu(client, now);
   const opened = await activationOpen(client, native, state.status);
   const announce = announcements(client, now); // before `ticking`: a region it just wrote keeps the clock running
+  settleAgentHolds(client, now, runtimeId => frameEntry(client, runtimeId) !== null, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return {
     toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: announcing(client) || notificationsWaiting(client) || guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client) || agentHoldWaiting(client, now),
     ...opened, openGuideSelected: decodeGuideOpenTarget(opened.openThreadId) ?? '', // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)

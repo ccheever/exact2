@@ -11,7 +11,7 @@ import { STORAGE_FAILED, themeSavedNotice } from '../../src/appearance/theme-edi
 import { editDraft, editorView, syncDraft, themeEditorCommand } from '../../src/appearance/settings-appearance-editor';
 import { toasts } from '../../src/shell/toast';
 import { contractComponent } from '../support/contract-action-fixture';
-import { contractComponent } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 
 const store = createThemeEditorStore();
 afterEach(() => { store.closeThemeEditor(); });
@@ -127,18 +127,25 @@ describe('the theme editor reveals a role', () => {
 
 // ThemeEditorPanel.browser.test.tsx at 7c3b3b3605ef (#25076), its 2 tests under their own names, over the panel's state,
 // actions and derives (settings-appearance-editor.contract) with the reference's 400 × 300 card in a 1280 × 900 window.
+// A window resize reaches the panel through its derives and through any action bound to the window's own size (a tracker
+// box `width=vw height=vh … resize=<action>`, as the panel had before the fix); `resize` runs both, as the host does.
 describe('ThemeEditorPanel', () => {
-  const panel = contractComponent('src/appearance/settings-appearance-editor.contract', 'ThemeEditorPanel');
+  const file = 'src/appearance/settings-appearance-editor.contract';
+  const panel = contractComponent(file, 'ThemeEditorPanel');
+  const source = appText(file), from = source.indexOf('component ThemeEditorPanel'), to = source.indexOf('\ncomponent ', from + 1);
+  const trackers = [...source.slice(from, to < 0 ? undefined : to).matchAll(/^\s*box [^\n]*width=vw height=vh[^\n]*resize=(\w+)/gm)].map(match => match[1]!);
   const card = { x: 40, y: 40, width: 400, height: 300 };
   const scope = (vw: number) => ({ vw, vh: 900, usage: [], min: Math.min, max: Math.max, frame: () => card });
   const left = (state: Obj, vw: number) => panel.derives(state, scope(vw)).left as number;
   const act = (name: string, state: Obj, vw: number, args: unknown[]) => panel.call(name, state, { ...scope(vw), ...panel.derives(state, scope(vw)) }, args);
+  const resize = (state: Obj, vw: number) => { for (const action of trackers) act(action, state, vw, [vw, 900]); };
   const dragHeader = (state: Obj, toX: number, toY: number) => { act('drag', state, 1280, [toX - card.x, toY - card.y]); act('dropDrag', state, 1280, [0, 0]); };
 
   it('keeps its left edge when resized after the window shrank', () => {
     const state = panel.state();
     dragHeader(state, 700, 40);
     expect(left(state, 1280)).toBe(700);
+    resize(state, 600);
     const clamped = left(state, 600);
     expect(clamped).toBeLessThan(600);
     act('grow', state, 600, [-100, 0]); // dragResizeHandle(panel, -100)
@@ -150,7 +157,9 @@ describe('ThemeEditorPanel', () => {
     const state = panel.state();
     dragHeader(state, 700, 40);
     expect(left(state, 1280)).toBe(700);
+    resize(state, 600);
     expect(left(state, 600)).toBeLessThan(600);
+    resize(state, 1280);
     expect(left(state, 1280)).toBe(700);
   });
 });

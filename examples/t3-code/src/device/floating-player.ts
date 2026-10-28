@@ -17,13 +17,14 @@ import type { Native } from '../client/protocol';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { browserAutoShowFloatingPreview } from '../browser/browser-capture';
 import { surfaceStore } from '../panel/panel-surfaces';
-import { openDeviceSurface } from '../panel/right-panel-tabs';
+import { deviceSurfaceId, openDeviceSurface } from '../panel/right-panel-tabs';
 import { deviceStateOf, watchDevice } from './device-surface';
 import { closeMiniDevice, emptyMini, floatMiniDevice, miniStoreOf, type DeviceTarget, type DeviceMini } from './device-session';
 
 /** `panels`: each thread panel's device tabs and its person's-choice revision at the last pass; `dismissed`: the device
- *  tabs the person closed, by panel key, which an agent's opening skips (in memory: a relaunch's first snapshot is a
- *  baseline, which opens nothing). */
+ *  tabs the person closed, by panel key, which an agent's opening skips. Kept in memory: after a relaunch the sessions of
+ *  the first snapshot stay closed as its baseline, but a device the agent opens later gets its tab again (upstream keeps
+ *  the set with the saved panel). */
 type Track = { baselines: Map<string, Set<string>>; tried: number; panels: Map<string, { devices: Set<string>; revision: number }>; dismissed: Map<string, Set<string>> };
 let tracks = new WeakMap<T3Client, Track>();
 const trackOf = (client: T3Client): Track => {
@@ -31,8 +32,6 @@ const trackOf = (client: T3Client): Track => {
   if (!track) { track = { baselines: new Map(), tried: -1, panels: new Map(), dismissed: new Map() }; tracks.set(client, track); }
   return track;
 };
-/** rightPanelStore's device surface id. */
-const deviceSurfaceId = (target: { hostId: string; deviceId: string }) => `device:${encodeURIComponent(target.hostId)}:${encodeURIComponent(target.deviceId)}`;
 /**
  * rightPanelStore's userAction: a device tab that a person's panel change removed is dismissed; one that shows again
  * (the person opened it) is not. A person's change is one that moved the panel's userRevision (panel-surfaces.ts).

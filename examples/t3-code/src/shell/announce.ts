@@ -9,14 +9,15 @@
 // after they speak; `announce`'s messages wait for the focus to settle and are then spoken together, alternating
 // between two regions so the same message can be spoken twice in a row, and the pair keeps its text until the next.
 import type { T3Client } from '../client/client';
-import { obj, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
+import { activeRun } from '../client/protocol';
 import { pendingRequests } from '../composer/requests';
 import { latestExecutedRun } from '../composer/composer-controls';
 import { activityRun, latestUnheldRun } from '../timeline/worktree-card-run';
 import { effectiveSnoozed, latestRun, pendingApproval, pendingInput, shellRuntime } from '../sidebar/sidebar-model';
 import { pendingSubagentRequest } from '../sidebar/subagent-requests';
 import { isProviderSubagent } from '../composer/composer-controls-subagent';
-import { providerGoalWorking } from '../composer/provider-goal';
+import { runlessWorkStartedAt } from '../timeline/timeline-inspect';
 import { notifyEnvironments } from './shell-notify';
 import type { EnvironmentFleet } from '../connections/settings-b-fleet';
 
@@ -156,6 +157,8 @@ type Announcer = {
   thread: Region; background: Region; first: Region; second: Region; pending: Pending[];
   open: { threadKey: string; memory: ThreadAnnouncementMemory } | null;
   backgroundMemory: BackgroundThreadMemory;
+  /** The open thread's send that the server has not acknowledged yet (useLocalDispatchState). */
+  dispatch: LocalDispatch | null;
 };
 /** useLiveRegion's CLEAR_AFTER_MS: a thread region's text is cleared once it has had time to be spoken. */
 export const CLEAR_AFTER_MS = 7_000;
@@ -164,7 +167,7 @@ function announcerOf(client: T3Client): Announcer {
   let value = announcers.get(client);
   if (!value) {
     const region = (): Region => ({ text: '', seen: 0, at: 0 });
-    value = { thread: region(), background: region(), first: region(), second: region(), pending: [], open: null, backgroundMemory: new Map() };
+    value = { thread: region(), background: region(), first: region(), second: region(), pending: [], open: null, backgroundMemory: new Map(), dispatch: null };
     announcers.set(client, value);
   }
   return value;
@@ -194,8 +197,53 @@ export function cancelAnnouncement(client: T3Client, source: string): void {
   state.pending = state.pending.filter(entry => entry.source !== source);
 }
 
+// ── useLocalDispatchState (ChatView.logic.ts createLocalDispatchSnapshot, hasServerAcknowledgedLocalDispatch) ──────
+
+/** The open thread as its send found it: a send stays in flight until the server shows it took it. */
+type DispatchFacts = { userMessageId: string | null; runId: string | null; requestedAt: string | null; startedAt: string | null;
+  completedAt: string | null; runtimeStatus: string | null; runtimeUpdatedAt: string | null; activeRunId: string | null };
+type LocalDispatch = DispatchFacts & { threadKey: string; error: string };
+function dispatchFacts(client: T3Client, shellThread: Obj | undefined): DispatchFacts {
+  const run = shellThread ? latestRun(shellThread) : null, runtime = shellThread ? shellRuntime(shellThread) : null;
+  const userMessage = client.threadId ? arr(client.projection.messages).filter(message => message.role === 'user').at(-1) : undefined;
+  return {
+    userMessageId: userMessage ? str(userMessage.id) : null, runId: shellThread?.latestRunId == null ? null : str(shellThread.latestRunId),
+    requestedAt: run?.requestedAt ?? null, startedAt: run?.startedAt ?? null, completedAt: run?.completedAt ?? null,
+    runtimeStatus: runtime?.status ?? null, runtimeUpdatedAt: runtime?.updatedAt ?? null, activeRunId: runtime?.activeRunId || null,
+  };
+}
+/** derivePhase over a runtime status. */
+const phaseOf = (status: string | null): string => status === null ? 'disconnected'
+  : ['preparing', 'starting', 'queued'].includes(status) ? 'connecting' : ['running', 'waiting'].includes(status) ? 'running' : 'ready';
+/** hasServerAcknowledgedLocalDispatch: a request or an error ends it; otherwise the thread's run or runtime must move. */
+function acknowledged(sent: LocalDispatch, now: DispatchFacts, waitingOnPerson: boolean, error: string): boolean {
+  if (waitingOnPerson || (error !== '' && error !== sent.error)) return true;
+  const phase = phaseOf(now.runtimeStatus);
+  if (phase === 'connecting') return false;
+  const userMessageChanged = sent.userMessageId !== now.userMessageId;
+  const runChanged = sent.runId !== now.runId || sent.requestedAt !== now.requestedAt || sent.startedAt !== now.startedAt || sent.completedAt !== now.completedAt;
+  if (phase === 'running') {
+    if (userMessageChanged) return true;
+    if (!runChanged || now.runId === null || now.startedAt === null) return false;
+    return now.activeRunId === null || now.runId === now.activeRunId;
+  }
+  return runChanged || sent.runtimeStatus !== now.runtimeStatus || sent.runtimeUpdatedAt !== now.runtimeUpdatedAt;
+}
+/**
+ * The open thread's own send whose request is out (beginLocalDispatch's callers): a message, a draft's launch, an
+ * unstarted server thread's first message into a new worktree (a launch that reuses the thread), or Implement in a new
+ * thread (a launch from the open thread). Another write in flight (a model, a mode, a stop) is not a send.
+ */
+function sendRequested(client: T3Client, launching: string): boolean {
+  const pending = client.pending;
+  if (!client.busy || !pending) return false;
+  const payload = obj(pending.payload);
+  if (pending.method === 'orchestration.launchThread') return client.threadId ? payload.reuseExistingThread !== true || str(payload.threadId) === client.threadId : launching !== '';
+  return !!client.threadId && pending.threadId === client.threadId && payload.type === 'message.dispatch';
+}
+
 /** The open thread's activity as ChatView passes it to the timeline's announcer; null while there is no thread to follow. */
-export function openThreadActivity(client: T3Client): { threadKey: string; snapshot: ThreadActivitySnapshot; detailBehind: boolean } | null {
+function openThreadActivity(client: T3Client, state: Announcer): { threadKey: string; snapshot: ThreadActivitySnapshot; detailBehind: boolean } | null {
   if (!client.environmentId || !client.ready) return null;
   const projection = client.projection, shellThread = client.shell.threads.find(thread => thread.id === client.threadId);
   // A provider's own subagent thread has no turn of its own to announce (announceTurnStatus).
@@ -204,9 +252,14 @@ export function openThreadActivity(client: T3Client): { threadKey: string; snaps
   const pending = client.pending, launching = !client.threadId && pending?.method === 'orchestration.launchThread' && pending.payload.reuseExistingThread !== true ? str(pending.payload.threadId) : '';
   const threadKey = `${client.environmentId}:${client.threadId || launching || `draft:${client.draftKey}`}`;
   const { approvals, inputs } = client.threadId ? pendingRequests(projection) : { approvals: [], inputs: [] };
-  // ChatView's isWorking: a run, runless work, or a send of this thread in flight (isSendBusy, which only a message send
-  // or a draft's launch sets); another write in flight (a model, a mode, a stop) is not work.
-  const working = providerGoalWorking(client) || (launching !== '' && client.busy);
+  const waitingOnPerson = approvals.length > 0 || inputs.length > 0 || (shellThread ? pendingInput(shellThread) : false);
+  // isSendBusy: from the send until the server acknowledges it, past the request's reply.
+  const facts = dispatchFacts(client, shellThread);
+  if (state.dispatch && state.dispatch.threadKey !== threadKey && !state.dispatch.threadKey.endsWith(`:draft:${client.draftKey}`)) state.dispatch = null;
+  if (sendRequested(client, launching)) { if (!state.dispatch) state.dispatch = { ...facts, threadKey, error: client.error }; else state.dispatch.threadKey = threadKey; }
+  else if (state.dispatch && acknowledged(state.dispatch, facts, waitingOnPerson, client.error)) state.dispatch = null;
+  // ChatView's isWorking: a run, runless work, or this thread's send in flight.
+  const working = !!activeRun(projection) || runlessWorkStartedAt(projection) !== '' || state.dispatch !== null;
   const status: ThreadActivityStatus = approvals.length ? 'approval' : inputs.length || (shellThread ? pendingInput(shellThread) : false) ? 'input' : working ? 'working' : 'idle';
   const requestId = approvals[0]?.requestId ?? inputs[0]?.requestId ?? null;
   const activity = client.threadId ? activityRun(projection) : null, executed = client.threadId ? latestExecutedRun(projection) : undefined;
@@ -221,7 +274,7 @@ export function openThreadActivity(client: T3Client): { threadKey: string; snaps
 
 /** ThreadActivityAnnouncer: the open thread's region follows its activity; a switch clears it and starts a new baseline. */
 function followOpenThread(client: T3Client, state: Announcer, now: number): void {
-  const activity = openThreadActivity(client);
+  const activity = openThreadActivity(client, state);
   if (!activity) {
     if (state.open) { state.open = null; state.thread.text = ''; }
     return;

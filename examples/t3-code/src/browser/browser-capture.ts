@@ -15,7 +15,7 @@ import { requestComposerField } from '../composer/composer-field-request';
 // answer that started it, and a stop sent while the start runs must not wait on a native that was let go.
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
-import { obj, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
 import { pushToast, toasts, updateToast, type ToastAction } from '../shell/toast';
 import { markActionCopied } from '../shell/shell';
@@ -44,7 +44,7 @@ import { appFiles } from '../media/save-file';
 import { frameEntry, frameIdOf } from './browser-frames';
 import { agentDriving } from './browser-automation-run';
 import { fleet } from '../connections/settings-b-fleet';
-import { sidebarStatus } from '../sidebar/sidebar-model';
+import { shellRuntime, sidebarStatus } from '../sidebar/sidebar-model';
 import { activePicks, annotateState, cancelAnnotate, startAnnotate, type ApplyPick } from './browser-annotate';
 import { automationCalls } from './browser-automation-run';
 
@@ -244,13 +244,18 @@ export function heldFrame(client: T3Client, runtimeId: string): { width: number;
 
 /**
  * The thread's agent turn runs (the reference's PreviewAgentActivity, ended by RunExecutionService's agentTurnsSettled):
- * working, waiting on the person, or waiting as the sidebar shows it, on another thread (t3_thread_wait) or on its
- * subagents and monitors.
+ * the root turn works, waits on the person or on another thread (t3_thread_wait), or its run is parked on subagents, the
+ * child turns agentTurnsSettled waits for. A parked monitor or background task is no turn: it can be a dev server's
+ * watchdog.
  */
 export function threadTurnRunning(client: T3Client, environmentId: string, threadId: string): boolean {
   const shell = environmentId === client.environmentId ? client.shell : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.shell;
   const thread = shell?.threads.find(entry => entry.id === threadId);
-  return !!thread && ['working', 'approval', 'input', 'waiting'].includes(sidebarStatus(thread));
+  if (!thread) return false;
+  const status = sidebarStatus(thread);
+  if (status === 'working' || status === 'approval' || status === 'input') return true;
+  if (status !== 'waiting') return false;
+  return shellRuntime(thread)?.status === 'running' || arr(thread.pendingBackgroundTasks).some(task => str(task.kind) === 'subagent');
 }
 
 export function recordingOf(client: T3Client, ref: ScopedThreadRef, tabId: string, runtimeId: string): boolean {
