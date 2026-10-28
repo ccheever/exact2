@@ -170,7 +170,7 @@ pub fn compatibility_id_sources_with_entries(
         Err(std::env::VarError::NotPresent) => "development".into(),
         Err(_) => return Err("EXACT_UPDATE_TRUST is not UTF-8".into()),
     };
-    crate::reach::parsed(app_dir, grants, rust_grants)?;
+    crate::reach::parsed(app_dir, grants, rust_grants, trust == "production")?;
     // @ref LLP 1100 D1 — a colour this platform can't show is refused here.
     // The app's plan, compiled once here: its colours checked, and (stage
     // 14 C2) its icons' fill rules read below.

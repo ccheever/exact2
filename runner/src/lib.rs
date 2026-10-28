@@ -62,6 +62,7 @@ pub mod head;
 pub mod held;
 pub mod instance;
 pub mod lists;
+pub mod local_network;
 pub mod notify;
 pub mod orientation;
 pub mod page;

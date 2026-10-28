@@ -666,6 +666,16 @@ impl Batch {
             s.push_str(",\"redirect\":");
             quote(r.request.redirect.name(), &mut s);
         }
+        // Who asked it, for the local network's rule at the page's fetch
+        // and WebSocket open (LLP 1133.036 D6); absent is the app's own.
+        // Under the agent the substitute's state stands for the browser's.
+        let reach = r.request.reach;
+        if reach.origin != exact_runner::CallOrigin::App {
+            push_text!(&mut s, ",\"origin\":\"{}\"", reach.origin.word());
+            if let Some(state) = reach.substitute {
+                push_text!(&mut s, ",\"reachState\":\"{}\"", state.word());
+            }
+        }
         s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
         s.push_str("\",\"cache\":\"");

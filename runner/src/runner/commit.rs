@@ -805,7 +805,7 @@ impl<D: DataSource> Runner<D> {
         target: Target,
         source: String,
         args: Vec<Value>,
-        request: Request,
+        mut request: Request,
         forced: bool,
     ) {
         let keepable = matches!(target, Target::Resource(_))
@@ -853,6 +853,7 @@ impl<D: DataSource> Runner<D> {
         self.number_data_call(&mut request);
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
+        request.reach = self.reach_of(self.origin_for(Some(target)));
         self.note_handles(ticket, &source, &request.body);
         self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);

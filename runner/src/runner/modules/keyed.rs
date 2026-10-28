@@ -340,6 +340,8 @@ impl<D: DataSource> Runner<D> {
                     return Err(format!("prefer permission.{n}: denied is not {}'s to say here, which stores `{word}`; prefer shared=false", self.host_target()))
                 }
                 (None, "granted" | "denied" | "prompt", _) => self.set_permission_answered(n, value, None),
+                // A fact the host keeps reads `unknown` until evidence (LLP 1133.036 D8).
+                (None, "unknown", _) if self.host_keeps(n) => self.set_permission_answered(n, value, None),
                 (None, other, _) => {
                     return Err(format!("prefer permission.{n}: granted, denied or prompt, or shared= or since=, not `{other}`"))
                 }

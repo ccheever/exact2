@@ -308,6 +308,10 @@ pub(crate) fn derive(
     } else {
         Vec::new()
     };
+    let (bonjour, local_source, multicast) = local_network_reach(&ceiling);
+    if multicast && platform == "linux" {
+        android.push("android.permission.CHANGE_WIFI_MULTICAST_STATE");
+    }
     android.sort_unstable();
     android.dedup();
     let auth = auth(&ceiling, platform, compat)?;
@@ -340,6 +344,16 @@ pub(crate) fn derive(
     features.dedup();
     if !features.is_empty() {
         compat.reach["androidFeatures"] = json!(features);
+    }
+    // Apple's: tvOS keeps both, since it bakes the iOS plan and its
+    // `URLSession` is under App Transport Security as iOS's is.
+    if matches!(platform, "ios" | "macos") {
+        if !bonjour.is_empty() {
+            compat.reach["bonjour"] = json!(bonjour);
+        }
+        if local_source {
+            compat.reach["localNetworking"] = json!(true);
+        }
     }
     Ok(())
 }
@@ -382,6 +396,7 @@ pub(crate) fn parsed(
     app_dir: &Path,
     grants: Option<&str>,
     rust: Option<&str>,
+    production: bool,
 ) -> Result<(), String> {
     const RUST: &str = "the Rust source";
     let typescript = rust.is_some() || app_dir.join("app.ts").is_file();
@@ -398,6 +413,7 @@ pub(crate) fn parsed(
                 .map(move |e| format!("grant-parse: {source}: {e}"))
         })
         .chain(presence(app_dir, &sources))
+        .chain(local_network(&sources, production))
         .collect();
     if errors.is_empty() {
         Ok(())
@@ -454,6 +470,79 @@ fn presence(app_dir: &Path, sources: &[(Option<&str>, &str); 2]) -> Vec<String> 
         ));
     }
     errors
+}
+
+/// The local network's lines (LLP 1133.036 D5, D7): a `net.dns-sd` type
+/// RFC 6335 does not allow (`grant-parse`); `net.dns-sd` or a
+/// `local-network` source without `device.local-network`, since on Apple a
+/// browse or a reach under them can show the Local Network prompt
+/// (`grant-missing`); and in a production build the `development` word,
+/// which only a development build's bake writes and which admits loopback.
+fn local_network(sources: &[(Option<&str>, &str); 2], production: bool) -> Vec<String> {
+    use exact_runner::grants::{is_service_type, DEVELOPMENT, LOCAL_NETWORK};
+    let mut errors = Vec::new();
+    let (mut device, mut needs) = (false, None);
+    for (spec, source) in sources {
+        let Some(Ok(set)) = spec.map(exact_runner::grants::parse) else {
+            continue;
+        };
+        for line in set.lines() {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            match words[..] {
+                ["device.local-network", ..] => device = true,
+                ["net.dns-sd", kind] if !is_service_type(kind) => errors.push(format!(
+                    "grant-parse: {source}: `{line}`: a DNS-SD service type is `_<name>._tcp` or `_<name>._udp`, the name 1 to 15 letters, digits and hyphens with a letter among them (RFC 6335 §5.1)"
+                )),
+                ["net.dns-sd", ..] => needs = needs.or(Some(*line)),
+                ["net.fetch" | "net.websocket", LOCAL_NETWORK, ..] => {
+                    needs = needs.or(Some(*line));
+                    if production && words.get(2) == Some(&DEVELOPMENT) {
+                        errors.push(format!(
+                            "grant-parse: {source}: `{line}`: a production build admits no loopback by this line; write `{} {LOCAL_NETWORK}`, and name a loopback origin the app serves itself on",
+                            words[0]
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if let (Some(line), false) = (needs, device) {
+        errors.push(format!(
+            "grant-missing: `{line}` needs `device.local-network <purposeKey>` beside it: on Apple a browse or a reach under it can show the Local Network prompt, with that strings key's text"
+        ));
+    }
+    errors
+}
+
+/// What the local network's lines derive (LLP 1133.036 D7): each
+/// `net.dns-sd` type, for `NSBonjourServices` on Apple; whether a
+/// `local-network` source lets `URLSession` load `http:` from local hosts
+/// (`NSAllowsLocalNetworking`); and on Android, with a type, the permission
+/// `WifiManager.MulticastLock` needs where the system does not manage it.
+fn local_network_reach(ceiling: &str) -> (Vec<String>, bool, bool) {
+    let lines = || {
+        ceiling
+            .lines()
+            .map(|l| l.split_whitespace().collect::<Vec<_>>())
+    };
+    let mut types: Vec<String> = lines()
+        .filter_map(|w| (w.len() == 2 && w[0] == "net.dns-sd").then(|| w[1].to_string()))
+        .collect();
+    types.sort_unstable();
+    types.dedup();
+    let source = lines().any(|w| {
+        matches!(
+            w[..],
+            [
+                "net.fetch" | "net.websocket",
+                exact_runner::grants::LOCAL_NETWORK,
+                ..
+            ]
+        )
+    });
+    let multicast = !types.is_empty();
+    (types, source, multicast)
 }
 
 /// `auth.*` through the same table (LLP 1069.006 D2; LLP 1069.008 D2's
@@ -984,7 +1073,7 @@ mod tests {
     fn a_presence_line_needs_its_permission_line_its_module_and_one_policy() {
         let dir = app(&[("en", r#"{"purpose.lock": "Unlocks your session."}"#)]);
         let line = "secret.keep token user-presence optional";
-        let refused = parsed(&dir.0, Some(line), None).unwrap_err();
+        let refused = parsed(&dir.0, Some(line), None, false).unwrap_err();
         assert!(
             refused.contains("grant-missing: `secret.keep token user-presence optional` needs `device.local-auth"),
             "{refused}"
@@ -996,14 +1085,14 @@ mod tests {
         )
         .unwrap();
         let both = format!("{line}\ndevice.local-auth purpose.lock");
-        parsed(&dir.0, Some(&both), None).unwrap();
+        parsed(&dir.0, Some(&both), None, false).unwrap();
         let rust = "secret.keep token biometry-any\ndevice.local-auth purpose.lock";
-        let conflict = parsed(&dir.0, Some(&both), Some(rust)).unwrap_err();
+        let conflict = parsed(&dir.0, Some(&both), Some(rust), false).unwrap_err();
         assert!(
             conflict.starts_with("grant-policy-conflict: "),
             "{conflict}"
         );
-        let unknown = parsed(&dir.0, Some("secret.keep token face-id"), None).unwrap_err();
+        let unknown = parsed(&dir.0, Some("secret.keep token face-id"), None, false).unwrap_err();
         assert!(unknown.contains("grant-policy-unknown"), "{unknown}");
         // Face ID's usage key on iOS, nothing on macOS, the biometric permission on Android.
         let text = json!({"en": "Unlocks your session."});
@@ -1022,6 +1111,56 @@ mod tests {
             android.reach["android"],
             json!(["android.permission.USE_BIOMETRIC"])
         );
+    }
+
+    #[test]
+    fn the_local_network_s_lines_need_their_permission_and_derive_apple_s_and_android_s_keys() {
+        // LLP 1133.036 D5, D7.
+        let dir = app(&[("en", r#"{"lan": "Finds your lights."}"#)]);
+        let lines = "net.dns-sd _wled._tcp\nnet.fetch local-network";
+        let refused = parsed(&dir.0, Some(lines), None, false).unwrap_err();
+        assert!(
+            refused
+                .starts_with("grant-missing: `net.dns-sd _wled._tcp` needs `device.local-network"),
+            "{refused}"
+        );
+        let bad = parsed(
+            &dir.0,
+            Some("net.dns-sd _wled._sctp\ndevice.local-network lan"),
+            None,
+            false,
+        );
+        let bad = bad.unwrap_err();
+        assert!(
+            bad.starts_with("grant-parse: the Rust source: `net.dns-sd _wled._sctp`"),
+            "{bad}"
+        );
+        let grants = format!("{lines}\ndevice.local-network lan");
+        parsed(&dir.0, Some(&grants), None, false).unwrap();
+        let development = format!("{grants}\nnet.websocket local-network development");
+        parsed(&dir.0, Some(&development), None, false).unwrap();
+        let production = parsed(&dir.0, Some(&development), None, true).unwrap_err();
+        assert!(
+            production.contains("a production build admits no loopback"),
+            "{production}"
+        );
+        for platform in ["ios", "macos"] {
+            let mut c = compat(&grants);
+            derive(&dir.0, platform, None, &mut c).unwrap();
+            assert_eq!(c.reach["bonjour"], json!(["_wled._tcp"]), "{platform}");
+            assert_eq!(c.reach["localNetworking"], json!(true), "{platform}");
+        }
+        let mut android = compat(&grants);
+        derive(&dir.0, "linux", None, &mut android).unwrap();
+        assert_eq!(
+            android.reach["android"],
+            json!(["android.permission.CHANGE_WIFI_MULTICAST_STATE"])
+        );
+        assert!(android.reach["bonjour"].is_null());
+        let mut fetch_only = compat("net.fetch local-network\ndevice.local-network lan");
+        derive(&dir.0, "ios", None, &mut fetch_only).unwrap();
+        assert!(fetch_only.reach["bonjour"].is_null());
+        assert_eq!(fetch_only.reach["localNetworking"], json!(true));
     }
 
     #[test]

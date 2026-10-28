@@ -42,6 +42,7 @@ macro_rules! host {
         $crate::corner_exports!();
         $crate::gradient_exports!();
         $crate::calc_exports!();
+        $crate::local_network_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }

@@ -208,6 +208,8 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         .unwrap_or_default();
     let request = Request {
         surface: None,
+        // The runner stamps who asked when the request goes out.
+        reach: Default::default(),
         continuation: json["continuation"].as_u64(),
         http: match &json["max_response_bytes"] {
             Json::Null => HttpScheduling::Ordered,

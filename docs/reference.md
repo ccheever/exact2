@@ -1428,15 +1428,34 @@ reminder posts the next one when the app runs.
 
 ### Local network
 
-The grant `device.local-network purpose.<key>` writes the strings key's text
-as `NSLocalNetworkUsageDescription` on macOS, iOS and tvOS (with each table's
-translation in `InfoPlist.strings`). That text is the prompt the platform
-shows before the app first reaches an address on the local network (macOS 15
-and later, iOS 14 and later; Apple TN3179). Exact adds no gate of its own:
-the platform asks and refuses. On iOS the grant's text replaces the
-development client's default prompt from `host.ios.localNetworking`, which
-still adds `NSAllowsLocalNetworking`. The web, Linux, Windows and Android
-get nothing: a browser asks with its own Local Network Access prompt.
+Services on the local network are found by DNS-SD through `@exact/local-network`
+(LLP 1133.036; [recipe](recipes/local-network.md)) and reached with `fetch` or a
+WebSocket. Three kinds of grant line:
+
+- `device.local-network purpose.<key>`: the strings key's text is
+  `NSLocalNetworkUsageDescription` on macOS, iOS and tvOS, the prompt Apple shows
+  before the app first browses or reaches the local network (macOS 15 and later,
+  iOS 14 and later; Apple TN3179).
+- `net.dns-sd <type>`, one per service type the app browses or resolves
+  (`_wled._tcp`; RFC 6335 §5.1), which needs the line above. It derives
+  `NSBonjourServices` on Apple and `CHANGE_WIFI_MULTICAST_STATE` on Android. A
+  browse or resolve of a type no line lists fails `SecurityError`.
+- `net.fetch local-network`, `net.websocket local-network`: any host the URL writes
+  as an RFC 1918, link-local or unique-local address, or a `.local` name, never a
+  name that resolves to one. It derives `NSAllowsLocalNetworking`, so cleartext
+  `http` reaches such a host. `net.fetch local-network development` admits loopback
+  too, in a development build only; a development bake writes the word itself, so
+  a fixture at `127.0.0.1` answers under the agent, and a production bake refuses it.
+
+`localNetworkStatus()` is a fact: `granted`, `prompt`, `denied` or `unknown`, where
+`unknown` means "a reach may ask" (Apple reports no state, so each launch starts
+there on iOS and macOS 15). A tool invocation, a wake or a package's event never
+starts a browse, and its `fetch` or WebSocket to the local network is refused
+before it is sent unless the fact is `granted` (`NotAllowedError`, message
+`person-required` while undecided): on Apple at every hop a redirect leads to, on
+the web at the first, with the redirect not followed. The app's own code and a
+person's input are never refused: their reach is the ask. The web, Linux and
+Windows have no browser (`available` false); a typed address still works there.
 
 ### Apple Health
 

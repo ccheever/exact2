@@ -100,7 +100,7 @@ function runtime(dir) {
   const text = readFileSync(roster, 'utf8');
   if (!text.includes(engine)) throw new Error(`roster.js no longer has \`${engine}\``);
   writeFileSync(roster, text.replace(engine, 'export const x_sin = x => globalThis.__trig.sin(x), x_cos = x => globalThis.__trig.cos(x);'));
-  for (const f of ['admission.js', 'agent.js']) writeFileSync(resolve(dir, f), localImports(readFileSync(resolve(webJs, f), 'utf8')));
+  for (const f of ['admission.js', 'agent.js', 'modules.js']) writeFileSync(resolve(dir, f), localImports(readFileSync(resolve(webJs, f), 'utf8')));
   writeFileSync(resolve(dir, 'draw.js'), 'export const drawer = null;\n');
   writeFileSync(resolve(dir, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
   writeFileSync(resolve(dir, 'admission-data.js'), "import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(''),rustGrantSet=createGrantSet('');\n");

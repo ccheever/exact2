@@ -257,7 +257,9 @@ impl<D: DataSource> Runner<D> {
                 // overlay (LLP 1133.009 D10 item 11), as a `partial` source
                 // does over its default; a declared one, a value. A sampled
                 // source's takes a reading or a track of steps (§9).
-                let checked = if sub["track"] == true {
+                let checked = if sub["network"] == "browse" {
+                    self.network_checked(value)
+                } else if sub["track"] == true {
                     self.track_checked(&row, &checked)
                 } else if sub["implementation"] == true || sub["partial"] == true {
                     self.partial(&row, &checked)
@@ -293,6 +295,9 @@ impl<D: DataSource> Runner<D> {
             self.devices_preferred(key);
             self.log(format!("prefer extension {key}"));
             self.announce(key);
+            for dependent in self.network_dependents(key) {
+                self.announce(&dependent);
+            }
             // An agent word is its extension's: any of its names stands for it.
             let extension = key.split_once('.').map_or("", |(e, _)| e);
             let row = (self.plan.modules.iter()).find(|m| {

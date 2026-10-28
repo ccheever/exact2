@@ -118,6 +118,10 @@ pub enum HostError {
     Unavailable { feature: &'static str },
     /// The operation's own error, e.g. malformed base64 or an unparseable URL.
     Failed(String),
+    /// A [`HopGate`] refused the hop before it was sent: the grants admit
+    /// it, and the host's own rule does not (Exact patch, LLP 1133.036 D6:
+    /// `person-required`, or a permission the person denied).
+    NotAllowed { reason: String },
 }
 
 impl std::fmt::Display for HostError {
@@ -132,8 +136,26 @@ impl std::fmt::Display for HostError {
                 write!(f, "unavailable: the {feature} feature is not enabled")
             }
             HostError::Failed(detail) => write!(f, "{detail}"),
+            HostError::NotAllowed { reason } => write!(f, "NotAllowedError: {reason}"),
         }
     }
+}
+
+/// A host's check beside the grant at every fetch hop (the first and each
+/// redirect) and every WebSocket open, made after the grant admits the URL
+/// and before anything is sent (Exact patch, LLP 1133.036 D6). A binding
+/// carries one per request (`host::Fetch::with_gate`), so it can depend on
+/// who asked; the grant set itself stays static.
+pub trait HopGate: Send + Sync {
+    /// `Err` refuses the hop to `url`; it is then never sent.
+    fn admit(&self, url: &url::Url) -> Result<(), HostError>;
+}
+
+/// The grant check, then `gate`'s, for one hop to `url`.
+pub(crate) fn gated(gate: Option<&dyn HopGate>, url: &str) -> Result<(), HostError> {
+    let Some(gate) = gate else { return Ok(()) };
+    let parsed = url::Url::parse(url).map_err(|e| HostError::Failed(format!("TypeError: {e}")))?;
+    gate.admit(&parsed)
 }
 
 /// Check an operation against the grants the calling binding carries.

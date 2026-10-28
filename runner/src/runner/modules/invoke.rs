@@ -176,9 +176,10 @@ impl<D: DataSource> Runner<D> {
     fn tool_step(&mut self, run: Running, answer: Result<Answer, DataError>) {
         self.take_data_logs();
         let answer = match answer {
-            Ok(Answer::Later(request)) => {
+            Ok(Answer::Later(mut request)) => {
                 let ticket = self.next_ticket;
                 self.next_ticket += 1;
+                request.reach = self.reach_of(run.origin);
                 self.requests.push(RequestOut {
                     ticket,
                     target: NAME.into(),

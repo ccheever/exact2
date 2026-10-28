@@ -49,6 +49,7 @@ mod handles;
 mod invoke;
 mod keyed;
 mod letgo;
+mod network;
 mod permits;
 mod pictures;
 mod poll;
@@ -612,7 +613,7 @@ impl<D: DataSource> Runner<D> {
             return Some(Decision::Now(json!({ "error": permission["denied"] })));
         }
         let asks = self.asks(row, send);
-        if state == "prompt" && asks && self.status_asks(row, &sub) {
+        if network::asks_in(permission, &state) && asks && self.status_asks(row, &sub) {
             return Some(Decision::Hold(Waits::Permission));
         }
         // A name that is no request fails until the state is granted, where
@@ -683,6 +684,12 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             return Decision::Hold(Waits::Check);
+        }
+        if let Some(value) = (!send)
+            .then(|| self.network_value(row, sub, args))
+            .flatten()
+        {
+            return Decision::Now(value);
         }
         if !send && sub["counts"].is_object() {
             return Decision::Now(self.counted(row, sub, args));

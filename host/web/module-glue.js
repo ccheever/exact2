@@ -59,8 +59,9 @@ const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`
 export function fetchEarly(request, grants) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
   // A GET a driver fault will fail is not started early: the request fails it, counted once (LLP 1103 D1).
-  // A GET that does not follow redirects is never sent early
-  if (grantError(grants) || request.method !== 'GET' || (request.redirect ?? 'follow') !== 'follow' || request.body || request.body_base64 != null || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
+  // A GET that does not follow redirects is never sent early, nor one a tool, a wake or the device asked,
+  // which `request` checks against the local network's rule first (LLP 1133.036 D6).
+  if ((request.origin ?? 'app') !== 'app' || grantError(grants) || request.method !== 'GET' || (request.redirect ?? 'follow') !== 'follow' || request.body || request.body_base64 != null || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});

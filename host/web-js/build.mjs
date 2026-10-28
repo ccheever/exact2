@@ -1,4 +1,4 @@
-import { asyncContext, bundleOptions, lowered, packageConfig, webImplementations } from '../../js/bake/src/typescript.mjs';
+import { asyncContext, bundleOptions, developmentLocalNetwork, lowered, packageConfig, webImplementations } from '../../js/bake/src/typescript.mjs';
 import { hatchWords, moduleDirectory, webAppManifest } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -367,7 +367,7 @@ const normalizeGrants = (label, spec, stem) => {
   return set;
 };
 const tsModule = captured?.facts ?? null;
-const grants = ts ? String(tsModule.grants ?? '') : '';
+const grants = ts ? developmentLocalNetwork(String(tsModule.grants ?? '')) : '';
 // What the native bake refuses of the module (js/bake/src/lib.rs `bake_in`,
 // bake/src/receipt.rs), refused here as well, so the web loop fails where a
 // native build would (files diary F13).
@@ -470,6 +470,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(containerHatches ? ["go(() => requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers()))));"] : []),
 ].join('\n'));
 for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'samples.js', 'wakes.js', 'reach.js', 'devices.js', 'arrival.js', 'calls.js', 'update.js', 'spans.js', 'views.js', 'pictures.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+writeFileSync(resolve(gen, 'modules.js'), localImports(readFileSync(resolve(here, 'modules.js'), 'utf8')));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
 // navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own

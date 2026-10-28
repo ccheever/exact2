@@ -1,0 +1,14 @@
+{
+  "name": "@exact/local-network",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Services on the local network, found by DNS-SD (LLP 1133.036).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json",
+    "./linux": "./linux/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

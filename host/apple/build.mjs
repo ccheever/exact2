@@ -54,7 +54,7 @@ import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
 import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { backgroundKeys, nfcKeys, transportSecurity } from './plist.mjs';
+import { backgroundKeys, localNetworking, nfcKeys, transportSecurity } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder, helperEntitlements, plistFile, wrapFramework, signedGpuProduct, assertArchiveFrameworks } from './assets.mjs';
 import { keptModules } from './modules.mjs';
@@ -391,7 +391,7 @@ export const usageKeys = (reach) => {
   return {
     ...Object.fromEntries(usage.map(([key, texts]) => [key, texts[reach.base]])),
     ...Object.fromEntries((reach.flags ?? []).map((key) => [key, true])),
-    ...reach.modules,
+    ...reach.modules, ...(reach.bonjour?.length ? { NSBonjourServices: reach.bonjour } : {}),
     CFBundleDevelopmentRegion: reach.base,
     CFBundleLocalizations: reach.locales,
   };
@@ -448,7 +448,7 @@ export const infoPlist = (app, device = false, { executable = executableName(app
   // alone, is what WidgetContainer.configure reads); the activity keys are ActivityKit's (LLP 1126.001 §1).
   if (!tv && id === app.id && hasEntries(app)) Object.assign(dict, { ExactAppGroup: widgetGroup(app), ExactAppIdentifier: app.id, ExactWidgetKinds: platformWidgetEntries(app).map(e => e.kind),
     ...(activityEntries(app).length ? { NSSupportsLiveActivities: true, ...(activityEntries(app).some(e => e.frequent === true) ? { NSSupportsLiveActivitiesFrequentUpdates: true } : {}) } : {}) });
-  Object.assign(dict, transportSecurity(tv ? {} : ios, ios.localNetworking ? { NSAllowsLocalNetworking: true } : {}));
+  Object.assign(dict, transportSecurity(tv ? {} : ios, localNetworking(ios, reach)));
   if (ios.localNetworking) dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   Object.assign(dict, backgroundKeys(ios, reach, id, tv || clip), nfcKeys(ios, tv));
   // The schemes `canOpenURL` may ask about; iOS answers false for any other (`UIApplication.canOpenURL(_:)`)
@@ -565,7 +565,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null,
   ...(app.manifest.host?.macos?.activationPolicy === 'accessory' ? { LSUIElement: true } : {}), // a menu-bar app (LLP 1133.025 D6)
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
   ...(app.manifest.display_override?.length ? { ExactDisplayOverride: app.manifest.display_override } : {}),
-  ...transportSecurity(app.manifest.host?.macos),
+  ...transportSecurity(app.manifest.host?.macos, localNetworking({}, reach)),
   ...([...documentTypes(app), ...webPageTypes(app, distributed)].length ? { CFBundleDocumentTypes: [...documentTypes(app), ...webPageTypes(app, distributed)] } : {}),
   ...(exportedTypes(app).length ? { UTExportedTypeDeclarations: exportedTypes(app) } : {}),
   // Where a launch lands (LLP 1069.010 D4) is the manifest's `launch_handler`'s, with or

@@ -1230,20 +1230,27 @@ export function grantOrigins(memory) {
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
-const grantFNV = text => {
-  let hash = 0xcbf29ce484222325n;
-  for (const byte of new TextEncoder().encode(text)) {
-    hash ^= BigInt(byte);
-    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
-  }
-  return hash.toString(16).padStart(16, '0');
-};
+const grantFNV = text => new TextEncoder().encode(text).reduce((hash, byte) => BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n), 0xcbf29ce484222325n).toString(16).padStart(16, '0');
 // Rust's JSON writer and JavaScript's serializer use this one spelling for the
 // two ECMAScript line separators before the seal is calculated.
 const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, error: set.error })
   .replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
 const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket', 'websocket-subdomains']);
 const schemeGrants = { 'fetch-scheme': ['http', 'https'], 'websocket-scheme': ['ws', 'wss'] };
+// `local-network` (LLP 1133.036 D5): a host on the local network as the URL writes it; with `development`, loopback too.
+const localGrants = new Set(['fetch-local-network', 'websocket-local-network']);
+const localV4 = (a, b, loopback) => a === 10 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 169 && b === 254 || loopback && a === 127;
+const hextets = text => { const [head, tail] = text.split('::'), h = head?.match(/[^:]+/g) ?? [], t = tail?.match(/[^:]+/g) ?? []; return [...h, ...Array(tail === undefined ? 0 : 8 - h.length - t.length).fill('0'), ...t].map(x => parseInt(x, 16)); };
+export const isLocalNetwork = (host, loopback) => {
+  host = String(host).toLowerCase();
+  if (host.startsWith('[')) {
+    const s = hextets(host.slice(1, -1)), zeros = n => s.slice(0, n).every(x => x === 0);
+    if (zeros(5) && s[5] === 0xffff) return localV4(s[6] >> 8, s[6] & 255, loopback);
+    return (s[0] & 0xfe00) === 0xfc00 || (s[0] & 0xffc0) === 0xfe80 || loopback && zeros(7) && s[7] === 1;
+  }
+  const v4 = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/), name = host.replace(/\.$/, '');
+  return v4 ? localV4(+v4[1], +v4[2], loopback) : /.\.local$/.test(name) || loopback && name === 'localhost';
+};
 const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
 const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
 const validGrantName = name => typeof name === 'string' && name.length >= 1 && name.length <= 64
@@ -1274,6 +1281,7 @@ const grantTupleValid = grant => {
     && (!grant[0].endsWith('-subdomains') || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (Object.hasOwn(schemeGrants, grant[0])) return grant.length === 2 && schemeGrants[grant[0]].includes(grant[1]);
+  if (localGrants.has(grant[0])) return grant.length === 1 || grant.length === 2 && grant[1] === 'development';
   if (pathGrants.has(grant[0])) return grant.length >= 2
     && (['', 'app:', 'doc:'].includes(grant[1]) || nativeNamespace(grant[1]))
     && grant.slice(2).every(component => nativeNamespace(grant[1]) ? nativeLeaf(component)
@@ -1322,6 +1330,8 @@ const sourceTuple = source => {
       } catch { return null; }
     }
   }
+  if ((capability === 'net.fetch' || capability === 'net.websocket') && words[1] === 'local-network')
+    return words.length === 2 || words.length === 3 && words[2] === 'development' ? [capability === 'net.fetch' ? 'fetch-local-network' : 'websocket-local-network', ...words.slice(2)] : null;
   if (words.length !== 2 && !(capability === 'secret.keep' && /^(user-presence|biometry-any|biometry-current-set|device-credential)( optional)?( (apple\.accessible=when(PasscodeSet|Unlocked)ThisDeviceOnly|apple\.or(Watch|Companion)|android\.strongBox))*$/.test(words.slice(2).join(' ')))) return null; // a presence policy (LLP 1133.010 D4), which Rust's parser checks whole
   const target = words[1];
   const scheme = (capability === 'net.fetch' || capability === 'net.websocket') && /^[a-z][a-z0-9+.-]*:$/i.test(target) ? target.slice(0, -1).toLowerCase() : null;
@@ -1339,7 +1349,7 @@ const sourceTuple = source => {
   if (capability === 'storage.kv') return ['storage-kv', target];
   return null;
 };
-const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|doc\.keep$|browser\.automation$)/.test(source);
+const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|net\.dns-sd |doc\.keep$|browser\.automation$)/.test(source);
 const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);
@@ -1358,28 +1368,15 @@ function validateGrantSet(set) {
   }
   return (!hasError || set.error !== null) && grantFNV(grantBody(set)) === set.seal;
 }
-const freezeGrantSet = set => {
-  for (const entry of set.entries) {
-    if (entry[2]) Object.freeze(entry[2]);
-    Object.freeze(entry);
-  }
-  Object.freeze(set.entries);
-  return Object.freeze(set);
-};
+const freezeGrantSet = set => { for (const entry of set.entries) { if (entry[2]) Object.freeze(entry[2]); Object.freeze(entry); } Object.freeze(set.entries); return Object.freeze(set); };
 // The Rust parser is the only producer. Admission validates an incoming JSON value in full before making its authority
 // immutable; a prior validation is never a reason to trust a mutable or branded object.
 export function createGrantSet(value) {
   if (!validateGrantSet(value)) return freezeGrantSet(makeGrantSet([], INVALID_GRANTS));
   return freezeGrantSet(value);
 }
-function makeGrantSet(entries, error) {
-  const set = { version: 1, entries, error, seal: '' };
-  set.seal = grantFNV(grantBody(set));
-  return freezeGrantSet(set);
-}
-export function grantError(set) {
-  return validateGrantSet(set) ? set.error : INVALID_GRANTS;
-}
+function makeGrantSet(entries, error) { const set = { version: 1, entries, error, seal: '' }; set.seal = grantFNV(grantBody(set)); return freezeGrantSet(set); }
+export function grantError(set) { return validateGrantSet(set) ? set.error : INVALID_GRANTS; }
 export const rawGrantText = set => validateGrantSet(set) ? set.entries.map(entry => entry[1]).join('\n') : '';
 export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && set.entries.some(entry => entry[2]?.[0] === kind);
 const normalizedDeclaration = set => validateGrantSet(set)
@@ -1425,7 +1422,8 @@ export function admittingGrant(set, value, operation = 'fetch') {
   try { target = new URL(value); } catch { return null; }
   const kind = operation === 'websocket' ? 'websocket' : 'fetch';
   const scheme = target.protocol.slice(0, -1).toLowerCase(), host = target.hostname.toLowerCase(), port = grantPort(target);
-  return set.entries.find(([, , grant]) => grant && grant[1] === scheme && (grant[0] === kind + '-scheme' || grant[3] === port && (
+  return set.entries.find(([, , grant]) => grant?.[0] === kind + '-local-network' && schemeGrants[kind + '-scheme'].includes(scheme) && isLocalNetwork(host, grant[1] === 'development')
+    || grant && grant[1] === scheme && (grant[0] === kind + '-scheme' || grant[3] === port && (
     grant[0] === kind && grant[2] === host
     || grant[0] === kind + '-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
   )))?.[1] ?? null;

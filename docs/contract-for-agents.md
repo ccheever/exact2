@@ -1171,9 +1171,10 @@ each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https:/
 whole scheme, `net.fetch https:` (any host and port, for a server the person names
 at run time; `net.websocket` takes `wss:` or `ws:` the same way); on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
-`host.ios.localNetworking` set; a server on the local network needs the grant
-`device.local-network purpose.<key>`, whose text is the platform's prompt on macOS
-and iOS; an `iframe` of `http://` from a named host needs
+`host.ios.localNetworking` set; a device on the local network the person names or
+the app finds is `net.fetch local-network` with `device.local-network purpose.<key>`,
+whose text is the platform's prompt on macOS and iOS ([recipe](recipes/local-network.md));
+an `iframe` of `http://` from a named host needs
 `host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
 `{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
 not an `http:` sub-resource of the app's own `assets/` page),

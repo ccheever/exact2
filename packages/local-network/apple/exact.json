@@ -1,0 +1,32 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/local-network@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos",
+    "tvos"
+  ],
+  "shapes": {},
+  "options": {
+    "browseServices": {
+      "includePeerToPeer": "bool"
+    },
+    "resolveService": {
+      "includePeerToPeer": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "parameters",
+    "browser"
+  ],
+  "sources": {
+    "swift": [
+      "LocalNetwork.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "LocalNetworkModule"
+}

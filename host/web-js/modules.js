@@ -38,6 +38,7 @@ import { updates } from "./update.js";
 import { spans, fillAll } from "./spans.js";
 import { arrivals } from "./arrival.js";
 import { devices } from "./devices.js";
+import { setSpaceState } from "../web/address-space.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -873,6 +874,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   const setPermission = (name, state) => {
     permission.set(name, state);
     say(`permission ${name}: ${state}`);
+    // The substitute stands for the browser's permission of each address space (LLP 1133.036 D19).
+    if (name === "local-network" || name === "loopback-network") setSpaceState(name === "local-network" ? "local" : "loopback", state);
     if (state === "granted") allow(name);
     for (const h of [...held]) {
       if (h.permission !== name) continue;

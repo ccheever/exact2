@@ -1178,7 +1178,15 @@ fn bake_in(
     if development {
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
-    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
+    // A development build's `local-network` lines admit loopback too (LLP 1133.036 D5), as
+    // `developmentLocalNetwork` in typescript.mjs writes them for the web.
+    let trust = std::env::var("EXACT_UPDATE_TRUST");
+    let grants = if trust.as_deref().is_ok_and(|t| t != "development") {
+        "app.grants"
+    } else {
+        r"app.grants.replace(/^([ \t]*net\.(?:fetch|websocket)[ \t]+local-network)[ \t]*$/gm, '$1 development')"
+    };
+    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = {grants};\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
     // An overlay shows writes over what they change; `tools`, the handlers a package calls (LLP 1133.016 D9).
     if exports(&app_ts, "overlay") {
         entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
