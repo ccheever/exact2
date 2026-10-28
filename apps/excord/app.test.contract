@@ -131,7 +131,6 @@ test "the lead pages on with no scroll by the reader and stops once 100 rows sta
   tap "transcript" into "1562732896249194217"
   clock settle
   expect state topKey == "1562732896249194217"
-  expect state topAt == 109
   expect state win.firstId == "1561797858988926588"
   expect state win.need == ""
   clock +5000

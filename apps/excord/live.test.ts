@@ -816,12 +816,17 @@ test('a page whose body fails after its headers gives the route\'s slot back, so
     asked++;
     // The headers are in; the connection drops while the body arrives.
     const body = new ReadableStream({ start(controller) { queueMicrotask(() => controller.error(new TypeError('connection reset'))); } });
-    return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
+    // The second reply's headers say the route's bucket is spent for 5 s.
+    const spent = asked === 2 ? { 'X-RateLimit-Bucket': 'history', 'X-RateLimit-Limit': '5', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset-After': '5' } : {};
+    return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json', ...spent } }));
   }) as any);
   try {
     view(live, 'A');
     await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('connection reset');
     await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('connection reset');
+    expect(asked).toBe(2);
+    // What the failed reply's headers said still holds: the next page waits, without a request.
+    await expect(page(live, 'A', { before: '900', limit: 50 })).rejects.toThrow('Discord asks to wait 5 s');
     expect(asked).toBe(2);
   } finally { fetchSpy.mockRestore(); }
 });
