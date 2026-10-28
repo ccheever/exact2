@@ -24,6 +24,8 @@ impl Kernel {
             .slot_of(view)
             .ok_or(LayoutError::UnknownView(view))?;
         if self.arena.intrinsic(slot) == size {
+            // (the same size again, perhaps now as another kind: the report's key is its kind's now)
+            self.note_mark_report(slot, size);
             return Ok(());
         }
         let tablist = matches!(
@@ -53,11 +55,7 @@ impl Kernel {
         if size.is_none() {
             self.mark_withdrawn(slot);
         }
-        // The key a mark's report is made under, kept while it stands.
-        match (size, crate::control::mark_key(&self.arena, slot)) {
-            (Some(_), Some(key)) => self.arena.mark_reports.insert(slot, key),
-            _ => self.arena.mark_reports.remove(&slot),
-        };
+        self.note_mark_report(slot, size);
         if size.is_some_and(|size| self.mark_reported(slot, size)) {
             self.arena.set_intrinsic(slot, size);
             return Ok(());
@@ -95,6 +93,15 @@ impl Kernel {
             self.intrinsic_changed(s);
         }
         false
+    }
+
+    /// The key a mark's report is made under, kept while it stands; none for
+    /// a withdrawn report or one of a node that is no mark.
+    fn note_mark_report(&mut self, slot: u32, size: Option<(f32, f32)>) {
+        match (size, crate::control::mark_key(&self.arena, slot)) {
+            (Some(_), Some(key)) => self.arena.mark_reports.insert(slot, key),
+            _ => self.arena.mark_reports.remove(&slot),
+        };
     }
 
     /// A host withdrew `slot`'s report. When that report is the size its kind's
