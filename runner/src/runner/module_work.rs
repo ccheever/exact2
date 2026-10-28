@@ -99,14 +99,33 @@ impl<D: DataSource> Runner<D> {
     /// Put the store back for a refused commit: to where the turn of a reply
     /// to a request with effects left it, when one ran, journaling what so
     /// stands.
-    pub(super) fn restore_store_refused(&mut self, c: StoreCheckpoint) {
+    /// Whether it kept any write.
+    pub(super) fn restore_store_refused(&mut self, c: StoreCheckpoint) -> bool {
         let since = c.writes;
         match self.module_work.standing.take() {
             Some(standing) => {
+                let kept = standing.writes > since;
                 self.store.restore(standing);
                 self.log_store_writes(since);
+                kept
             }
-            None => self.store.restore(c),
+            None => {
+                self.store.restore(c);
+                false
+            }
+        }
+    }
+
+    /// A reply's turn wrote the store, as a browser's continuation writes it
+    /// outside every commit: each store reader that failed, but `except`, is
+    /// asked again (LLP 1146 §2.3). A write an action makes in a commit
+    /// leaves a failure standing until its arguments change or `refresh`.
+    pub(super) fn ask_failed_readers(&mut self, except: Option<Target>) {
+        for i in 0..self.failed_args.len() {
+            let failed = self.store_readers[i] && self.failed_args[i].is_some();
+            if failed && except != Some(Target::Resource(i)) {
+                self.force_refresh(i);
+            }
         }
     }
 

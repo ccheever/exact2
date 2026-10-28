@@ -688,6 +688,12 @@ impl<D: DataSource> Runner<D> {
                                             self.watching[i].push(topic);
                                         }
                                     }
+                                    // A failed ask that read the store makes a store
+                                    // reader too, so a reply's write asks it again
+                                    // (LLP 1146 §2.3).
+                                    if self.store.reads() > reads_before {
+                                        self.store_readers[i] = true;
+                                    }
                                     resources[i] = Some(shown);
                                     settled_res[i] = true;
                                     progress = true;

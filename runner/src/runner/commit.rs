@@ -156,7 +156,7 @@ impl<D: DataSource> Runner<D> {
                 self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
                 // What the refused commit asked is let go with it.
                 self.forgot = true;
-                self.restore_store_refused(c.store);
+                let kept = self.restore_store_refused(c.store);
                 self.slots = c.slots;
                 if let Some(resources) = c.resources {
                     self.resources = resources;
@@ -173,6 +173,9 @@ impl<D: DataSource> Runner<D> {
                 self.failed_why = c.failed_why;
                 self.failed_mut = c.failed_mut;
                 self.refresh_next = c.refresh_next;
+                if kept {
+                    self.ask_failed_readers(None);
+                }
                 // Ids stay unique: a rolled-back send's id is never reused.
                 let seq = self.writes.seq;
                 self.writes = c.writes;
@@ -1288,7 +1291,7 @@ impl<D: DataSource> Runner<D> {
             (_, outcome) => outcome,
         };
         self.store.set_clock_ms(self.now_ms);
-        let reads_before = self.store.reads();
+        let (reads_before, revision_before) = (self.store.reads(), self.store.revision());
         let parsed = if Self::activity_send(&p.source) {
             Self::activity_reply(&self.plan, ty, outcome)
         } else if self.plan.module_named(&p.source).is_some() {
@@ -1304,6 +1307,9 @@ impl<D: DataSource> Runner<D> {
         // browser's continuation keeps it outside every commit (LLP 1146 D2).
         if p.effects {
             self.module_work.standing = Some(self.store.checkpoint());
+        }
+        if self.store.revision() != revision_before {
+            self.ask_failed_readers(Some(p.target));
         }
         // Only a socket's mapper answering a frame stages for this commit
         // (LLP 1016.000 D7); a turn of an answer sends whatever it answered
