@@ -735,16 +735,14 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         snapshot.reconfigureItems(changed.filter { $0 != flipping })
         #if os(iOS)
-        // Sections each headed by one letter (Contacts' A to Z) have UIKit's
-        // section index at the trailing edge, as a hand-built list of them
-        // does (`indexTitles(for:)`); a jump lands on a section's first row.
-        // Sections above the letters (Favorites) are left out of it.
+        // Sections each headed by one letter (Contacts' A to Z) have UIKit's section index at the trailing edge, as a
+        // hand-built list of them does (`indexTitles(for:)`); a jump lands on a section's first row. Sections above
+        // the letters (Favorites) are left out of it.
         let letter = { (s: GroupedListModel.Section) in s.header.map { $0.count == 1 && ($0.first!.isLetter || $0 == "#") } == true }
         let letters = next.sections.drop { !letter($0) }
         source.titles = letters.allSatisfy(letter) ? Dictionary(letters.map { ($0.view, $0.header!) }, uniquingKeysWith: { a, _ in a }) : [:]
         #endif
-        // Headers and footers live in the sections' layout: one that came,
-        // went or changed lays the list out again.
+        // Headers and footers live in the sections' layout: one that came, went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
             || previous.sections.map { [$0.headerLook, $0.footerLook] } != next.sections.map { [$0.headerLook, $0.footerLook] }
             || !recarded.isEmpty // separators are the section layout's
@@ -1271,8 +1269,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let other as NodeView in cell.contentView.subviews where other !== row { sendHome(other) }
         if carried[id] == nil, let parent = row.superview {
             noteHome(parent)
-            // Its inertness is its authored ancestors', which a cell is not;
-            // a presentation's is read when a touch lands (`pressable`).
+            // Its inertness is its authored ancestors', which a cell is not; a presentation's is read when a touch lands (`pressable`).
             carried[id] = (parent, row.frame, row.authoredInert)
         }
         guard let place = carried[id] else { return }
@@ -1392,9 +1389,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             || node?.props["accessibilitySelected"] == "true" || current { cell.accessibilityTraits.insert(.selected) }
     }
 
-    /// An inert row's cell takes no touch and is no element, as its node: by an authored `inert` only. A cell keeps
-    /// what it was configured with until a batch changes its row, and a row inserted while a sheet is up (an expense
-    /// its form saves) is configured under the sheet, which keeps touches and VoiceOver off the list by itself.
+    /// An inert row's cell takes no touch and is no element, as its node: by an authored `inert` only. A cell keeps what it was configured with
+    /// until a batch changes its row, and a row inserted while a sheet is up (an expense its form saves) is configured under the sheet, which keeps touches and VoiceOver off the list by itself.
     private func interact(_ cell: UICollectionViewCell, _ id: UInt32) {
         assign(cell, \.accessibilityIdentifier, host.presenter.views[id]?.props["testId"])
         if let row = rows[id], !row.custom { accessibility(cell, id, row) }
@@ -1480,10 +1476,9 @@ final class GroupedCollectionView: UICollectionView, GroupedScroller {
     }
 }
 
-/// The list's data, and its section index: each lettered section's title,
-/// read against the sections UIKit has, which it asks about before and after
-/// a snapshot is applied. No index unless every section from the first with
-/// a title on has one, and every section has a row.
+/// The list's data, and its section index: each lettered section's title, read against the sections UIKit has, which it
+/// asks about before and after a snapshot is applied. No index unless every section from the first with a title on has
+/// one, and every section has a row.
 final class GroupedSource: UICollectionViewDiffableDataSource<UInt32, UInt32> {
     var titles: [UInt32: String] = [:]
     /// How many sections stand above the first titled one.
