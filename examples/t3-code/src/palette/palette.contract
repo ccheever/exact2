@@ -375,6 +375,9 @@ component PaletteRowView
               if row.kind == "submenu" or row.trailing == "chevron"
                 box margin-right="-0.125rem" display="flex" flex-shrink=0
                   PaletteIcon(name="chevron-right", size=16, color=(dark ? "#a1a1a1b3" : "#71717bb3"))
+              // New project's chosen environment (newProjectMachineGroup's CheckIcon).
+              if row.trailing == "check"
+                PaletteIcon(name="check", size=16, color=(dark ? "#a1a1a1b3" : "#71717bb3"))
 
 component PalettePublishRow
   props
@@ -513,6 +516,8 @@ component CommandPaletteBody
   derive tOp = enterIndex >= 0 ? target.map((r) => r.op).join("") : view.enterOp
   derive tArg = enterIndex >= 0 ? target.map((r) => r.arg).join("") : view.enterArg
   derive tArg2 = enterIndex >= 0 ? target.map((r) => r.arg2).join("") : view.enterArg2
+  // footerActionLabel: Enter toggles a highlighted checkbox (New project's publish option), else the page's own label.
+  derive enterText = view.rows.filter((r) => r.index == highlight and r.index >= 0 and r.checkbox).length > 0 ? "Toggle" : view.enterLabel
   derive hasContext = view.contextTitle != ""
   derive dark = scheme == "dark"
   derive listMax = view.panel == "tall" ? min(34 * rem, viewport.height * 0.76) : min(28 * rem, viewport.height * 0.7)
@@ -615,10 +620,10 @@ component CommandPaletteBody
             PaletteKbd(label="", icon="arrow-up", dark=dark)
             PaletteKbd(label="", icon="arrow-down", dark=dark)
             text "Navigate" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
-          if view.enterLabel != ""
+          if enterText != ""
             row gap="0.25rem" align-items="center"
               PaletteKbd(label="Enter", icon="", dark=dark)
-              text view.enterLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
+              text enterText font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
           if view.backHint
             row gap="0.25rem" align-items="center"
               PaletteKbd(label="Backspace", icon="", dark=dark)

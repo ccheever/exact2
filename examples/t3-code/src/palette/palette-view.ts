@@ -4,6 +4,7 @@ import { arr, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { closedView, commandView, rootFallback, threadJumpChords, type PaletteView } from './palette';
 import { addProjectView, isBrowseQuery } from './palette-add';
+import { forgetNewProjectEnvironment } from './palette-environments';
 import { contentSearchView, filePickerView } from './palette-files';
 import { linkPullRequestView, resetLinkDialog } from './palette-linkpr';
 import { linkedThreadItems, threadPickerView } from '../pull-requests/pages-pr-links';
@@ -34,8 +35,9 @@ async function threadMatches(client: T3Client, native: Native | null | undefined
   return { matches: result, query: needle };
 }
 
+/** Add project's pages, New project from the root, and an environment's Sources opened from it (`env:<id>`). */
 export function isAddProjectPage(page: string): boolean {
-  return page === 'add-project' || page.startsWith('add-project/') || page === 'new-project';
+  return page === 'add-project' || page.startsWith('add-project/') || page === 'new-project' || page.startsWith('env:');
 }
 
 /** The list's full height (rows plus the list's 8pt end padding), for the scroll fades. */
@@ -46,6 +48,7 @@ export async function paletteView(client: T3Client, native: Native | null | unde
 async function paletteViewOf(client: T3Client, native: Native | null | undefined, args: unknown[]): Promise<PaletteView> {
   const open = args[0] === true, mode = String(args[1] || 'command'), page = String(args[2] || ''), query = String(args[3] ?? '');
   const flags = String(args[4] || ''), highlighted = args[5] === true, now = Number(args[6]) || 0, scheme = args[7] === 'dark' ? 'dark' : 'light';
+  forgetNewProjectEnvironment(client, open ? page : '');
   if (page === 'link-pr' && open) return linkPullRequestView(client, query);
   resetLinkDialog(client);
   if (!open) return closedView;

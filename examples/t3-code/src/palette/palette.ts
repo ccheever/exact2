@@ -20,7 +20,7 @@ import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from '../pages/pages-home';
 import { pickerProjects } from './palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from '../sidebar/thread-reference';
-import { addProjectEnvironments, projectLocation } from './palette-environments';
+import { addProjectEnvironments, newProjectEnvironments, projectLocation } from './palette-environments';
 import { fleet } from '../connections/settings-b-fleet';
 import { sourceControlHosts } from '../shared/source-control-hosts';
 import { textDirection } from '../shared/text-direction';
@@ -346,7 +346,8 @@ export function rootActions(client: T3Client): Item[] {
   }
   action('open-file-picker', ['go to file', 'open file', 'file picker', 'find file', 'quick open'], { op: 'mode', arg: 'files', icon: 'file-search', title: 'Go to file', shortcut: commandShortcut(client, 'filePicker.toggle') });
   action('search-project-contents', ['search project', 'find in files', 'grep', 'content search', 'text search'], { op: 'mode', arg: 'content', icon: 'text-search', title: 'Search project contents', shortcut: commandShortcut(client, 'projectSearch.toggle') });
-  if (str(client.config.newProjectsRoot)) action('new-project', ['new project', 'create project', 'empty', 'repository', 'repo', 'git init'], { op: 'page', arg: 'new-project', icon: 'folder-git', title: 'New project' });
+  // newProjectEnvironmentOptions: any connected environment that can make a new project, which openNewProjectFlow starts on.
+  if (newProjectEnvironments(client).length) action('new-project', ['new project', 'create project', 'empty', 'repository', 'repo', 'git init'], { op: 'page', arg: 'new-project', icon: 'folder-git', title: 'New project' });
   // Each host's picker words ("Forgejo / Gitea"). openAddProjectFlow: with no connected environment, Settings › Connections.
   const hostWords = sourceControlHosts.flatMap(host => host.pickerLabel.toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean));
   action('add-project', ['add project', 'folder', 'directory', 'browse', 'clone', 'remote', 'repository', 'repo', 'git', ...hostWords, 'url', 'environment'],

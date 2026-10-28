@@ -53,14 +53,39 @@ export function pageEnvironmentId(page: string): string {
   const segment = page.split('/').find(part => part.startsWith('env:'));
   return segment ? segment.slice(4) : '';
 }
+/** newProjectEnvironmentOptions: the connected environments that can make a new project (a `newProjectsRoot`). */
+export function newProjectEnvironments(client: T3Client, source: EnvironmentFleet = fleet): AddEnvironment[] {
+  return addProjectEnvironments(client, source).filter(option => str(option.config.newProjectsRoot));
+}
+export function isNewProjectPage(page: string): boolean {
+  return page === 'new-project' || page.endsWith('/new-project');
+}
+// The environment chosen on a New project page (switchNewProjectEnvironment), for that page only: the palette forgets
+// it on any other page or when it closes, as popView clears newProjectFlow.
+const newProjectChoices = new WeakMap<T3Client, { page: string; environmentId: string }>();
+export function chooseNewProjectEnvironment(client: T3Client, page: string, environmentId: string): void {
+  newProjectChoices.set(client, { page, environmentId });
+}
+export function forgetNewProjectEnvironment(client: T3Client, page: string): void {
+  if (newProjectChoices.get(client)?.page !== page) newProjectChoices.delete(client);
+}
 /**
- * browseEnvironmentId: the environment the page chose, else the default (the first connected option); the
- * root's New project page takes the first that can make one (openNewProjectFlow). Null when the chosen one
- * is no longer connected, or there is none.
+ * newProjectFlow.environmentId: the one chosen on the page, else the one it opened on (its Sources' environment), and
+ * from the root the first that can make a project (openNewProjectFlow).
+ */
+export function newProjectEnvironmentId(client: T3Client, page: string, source: EnvironmentFleet = fleet): string {
+  const chosen = newProjectChoices.get(client);
+  if (chosen?.page === page) return chosen.environmentId;
+  if (page === 'new-project') return newProjectEnvironments(client, source)[0]?.environmentId ?? '';
+  return pageEnvironmentId(page) || (addProjectEnvironments(client, source)[0]?.environmentId ?? '');
+}
+/**
+ * browseEnvironmentId: the environment the page chose, else the default (the first connected option); New project's is
+ * newProjectEnvironmentId. Null when the chosen one is no longer connected, or there is none.
  */
 export function addTarget(client: T3Client, page: string, source: EnvironmentFleet = fleet): AddEnvironment | null {
-  const options = addProjectEnvironments(client, source), chosen = pageEnvironmentId(page);
-  if (page === 'new-project') return options.find(option => str(option.config.newProjectsRoot)) ?? null;
+  const options = addProjectEnvironments(client, source);
+  const chosen = isNewProjectPage(page) ? newProjectEnvironmentId(client, page, source) : pageEnvironmentId(page);
   return (chosen ? options.find(option => option.environmentId === chosen) : options[0]) ?? null;
 }
 /** One request to the target's server: the focused connection's own, or its background transport's. */

@@ -25,7 +25,7 @@ import { cloneTracking } from '../client/live-streams';
 import { letGo } from '../client/let-go';
 import { composerNow } from '../composer/composer-controls';
 import { claimThreadOpen, pickedQuery } from './palette-search';
-import { addTarget, targetRequest, type AddEnvironment } from './palette-environments';
+import { addTarget, chooseNewProjectEnvironment, newProjectEnvironments, targetRequest, type AddEnvironment } from './palette-environments';
 import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
 export type PaletteResult = { revision: number; ok: boolean; close: boolean; page: string; query: string; project: string; thread: string; message: string };
@@ -106,6 +106,11 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'open-project') return openProject(client, id);
     if (op === 'publish-host') { if (newProjectPublishTargets(flow.discovery?.value ?? null).some(target => target.definition.kind === id)) flow.publishKind = id; return stay(client); }
     if (op === 'toggle-publish') { flow.publish = !flow.publish; return stay(client); }
+    // switchNewProjectEnvironment: New project moves to the chosen environment, its name and options kept.
+    if (op === 'new-project-environment') {
+      if (newProjectEnvironments(client, source).some(option => option.environmentId === id)) chooseNewProjectEnvironment(client, value, id);
+      return stay(client);
+    }
     // ProjectFilePicker / ProjectContentSearchDialog: rightPanelStore.openFile (panel-surfaces.ts); Open Favorite stays the editor.
     if (op === 'open-file') { await openFileSurface(client, native, id, Number(value) || 0); client.revision++; return done(client); }
     if (op === 'thread-pull-requests') { await openSurface(client, native, 'pull-requests'); client.revision++; return done(client); }
@@ -145,8 +150,9 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
       const name = id.trim();
       if (!name) return stay(client);
       const targets = newProjectPublishTargets(flow.discovery?.value ?? null);
-      const publishTarget = flow.publish ? targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0] : null;
-      if (flow.publish && !publishTarget) throw new Error('No ready host can publish this repository.');
+      // getNewProjectPublishTarget: the chosen host, else the first ready one. With none (an environment chosen since
+      // whose hosts are not ready) the project is made unpublished, as publishTo null makes it.
+      const publishTarget = flow.publish ? targets.find(target => target.definition.kind === flow.publishKind) ?? targets[0] ?? null : null;
       let created: Obj;
       try { created = await request('projects.createNew', { name }, true); }
       catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Could not create the project', description: message(error) }); return stay(client, false, message(error)); }

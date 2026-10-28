@@ -132,6 +132,90 @@ describe('Add project: the Environments step', () => {
   });
 });
 
+// CommandPalette.tsx newProjectMachineGroup, switchNewProjectEnvironment and showExistingProjectSources.
+describe('New project: its Environments', () => {
+  /** threeEnvironments, with This device able to make a project too (Lane Third already can). */
+  function twoCanCreate(): T3Client {
+    const c = threeEnvironments(), primaryEntry = fleet.entries.get(PRIMARY)!;
+    fleet.entries.set(PRIMARY, { ...primaryEntry, config: { ...primaryEntry.config, newProjectsRoot: '/primary/projects' } });
+    return c;
+  }
+  const page = 'add-project/env:env-third/new-project';
+  const shown = (view: { rows: { header: string; title: string; description: string; trailing: string }[] }) => view.rows.map(row => [row.header, row.title, row.description, row.trailing]);
+
+  test('lists those that can make a project, the chosen one checked; choosing another moves the project there', async () => {
+    const c = twoCanCreate(), native = new Fake();
+    native.replies[THIRD] = { 'server.discoverSourceControl': authenticated };
+    const view = await addProjectView(c, native, { page, query: 'Demo', highlighted: false });
+    expect(shown(view)).toEqual([
+      ['Environments', "Daehyeon's MacBook Pro", 'This device', ''],
+      ['', 'Lane Third', 'env-third', 'check'],
+      ['Options', 'Create private repository on GitHub', 'fixture/demo', ''],
+      ['', 'Add existing project', 'Open a folder or clone a repository', 'chevron'],
+    ]);
+    expect(view.rows[0]).toMatchObject({ icon: 'machine', project: 'laptop', op: 'flow', arg: 'new-project-environment', arg2: 'env-primary' });
+    expect([view.contextDescription, view.count]).toEqual(['Creates /third/projects/demo', 4]);
+    // This device: its folder, its own discovery (no publish host is ready there), the check; the name and the option stay.
+    await paletteCommand(c, native, files(), 'toggle-publish', '', page);
+    expect(await paletteCommand(c, native, files(), 'new-project-environment', 'env-primary', page)).toMatchObject({ ok: true, close: false });
+    const moved = await addProjectView(c, native, { page, query: 'Demo', highlighted: false });
+    expect(shown(moved).map(([, title, , trailing]) => [title, trailing])).toEqual([["Daehyeon's MacBook Pro", 'check'], ['Lane Third', ''], ['Add existing project', 'chevron']]);
+    expect(moved.contextDescription).toBe('Creates /primary/projects/demo');
+    expect(native.calls.filter(call => call.method === 'server.discoverSourceControl').map(call => str(call.fleet))).toEqual([THIRD, PRIMARY]);
+    // Create makes it there, unpublished: no host is ready on This device (publishTo null).
+    native.replies[PRIMARY] = { 'projects.createNew': { workspaceRoot: '/primary/projects/demo', projectId: 'pd' } };
+    expect(await paletteCommand(c, native, files(), 'new-project', 'Demo', page)).toMatchObject({ close: true, project: 'fleet:env-primary:pd' });
+    const create = native.calls.find(call => call.method === 'projects.createNew')!;
+    expect([create.fleet, obj(create.payload).name]).toEqual([PRIMARY, 'Demo']);
+    expect(native.calls.some(call => call.method === 'sourceControl.publishRepository')).toBe(false);
+  });
+
+  test('Add existing project opens the chosen environment\'s Sources, the one it came from while that is still the choice', async () => {
+    const c = twoCanCreate(), native = new Fake();
+    const existing = async (on: string) => (await addProjectView(c, native, { page: on, query: '', highlighted: false })).rows.find(row => row.title === 'Add existing project')!.arg;
+    expect(await existing(page)).toBe('add-project/env:env-third');
+    await paletteCommand(c, native, files(), 'new-project-environment', 'env-primary', page);
+    expect(await existing(page)).toBe('add-project/env:env-primary');
+    // From the root, New project starts on the first that can make one (openNewProjectFlow), and its Sources open on
+    // their own: Back returns to the root.
+    expect(await existing('new-project')).toBe('env:env-primary');
+    const sources = await paletteView(c, native, [true, 'command', 'env:env-primary', '', '', false, 0, 'dark']);
+    expect([sources.parent, sources.rows[0]!.header, sources.rows[0]!.title, sources.rows[0]!.arg]).toEqual(['', 'Sources', 'New project', 'env:env-primary/new-project']);
+    expect(await existing('env:env-primary/new-project')).toBe('env:env-primary');
+    await paletteCommand(c, native, files(), 'new-project-environment', 'env-third', 'env:env-primary/new-project');
+    expect(await existing('env:env-primary/new-project')).toBe('env:env-third');
+  });
+
+  test('with one that can make a project there is no Environments, unless the chosen one no longer can', async () => {
+    const c = threeEnvironments(), native = new Fake();
+    expect(shown(await addProjectView(c, native, { page, query: 'Demo', highlighted: false })).map(([header, title]) => [header, title])).toEqual([['', 'Add existing project']]);
+    // Lane Second has no folder for new projects: Lane Third is offered, unchecked, and nothing says where it goes.
+    const elsewhere = await addProjectView(c, native, { page: 'add-project/env:env-second/new-project', query: 'Demo', highlighted: false });
+    expect(shown(elsewhere).map(([header, title, , trailing]) => [header, title, trailing])).toEqual([['Environments', 'Lane Third', ''], ['', 'Add existing project', 'chevron']]);
+    expect(elsewhere.contextDescription).toBe('');
+  });
+
+  test('the choice lasts while its page is shown: another page, or the palette closing, forgets it', async () => {
+    const c = twoCanCreate(), native = new Fake();
+    const checked = async (args: unknown[]) => (await paletteView(c, native, args)).rows.find(row => row.trailing === 'check')?.title;
+    const onPage = [true, 'command', page, 'Demo', '', false, 0, 'dark'];
+    await paletteCommand(c, native, files(), 'new-project-environment', 'env-primary', page);
+    expect(await checked(onPage)).toBe("Daehyeon's MacBook Pro");
+    await paletteView(c, native, [true, 'command', 'add-project/env:env-third', '', '', false, 0, 'dark']);
+    expect(await checked(onPage)).toBe('Lane Third');
+    await paletteCommand(c, native, files(), 'new-project-environment', 'env-primary', page);
+    await paletteView(c, native, [false, 'command', page, 'Demo', '', false, 0, 'dark']);
+    expect(await checked(onPage)).toBe('Lane Third');
+  });
+
+  test('the root offers New project when any connected environment can make one', () => {
+    const c = threeEnvironments(), offered = () => rootActions(c).some(item => item.row.key === 'new-project');
+    expect(offered()).toBe(true); // Lane Third can; the focused Lane Second cannot
+    fleet.entries.delete(THIRD);
+    expect(offered()).toBe(false);
+  });
+});
+
 describe('palette project rows', () => {
   test('name their environment beside the path and draw the member\'s monogram', () => {
     const c = threeEnvironments();
