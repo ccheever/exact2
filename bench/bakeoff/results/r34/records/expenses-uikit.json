@@ -1,0 +1,26 @@
+{
+  "spec": "expenses",
+  "arm": "uikit",
+  "model": "gpt",
+  "appId": "dev.bakeoff.expenses.bbdd852",
+  "assignedId": "dev.bakeoff.expenses.bbdd852",
+  "appName": "Expenses",
+  "sim": "CEDFB9C9-FF04-4617-B156-94C56B83CA86",
+  "pin": "f2cbe5de1c",
+  "minutes": 17.16,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 3287690,
+    "fresh": 162073,
+    "input": 3252121,
+    "cached": 3090048,
+    "output": 35569,
+    "cost": null,
+    "calls": 8,
+    "toolCalls": 69
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r34/built/expenses-uikit.app",
+  "notes": true,
+  "finished": "2026-10-28T18:16:47.057Z"
+}
