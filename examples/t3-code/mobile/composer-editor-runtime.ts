@@ -62,7 +62,7 @@ const superseded=()=>new ClientError('The composer changed. Try again in the cur
 const mounted=(owner:EditorOwner)=>({...owner.state.identity,mountId:owner.state.mountId});
 function provider(client:T3Client):ComposerQueryInput['provider'] {
   const value=arr(client.config.providers).find(p=>p.instanceId===client.providerId);
-  return mobileComposerProvider(value);
+  return mobileComposerProvider(value, workspaceCwd(client));
 }
 function current(client:T3Client,runtime:Runtime):boolean {
   return runtimes.get(client)===runtime && mobileEditorOwner(client)===runtime.owner && runtime.owner.route.active

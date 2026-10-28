@@ -203,8 +203,8 @@ test('provider projection preserves command behavior and missing versus empty wo
   const full = { ...provider, showInteractionModeToggle: false, skills: [skill], slashCommands: [{ name: 'compact', description: 'Summarize' }],
     workspaceSnapshots: [{ cwd: '/repo', slashCommandsPending: true }, { cwd: '/empty', skills: [], slashCommands: [], slashCommandsPending: false }],
     models: [{ slug: 'model', catalog: 'catalog'.repeat(300_000) }], auth: { status: 'ready' } };
-  const projected = projectProvider(full)!;
   for (const cwd of ['/repo', '/empty', '/other']) {
+    const projected = projectProvider(full, cwd)!;
     expect(resolveProviderSkillsForCwd(projected, cwd)).toEqual(resolveProviderSkillsForCwd(full, cwd));
     expect(resolveProviderSlashCommandsForCwd(projected, cwd)).toEqual(resolveProviderSlashCommandsForCwd(full, cwd));
     expect(hasCompleteProviderWorkspaceSnapshot(projected, cwd)).toBe(hasCompleteProviderWorkspaceSnapshot(full, cwd));
@@ -216,8 +216,9 @@ test('provider projection preserves command behavior and missing versus empty wo
         .toEqual(mobileComposerCommandRows({ ...input, selectedProviderStatus: full }));
     }
   }
+  const projected = projectProvider(full, '/repo')!;
   expect(Object.hasOwn(projected.workspaceSnapshots![0]!, 'skills')).toBe(false);
-  expect(projected.workspaceSnapshots![1]!.skills).toEqual([]);
+  expect(projectProvider(full, '/empty')!.workspaceSnapshots![0]!.skills).toEqual([]);
   expect(JSON.stringify(projected).length).toBeLessThan(JSON.stringify(full).length / 1000);
   projected.skills[0]!.description = 'Changed'; expect(full.skills[0]!.description).toBe('Build release');
   expect(full.models[0]!.catalog.length).toBe(2_100_000);
@@ -266,4 +267,18 @@ test('relevant provider changes still invalidate a held command query before pub
     await expect(running).rejects.toBeInstanceOf(ClientError);
     expect(snapshot(f.client, old.admission, f.now()).pathEntries).toEqual([]); expect(f.calls).toHaveLength(2);
   }
+});
+
+test('command queries do not copy or fingerprint other workspace skill catalogues', () => {
+  const f = fixture('path', 'src');
+  const foreign = { cwd: '/other', get skills(): never { throw new Error('Unrelated workspace skills must stay outside this composer'); },
+    get slashCommands(): never { throw new Error('Unrelated workspace commands must stay outside this composer'); } };
+  const source = { ...provider, workspaceSnapshots: [...provider.workspaceSnapshots, foreign] };
+  f.client.config.providers = [source]; f.input.provider = source;
+  const before = f.view();
+  expect(f.read().provider?.workspaceSnapshots?.map(row => row.cwd)).toEqual(['/repo']);
+  const changed = { ...source, workspaceSnapshots: [...provider.workspaceSnapshots, { cwd: '/foreign', skills: [{ name: 'huge', description: 'x'.repeat(1_000_000) }], slashCommands: [] }] };
+  f.client.config.providers = [changed]; f.input.provider = changed;
+  expect(f.view().admission).toBe(before.admission);
+  expect(f.read().provider?.workspaceSnapshots?.map(row => row.cwd)).toEqual(['/repo']);
 });
