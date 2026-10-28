@@ -341,7 +341,6 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
     'application-identifier': team ? `${prefix}.${app.id}` : simulator ? prefixed : app.id,
     ...(team ? { 'com.apple.developer.team-identifier': team } : {}),
     ...(simulator && !team ? { 'keychain-access-groups': [prefixed, app.id] } : {}),
-    // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
     ...Object.fromEntries(browserEntitlements(app, distributed).map(key => [key, true])),
   };
@@ -674,8 +673,7 @@ async function main(args, lockHeld = false) {
   let ph, prof;
   let sha1 = unsigned ? '-' : device ? (() => {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined, { tv });
-    // With entries, the app's profile is one that grants the group (and the extension's exists), refused here,
-    // before anything is built, with the edit; the bundle takes both again with the grants' entitlements.
+    // Refuse missing widget groups or browser approval before building; final signing checks again.
     const required = browserEntitlements({ ...app, widgetTV: tv }, distribution);
     prof = widgets ? entryProfiles({ app, udid: ph?.udid, required }).app : profile(ph?.udid, app.id, required);
     return identity(prof.team);
