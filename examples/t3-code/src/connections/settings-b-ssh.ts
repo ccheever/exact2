@@ -162,8 +162,10 @@ export async function runSshOp(native: Native, op: string, id: string, value: st
       if (client) pushToast(client, { kind: 'success', title: 'Route added', description: `${label} can now be reached over SSH ${target.alias}.` });
       return result;
     }
-    if (connected) await pair(native, { op: 'pairEnvironment', ...withStandardScope({ origin, credential }) });
-    else { const reply = await pair(native, { op: 'connect', ...withStandardScope({ origin, credential }) }); result = { status: obj(reply.value), generation: reply.generation }; }
+    // `ssh`: the pairing comes from an SSH host's bootstrap (ssh.provision, prepare), so a server on another build that
+    // refuses it answers with the version sentence.
+    if (connected) await pair(native, { op: 'pairEnvironment', ...withStandardScope({ origin, credential }), ssh: true });
+    else { const reply = await pair(native, { op: 'connect', ...withStandardScope({ origin, credential }), ssh: true }); result = { status: obj(reply.value), generation: reply.generation }; }
     if (client) pushToast(client, { kind: 'success', title: 'Environment connected', description: `${target.alias} is ready over an SSH-managed tunnel.` });
     return result;
   } catch (error) {

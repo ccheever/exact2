@@ -1,20 +1,15 @@
 // The Working shelf's placement over time (T3 Code 7c3b3b3605ef, MIT; see LICENSE-T3):
-// packages/client-runtime/src/state/threadInbox.ts createInboxReturnTracker and WORKING_EXIT_GRACE_MS. A thread that
-// stops working keeps its place under Working for the grace, so a server that settles it meanwhile sends it straight
-// to Settled; then it heads the inbox at its return. The reference stamps a grace's start and a return with the
-// client's own `now()`. A data module has no clock: its snapshot time lags by up to a minute, and a shell's
+// packages/client-runtime/src/state/threadInbox.ts createInboxReturnTracker, its grace shell-notify.ts's
+// WORKING_EXIT_GRACE_MS. A thread that stops working keeps its place under Working for the grace, so a server that
+// settles it meanwhile sends it straight to Settled; then it heads the inbox at its return. The reference stamps a
+// grace's start and a return with the client's own `now()`. A data module has no clock: its snapshot time lags by up to a minute, and a shell's
 // `updatedAt` is the server's clock. So an observation only owes those stamps, and the root's timers pay them with
 // the window's clock (`advance`): at once for an owed stamp (app.contract workingGraceOwed), and 2 s after the soonest
 // grace started (workingGraceEnds). Until a return is stamped it sorts as the newest thread, where `now()` puts it.
 import type { Obj } from '../client/domain';
 import { effectiveSnoozed, inboxTime, isWorkingThread, latestRun, pendingApproval, pendingInput, shellRuntime } from './sidebar-model';
 import { pendingSubagentRequest } from './subagent-requests';
-
-/**
- * How long a thread that stopped working keeps reading as working. An orchestrator run can end moments before its
- * continuation starts, so clients wait this long before treating the thread as done.
- */
-export const WORKING_EXIT_GRACE_MS = 2_000;
+import { WORKING_EXIT_GRACE_MS } from '../shell/shell-notify';
 
 type State = { working: boolean; deadline: number | null; placement: string };
 export interface InboxObservation {

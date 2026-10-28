@@ -10,7 +10,7 @@ import { visiblePullRequests } from '../panel/shell-pr';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
-import { beginQueuedEdit, cancelQueuedEdit, removeQueuedEditAttachment, toggleQueueShownInFull } from './composer-controls-queue';
+import { beginQueuedEdit, cancelQueuedEdit, queueState, removeQueuedEditAttachment, toggleQueueShownInFull } from './composer-controls-queue';
 import { copyBranchName, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachIncoming, cancelPreparingImage, type IncomingFiles } from './composer-controls-attach';
 import { foldPaste, heldPaste } from './composer-editor-files';
@@ -25,6 +25,8 @@ import { composerSelection } from './composer-provider-selection';
 import { composerNow, clearStaged, nextTurnCommands, planFollowUp, proposedPlanTitle, requireProvider, resumeState, stagedFor,
   PLAN_IMPLEMENTATION_PROMPT_PREFIX, type ComposerControlsPrefs } from './composer-controls';
 import { loadHostResources } from './auto-balance';
+import { isProviderSubagent } from './composer-controls-subagent';
+import { announce } from '../shell/announce';
 
 /** A select row picks one of its options; a boolean row is On or Off (buildProviderOptionSelectionsFromDescriptors). */
 export function applyOptionChoice(descriptors: Obj[], current: Obj[], id: string, value: string): Obj[] {
@@ -180,7 +182,9 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'compact' || op === 'goal-resume' || op === 'goal-clear') {
     // Native commands run as separate turns; the draft and its attachments stay local.
     const projection = requireThread(client), threadId = client.threadId;
-    if (op === 'compact' ? !!activeRun(projection) : providerGoalWorking(client)) throw new ClientError(op === 'compact' ? 'Compacting is unavailable right now' : 'Wait for the current turn to finish.');
+    if (op === 'compact' ? !!activeRun(projection) : op === 'goal-resume' && providerGoalWorking(client)) throw new ClientError(op === 'compact' ? 'Compacting is unavailable right now' : 'Wait for the current turn to finish.');
+    // A provider's subagent has no composer to send from (its bar replaces it), so its goal line's Clear does nothing.
+    if (op !== 'compact' && isProviderSubagent(obj(projection.thread))) return '';
     if (op !== 'compact') {
       const goal = providerGoal(client.shell.threads.find(thread => thread.id === threadId)?.goal);
       if (!goal || op === 'goal-resume' && !presentProviderGoal(goal, false).canResume) throw new ClientError('That goal action is no longer available.');
@@ -233,18 +237,33 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     const [commandId] = await access.ids(1);
     if (op === 'queued-remove') await access.dispatch(storage, { type: 'queued-run.cancel', commandId, threadId, runId: id }, 'Remove queued message');
     else {
-      const target = activeRun(projection);
-      if (!target) throw new ClientError('There is no active run to steer');
-      await access.dispatch(storage, { type: 'queued-message.promote-to-steer', commandId, threadId, queuedRunId: id, targetRunId: str(target.id) }, 'Steer queued message');
+      // sendQueuedMessage: with no active run the message starts a turn; otherwise it steers the active one (or stops
+      // its compaction).
+      const state = queueState(projection), target = activeRun(projection);
+      if (state.canSendNow) await access.dispatch(storage, { type: 'queued-run.start', commandId, threadId, runId: id }, 'Send queued message');
+      else if (!target || !state.canSteer) throw new ClientError('There is no active run to steer');
+      else await access.dispatch(storage, { type: 'queued-message.promote-to-steer', commandId, threadId, queuedRunId: id, targetRunId: str(target.id) }, 'Steer queued message');
     }
     return '';
   }
   throw new ClientError(`Unknown composer action: ${op}`);
 }
 
+/**
+ * ModelPickerContent onWindowKeyDown: a tab or a model its shortcut picked is announced, since the focus stays in the
+ * search field. ⇧⌘↑/⇧⌘↓ say "Favorites" or the provider's name, ⌘1–9 "Model: <name>"; each replaces the picker's
+ * message not yet spoken. `kind` is the shortcut's ("provider" or "model"), `id` what it picked, `value` its provider.
+ */
+export function announcePickerShortcut(client: T3Client, kind: string, id: string, value: string): void {
+  const provider = (instanceId: string) => arr(client.config.providers).find(entry => entry.instanceId === instanceId);
+  if (kind === 'provider') announce(client, id === 'favorites' ? 'Favorites' : str(provider(id)?.displayName) || id, 'model-picker');
+  if (kind === 'model') announce(client, `Model: ${str(arr(provider(value)?.models).find(model => model.slug === id)?.name) || id}`, 'model-picker');
+}
+
 /** Local composer state (op names follow `cclocal:`). */
 export async function composerLocal(client: T3Client, _native: Native, _storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op === 'queued-edit') { beginQueuedEdit(client, id); return ''; }
+  if (op === 'picker-provider-key' || op === 'picker-model-key') { announcePickerShortcut(client, op === 'picker-provider-key' ? 'provider' : 'model', id, value); return ''; }
   if (op === 'env-mode') { setEnvMode(client, value); return ''; }
   if (op === 'previous-worktree') { setEnvMode(client, 'previous'); return ''; }
   if (op === 'attach-files') { // a drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles)

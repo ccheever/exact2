@@ -9,7 +9,8 @@
 // Markdown is ChatMarkdown with no `cwd`, a Mermaid file is its diagram, an image has the size and zoom bar
 // (preview-image.contract) and a font its specimen (font-preview.ts). The reference's lazy-loaded document viewers
 // (Office, OpenDocument, RTF, EPUB, notebooks, archives, SQLite) are not here yet: those files say "No preview for this
-// file", and a notebook shows its JSON source.
+// file", and a notebook shows its JSON source. Files shows a document, or a file it cannot read as text, in the same
+// body under "File" (files-surface.ts).
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
@@ -25,7 +26,7 @@ import { filesMermaid, type MermaidDiagramView } from '../timeline/timeline-merm
 import { timelineView } from '../timeline/timeline-presentation';
 import { fileIconToken } from '../shared/timeline-files';
 import { mediaBody, mediaErrorMessage } from '../media/attachment-media'; // PDF, HTML, audio and video bodies
-import { mediaFrameSource } from '../media/media-frame'; // a PDF's or a rendered page's frame source
+import { mediaFrameSource, stagedCopyName } from '../media/media-frame'; // a draft PDF's or a rendered page's frame source
 import { sourceGutter } from './files-crumbs-settle'; // the reference's line-number column
 import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
@@ -39,13 +40,15 @@ type Content = { text: string; truncated: boolean };
 /**
  * Where a preview's bytes come from. A sent attachment (and a draft file the send already uploaded) is the server's,
  * read at a signed asset URL; a draft's staged file or folded paste is this device's (AttachmentFilePreview's `file`
- * Blob): `local.url` names it to the media bodies, `text` reads its first megabyte and `save` saves it. `id` names the
- * preview to the window and `key` keeps its state; `origin` is the first crumb, and a draft's preview in its dialog
- * has Remove from draft and Close.
+ * Blob): `local.url` names it to the media bodies, `text` reads its first megabyte and `save` saves it. A file Files
+ * shows in this body (FilePreviewPanel's AttachmentFilePreview, origin "File") is signed as its `resource` instead of an
+ * attachment: a `media-file`, or a draft's `draft-workspace-file`. `id` names the preview to the window and `key` keeps
+ * its state; `origin` is the first crumb, and a draft's preview in its dialog has Remove from draft and Close.
  */
 export type PreviewSource = {
   id: string; key: string; origin: string; dialog: boolean;
   local: { url: string; text: () => Promise<Obj>; save: () => Promise<void> | void } | null;
+  resource?: Obj;
 };
 const sentSource = (meta: AttachmentMeta): PreviewSource => ({ id: meta.id, key: meta.id, origin: 'Attachment', dialog: false, local: null });
 export type AttachmentView = {
@@ -103,9 +106,13 @@ function stateOf(client: T3Client, id: string): State {
   if (!state) { state = { url: '', urlAt: 0, urlError: '', content: null, contentError: '', rendered: true, saving: false, copiedAt: 0, mediaError: '', fontError: '' }; map.set(id, state); }
   return state;
 }
-async function mint(client: T3Client, native: Native, meta: AttachmentMeta, disposition: 'inline' | 'attachment'): Promise<string> {
-  const result = obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: 'attachment', attachmentId: meta.id,
-    ...(meta.name ? { fileName: meta.name } : {}), ...(meta.mimeType ? { mimeType: meta.mimeType } : {}), disposition } }));
+/** AttachmentFilePreview's `resource`, or its `downloadResource` for Save file: a `media-file` saved as an attachment. */
+function resourceOf(meta: AttachmentMeta, source: PreviewSource, disposition: 'inline' | 'attachment'): Obj {
+  if (source.resource) return disposition === 'attachment' && source.resource._tag === 'media-file' ? { ...source.resource, disposition } : source.resource;
+  return { _tag: 'attachment', attachmentId: meta.id, ...(meta.name ? { fileName: meta.name } : {}), ...(meta.mimeType ? { mimeType: meta.mimeType } : {}), disposition };
+}
+async function mint(client: T3Client, native: Native, meta: AttachmentMeta, source: PreviewSource, disposition: 'inline' | 'attachment'): Promise<string> {
+  const result = obj(await client.rpc(native, 'assets.createUrl', { resource: resourceOf(meta, source, disposition) }));
   const url = assetUrl(client.origin, str(result.relativeUrl));
   if (!url) throw new ClientError('Reconnect to the environment and try again.');
   return url;
@@ -159,7 +166,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     // A font whose specimen must be written again reads the font from a URL signed afresh, as its text does.
     const rereads = (needsText && !state.content && !state.contentError) || (kind === 'font' && !state.fontError && !fontPageKept(source.key));
     if (!state.urlError && (!state.url || (rereads && now && now - state.urlAt > STALE_URL_MS))) {
-      try { state.url = await mint(client, native, meta, 'inline'); state.urlAt = now; }
+      try { state.url = await mint(client, native, meta, source, 'inline'); state.urlAt = now; }
       catch (error) { if (letGo(error)) throw error; state.urlError = message(error, 'The attachment is unavailable.'); }
     }
     if (needsText && state.url && !state.content && !state.contentError) {
@@ -168,8 +175,13 @@ export async function attachmentView(client: T3Client, native: Native | null | u
       else state.contentError = str(reply.message, 'Could not load this file.');
     }
   }
-  // A PDF or a rendered page is a frame (media-frame.ts): a PDF is first written to app:/cache, which can fail.
-  const frame = !needsText && (kind === 'pdf' || kind === 'html') && state.url && !state.urlError && !state.mediaError ? await mediaFrameSource(kind, state.url) : null;
+  // A PDF or a rendered page is a frame. A PDF the server serves inline is framed at its URL, which WebKit's PDF view
+  // reads, as Files' is. One it serves as a download, a sent file stored as `-bin` (no usable extension; AssetAccess's
+  // `download` claim), and a draft's staged PDF are copied under a `.pdf` name (media-frame.ts) and shown from the copy,
+  // as PDF.js reads the bytes whatever the server's disposition; the copy can fail.
+  const framed = !needsText && (kind === 'pdf' || kind === 'html') && state.url && !state.urlError && !state.mediaError;
+  const atUrl = kind === 'pdf' && !stagedCopyName(state.url) && (!!source.resource || /-pdf$/i.test(meta.id));
+  const frame = !framed ? null : atUrl ? { src: state.url, error: '' } : await mediaFrameSource(kind, state.url);
   if (frame?.error) state.mediaError = frame.error;
   // FontViewer: the specimen once its bytes are read; its frame says whether the face loaded.
   const font = kind === 'font' && state.url && !state.urlError && !state.fontError ? await fontPage(source.key, state.url, meta.sizeBytes) : null;
@@ -217,12 +229,13 @@ export const attachmentToken = (name: string) => fileIconToken(name);
 /** Drops a preview's state (a draft's preview opens afresh, as its dialog mounts a new AttachmentFilePreview). */
 export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); forgetFontPage(key); }
 /**
- * A sent file's preview shown again after another surface: the reference mounts only the active surface, so its
- * failures (a refused URL, a read, the media's or the font's) end with the preview that had them, and it tries again.
+ * A sent file's preview shown again after another surface: the reference mounts only the active surface, which signs
+ * its URL afresh (a signature lives an hour), so the next view signs it again, and its failures (a refused URL, a read,
+ * the media's or the font's) end with the preview that had them.
  */
 export function previewShownAgain(client: T3Client, key: string): void {
   const state = states.get(client)?.get(key);
-  if (state) { state.urlError = ''; state.contentError = ''; state.mediaError = ''; state.fontError = ''; }
+  if (state) { state.url = ''; state.urlAt = 0; state.urlError = ''; state.contentError = ''; state.mediaError = ''; state.fontError = ''; }
 }
 
 /** `surface-linked-att-*`: the header's controls. */
@@ -261,7 +274,7 @@ export async function attachmentOp(client: T3Client, native: Native, meta: Attac
     state.saving = true;
     try {
       if (source.local) await source.local.save();
-      else await saveAttachment(client, await mint(client, native, meta, 'attachment'), meta.name);
+      else await saveAttachment(client, await mint(client, native, meta, source, 'attachment'), meta.name);
     } catch (error) {
       if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: 'Could not save file', description: message(error, 'Please try again.') });

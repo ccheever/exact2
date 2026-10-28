@@ -383,15 +383,13 @@ for (const provider of ['github', 'gitlab', 'bitbucket', 'azure-devops'] as cons
     const route = new PullRequestRouter();
     expect(await route.request(host, 'pullRequests.filesViewed', reference, false)).toEqual({ files: [{ path: 'a.ts', state: 'viewed' }], truncated: false });
     await route.request(host, 'pullRequests.setFilesViewed', { ...reference, files }, true);
-    const environment = provider === 'github' ? 'local' : 'origin';
-    const guard = provider === 'github' ? { expectedAccountId: '123' } : {};
+    // Every host routes once both servers verify the same account on it: the identity's provider, not 'github'.
     expect(calls.filter(call => call.operation !== 'invalidate')).toEqual([
-      { environment, operation: 'read', input: { ...reference, allowStale: false, ...guard } },
-      { environment, operation: 'write', input: { ...reference, files, ...guard } },
+      { environment: 'local', operation: 'read', input: { ...reference, allowStale: false, expectedAccountId: '123' } },
+      { environment: 'local', operation: 'write', input: { ...reference, files, expectedAccountId: '123' } },
     ]);
     const invalidations = calls.filter(call => call.operation === 'invalidate');
-    if (provider === 'github') expect(invalidations.length).toBeGreaterThan(0);
-    else expect(invalidations).toEqual([]);
+    expect(invalidations.length).toBeGreaterThan(0);
     for (const call of invalidations) expect(call.input).toEqual({ reference: expect.objectContaining(reference), filesViewedOnly: true });
   });
 }
@@ -570,6 +568,47 @@ test('a routed PR read reports its state to the origin without waiting for the r
   const reference = { projectId: 'project-1', repository: 'acme/web', number: 7 };
   expect(await new PullRequestRouter().request(host, 'pullRequests.detail', { ...reference, allowStale: false }, false)).toMatchObject({ projectId: 'project-1', state: 'closed' });
   expect(host.calls.find(call => call.method === 'pullRequests.reportState')).toMatchObject({ environment: ORIGIN, payload: { reference, state: 'closed' }, timeoutSeconds: 5 });
+});
+
+// T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3): pullRequests.test.ts "keeps source workspace metadata and reports draft %s
+// when an alternate answers a detail read".
+for (const isDraft of [undefined, true, false]) {
+  test(`reports draft ${isDraft} with the state when an alternate answers a detail read`, async () => {
+    const identity = { host: 'github.com', provider: 'github', viewer: 'maria-rcks', accountId: '123' };
+    const host = new FakeHost({
+      [ORIGIN]: { 'pullRequests.routing': () => identity, 'pullRequests.reportState': () => ({}) },
+      [LOCAL]: { 'pullRequests.routingIdentity': () => identity, 'pullRequests.detail': () => ({ projectId: 'local-project', title: 'github title', state: 'closed', ...(isDraft === undefined ? {} : { isDraft }) }) },
+    });
+    const reference = { projectId: 'project-1', repository: 'acme/web', number: 7 };
+    expect(await new PullRequestRouter().request(host, 'pullRequests.detail', reference, false))
+      .toEqual({ projectId: 'project-1', title: 'github title', state: 'closed', ...(isDraft === undefined ? {} : { isDraft }) });
+    expect(host.calls.find(call => call.method === 'pullRequests.reportState')?.payload).toEqual({ reference, state: 'closed', ...(isDraft === undefined ? {} : { isDraft }) });
+  });
+}
+
+test('a GitLab read routes to a server signed in to the same GitLab account, never to one whose account is on another host kind', async () => {
+  const reference = { projectId: 'project-1', host: 'gitlab.com', repository: 'acme/web', number: 7 };
+  const gitlab = { host: 'gitlab.com', provider: 'gitlab', viewer: 'maria', accountId: '9' };
+  const read = async (alternate: Obj) => {
+    const host = new FakeHost({
+      [ORIGIN]: { 'pullRequests.routing': () => gitlab, 'pullRequests.summary': () => ({ from: 'origin' }) },
+      [LOCAL]: { 'pullRequests.routingIdentity': () => alternate, 'pullRequests.summary': () => ({ from: 'local' }) },
+    });
+    return { answer: await new PullRequestRouter().request(host, 'pullRequests.summary', reference, false), names: host.names() };
+  };
+  expect(await read(gitlab)).toEqual({ answer: { from: 'local' }, names: ['origin:routing', 'local:routingIdentity', 'local:summary'] });
+  expect((await read({ ...gitlab, provider: 'forgejo' })).answer).toEqual({ from: 'origin' });
+});
+
+test('an identity that names no provider routes nothing: the read stays with its own server', async () => {
+  const reference = { projectId: 'project-1', host: 'gitlab.com', repository: 'acme/web', number: 7 };
+  const unnamed = { host: 'gitlab.com', viewer: 'maria', accountId: '9' };
+  const host = new FakeHost({
+    [ORIGIN]: { 'pullRequests.routing': () => unnamed, 'pullRequests.summary': () => ({ from: 'origin' }) },
+    [LOCAL]: { 'pullRequests.routingIdentity': () => unnamed, 'pullRequests.summary': () => ({ from: 'local' }) },
+  });
+  expect(await new PullRequestRouter().request(host, 'pullRequests.summary', reference, false)).toEqual({ from: 'origin' });
+  expect(host.names()).toEqual(['origin:routing', 'origin:summary']);
 });
 
 test('refreshes identity before writes and invalidates prior readers across router instances', async () => {

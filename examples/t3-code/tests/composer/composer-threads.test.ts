@@ -51,7 +51,8 @@ describe('server-owned setup and compaction', () => {
     expect(isCompacting(client)).toBe(false);
   });
   test('a named monitor shows its descriptive label once', () => {
-    expect(presentBackgroundWork([{ kind: 'monitor', description: 'Waiting for checks' }])?.title).toBe('Waiting for checks');
+    expect(presentBackgroundWork([{ kind: 'monitor', description: 'Waiting for checks', awaited: true }])?.title).toBe('Waiting for checks');
+    expect(presentBackgroundWork([{ kind: 'monitor', description: 'Watch the dev server' }])?.title).toBe('Running: Watch the dev server');
     expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review' }])?.title).toBe('Waiting on subagent Review');
   });
 });

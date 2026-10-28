@@ -352,8 +352,9 @@ describe('queued messages control', () => {
     expect(native.committed.at(-1)).toMatchObject({ type: 'queued-message.promote-to-steer', queuedRunId: 'q1', targetRunId: 'r1' });
     await command('cc:queued-remove', 'q2');
     expect(native.committed.at(-1)).toMatchObject({ type: 'queued-run.cancel', runId: 'q2' });
+    // With no active run, Send now starts the queued turn instead (queued-run.start).
     client.thread!.projection.runs = arr(client.thread!.projection.runs).filter(run => run.status === 'queued');
-    expect(queuedTurnRows(client).map(row => row.actionLabel)).toEqual(['', '']);
+    expect(queuedTurnRows(client).map(row => [row.actionLabel, row.intentTip.replace(/ \(.*\)$/, '')])).toEqual([['Send now', 'Start a turn with this message'], ['Send now', 'Start a turn with this message']]);
   });
   test('editing loads the composer, saves with queued-run.edit and restores the draft; cancel restores too', async () => {
     const { client, native, command } = await opened();

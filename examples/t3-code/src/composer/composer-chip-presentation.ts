@@ -38,7 +38,7 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
     return project ? projectGlyph(client, project, projectIdentity) : NO_GLYPH;
   };
   return chips.map(chip => {
-    let kind: string = chip.kind, label = chip.label, suffix = '', imageId = '', tip = '', available = true;
+    let kind: string = chip.kind, label = chip.label, suffix = '', imageId = '', tip = '', available = true, glyph = '';
     if (chip.kind === 'skill') label = skills[chip.name] ?? skillDisplayName({ name: chip.name });
     if (chip.kind === 'citation') tip = chip.quote;
     if (chip.kind === 'mention') tip = chip.path;
@@ -49,11 +49,12 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
       available = record !== undefined;
       if (kind === 'terminal' && !fields.slice(2).join('\t')) available = false;
       if (kind === 'image') imageId = fields[2] ?? '';
+      if (kind === 'file' && fields[2] === 'image') glyph = 'image'; // an attached SVG (fileChipContexts)
       if (!available) tip = kind === 'terminal' ? 'This terminal excerpt has expired.' : `Unavailable context, ${label}`;
       if (!available && chip.contextKind === 'thread' && unreadable.has(chip.contextId)) { kind = 'invalid'; available = true; tip = UNREADABLE_THREAD_TIP; }
     }
     const fileToken = chip.kind === 'mention' && !preview ? workspaceFileIcon(client, chip.path) : '';
-    const icon = !available ? 'circle-dashed' : fileToken === 'folder' ? 'folder' : kind === 'invalid' ? icons.thread! : icons[kind] ?? 'circle-dashed';
+    const icon = !available ? 'circle-dashed' : fileToken === 'folder' ? 'folder' : kind === 'invalid' ? icons.thread! : icons[glyph || kind] ?? 'circle-dashed';
     const interactive = available && (chip.kind === 'skill' || !preview && icons[kind] !== undefined), comment = !preview && chip.kind === 'citation';
     return { kind: !available && kind === 'terminal' ? 'invalid' : kind, label, suffix, icon, fileToken: fileToken === 'folder' ? '' : fileToken,
       imageId, available, interactive, comment, tip, glyph: chip.kind === 'context' && kind === 'thread' && available ? glyphOf(chip.contextId) : NO_GLYPH };

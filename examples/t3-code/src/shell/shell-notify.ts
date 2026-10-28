@@ -17,8 +17,9 @@ export type NotifyStatus = { active: boolean; authorization: string; agent: bool
 /** ThreadNotificationObservation: the attention key, and whether the thread is idle with its latest run completed (when). */
 type Memory = { attention: string | null; settled: boolean; completedAt: number | null };
 /**
- * thread-inbox.ts WORKING_EXIT_GRACE_MS: the Working shelf keeps a thread that stopped working for 2 s, as an
- * orchestrator run can end moments before its continuation starts; "Thread completed" waits as long.
+ * threadInbox.ts WORKING_EXIT_GRACE_MS, which sidebar/thread-inbox.ts reads too: the Working shelf keeps a thread that
+ * stopped working for 2 s, as an orchestrator run can end moments before its continuation starts; "Thread completed"
+ * waits as long.
  */
 export const WORKING_EXIT_GRACE_MS = 2_000;
 /**

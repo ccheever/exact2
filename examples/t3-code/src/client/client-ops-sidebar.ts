@@ -4,7 +4,7 @@
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { groupingModes, message, projectPath } from './client-shared';
-import { startThreadSearch } from '../sidebar/sidebar-presentation';
+import { startThreadSearch } from '../sidebar/sidebar-search';
 import { storeSidebarWidth } from '../sidebar/sidebar-width';
 import { str, initialShell, applyShell } from './domain';
 import { ClientError, type Native, type Files } from './protocol';

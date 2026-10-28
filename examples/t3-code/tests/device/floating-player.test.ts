@@ -6,9 +6,10 @@
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
-import { applyDeviceSnapshot, resetLaunch, visibleMini } from '../../src/device/floating-player';
+import { applyDeviceSnapshot, resetLaunch, threadDevices, visibleMini } from '../../src/device/floating-player';
 import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import { surfaceStore } from '../../src/panel/panel-surfaces';
+import { adoptRightPanels, restoreRightPanel, syncRightPanels } from '../../src/panel/saved-panel';
 import { closeMiniDevice, floatMiniDevice, miniDeviceOf, miniStoreOf, deviceMini } from '../../src/device/device-session';
 
 const iphone = { hostId: 'local', id: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro', version: 'iOS 26.0' };
@@ -54,6 +55,35 @@ describe('floating device preview (shouldRenderPreviewMiniPlayer)', () => {
     expect(visibleMini(mini, { hostId: 'local', deviceId: 'OTHER', platform: 'ios', name: '' }).show).toBe(true);
     expect(visibleMini(mini, { hostId: 'other', deviceId: 'IPHONE', platform: 'ios', name: '' }).show).toBe(true);
     expect(visibleMini(mini, undefined).show).toBe(true);
+  });
+});
+
+// agentOpenedPreviews.ts startAgentOpenedPreviews: watchEnvironmentDevices follows every connected environment.
+describe('a background environment\'s devices', () => {
+  test('a device an agent opens in a background environment\'s thread floats over that thread', async () => {
+    resetLaunch();
+    const client = thread('t1', 'env'), source = new EnvironmentFleet();
+    const background = { environmentId: 'env-b', phase: 'connected', generation: 1, synchronized: 1, shell: { projects: [], threads: [{ id: 'bt1' }] }, deviceState: state([]) };
+    source.entries.set('https://box.example.com\nenv-b', background as never);
+    await threadDevices(client, null, false, source); // the baseline
+    background.deviceState = state([open('bt1')]);
+    await threadDevices(client, null, false, source);
+    expect(miniDeviceOf(client, 'bt1')).toMatchObject({ deviceId: 'IPHONE' });
+  });
+
+  test('its ended session closes the device floating over its thread, and leaves another environment\'s alone', async () => {
+    resetLaunch();
+    const client = thread('t1', 'env'), source = new EnvironmentFleet();
+    const background = { environmentId: 'env-b', phase: 'connected', generation: 1, synchronized: 1, shell: { projects: [], threads: [{ id: 'bt1' }] }, deviceState: state([open('bt1')]) };
+    source.entries.set('https://box.example.com\nenv-b', background as never);
+    floatMiniDevice(client, 'bt1', { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' });
+    floatMiniDevice(client, 't1', { hostId: 'nucbox', deviceId: 'emulator-5580', platform: 'android', name: 'Pixel' }); // the focused environment's
+    await threadDevices(client, null, false, source);
+    expect(miniDeviceOf(client, 'bt1')).toMatchObject({ deviceId: 'IPHONE' }); // its session is live
+    background.deviceState = state([]);
+    await threadDevices(client, null, false, source);
+    expect(miniDeviceOf(client, 'bt1')).toBeUndefined();
+    expect(miniDeviceOf(client, 't1')).toMatchObject({ deviceId: 'emulator-5580' });
   });
 });
 
@@ -131,6 +161,47 @@ describe('applyDeviceSnapshot', () => {
     // Another device still opens.
     apply(client, state([opened('t1', iphone, '2026-01-01T00:05:00.000Z'), opened('t1', pixel)]), panel);
     expect(tabs().map(surface => surface.device?.deviceId)).toEqual(['emulator-5580']);
+  });
+  // rightPanelStore keeps dismissedDeviceSurfaceIds with the thread's persisted panel: the dismissal outlives a relaunch.
+  test('keeps a device tab the person closed closed after a relaunch, also in a thread whose panel is not restored yet', () => {
+    resetLaunch();
+    const local: Obj = {};
+    const client = { ...thread(), draftKey: 'env:t1', local } as unknown as T3Client;
+    const panel = { sheet: false, autoShowFloatingPreview: false };
+    apply(client, state([]), panel);
+    apply(client, state([opened()]), panel);
+    const tabs = surfaceStore(client).panels.get('env:t1')!;
+    tabs.surfaces = tabs.surfaces.filter(surface => surface.kind !== 'device');
+    tabs.userRevision++; // closeSurface: a person's panel change
+    apply(client, state([]), panel);
+    expect(syncRightPanels(client, surfaceStore(client).panels)).toBe(true);
+    expect(local.rightPanels).toEqual({ 'env:t1': { visible: false, active: '', surfaces: [], dismissedDeviceSurfaceIds: ['device:local:IPHONE'] } });
+    // The next launch reads the preference record back; the agent opens the device again in that (background) thread.
+    resetLaunch();
+    const next: Obj = {};
+    adoptRightPanels(next, JSON.parse(JSON.stringify(local)));
+    const relaunched = { ...thread('t2'), draftKey: 'env:t2', local: next, preferencesLoaded: true, ready: true } as unknown as T3Client;
+    apply(relaunched, state([]), panel);
+    // The agent opens the Pixel there first, and the shell's answer saves the panels (shell.ts syncRightPanels): the panel
+    // took the saved dismissal, so the record keeps it with the new tab.
+    apply(relaunched, state([opened('t1', pixel)]), panel);
+    syncRightPanels(relaunched, surfaceStore(relaunched).panels);
+    expect((next.rightPanels as Record<string, Obj>)['env:t1']).toMatchObject({ surfaces: [{ id: 'device:nucbox:emulator-5580' }], dismissedDeviceSurfaceIds: ['device:local:IPHONE'] });
+    // Then it opens the iPhone again (a new session): no tab, before or after another save.
+    apply(relaunched, state([opened('t1', pixel), opened('t1', iphone, '2026-01-01T00:05:00.000Z')]), panel);
+    syncRightPanels(relaunched, surfaceStore(relaunched).panels);
+    apply(relaunched, state([opened('t1', pixel), opened('t1', iphone, '2026-01-01T00:09:00.000Z')]), panel);
+    expect(surfaceStore(relaunched).panels.get('env:t1')?.surfaces.map(surface => surface.device?.deviceId)).toEqual(['emulator-5580']);
+    // Restored, the panel holds the dismissal; opening the device by hand clears it, and the record follows.
+    const restored = surfaceStore(relaunched).panels.get('env:t1')!;
+    restoreRightPanel(relaunched, 'env:t1', restored);
+    expect(restored.dismissedDevices).toEqual(['device:local:IPHONE']);
+    restored.surfaces.push({ id: 'device:local:IPHONE', kind: 'device', path: '', line: 0, reveal: 0, device: { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' } });
+    restored.userRevision++;
+    apply(relaunched, state([opened('t1', pixel), opened('t1', iphone, '2026-01-01T00:09:00.000Z')]), panel);
+    expect(restored.dismissedDevices).toEqual([]);
+    syncRightPanels(relaunched, surfaceStore(relaunched).panels);
+    expect((next.rightPanels as Record<string, Obj>)['env:t1']?.dismissedDeviceSurfaceIds).toBeUndefined();
   });
   test('opens a device for a thread that had no sessions when the baseline was taken', () => {
     resetLaunch();

@@ -1,10 +1,11 @@
 // Sidebar state that is not the server's: persisted UI preferences (the
 // reference keeps them in localStorage and its persisted UI store) and the
 // window's transient sidebar session (rename, selection, paging, dialogs,
-// undo), held beside the client the way sidebar-presentation keeps searches.
-import { obj, str } from '../client/domain';
+// undo), held beside the client the way sidebar-search keeps searches.
+import { obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { RouteReveal } from './route-reveal';
+import type { ShownOrder } from '../palette/palette-search';
 
 export const SETTLED_TAIL_INITIAL_COUNT = 10;
 export const SETTLED_TAIL_PAGE_COUNT = 25;
@@ -45,7 +46,12 @@ export interface UndoEntry { action: UndoAction; threadIds: string[]; at: number
 export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin' | 'delete-worktree'; threadIds: string[]; title: string; from?: 'title' }
 export interface SidebarSession {
   settledVisible: number; settledScope: string;
-  searchIndex: number; searchQuery: string; searchPending: boolean;
+  /**
+   * The search's highlighted row ('' for the first): it follows its thread, so rows that land late do not move it under
+   * Enter, and a new query starts at the top. `searchShown` is the list as painted with each row's message match, for
+   * the arrow keys and Enter; `messageOrder` keeps the message rows' places for the query they were found for.
+   */
+  searchKey: string; searchQuery: string; searchShown: { id: string; match?: Obj }[]; searchFoundFor: string; messageOrder: ShownOrder | null;
   renameId: string; renameTitle: string;
   selection: string[]; anchor: string;
   dialog: SidebarDialog;
@@ -68,7 +74,7 @@ const sessions = new WeakMap<T3Client, SidebarSession>();
 export function sidebarSession(client: T3Client): SidebarSession {
   let session = sessions.get(client);
   if (!session) {
-    session = { settledVisible: SETTLED_TAIL_INITIAL_COUNT, settledScope: '', searchIndex: 0, searchQuery: '', searchPending: false,
+    session = { settledVisible: SETTLED_TAIL_INITIAL_COUNT, settledScope: '', searchKey: '', searchQuery: '', searchShown: [], searchFoundFor: '', messageOrder: null,
       renameId: '', renameTitle: '', selection: [], anchor: '', dialog: { kind: '', threadIds: [], title: '' },
       undo: null, regenerating: new Set(), busy: new Set(), jumpHints: false, dismissedPill: '', scopeOpen: false, scopeQuery: '', dialogMode: 'date', dialogDate: '', dialogTime: '', dialogAmount: '2', dialogUnit: 'hours', dialogError: '',
       calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0, reveal: { observedKey: '', pendingKey: '' } };
@@ -140,6 +146,15 @@ export function adoptCommandTime(client: T3Client, at: number): void {
  * (snoozePresets then returns nothing), so no 1970 value is written (persisted-instants.test.ts).
  */
 export function wall(client: T3Client): number { return clock() + (offsets.get(client) ?? 0); }
+/**
+ * The latest window time a sidebar snapshot was taken at (the root's minute clock, also read when the window comes
+ * back). Opening a thread adopts no command time, so the open it records stamps the later of this and `wall`.
+ */
+const snapshotTimes = new WeakMap<T3Client, number>();
+export function noteSnapshotTime(client: T3Client, now: number): void {
+  if (Number.isFinite(now) && now > 1e12 && now > (snapshotTimes.get(client) ?? 0)) snapshotTimes.set(client, now);
+}
+export function latestWall(client: T3Client): number { return Math.max(wall(client), snapshotTimes.get(client) ?? 0); }
 /** threadUndoNoticeSummary: "Settled 2 threads", "Discarded 1 draft". */
 export function undoSummary(undo: UndoEntry): string {
   const count = undo.threadIds.length;
