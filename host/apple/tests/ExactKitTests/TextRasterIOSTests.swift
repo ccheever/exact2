@@ -161,6 +161,123 @@ final class TextRasterIOSTests: XCTestCase {
         XCTAssertEqual(p.textRasters.inFlight, 1)
     }
 
+    /// A paragraph taller than 4,096 pt paints a band around the port. A
+    /// worker paints one that leads the port's travel; the port keeps it
+    /// until it comes within half a port of its edge ahead, and then a worker
+    /// paints the next. A paragraph that shows without pixels is painted here.
+    /// An 800 pt port: at 3x only the worker's budget holds two of them.
+    func testATallParagraphsBandsArePaintedAheadOfThePort() throws {
+        let session = ExactApp.shared.makeSession(label: "text-bands")
+        defer { session.destroy(); RegionTextExecutor.queue.isSuspended = false }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 800, height: 800))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        let words = Array(repeating: "Why a magazine measures first and draws second.", count: 600).joined(separator: " ")
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": words], "style": ["font_size": 16.0]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 800.0, "h": 6000.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 800.0, "h": 6000.0],
+        ]))
+        window.layoutIfNeeded()
+        func scroll(_ y: CGFloat) { p.viewport.contentOffset.y = y }
+        // Mid-paragraph, where no edge clamps the band. A scroll paints what
+        // shows at once: let that settle, then take the pixels away.
+        scroll(2000)
+        drain(p)
+        let node = try XCTUnwrap(p.views[2])
+        node.dropTextRaster()
+        RegionTextExecutor.queue.isSuspended = true
+        p.textRasters.ensure(node, urgent: false)
+        XCTAssertEqual(p.textRasters.inFlight, 1, "a worker paints the band")
+        let first = try XCTUnwrap(node.textRasterKey?.clip)
+        let port = p.textPreparationRect(node)
+        XCTAssertTrue(first.contains(port))
+        XCTAssertGreaterThan(first.maxY - port.maxY, port.minY - first.minY, "with more of it ahead of the travel than behind")
+        drain(p)
+        XCTAssertTrue(node.textRasterReady)
+
+        scroll(2050)
+        XCTAssertTrue(p.textRasters.ensure(node, urgent: false))
+        XCTAssertEqual(node.textRasterKey?.clip, first, "well inside the band, the port keeps it")
+        XCTAssertEqual(p.textRasters.inFlight, 0)
+
+        scroll(first.maxY - 150 - port.height)
+        RegionTextExecutor.queue.isSuspended = true
+        p.textRasters.ensure(node, urgent: false)
+        let next = try XCTUnwrap(node.textRasterKey?.clip)
+        XCTAssertEqual(p.textRasters.inFlight, 1, "within half a port of its edge, a worker paints the next")
+        XCTAssertGreaterThan(next.maxY, first.maxY)
+        drain(p)
+
+        scroll(4000)
+        RegionTextExecutor.queue.isSuspended = true
+        node.dropTextRaster()
+        p.textRasters.ensure(node, urgent: true)
+        XCTAssertTrue(node.textRasterReady, "shown without pixels: painted here, the queue held")
+        XCTAssertTrue(try XCTUnwrap(node.textRasterKey?.clip).contains(p.textPreparationRect(node)))
+    }
+
+    /// Two tall paragraphs side by side share one allowance for room ahead
+    /// of the port: while one band holds it, the other's is the port's
+    /// height, and once that paragraph lets its pixels go the other leads.
+    func testTallParagraphsShareTheRoomAheadOfThePort() throws {
+        let session = ExactApp.shared.makeSession(label: "text-bands-shared")
+        defer { session.destroy(); RegionTextExecutor.queue.isSuspended = false }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1600, height: 800))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        let words = Array(repeating: "Why a magazine measures first and draws second.", count: 600).joined(separator: " ")
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": words], "style": ["font_size": 16.0]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": words], "style": ["font_size": 16.0]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 1600.0, "h": 6000.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 800.0, "h": 6000.0],
+            ["op": "frame", "id": 3, "x": 800.0, "y": 0.0, "w": 800.0, "h": 6000.0],
+        ]))
+        window.layoutIfNeeded()
+        p.viewport.contentOffset.y = 2000
+        drain(p)
+        let left = try XCTUnwrap(p.views[2]), right = try XCTUnwrap(p.views[3])
+        left.dropTextRaster(); right.dropTextRaster()
+        RegionTextExecutor.queue.isSuspended = true
+        p.textRasters.ensure(left, urgent: false)
+        let port = p.textPreparationRect(left).height
+        XCTAssertGreaterThan(try XCTUnwrap(left.textRasterKey?.clip).height, port + 100, "the first leads the port")
+        p.textRasters.ensure(right, urgent: false)
+        XCTAssertEqual(try XCTUnwrap(right.textRasterKey?.clip).height, p.textPreparationRect(right).height, accuracy: 0.5,
+                       "the allowance is taken: the other's band is the port")
+        // Shown, then invalidated: its pixels stay up and still hold the allowance
+        drain(p)
+        XCTAssertNotNil(left.textRaster)
+        right.dropTextRaster()
+        left.invalidateText()
+        RegionTextExecutor.queue.isSuspended = true
+        p.textRasters.ensure(right, urgent: false)
+        XCTAssertEqual(try XCTUnwrap(right.textRasterKey?.clip).height, p.textPreparationRect(right).height, accuracy: 0.5,
+                       "the first's pixels are still up: the other's band is the port")
+        // Its pixels gone but a band of it still to paint: that holds the allowance too
+        p.textRasters.ensure(left, urgent: false)
+        left.dropTextRaster()
+        right.dropTextRaster()
+        p.textRasters.ensure(right, urgent: false)
+        XCTAssertEqual(try XCTUnwrap(right.textRasterKey?.clip).height, p.textPreparationRect(right).height, accuracy: 0.5,
+                       "the first's job is still to paint: the other's band is the port")
+        drain(p)
+        right.dropTextRaster()
+        p.textRasters.ensure(right, urgent: false)
+        XCTAssertGreaterThan(try XCTUnwrap(right.textRasterKey?.clip).height, port + 100, "the first let it go: the other leads")
+    }
+
     /// A paragraph whose pixels are its words already returns before
     /// `ensure` asks whether it is urgent or what shows: a batch's display
     /// pass asks again of every paragraph the batch gave new words.
