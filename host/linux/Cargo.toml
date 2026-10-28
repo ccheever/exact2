@@ -112,6 +112,8 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 test-wait = []
 
 [dev-dependencies]
+exact-js = { path = "../../js" }
+messages-stress-data = { path = "../../apps/messages-stress/data" }
 exact-update = { path = "../../update" }
 exact-linux = { path = ".", features = ["test-wait"] }
 cc = "1"
