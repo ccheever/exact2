@@ -502,8 +502,6 @@ impl Wgpu {
             .slice(..)
             .get_mapped_range()
             .map_err(|e| Error::Device(e.to_string()))?;
-        // Zeroed allocation avoids retaining dirty large malloc blocks between
-        // readbacks on macOS. The returned image owns this allocation.
         let mut pixels = vec![0; row as usize * height as usize];
         for (dst, src) in pixels
             .chunks_exact_mut(row as usize)
