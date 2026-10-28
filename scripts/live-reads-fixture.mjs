@@ -1,9 +1,9 @@
 // What the Bluesky clone's three live-read tests prove about exact2, on a server of this machine (theme2's 23:41Z
 // approval): those tests asked Bluesky itself, and failed in main's runs while passing on a fresh main, the network
 // the likeliest cause. Each read is a plain fetch from a TypeScript source, as the clone's are (the poll and Top's
-// 403 are synthetic: the clone answers both locally when signed out), and each answer is WITHHELD until a `clock`
-// step has run `delay` ms (`clocked`), so that step must wait for the fetch in flight or end with it unanswered
-// (the class 566d1aa573 touched). host/web-js/live-reads.test.mjs
+// 403 are synthetic: the clone answers both locally when signed out), and each answer is WITHHELD until a clock
+// operation has run `delay` ms (`clocked`), and taken back if it ends first, so a `clock` step must wait for the
+// fetch in flight or end with it unanswered (the class 566d1aa573 touched). host/web-js/live-reads.test.mjs
 // runs the tests below on the JS target, then FAILING sends every read a failure, which each test must fall back
 // from, not hang on; host/web/live-reads.test.mjs runs both on the wasm target, against a dist built as `native`
 // below says.
@@ -213,7 +213,7 @@ test "a config read that fails shows no switches"
   expect tree missing "show_trending_videos"
 `;
 
-/** Bluesky's reads, each answered only `delay` ms into a clock step (`watch` the session): Discover's feed
+/** Bluesky's reads, each answered only `delay` ms into a clock operation (`watch` the session): Discover's feed
  * (30 posts, one more for each load of new posts) and a poll of it (`count` new), searchPosts (403, a search
  * refused), searchActors, getPopularFeedGenerators and unspecced.getConfig, typed as Bluesky types them. `failing`
  * answers every one 500. `seen` lists the paths asked, in order. */
@@ -221,11 +221,15 @@ export function blueskyServer({ delay = 300, port = 0 } = {}) {
   const seen = [];
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'content-type': 'application/json' };
   const state = { failing: false };
-  // An answer asked outside a clock step waits for the next one to start, then `delay` ms more; one asked during a
-  // step (a timer's, inside a jump) waits `delay` ms.
-  const withheld = new Set();
+  // An answer goes out only `delay` ms into a clock operation: one asked outside a clock operation waits for the
+  // next to start; one asked during it (a timer's, inside a jump) waits `delay` ms. An operation that ends first
+  // takes its answers back, so only one that waits for them sees them.
+  const withheld = new Set(), releasing = new Set();
   let clocks = 0;
-  const release = answer => setTimeout(answer, delay);
+  const release = answer => {
+    releasing.add(answer);
+    answer.timer = setTimeout(() => { releasing.delete(answer); answer(); }, delay);
+  };
   const hold = answer => { if (clocks > 0) release(answer); else withheld.add(answer); };
   const json = (body, status = 200) => new Promise(ok => hold(() => ok(new Response(JSON.stringify(body), { status, headers: cors }))));
   const server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch(req) {
@@ -250,17 +254,27 @@ export function blueskyServer({ delay = 300, port = 0 } = {}) {
   } });
   return {
     origin: `http://127.0.0.1:${server.port}`, seen, state,
-    /** A clock step starts: what is withheld is answered `delay` ms from now. The returned function ends the step. */
+    /** A clock operation starts: what is withheld is answered `delay` ms from now, unless the returned function,
+     * its end, comes first and takes it back. */
     clocked: () => {
       clocks += 1;
       for (const answer of [...withheld]) { withheld.delete(answer); release(answer); }
-      return () => { clocks -= 1; };
+      return () => {
+        clocks -= 1;
+        if (clocks > 0) return;
+        for (const answer of [...releasing]) { clearTimeout(answer.timer); releasing.delete(answer); withheld.add(answer); }
+      };
     },
-    /** `s`'s clock steps, told to the server (runTests' `atStep` runs this on the session after an input). */
+    /** `s`'s clock operations (`s.op` with op `clock`, what every `clock` step and the harness's own waits send),
+     * told to the server: runTests' `atStep` runs this on the session after an input. */
     watch(s) {
       if (s.liveReadsWatched) return;
-      const clock = s.clock.bind(s), clocked = this.clocked;
-      s.clock = async (...args) => { const done = clocked(); try { return await clock(...args); } finally { done(); } };
+      const op = s.op.bind(s), clocked = this.clocked;
+      s.op = async (req, ...rest) => {
+        if (req?.op !== 'clock') return op(req, ...rest);
+        const done = clocked();
+        try { return await op(req, ...rest); } finally { done(); }
+      };
       s.liveReadsWatched = true;
     },
     stop: () => server.stop(true),
