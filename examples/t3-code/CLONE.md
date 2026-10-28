@@ -265,9 +265,13 @@ draft is cleared and remains empty after ordinary restart. All 3,754 mobile
 tests, strict app TypeScript, boot and the normal native build pass. Independent
 review found strikethrough and bare-link headings losing formatting; those now
 retain the generic reader and their regressions pass. Formatted, nested, setext
-and unsafe-context headings retain generic rendering. Alternate-size, dark-mode
-and attachment heading acceptance remain open. Soft line breaks, tables, images
-and heading spacing remain parity gaps. This change is outside maintenance
+and unsafe-context headings retain generic rendering. The normal iPhone also verifies dark appearance at 20-point base text,
+heading heights and independent code-card panning. System appearance and
+16-point text restore through Settings. The existing sent Markdown attachment
+shows the same default heading metrics, copies its original 344-character code
+block exactly, switches Source/Preview, and returns to its conversation. Heading
+accessibility acceptance remains open. Soft line breaks, tables, images and
+heading spacing remain parity gaps. This change is outside maintenance
 build `20261028202307`.
 Unclosed/nested fences and reference links across preview chunks remain open.
 The draft file route shares this projection but has no new native acceptance.
