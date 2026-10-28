@@ -87,6 +87,8 @@ struct View {
     /// source changes.
     retries: usize,
     retry_at: Option<Instant>,
+    /// Its source's `load` has been sent: once a source, at its first picture.
+    load_sent: bool,
 }
 
 /// When a picture on screen whose download failed (the network, a timeout, a
@@ -122,6 +124,9 @@ pub struct Images {
     pub bitmaps: BTreeMap<ViewId, Arc<Bitmap>>,
     /// Current loaded views and NATURAL pixel sizes; never traversal history.
     pub loaded: Vec<(String, (u32, u32))>,
+    /// The views whose source's first picture has landed since the presenter
+    /// last took them: each hears its `load` (LLP 1011 §4).
+    pub(crate) load_events: Vec<ViewId>,
     decode_enabled: bool,
     deferred: usize,
     /// The last [`Images::sync_visible`] met a picture (an image that is not
@@ -170,6 +175,7 @@ impl Images {
             views: BTreeMap::new(),
             bitmaps: BTreeMap::new(),
             loaded: Vec::new(),
+            load_events: Vec::new(),
             decode_enabled: true,
             deferred: 0,
             pictures: false,
@@ -307,6 +313,7 @@ impl Images {
                 part: false,
                 retries: 0,
                 retry_at: None,
+                load_sent: false,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
             view.fit = plain_box(node.style).then_some(node.style.object_fit);
@@ -396,6 +403,7 @@ impl Images {
                 view.source_id = None;
                 view.refusal = None;
                 (view.retries, view.retry_at) = (0, None);
+                view.load_sent = false;
                 // The old lease, bitmap and natural size stay until acceptance.
                 if source.is_empty() {
                     view.lease = None;
@@ -562,6 +570,9 @@ impl Images {
                                 view.lease = Some(lease);
                                 view.accepted = Some(request);
                                 view.displayed_source = view.source.clone();
+                                if !std::mem::replace(&mut view.load_sent, true) {
+                                    self.load_events.push(*id);
+                                }
                             }
                         }
                     }
@@ -677,6 +688,9 @@ impl Images {
                                     view.lease = Some(lease);
                                     view.accepted = Some(request);
                                     view.displayed_source = view.source.clone();
+                                    if !std::mem::replace(&mut view.load_sent, true) {
+                                        self.load_events.push(*id);
+                                    }
                                 }
                             }
                         }

@@ -53,7 +53,31 @@ impl<D: DataSource> Presenter<D> {
                 self.host.log(error);
             }
         }
-        any
+        // After the sizes: a source's first picture sends its `load`, to an
+        // image that hears it (LLP 1011 §4).
+        let mut loads = false;
+        for id in std::mem::take(&mut self.images.load_events) {
+            let hears = self
+                .host
+                .kernel()
+                .node(id)
+                .is_some_and(|n| n.node_type == NodeType::Image)
+                && self
+                    .host
+                    .runner()
+                    .handlers_of(id)
+                    .contains(&EventKind::Load);
+            if !hears {
+                continue;
+            }
+            let sent = self.host.dispatch_at(id, Event::Load, self.host.now());
+            let after = self.after_commit();
+            if let Some(error) = sent.or(after) {
+                self.host.log(error);
+            }
+            loads = true;
+        }
+        any || loads
     }
 
     pub(super) fn sync_images(&mut self) -> Option<String> {
