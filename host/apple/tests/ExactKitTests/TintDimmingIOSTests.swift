@@ -339,6 +339,32 @@ final class TintDimmingIOSTests: XCTestCase {
         embedder.tintAdjustmentMode = .automatic
     }
 
+    /// Text in the tint in a route keeps the tint its route's view had undimmed while dimmed: a
+    /// sheet's route, as a navigation controller's, is mounted in its `PresentationMount`
+    func testAStatusInARoutesViewKeepsItsTintWhileDimmed() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationKey": "sheet"]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let embedder = UIView(frame: window.bounds)
+        embedder.tintColor = color(red)
+        window.addSubview(embedder)
+        let route = RouteController(try XCTUnwrap(p.views[1]))
+        route.loadViewIfNeeded()
+        embedder.addSubview(route.view)
+        let status = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(status.isDescendant(of: route.view), "the route's nodes are in its view")
+        assertChannels(try runChannels(status), red, "the embedder's tint before the dimming")
+        embedder.tintAdjustmentMode = .dimmed
+        window.layoutIfNeeded()
+        assertChannels(try runChannels(status), red, "the embedder's tint while dimmed")
+        embedder.tintAdjustmentMode = .automatic
+    }
+
     /// A symbol in a custom control greys with it, and its colour comes back
     func testASymbolInAControlGreysWithIt() throws {
         let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]]

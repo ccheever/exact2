@@ -39,8 +39,9 @@ enum TintDimming {
     }
 }
 
-/// A view a session's document is mounted in: the viewport, or the `DocumentMount` native
-/// navigation holds it fixed in. It keeps its tint undimmed, its embedder's or its window's, which a
+/// A view a session's nodes are mounted in: the viewport, the `DocumentMount` native navigation
+/// holds the document fixed in, or a route's or a modal's `PresentationMount`. It keeps its tint
+/// undimmed, its embedder's or its window's, which a
 /// status outside a control keeps while UIKit dims tints (`NodeView.restingTint`): the one it last
 /// had, while it is dimmed. It takes one as it joins a window and whenever its tint changes undimmed.
 /// An embedder's tint changed while the session is dimmed shows once the dimming ends, and a session
@@ -80,7 +81,7 @@ extension NodeView {
 
     /// The tint as it rests, since UIKit's `tintColor` is dimmed here, from the sources it comes
     /// from: the nearest authored `accent-color` (`applyAccentTint`), else the theme's `AccentColor`
-    /// (`applyThemeTint`), else what the view the document is mounted in last had undimmed (`RestsTint`)
+    /// (`applyThemeTint`), else what the nearest view the node is mounted in last had undimmed (`RestsTint`)
     var restingTint: UIColor {
         var current: UIView? = self, port: (any RestsTint)?
         while let view = current {
@@ -90,7 +91,7 @@ extension NodeView {
                     node?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
                 }
             }
-            if port == nil { port = view as? RestsTint }
+            if port == nil, let mount = view as? RestsTint, mount.restingTint != nil { port = mount }
             current = view.superview
         }
         return ThemeRoles.color("AccentColor", in: self) ?? port?.restingTint ?? window?.tintColor ?? tintColor

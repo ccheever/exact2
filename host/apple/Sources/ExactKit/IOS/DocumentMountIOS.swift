@@ -16,7 +16,7 @@ import UIKit
 /// view, so the page has no bands past its area (`Presenter.pageMargins`)
 /// while it is here.
 package final class DocumentMount: UIView, RestsTint {
-    /// Its tint undimmed, for a document mounted here, as the viewport keeps its own (`RestsTint`)
+    /// Its tint undimmed, for the nodes mounted here, as the viewport keeps its own (`RestsTint`)
     var restingTint: UIColor? { tintAdjustmentMode == .dimmed ? undimmedTint : tintColor }
     private var undimmedTint: UIColor?
     package override func tintColorDidChange() {
