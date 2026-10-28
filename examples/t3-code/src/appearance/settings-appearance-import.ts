@@ -261,7 +261,7 @@ export type ThemeFileRead = { kind: 'single'; json: string; fileName: string } |
 /**
  * readThemeFiles: one file fills the editor for review (its size checked first); several import
  * as a batch, each oversized one as "<file>: too large" and each unparsable one as
- * "<file>: <reason>", joined with " — " by the caller.
+ * "<file>: <reason>", joined with "; " by the caller (ThemeImportDialog.tsx).
  */
 export function readThemeFiles(files: PickedThemeFile[], taken: string[]): ThemeFileRead {
   if (files.length === 1) {

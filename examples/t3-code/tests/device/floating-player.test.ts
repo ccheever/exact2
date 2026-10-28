@@ -112,6 +112,26 @@ describe('applyDeviceSnapshot', () => {
     apply(client, state([opened('t1', iphone, '2026-01-01T00:05:00.000Z')]));
     expect(miniDeviceOf(client, 't1')).toMatchObject({ deviceId: 'IPHONE' });
   });
+  // rightPanelStore.test.ts at 7c3b3b3605ef "keeps a dismissed device hidden after another file opens": a device tab the
+  // person closed stays closed when the agent opens that device again (in memory here, not across a relaunch).
+  test('keeps a device tab the person closed closed when the agent opens the device again', () => {
+    resetLaunch();
+    const client = { ...thread(), draftKey: 'env:t1', local: {} } as unknown as T3Client;
+    const panel = { sheet: false, autoShowFloatingPreview: false };
+    const tabs = () => surfaceStore(client).panels.get('env:t1')?.surfaces.filter(surface => surface.kind === 'device') ?? [];
+    apply(client, state([]), panel);
+    apply(client, state([opened()]), panel);
+    expect(tabs()).toHaveLength(1);
+    const saved = surfaceStore(client).panels.get('env:t1')!;
+    saved.surfaces = saved.surfaces.filter(surface => surface.kind !== 'device');
+    saved.userRevision++; // closeSurface: a person's panel change
+    apply(client, state([]), panel);
+    apply(client, state([opened('t1', iphone, '2026-01-01T00:05:00.000Z')]), panel);
+    expect(tabs()).toHaveLength(0);
+    // Another device still opens.
+    apply(client, state([opened('t1', iphone, '2026-01-01T00:05:00.000Z'), opened('t1', pixel)]), panel);
+    expect(tabs().map(surface => surface.device?.deviceId)).toEqual(['emulator-5580']);
+  });
   test('opens a device for a thread that had no sessions when the baseline was taken', () => {
     resetLaunch();
     const client = thread();

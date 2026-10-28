@@ -7,16 +7,16 @@
 // does not show it. The host speaks a region whose text changes (Accessibility.swift liveSpeaks), so a region exists
 // before its first message, and a repeat gets a trailing no-break space to count as new. The thread regions clear 7 s
 // after they speak; `announce`'s messages wait for the focus to settle and are then spoken together, alternating
-// between two regions so the same message can be spoken twice in a row.
+// between two regions so the same message can be spoken twice in a row, and the pair keeps its text until the next.
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
-import { activeRun } from '../client/protocol';
 import { pendingRequests } from '../composer/requests';
 import { latestExecutedRun } from '../composer/composer-controls';
 import { activityRun, latestUnheldRun } from '../timeline/worktree-card-run';
 import { effectiveSnoozed, latestRun, pendingApproval, pendingInput, shellRuntime } from '../sidebar/sidebar-model';
 import { pendingSubagentRequest } from '../sidebar/subagent-requests';
 import { isProviderSubagent } from '../composer/composer-controls-subagent';
+import { providerGoalWorking } from '../composer/provider-goal';
 import { notifyEnvironments } from './shell-notify';
 import type { EnvironmentFleet } from '../connections/settings-b-fleet';
 
@@ -157,7 +157,7 @@ type Announcer = {
   open: { threadKey: string; memory: ThreadAnnouncementMemory } | null;
   backgroundMemory: BackgroundThreadMemory;
 };
-/** useLiveRegion's CLEAR_AFTER_MS: a region's text is cleared once it has had time to be spoken. */
+/** useLiveRegion's CLEAR_AFTER_MS: a thread region's text is cleared once it has had time to be spoken. */
 export const CLEAR_AFTER_MS = 7_000;
 const announcers = new WeakMap<T3Client, Announcer>();
 function announcerOf(client: T3Client): Announcer {
@@ -204,7 +204,9 @@ export function openThreadActivity(client: T3Client): { threadKey: string; snaps
   const pending = client.pending, launching = !client.threadId && pending?.method === 'orchestration.launchThread' && pending.payload.reuseExistingThread !== true ? str(pending.payload.threadId) : '';
   const threadKey = `${client.environmentId}:${client.threadId || launching || `draft:${client.draftKey}`}`;
   const { approvals, inputs } = client.threadId ? pendingRequests(projection) : { approvals: [], inputs: [] };
-  const working = !!activeRun(projection) || (!!pending && client.busy);
+  // ChatView's isWorking: a run, runless work, or a send of this thread in flight (isSendBusy, which only a message send
+  // or a draft's launch sets); another write in flight (a model, a mode, a stop) is not work.
+  const working = providerGoalWorking(client) || (launching !== '' && client.busy);
   const status: ThreadActivityStatus = approvals.length ? 'approval' : inputs.length || (shellThread ? pendingInput(shellThread) : false) ? 'input' : working ? 'working' : 'idle';
   const requestId = approvals[0]?.requestId ?? inputs[0]?.requestId ?? null;
   const activity = client.threadId ? activityRun(projection) : null, executed = client.threadId ? latestExecutedRun(projection) : undefined;
@@ -259,8 +261,8 @@ function followBackgroundThreads(client: T3Client, state: Announcer, now: number
 /**
  * One shell answer's turn of the announcers, then what the window's regions show. The shell's clock (`now`) does the
  * reference's timers: messages are spoken together at the first tick after the last one came in (the clock ticks
- * every 500 ms while `announcing`, so a focus that a command moved has settled by then), and a region is cleared
- * CLEAR_AFTER_MS after the tick that followed its write.
+ * every 500 ms while `announcing`, so a focus that a command moved has settled by then), and a thread region is
+ * cleared CLEAR_AFTER_MS after the tick that followed its write.
  */
 export function announcements(client: T3Client, now: number, source?: EnvironmentFleet): AnnounceView {
   const state = announcerOf(client);
@@ -271,23 +273,18 @@ export function announcements(client: T3Client, now: number, source?: Environmen
     // Alternating between two regions lets the same message be spoken twice in a row.
     const [target, other] = state.first.text ? [state.second, state.first] : [state.first, state.second];
     other.text = '';
-    speak(target, state.pending.map(entry => entry.message).join('. '), now);
-    target.at = now;
+    target.text = state.pending.map(entry => entry.message).join('. ');
     state.pending = [];
   }
-  for (const region of [state.thread, state.background, state.first, state.second]) {
+  for (const region of [state.thread, state.background]) {
     if (!region.text) continue;
     if (!region.at && now > region.seen) region.at = now;
     if (region.at && now - region.at >= CLEAR_AFTER_MS) region.text = '';
   }
   return { thread: state.thread.text, background: state.background.text, first: state.first.text, second: state.second.text };
 }
-/** Whether a message waits or a region still shows text: the shell's clock must keep running to settle or clear it. */
+/** Whether a message waits or a thread region still shows text: the shell's clock must keep running to settle or clear it. */
 export function announcing(client: T3Client): boolean {
   const state = announcerOf(client);
-  return state.pending.length > 0 || [state.thread, state.background, state.first, state.second].some(region => region.text !== '');
+  return state.pending.length > 0 || state.thread.text !== '' || state.background.text !== '';
 }
-
-export const EMPTY_ANNOUNCE: AnnounceView = { thread: '', background: '', first: '', second: '' };
-/** The background region's memory, as a test reads it. */
-export const backgroundMemory = (client: T3Client): BackgroundThreadMemory => announcerOf(client).backgroundMemory;

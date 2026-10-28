@@ -3,7 +3,7 @@ import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { keyboardDispatch, keyboardDispatchSource } from '../../src/shell/keyboard-dispatch';
+import { chordWinners, keyboardDispatch, keyboardDispatchSource } from '../../src/shell/keyboard-dispatch';
 import { keyboardSettings } from '../../src/settings/keybinding-settings';
 import { claimBoldChord, isBoldChord, richTextComposer } from '../../src/shell/button-chords';
 import { placeTableMenu, tableMenuAction, tableMenuSnapshot, TABLE_MENU_HEIGHT } from '../../src/timeline/table-menu';
@@ -175,5 +175,25 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     // The popup is placed from the frame Contract reports: frame() is the trigger as drawn, scroll offsets applied.
     tableMenuAction(c, 'table-menu', 'tbl-1', value.replace('900|200|', '900|150|'));
     expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ triggerY: 150, y: 178 });
+  });
+});
+
+describe('⌘U and ⌘B over Usage and Settings', () => {
+  // keybindings.ts at 7c3b3b3605ef (#22905): `usagePageOpen` is true on the Usage page, so a toggle bound with it goes back.
+  test('a Usage toggle bound with usagePageOpen goes back from Usage', () => {
+    const toggle = [
+      { command: 'usage.open', shortcut: { key: 'u', modKey: true }, whenAst: { type: 'not', node: { type: 'identifier', name: 'usagePageOpen' } } },
+      { command: 'navigation.back', shortcut: { key: 'u', modKey: true }, whenAst: { type: 'identifier', name: 'usagePageOpen' } },
+    ];
+    expect(chordWinners(toggle, context).get('Meta+u')).toBe('usage.open');
+    expect(chordWinners(toggle, { ...context, page: 'usage' }).get('Meta+u')).toBe('navigation.back');
+  });
+  // AppSidebarLayout.tsx SidebarControl: its capture listener has no dialog check, so ⌘B toggles the sidebar behind them.
+  test('sidebar.toggle keeps its chord while Settings or Usage covers the window', () => {
+    const c = client();
+    const sidebar = (extra: Obj) => keyboardDispatch(c, [], '', '', { ...context, ...extra }).find(row => row.command === 'sidebar.toggle');
+    expect(sidebar({ modalOpen: true, settingsOpen: true })).toMatchObject({ chord: 'Meta+b', target: 'sidebar' });
+    expect(sidebar({ page: 'usage' })).toMatchObject({ chord: 'Meta+b', target: 'sidebar' });
+    expect(sidebar({})).toBeUndefined(); // elsewhere the sidebar's own button holds the chord
   });
 });

@@ -242,11 +242,15 @@ export function heldFrame(client: T3Client, runtimeId: string): { width: number;
   return held ? browserMiniSourceSize(client, runtimeId) : null;
 }
 
-/** The thread's turn runs (the reference's PreviewAgentActivity): working, or waiting on the person, as the sidebar shows it. */
+/**
+ * The thread's agent turn runs (the reference's PreviewAgentActivity, ended by RunExecutionService's agentTurnsSettled):
+ * working, waiting on the person, or waiting as the sidebar shows it, on another thread (t3_thread_wait) or on its
+ * subagents and monitors.
+ */
 export function threadTurnRunning(client: T3Client, environmentId: string, threadId: string): boolean {
   const shell = environmentId === client.environmentId ? client.shell : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.shell;
   const thread = shell?.threads.find(entry => entry.id === threadId);
-  return !!thread && ['working', 'approval', 'input'].includes(sidebarStatus(thread));
+  return !!thread && ['working', 'approval', 'input', 'waiting'].includes(sidebarStatus(thread));
 }
 
 export function recordingOf(client: T3Client, ref: ScopedThreadRef, tabId: string, runtimeId: string): boolean {

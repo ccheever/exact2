@@ -5,7 +5,8 @@
 // first snapshot of an environment is a baseline, so persisted tabs restore themselves and existing sessions never
 // resurrect a player the person closed; the baseline outlives a disconnect, so a device opened during the gap still
 // shows. A session that is new since the last snapshot (by thread, host, device and opening time) floats over its
-// thread, or opens as that thread's panel tab with floating previews off; a session whose device summary has not
+// thread, or opens as that thread's panel tab with floating previews off, unless the person closed that device's tab
+// (rightPanelStore.ts dismissedDeviceSurfaceIds); a session whose device summary has not
 // arrived stays out of the baseline, so a later snapshot opens it. Sheet layouts (window ≤ 980 pt) get neither. A
 // floating device follows its session, and the player hides while the panel shows the same device. The focused
 // environment's state is this connection's (device-surface.ts); a background environment's comes from the fleet, which
@@ -20,13 +21,34 @@ import { openDeviceSurface } from '../panel/right-panel-tabs';
 import { deviceStateOf, watchDevice } from './device-surface';
 import { closeMiniDevice, emptyMini, floatMiniDevice, miniStoreOf, type DeviceTarget, type DeviceMini } from './device-session';
 
-type Track = { baselines: Map<string, Set<string>>; tried: number };
+/** `panels`: each thread panel's device tabs and its person's-choice revision at the last pass; `dismissed`: the device
+ *  tabs the person closed, by panel key, which an agent's opening skips (in memory: a relaunch's first snapshot is a
+ *  baseline, which opens nothing). */
+type Track = { baselines: Map<string, Set<string>>; tried: number; panels: Map<string, { devices: Set<string>; revision: number }>; dismissed: Map<string, Set<string>> };
 let tracks = new WeakMap<T3Client, Track>();
 const trackOf = (client: T3Client): Track => {
   let track = tracks.get(client);
-  if (!track) { track = { baselines: new Map(), tried: -1 }; tracks.set(client, track); }
+  if (!track) { track = { baselines: new Map(), tried: -1, panels: new Map(), dismissed: new Map() }; tracks.set(client, track); }
   return track;
 };
+/** rightPanelStore's device surface id. */
+const deviceSurfaceId = (target: { hostId: string; deviceId: string }) => `device:${encodeURIComponent(target.hostId)}:${encodeURIComponent(target.deviceId)}`;
+/**
+ * rightPanelStore's userAction: a device tab that a person's panel change removed is dismissed; one that shows again
+ * (the person opened it) is not. A person's change is one that moved the panel's userRevision (panel-surfaces.ts).
+ */
+function noteDismissedDevices(client: T3Client): void {
+  const track = trackOf(client);
+  for (const [key, state] of surfaceStore(client).panels) {
+    const devices = new Set(state.surfaces.flatMap(surface => surface.kind === 'device' && surface.device ? [deviceSurfaceId(surface.device)] : []));
+    const seen = track.panels.get(key), dismissed = track.dismissed.get(key) ?? new Set<string>();
+    for (const id of devices) dismissed.delete(id);
+    if (seen && seen.revision !== state.userRevision) for (const id of seen.devices) if (!devices.has(id)) dismissed.add(id);
+    if (dismissed.size) track.dismissed.set(key, dismissed);
+    else track.dismissed.delete(key);
+    track.panels.set(key, { devices, revision: state.userRevision });
+  }
+}
 /** Test seam: a fresh launch (no environment has a baseline). */
 export function resetLaunch(): void { tracks = new WeakMap(); }
 
@@ -39,9 +61,11 @@ function environmentOf(client: T3Client, threadId: string, source: EnvironmentFl
   if (client.shell?.threads?.some(thread => thread.id === threadId)) return client.environmentId;
   return [...source.entries.values()].find(entry => entry.shell.threads.some(thread => thread.id === threadId))?.environmentId ?? client.environmentId;
 }
-/** useRightPanelStore.openDevice(ref, target, true): the thread's panel gets the device's tab unless it has one. */
+/** useRightPanelStore.openDevice(ref, target, true): the thread's panel gets the device's tab unless it has one or the
+ *  person closed it. */
 function openDeviceTab(client: T3Client, environmentId: string, threadId: string, target: DeviceTarget): void {
   const panels = surfaceStore(client).panels, key = `${environmentId}:${threadId}`;
+  if (trackOf(client).dismissed.get(key)?.has(deviceSurfaceId(target))) return;
   const state = panels.get(key) ?? { surfaces: [], active: '', visible: false, userRevision: 0 };
   panels.set(key, state);
   if (state.surfaces.some(surface => surface.kind === 'device' && surface.device?.hostId === target.hostId && surface.device.deviceId === target.deviceId)) return;
@@ -50,6 +74,7 @@ function openDeviceTab(client: T3Client, environmentId: string, threadId: string
 
 /** applyDeviceSnapshot: one environment's device state, as it arrives. */
 export function applyDeviceSnapshot(client: T3Client, environmentId: string, state: Obj, options: { sheet: boolean; autoShowFloatingPreview: boolean }, source: EnvironmentFleet = fleet): void {
+  noteDismissedDevices(client);
   const deviceFor = (session: Obj) => arr(state.devices).find(device => str(device.hostId) === str(session.hostId) && str(device.id) === str(session.deviceId));
   // A floating device of this environment whose session ended has nothing to stream.
   for (const [threadId, entry] of Object.entries(miniStoreOf(client).byThreadKey)) {
@@ -68,6 +93,7 @@ export function applyDeviceSnapshot(client: T3Client, environmentId: string, sta
     if (options.autoShowFloatingPreview) floatMiniDevice(client, threadId, target);
     else openDeviceTab(client, environmentId, threadId, target);
   }
+  noteDismissedDevices(client); // the tabs just opened are the panels' own, not a later person's change
 }
 
 /** useDeviceState for the focused environment (drafts included): one subscription attempt per connection. */
@@ -82,6 +108,7 @@ export async function watchThreadDevices(client: T3Client, native: Native | null
 /** The focused environment's device state, followed on each answer of the shell once its first snapshot arrived. */
 export async function threadDevices(client: T3Client, native: Native | null | undefined, sheet: boolean): Promise<void> {
   await watchThreadDevices(client, native);
+  noteDismissedDevices(client);
   const state = deviceStateOf(client);
   if (state && client.environmentId) applyDeviceSnapshot(client, client.environmentId, state, { sheet, autoShowFloatingPreview: browserAutoShowFloatingPreview(client) });
 }

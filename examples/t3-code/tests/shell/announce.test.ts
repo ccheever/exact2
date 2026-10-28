@@ -416,5 +416,36 @@ describe('the window\'s regions (clone)', () => {
     announce(c, 'Archived 1 thread, ⌘Z to undo', 'thread-undo-notice');
     cancelAnnouncement(c, 'thread-undo-notice');
     expect(announcements(c, 3_000, fleet)).toMatchObject({ first: '', second: 'Opened in Zed' });
+    // lib/announce.ts never clears its pair: the text stays, and nothing is left for the clock to do.
+    expect(announcements(c, 3_000 + CLEAR_AFTER_MS + 1_000, fleet)).toMatchObject({ first: '', second: 'Opened in Zed' });
+    expect(announcing(c)).toBe(false);
+  });
+  it('a write that is not a send, like a model change, leaves an idle thread silent', () => {
+    const c = client({ runs: [run('run-1', 'completed', 1)], runtimeRequests: [] }, [{ id: 't1', title: 'Fix login', latestRunId: 'run-1', status: 'completed', activityRunStatus: 'completed', activeRunId: null }]);
+    const write = c as unknown as { busy: boolean; pending: Obj | undefined };
+    expect(announcements(c, 1_000, fleet).thread).toBe('');
+    write.busy = true;
+    write.pending = { method: 'orchestration.dispatchCommand', threadId: 't1', payload: { type: 'thread.model-selection.set' } };
+    expect(announcements(c, 1_500, fleet).thread).toBe('');
+    write.busy = false; write.pending = undefined;
+    expect(announcements(c, 2_000, fleet).thread).toBe('');
+  });
+  it('another thread\'s send in flight is not this thread\'s work: its first turn says Working, then Done', () => {
+    const c = client({ runs: [], runtimeRequests: [] }, [{ id: 't1', title: 'B', latestRunId: null, status: 'idle' }]);
+    const write = c as unknown as { busy: boolean; pending: Obj | undefined };
+    write.busy = true;
+    write.pending = { method: 'orchestration.dispatchCommand', threadId: 't0', payload: { type: 'message.dispatch' } };
+    const spoken: string[] = [];
+    let at = 1_000;
+    const step = () => { const text = announcements(c, at += 600, fleet).thread; if (text && spoken.at(-1) !== text) spoken.push(text); };
+    step(); // B opens while thread t0's send is in flight: the baseline
+    write.busy = false; write.pending = undefined; step();
+    write.busy = true; write.pending = { method: 'orchestration.dispatchCommand', threadId: 't1', payload: { type: 'message.dispatch' } }; step();
+    write.busy = false; write.pending = undefined;
+    c.projection = { runs: [run('r1', 'running', 1)], runtimeRequests: [] };
+    c.shell.threads[0] = { id: 't1', title: 'B', latestRunId: 'r1', status: 'running', activityRunStatus: 'running', activeRunId: 'r1' }; step();
+    c.projection = { runs: [run('r1', 'completed', 1)], runtimeRequests: [] };
+    c.shell.threads[0] = { id: 't1', title: 'B', latestRunId: 'r1', status: 'completed', activityRunStatus: 'completed', activeRunId: null }; step();
+    expect(spoken).toEqual(['Working', 'Done']);
   });
 });

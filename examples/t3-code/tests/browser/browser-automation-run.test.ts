@@ -9,6 +9,8 @@ import { adoptFrameEvent, frameByElement, frameCommandView, frameIdOf, syncFrame
 import { browserHost } from '../../src/browser/browser-surface';
 import { previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { adoptCaptureNative, heldFrame } from '../../src/browser/browser-capture';
+import { AGENT_FOCUS_IDLE_MS, agentHoldWaiting } from '../../src/browser/browser-automation-run';
+import { noteNow } from '../../src/composer/composer-controls';
 import { obj, type Obj } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -231,21 +233,43 @@ describe('the executor', () => {
 
 // DesktopBrowserHost.ts at 7c3b3b3605ef: a hidden tab throttles unless the agent drives it in its thread's turn.
 describe('a hidden tab the agent drives', () => {
-  it('keeps drawing through its thread\'s turn and lets go once the turn ends', async () => {
+  // DesktopBrowserHost.ts at 7c3b3b3605ef: the turn's end (agentTurnsSettled: the root turn and its subagents) and
+  // FOCUS_IDLE after it, or after the last request, let the tab throttle.
+  it('keeps drawing through its thread\'s turn, waiting included, and lets go FOCUS_IDLE after the turn ends', async () => {
     const { client } = await run('status', {}, fakePage());
-    const thread: Obj = { id: 'thread-1', latestRunId: 'run-1', status: 'running', runtime: { status: 'running', activeRunId: 'run-1' } };
+    noteNow(client, 1_000);
+    const thread: Obj = { id: 'thread-1', latestRunId: 'run-1', status: 'running' };
     (client.shell as { threads: Obj[] }).threads = [thread];
     expect(heldFrame(client, RUNTIME)).not.toBeNull();
-    // The turn ends: work left to a dev server is no turn.
-    thread.status = 'idle'; thread.runtime = { status: 'idle' };
+    // Blocked on another thread (t3_thread_wait), then waiting on its subagents: the turn still runs.
+    thread.blockedOnThreadWait = true;
+    noteNow(client, 60_000);
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    delete thread.blockedOnThreadWait;
+    thread.status = 'completed'; thread.pendingBackgroundTasks = [{ kind: 'subagent' }];
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    // The turn ends; a dev server it left running is no turn. The tab stays held FOCUS_IDLE longer.
+    thread.pendingBackgroundTasks = [{ kind: 'command' }];
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    noteNow(client, 60_000 + AGENT_FOCUS_IDLE_MS - 1);
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    noteNow(client, 60_000 + AGENT_FOCUS_IDLE_MS);
     expect(heldFrame(client, RUNTIME)).toBeNull();
     // The next turn has not driven the tab yet.
-    thread.status = 'running'; thread.runtime = { status: 'running', activeRunId: 'run-2' };
+    thread.status = 'running'; thread.latestRunId = 'run-2'; thread.pendingBackgroundTasks = [];
     expect(heldFrame(client, RUNTIME)).toBeNull();
+  });
+  it('holds FOCUS_IDLE after the last request of a turn that already ended', async () => {
+    const { client } = await run('status', {}, fakePage());
+    (client.shell as { threads: Obj[] }).threads = [{ id: 'thread-1', latestRunId: 'run-1', status: 'completed' }];
+    expect(heldFrame(client, RUNTIME)).not.toBeNull();
+    noteNow(client, AGENT_FOCUS_IDLE_MS);
+    expect(heldFrame(client, RUNTIME)).toBeNull();
+    expect(agentHoldWaiting(client, AGENT_FOCUS_IDLE_MS)).toBe(false);
   });
   it('is not held for a tab the agent never drove', () => {
     const { client } = setup();
-    (client.shell as { threads: Obj[] }).threads = [{ id: 'thread-1', latestRunId: 'run-1', status: 'running', runtime: { status: 'running', activeRunId: 'run-1' } }];
+    (client.shell as { threads: Obj[] }).threads = [{ id: 'thread-1', latestRunId: 'run-1', status: 'running' }];
     expect(heldFrame(client, RUNTIME)).toBeNull();
   });
 });
