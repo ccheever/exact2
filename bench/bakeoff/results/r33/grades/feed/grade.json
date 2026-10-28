@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed in rounded cards. Shows author, handle and relative time ('now', '16m', '1h'), full text, full-width rounded images at their own aspect ratio, and a horizontal carousel of titled cards that snaps card by card, with an 'N photos' count."},
+      {"n": 2, "status": "pass", "note": "Heart fills red-orange and the count goes up or down by one. The reply count shows as a bubble with a number."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a 'Post' screen with an edge-to-edge image and a full timestamp. Tapping an image, in the feed or in the detail, opens a black full-screen viewer with a close button. A swipe down dismisses it. Edge-swipe back works."},
+      {"n": 4, "status": "partial", "note": "Pull to refresh adds 3 made-up posts with images at the top, and the header briefly says '3 new posts'. But the list never springs back: the content stays pushed down about 75 pt under a blank gap until you scroll by hand. Reproduced twice."},
+      {"n": 5, "status": "pass", "note": "Compose button opens a sheet with Cancel/Post, a placeholder and the keyboard up. Post stays disabled for empty or spaces-only text. The new post appears at the top as 'You @you'."},
+      {"n": 6, "status": "pass", "note": "Likes and the composed post survive a relaunch, and the post count stays at 407."}
+    ],
+    "bugs": [
+      "After pull to refresh, the feed stays stuck about 75 pt below its top with a blank band, and the navigation bar stays tall, until you scroll.",
+      "The accessibility label says '1 replies' (wrong plural)."
+    ],
+    "tells": [
+      "Custom warm off-white background with branded rounded cards, a 'Little moments. Real connections.' subtitle and a letter-spaced 'THE LATEST' header. Polished, but a custom design rather than a system list.",
+      "Detail image runs edge to edge but keeps rounded corners at the screen edges.",
+      "Large text: the avatar stays small and the handle/time wrap into an indented column. Acceptable.",
+      "Brand-tinted Cancel/Post buttons in the compose sheet instead of system tint."
+    ],
+    "scroll": "Smooth. Slow drags and fast flings show no blank rows or images popping in, a tap during a fling stops it like UIKit, and the scroll position is kept after opening a post and coming back. The refresh never springs back (bug above).",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first plain list with hairline separators. Shows author, handle and time, full text, full-width rounded images at their own aspect ratio, and a horizontal carousel of titled cards. The carousel scrolls freely and does not snap, so it can stop mid-card."},
+      {"n": 2, "status": "pass", "note": "Heart fills pink-red and the count changes. 'N replies' is shown. The like control is exposed as a switch."},
+      {"n": 3, "status": "partial", "note": "Tapping a post pushes a 'Post' screen with a larger image. Tapping an image opens a black full-screen viewer, dismissed by a swipe down. But the full-screen image sits about 62 pt below centre (its frame starts at y=62 and runs 874 tall)."},
+      {"n": 4, "status": "partial", "note": "Pull to refresh adds 3 made-up posts at the top and springs back cleanly. It finishes instantly with no visible spinner, and the new posts are text-only. A separate refresh button is also in the nav bar."},
+      {"n": 5, "status": "pass", "note": "Compose sheet with Cancel and a blue Post button. Post stays disabled for empty or spaces-only text, and the post appears at the top. The text view has no placeholder."},
+      {"n": 6, "status": "pass", "note": "Likes and the composed post survive a relaunch."}
+    ],
+    "bugs": [
+      "Relative times never move on: refreshed and composed posts still say 'Just now' 5+ minutes later, while the same moment in A reads '5m'.",
+      "The full-screen photo viewer is vertically off-centre by about the nav-bar height.",
+      "Pull to refresh shows no spinner or progress at all; posts just appear."
+    ],
+    "tells": [
+      "The compose text view is empty with no placeholder prompt, plus a stray 'Saved on this iPhone' caption.",
+      "The carousel does not page or snap and cards clip hard at the list margins.",
+      "The like control is a Switch in accessibility, not a button.",
+      "Stray 'Horizontal scroll bar' elements on vertical screens suggest non-native scroll containers.",
+      "A redundant refresh button in the nav bar next to pull to refresh.",
+      "Grey initials-only avatars are bland. Otherwise the plain system look is close to stock SwiftUI and adapts well to dark mode and the largest text size (avatar dropped at the largest size)."
+    ],
+    "scroll": "Smooth on slow drags and flings, with no blank rows or pop-in. Fling back to the top is clean, and the scroll position is kept on returning from a post.",
+    "scores": {"features": 7, "platform": 7, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both meet nearly every requirement and scroll equally well. A's cards, snapping carousel, centred full-screen viewer, refreshed posts with images and live relative times feel more finished. A's worst flaw is a refresh that leaves the list pushed down until you scroll. B has several smaller rough edges: no refresh spinner, an off-centre photo viewer, timestamps stuck on 'Just now', and no compose placeholder."
+}
