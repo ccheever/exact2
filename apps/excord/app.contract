@@ -603,7 +603,7 @@ component Excord
         if anchor != "" and not win.hasAfter
           anchor = ""
     if at >= 0 and current and target == ""
-      if at < (isAway ? 100 : 15) and win.hasBefore
+      if at < (isAway and not settling ? 100 : 15) and win.hasBefore
         anchor = win.firstId
       else
         if at > keys.length - 15 and win.hasAfter
