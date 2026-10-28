@@ -39,7 +39,9 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   /** A model row's picker trigger mark: the instance's driver and ProviderInstanceIcon badge. */
   driver: string; badge: string; accent: string;
   /** The writer model's TraitsPicker: its trigger label ('' draws none) and menu rows. */
-  traitsLabel: string; traits: CoreOption[] };
+  traitsLabel: string; traits: CoreOption[];
+  /** The row's search target (settings-catalog.ts `targetId ?? id`), '' for a row no result names. */
+  target: string };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuideInstructions: '', reviewGuidesEnabled: false, removeAgentCreditsOnMerge: false,
@@ -53,6 +55,11 @@ const WRITING_MODES: Record<string, { label: string; description: string }> = {
   custom: { label: 'Custom instructions', description: 'Use your instructions for change descriptions and change requests in every project.' },
 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+// The search results each scoped row answers to (settings-catalog.ts), by the row's key.
+export const SEARCH_TARGETS: Readonly<Record<string, string>> = { defaultAutoPull: 'automatic-pull', removeAgentCreditsOnMerge: 'remove-agent-credits-on-merge',
+  pullRequestMergeMethod: 'pull-request-merge-method', branchNamingMode: 'worktree-branch-naming', sourceControlWritingStyle: 'source-control-writing-style',
+  'sourceControlWritingStyle.followChangeRequestTemplates': 'follow-change-request-templates', sourceControlWriterModelSelection: 'source-control-writer-model',
+  reviewGuidesEnabled: 'review-guides', enableAgentBrowserAccess: 'agent-browser-access' };
 
 /** settingInheritanceLayers + the SettingsRow summary for one environment/project target. */
 export function inheritance(settings: Obj, projectId: string, key: string, environmentLabel: string) {
@@ -76,7 +83,7 @@ function effective(settings: Obj, projectId: string): Obj {
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
   return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '',
-    traitsLabel: '', traits: [], ...info, ...partial };
+    traitsLabel: '', traits: [], target: '', ...info, ...partial, ...(SEARCH_TARGETS[partial.key ?? key] ? { target: SEARCH_TARGETS[partial.key ?? key] } : {}) };
 }
 
 /** Source-control route rows: Repositories, and Writing & review with its Advanced rows. */
@@ -352,5 +359,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [] };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '' };
 }

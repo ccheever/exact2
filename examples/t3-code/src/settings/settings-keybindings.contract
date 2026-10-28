@@ -45,6 +45,8 @@ shape KeybindingRowView
   canRemove: bool
   conflict: string
   first: bool
+  // The search target `keybinding-<command>` on the first row of each command, '' on the rest.
+  anchor: string
 shape WhenLine
   id: string
   depth: number
@@ -167,7 +169,7 @@ component KeybindingsPanel
   derive newValid = newActive ? data.draftValid : newInfo.filter((h) => not h.valid).length == 0
   derive newLabel = newActive or newInfo.length == 0 ? data.draftCommandLabel : newInfo.map((h) => h.commandLabel).join("")
   view
-    column width="100%" gap="2rem" testId="keybindings-settings"
+    column width="100%" gap="2rem" id="keybindings" tabindex=-1 testId="keybindings-settings"
       // The page toolbar: the "Keybindings" section's card holds the filter, Add keybinding and keybindings.json.
       column width="100%" gap="0.625rem"
         row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" box-sizing="border-box"
@@ -259,8 +261,8 @@ component KeybindingRow
         if target != ""
           focus(target)
   view
-    // SettingsGroup's divider between a section's rows.
-    row hover=hover width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(row.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff0a)" testId=`keybinding-row-${row.id}`
+    // SettingsGroup's divider between a section's rows. The first row of a command is its search target (tabindex -1: the jump's).
+    row hover=hover id=(row.anchor != "" ? row.anchor : `keybinding-row-${row.id}`) tabindex=-1 width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(row.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff0a)" testId=`keybinding-row-${row.id}`
       column flex=1 min-width=0 gap="0.25rem"
         row min-height="1.25rem" align-items="center" gap="0.5rem"
           text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3 aria-description=row.command

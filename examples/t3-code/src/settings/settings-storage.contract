@@ -138,9 +138,10 @@ component StoragePanel
       if view == "worktrees" and data.creation.length + data.creationAdvanced.length > 0
         SettingsSection(title="Creation", sectionId="worktree-creation")
           if data.available and data.directorySupported
-            SettingsRow(title="Worktree location", description="Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.", first=true, rowId="storage-directory-row")
-              for directory in [data.directory] key=`${data.writeScope}:${data.directoryMixed}:${directory}`
-                StorageDirectory(scope=data.writeScope, mixed=data.directoryMixed, value=directory, busy=busy, rest=rest, restInput=restInput)
+            column width="100%" id="storage-worktrees-location" tabindex=-1
+              SettingsRow(title="Worktree location", description="Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.", first=true, rowId="storage-directory-row")
+                for directory in [data.directory] key=`${data.writeScope}:${data.directoryMixed}:${directory}`
+                  StorageDirectory(scope=data.writeScope, mixed=data.directoryMixed, value=directory, busy=busy, rest=rest, restInput=restInput)
           for row in data.creation key=row.id
             CoreRowView(reduced=still, row=row, section="worktree-creation", pal=corePal, codePreview=data.codePreview, busy=busy, menu=menu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreGo)
           children
@@ -176,9 +177,10 @@ component StoragePanel
 
       if view == "maintenance" and data.cleanupAvailable
         SettingsSection(title="Cleanup", sectionId="storage-cleanup")
-          SettingsRow(title="Delete now", description=data.cleanupDescription, first=true, rowId="storage-cleanup-run-row")
-            button press=rest("storage-run", `scope=${encodeURIComponent(data.writeScope)}`) disabled=(busy or data.cleanupDisabled) testId="storage-cleanup-run" id="storage-cleanup-run" data-focus-stop=(busy or data.cleanupDisabled ? "" : "enabled")
-              text (busy ? "Deleting…" : "Delete now")
+          column width="100%" id="storage-delete-now" tabindex=-1
+            SettingsRow(title="Delete now", description=data.cleanupDescription, first=true, rowId="storage-cleanup-run-row")
+              button press=rest("storage-run", `scope=${encodeURIComponent(data.writeScope)}`) disabled=(busy or data.cleanupDisabled) testId="storage-cleanup-run" id="storage-cleanup-run" data-focus-stop=(busy or data.cleanupDisabled ? "" : "enabled")
+                text (busy ? "Deleting…" : "Delete now")
       if view == "maintenance" and data.cleanupReports.length > 0
         CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
       if view == "maintenance" and data.diagnostics.length > 0

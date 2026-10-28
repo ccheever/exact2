@@ -6,7 +6,7 @@ import type { T3Client } from '../client/client';
 import { decodeClientPrefs, dividedSection, generalSections, memberFiles, resolveScope, restoreLabels, scopeRepresentative, scopeTarget, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
 export { scopeRepresentative }; // providers-scope.ts, source-control-view.ts
 import { appearanceSections, fontStack, modeTiles, palette } from '../appearance/settings-appearance';
-import { breadcrumbLabel, CORE_ROUTES, scopeAvailable, searchTargetScope } from './settings-search';
+import { breadcrumbLabel, CORE_ROUTES, foldStopOf, scopeAvailable, searchTargetScope } from './settings-search';
 import { scopeNoticeGroups } from './settings-scope-notice';
 import type { CustomTheme } from '../appearance/settings-themes';
 import { scopeMachine, singleEnvironmentRoute } from '../providers/settings-b-scope';
@@ -108,7 +108,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     // Providers shows the chosen environment's own connection (providers-scope.ts); the other routes read the focused one.
     : scope.kind === 'environment' && !(singleEnvironmentRoute(route) ? scope.connected : client.ready) ? `Reconnect ${scope.environmentLabel} to change its settings.` : '';
   return {
-    ready: active, route, breadcrumb: breadcrumbLabel(route), showScope: !deviceOnly, kind: scope.kind, message: deviceOnly ? '' : unavailableMessage, notice, noticeGroups,
+    ready: active, route, breadcrumb: breadcrumbLabel(route),
+    // The search jump this answer is for, and the reveal stop of the fold its row sits under (settings-members.contract).
+    jumpTarget: target, jumpStop: foldStopOf(target), showScope: !deviceOnly, kind: scope.kind, message: deviceOnly ? '' : unavailableMessage, notice, noticeGroups,
     environmentLabel: scope.environmentLabel, projectLabel: scope.projectLabel, projectMark: scope.projectMark, projectInk: scope.projectInk, projectSurface: scope.projectSurface,
     connective: scope.connective, // Every known environment, each with its own machine icon; a single-environment route drops "All environments".
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,

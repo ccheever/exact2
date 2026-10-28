@@ -48,14 +48,15 @@ style SkField
 style SkError
   font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)"
 
-// SettingsSection: a muted 14px heading over a grouped card (space-y-2.5).
+// SettingsSection: a muted 14px heading over a grouped card (space-y-2.5). Its id is a search target, focused by the
+// jump alone (tabindex -1).
 component SettingsSection
   props
     title: string
     sectionId: string
   slot
   view
-    column width="100%" gap="0.625rem" testId=sectionId
+    column width="100%" gap="0.625rem" id=sectionId tabindex=-1 testId=sectionId
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" gap="0.5rem" box-sizing="border-box"
         text title class=SkTitle role="heading" aria-level=2
       column class=SkCard

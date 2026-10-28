@@ -4,20 +4,24 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue, decodeClientPrefs, effectiveSetting, generalSections, parseCoreTarget,
+import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue, decodeClientPrefs, diagnosticsRow, effectiveSetting, generalSections, parseCoreTarget,
   parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPlan } from '../../src/settings/settings-core';
 import { toasts } from '../../src/shell/toast';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { applyBrowserDefault, browserDefaultsView } from '../../src/browser/browser-defaults';
-import { integrationRows } from '../../src/settings/source-control-view';
+import { integrationRows, SEARCH_TARGETS } from '../../src/settings/source-control-view';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { APP } from '../support/app-files';
 
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from '../../src/appearance/settings-appearance';
-import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from '../../src/settings/settings-search';
+import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsCatalog, settingsNavigation } from '../../src/settings/settings-search';
 import { settingsCore } from '../../src/settings/settings-core-view';
 import { worktreeRows } from '../../src/settings/settings-data';
+import { cliCommandRow } from '../../src/settings/cli-command';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
 
@@ -412,7 +416,7 @@ describe('navigation and search', () => {
     expect(searchSettings('update track', context)).toEqual([expect.objectContaining({ id: 'update-track', title: 'Update track', route: 'about' })]);
     expect(searchSettings('nightly', context).map(item => [item.id, item.target])).toContainEqual(['update-track', 'update-track']);
     const result = settingsNavigation('send shortcut', context);
-    expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['chat', 'setting-send-shortcut', 'Chat']);
+    expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['chat', 'send-shortcut', 'Chat']);
     expect(scopeAvailable('environment-defaults', 'project')).toBe(false);
     expect(commandLabel('composer.sendAlternate')).toBe('Composer: Opposite Queue or Steer Action');
   });
@@ -438,8 +442,29 @@ describe('navigation and search', () => {
     // Background activity's dialog (its jump lands on that row), Diff colors on Diffs.
     expect(titles('network access')).toEqual(['Network access / Sharing & access', 'Tailscale HTTPS / Sharing & access']);
     expect(titles('pull request sharing')).toEqual(['Pull request sharing / Environments']);
-    expect(settingsNavigation('git fetch', desktop)).toMatchObject({ firstRoute: 'maintenance', firstTarget: 'setting-background-activity' });
+    expect(settingsNavigation('git fetch', desktop)).toMatchObject({ firstRoute: 'maintenance', firstTarget: 'background-activity' });
     expect(titles('diff colors')).toEqual(['Diff colors / Diffs & pull requests']);
+  });
+  test('every result lands on an element its page draws', () => {
+    // Upstream's hash is `targetId ?? id`, the id SettingsRow, SettingsSection, FoldedSettingsSection and SettingsSearchTarget
+    // carry. Here: core sections and rows (CoreSections, CoreRowView), scoped rows' targets, and the ids the contracts write.
+    const client = as(fake());
+    const core = serverContext(client, resolveScope(client, '', '', ''), new Map());
+    const drawn = new Set<string>([diagnosticsRow(false).id, cliCommandRow({ supported: true, installedPath: null, onPath: false })!.id, ...Object.values(SEARCH_TARGETS)]);
+    const add = (sections: { id: string; rows: { id: string }[]; advanced?: { id: string }[] }[]) => {
+      for (const section of sections) for (const id of [section.id, ...section.rows.map(row => row.id), ...(section.advanced ?? []).map(row => row.id)]) drawn.add(id);
+    };
+    for (const route of ['general', 'chat', 'diffs', 'threads', 'worktrees', 'maintenance', 'about', 'labs']) add(generalSections(client, core, route));
+    // Typography's separate font rows show with Separate fonts on, which a jump to one turns on first.
+    for (const typographyAdvanced of [false, true]) add(appearanceSections(decodeClientPrefs({ typographyAdvanced }), true, []));
+    const contracts = (dir: string): string[] => readdirSync(dir, { withFileTypes: true })
+      .flatMap(entry => entry.isDirectory() ? contracts(join(dir, entry.name)) : entry.name.endsWith('.contract') ? [join(dir, entry.name)] : []);
+    for (const file of contracts(join(APP, 'src'))) for (const match of readFileSync(file, 'utf8').matchAll(/\b(?:id|sectionId|selectId|switchId)="([a-z0-9.-]+)"/g)) drawn.add(match[1]!);
+    // Drawn by their pages' owners: Environments and Sharing & access, SnapShots, Typography's Separate fonts row.
+    const elsewhere = new Set(['local-environment', 'remote-environments', 'pull-request-routing', 'wsl-backend', 'snap-shot-enabled', 'separate-fonts']);
+    const items = settingsCatalog({ ...context, keybindings: [], localBackend: true, localEnvironment: true });
+    // A host's settings (source-control-host-<kind>) are its row's details, drawn by kind.
+    expect(items.map(item => item.target).filter(target => !drawn.has(target) && !elsewhere.has(target) && !target.startsWith('source-control-host-'))).toEqual([]);
   });
 });
 

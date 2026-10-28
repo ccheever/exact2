@@ -133,6 +133,7 @@ component CnTooltip
 
 // FoldedSettingsSection (headerPlacement="inside"): a grouped card whose
 // header is the trigger (chevron, title, summary), with an optional sm switch.
+// Its section id is a search target, focused by the jump alone (tabindex -1).
 component CnFolded
   props
     title: string
@@ -147,7 +148,7 @@ component CnFolded
     busy: bool
   slot
   view
-    column width="100%" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)" testId=sectionId
+    column width="100%" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)" id=sectionId tabindex=-1 testId=sectionId
       row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="center"
         button press=toggle aria-expanded=open aria-label=`${title} ${summary}` testId=`${sectionId}-toggle` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" flex=1 min-width=0 min-height="2.75rem" box-sizing="border-box" padding-top="0.5rem" padding-bottom="0.5rem" padding-left=0 padding-right=0 border-width=0 background-color="#00000000" id=`${sectionId}-toggle` data-focus-stop="enabled"
           CnGlyph(name=(open ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#71717b, #a1a1a1)")

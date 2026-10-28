@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { changedDeviceLabels, decodeClientPrefs } from '../../src/settings/settings-core';
-import { searchTarget, settingsNavigation, FOLDED_TARGETS } from '../../src/settings/settings-search';
+import { foldStopOf, searchTarget, settingsCatalog, settingsNavigation, FOLDED_TARGETS } from '../../src/settings/settings-search';
 import { CATALOG } from '../../src/settings/settings-catalog';
 import { followUpBehavior } from '../../src/composer/composer-controls';
 import { contractComponent } from '../support/contract-action-fixture';
@@ -30,18 +30,44 @@ describe('Advanced fold', () => {
     expect(appText('settings-advanced.contract')).toMatch(/box id=`settings-advanced-\$\{foldId\}-reveal` tabindex=-1 focusin=reveal/);
   });
 
-  test("a result under a fold names the fold's reveal stop before its own row", () => {
-    expect(searchTarget(item('skills-in-slash-menu'))).toBe('settings-advanced-composer-reveal setting-skills-in-slash-menu');
-    expect(searchTarget(item('response-streaming'))).toBe('settings-advanced-text-generation-reveal setting-response-streaming');
-    expect(searchTarget(item('worktree-submodules'))).toBe('settings-advanced-worktree-creation-reveal setting-worktree-submodules');
-    expect(searchTarget(item('storage-worktree-keep-when'))).toBe('settings-advanced-storage-worktrees-reveal storage-worktree-keep-when');
-    expect(searchTarget(item('browser-default-zoom'))).toBe('settings-advanced-browser-reveal browser-default-zoom');
-    expect(searchTarget(item('source-control-writer-model'))).toBe('settings-advanced-source-control-text-generation-reveal setting-source-control-writer-model');
-    // A row outside any fold keeps its own target.
-    expect(searchTarget(item('send-shortcut'))).toBe('setting-send-shortcut');
-    expect(settingsNavigation('show skills', context)).toMatchObject({ firstRoute: 'chat', firstTarget: 'settings-advanced-composer-reveal setting-skills-in-slash-menu' });
-    // Every folded result is a catalog row (a renamed id would silently lose its fold).
-    for (const id of Object.keys(FOLDED_TARGETS).filter(id => id !== 'thread-title-instructions')) expect([id, CATALOG.some(entry => entry[0] === id)]).toEqual([id, true]);
+  test("a result names its row, and a row under a fold names the fold's reveal stop", () => {
+    // Upstream's hash is `targetId ?? id`; AdvancedSettings opens for the `targetIds` inside it.
+    const folded = (id: string) => [searchTarget(item(id)), foldStopOf(searchTarget(item(id)))];
+    expect(folded('skills-in-slash-menu')).toEqual(['skills-in-slash-menu', 'settings-advanced-composer-reveal']);
+    expect(folded('response-streaming')).toEqual(['response-streaming', 'settings-advanced-text-generation-reveal']);
+    expect(folded('worktree-submodules')).toEqual(['worktree-submodules', 'settings-advanced-worktree-creation-reveal']);
+    // Keep worktrees with local changes and Worktree cleanup land on the section, which opens its fold.
+    expect(folded('storage-worktree-keep-when')).toEqual(['storage-worktrees', 'settings-advanced-storage-worktrees-reveal']);
+    expect(folded('storage-worktrees')).toEqual(['storage-worktrees', 'settings-advanced-storage-worktrees-reveal']);
+    expect(folded('browser-default-zoom')).toEqual(['browser-default-zoom', 'settings-advanced-browser-reveal']);
+    expect(folded('source-control-writer-model')).toEqual(['source-control-writer-model', 'settings-advanced-source-control-text-generation-reveal']);
+    expect(folded('environment-identification')).toEqual(['appearance-interface', 'settings-advanced-appearance-interface-reveal']);
+    // A row outside any fold has no stop; a host's settings open its row's details (DiscoveryItemRow).
+    expect(folded('send-shortcut')).toEqual(['send-shortcut', '']);
+    expect(folded('source-control-host-github')).toEqual(['source-control-host-github', 'source-control-host-github-reveal']);
+    expect(settingsNavigation('show skills', context)).toMatchObject({ firstRoute: 'chat', firstTarget: 'skills-in-slash-menu' });
+    // Every folded target is a catalog row's id or target (a renamed id would silently lose its fold).
+    for (const id of Object.keys(FOLDED_TARGETS).filter(id => id !== 'thread-title-instructions')) expect([id, CATALOG.some(entry => entry[0] === id || entry[3] === id)]).toEqual([id, true]);
+  });
+
+  test("the catalog is the search's and the palette's: every result with its target, keybinding commands by their row", () => {
+    const items = settingsCatalog({ ...context, keybindings: [{ command: 'sidebar.toggle', key: 'mod+b' }, { command: 'sidebar.toggle', key: 'mod+shift+b' }] });
+    expect(items.find(entry => entry.id === 'keep-threads-with-pull-requests')).toMatchObject({ route: 'threads', target: 'auto-settle-inactive-threads' });
+    expect(items.filter(entry => entry.secondary)).toEqual([expect.objectContaining({ id: 'keybinding-sidebar.toggle', route: 'keybindings', target: 'keybinding-sidebar.toggle', terms: ['sidebar.toggle', 'mod+b', 'mod+shift+b'] })]);
+    // Off the desktop's platform rows: no Windows or T3 Connect result.
+    expect(items.some(entry => entry.id === 'wsl-backend' || entry.id === 't3-connect')).toBe(false);
+  });
+
+  test('a source control host opens its details for the jump that focuses its reveal stop', () => {
+    const host = contractComponent('settings-source-control.contract', 'DiscoveryItem');
+    const state = host.state();
+    const scope = { item: { kind: 'github', label: 'GitHub', details: true }, credentials: [] };
+    expect([state.open, host.drawn('id=`source-control-host-${item.kind}`', state, scope)]).toEqual([false, false]);
+    expect(host.drawn('id=`source-control-host-${item.kind}-reveal`', state, scope)).toBe(true);
+    host.call('reveal', state, scope, []);
+    host.call('reveal', state, scope, []);
+    expect([state.open, host.drawn('id=`source-control-host-${item.kind}`', state, scope)]).toEqual([true, true]);
+    expect(host.drawn('id=`source-control-host-${item.kind}-reveal`', state, { ...scope, item: { ...scope.item, details: false } })).toBe(false);
   });
 });
 

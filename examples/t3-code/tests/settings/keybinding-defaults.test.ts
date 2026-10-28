@@ -33,6 +33,13 @@ describe('composer send shortcuts', () => {
     const rows = buildRows([binding('composer.sendBackground', 'mod+enter')], '');
     expect(rows.map(row => [row.label, row.source])).toEqual([['Composer: Start in Background', 'Default']]);
   });
+  test("each command's first listed row is its search result's target (keybindingAnchorIds)", () => {
+    const bindings = [binding('sidebar.toggle', 'mod+b'), binding('sidebar.toggle', 'mod+alt+b'), binding('composer.sendBackground', 'mod+enter')];
+    const anchors = (query: string) => buildRows(bindings, query).filter(row => row.anchor !== '').map(row => [row.anchor, row.key]);
+    expect(anchors('').sort()).toEqual([['keybinding-composer.sendBackground', 'mod+enter'], ['keybinding-sidebar.toggle', 'mod+alt+b']]);
+    // A filter that hides a command's first row anchors the next one listed.
+    expect(anchors('mod+b')).toEqual([['keybinding-sidebar.toggle', 'mod+b']]);
+  });
 });
 
 // The keybinding recorder is a Contract focus target (key-recorder.contract), not the

@@ -215,6 +215,9 @@ shape ArchiveConfirm
   id: string
   title: string
 shape SettingsCore
+  // The search jump this answer is for (settingsFocusTarget) and the reveal stop of the fold its row sits under, '' for none.
+  jumpTarget: string
+  jumpStop: string
   ready: bool
   route: string
   breadcrumb: string
