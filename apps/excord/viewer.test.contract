@@ -104,3 +104,29 @@ test "a drag down at fit closes the picture"
   clock settle
   expect tree missing "viewer"
   expect state reading == true
+
+test "the viewer draws the transcript's own picture under the full one, so it is never black while that loads"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock data
+  clock settle
+  // One the transcript shows at full size already: nothing under it, the same picture twice.
+  tap "open-1562887009075210000-1562887009075399990"
+  clock settle
+  expect tree has "viewer-image"
+  expect tree missing "viewer-thumb"
+  expect state viewingThumb == ""
+  tap "viewer-close"
+  clock settle
+  // A tall picture the transcript shows resized (the proxy, asked at its box's pixels): drawn under the full one.
+  tap "transcript" drag 0 900 over 400
+  clock settle
+  tap "open-1562867046130132736-1562867046130322582"
+  clock settle
+  expect tree has "viewer-thumb"
+  expect tree has "viewer-image"
+  tap "viewer-close"
+  clock settle
+  expect tree missing "viewer-thumb"

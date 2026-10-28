@@ -1280,7 +1280,7 @@ component Excord
         else if e.name == "photo"
           column navigationKey=`${e.id}` navigationPresentation="fullscreen" navigationSource=`photo-${e.params.photo}` position="absolute" inset=0 class=ViewerRoute animation=(viewZoom == 1 ? "viewerFade 1s linear both" : "none")
             if viewing != "" and not locked
-              ImageViewer(src=viewing, photo=`photo-${e.params.photo}`, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)
+              ImageViewer(src=viewing, thumb=(viewing != "" ? viewingThumb : ""), photo=`photo-${e.params.photo}`, alt=viewingAlt, panX=viewPanX, panY=viewPanY, zoom=viewZoom, geometry=viewerGeometry, release=viewerRelease, toggleZoom=viewerToggleZoom, close=closeViewer)
         // A channel visit beneath another (a link's) shows its title, not its transcript: one transcript, the
         // top visit's, its ids the page's.
         else if e.id != shownVisit
