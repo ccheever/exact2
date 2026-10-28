@@ -153,7 +153,15 @@ describe('applyDeviceSnapshot', () => {
     adoptRightPanels(next, JSON.parse(JSON.stringify(local)));
     const relaunched = { ...thread('t2'), draftKey: 'env:t2', local: next, preferencesLoaded: true, ready: true } as unknown as T3Client;
     apply(relaunched, state([]), panel);
-    apply(relaunched, state([opened('t1', iphone, '2026-01-01T00:05:00.000Z'), opened('t1', pixel)]), panel);
+    // The agent opens the Pixel there first, and the shell's answer saves the panels (shell.ts syncRightPanels): the panel
+    // took the saved dismissal, so the record keeps it with the new tab.
+    apply(relaunched, state([opened('t1', pixel)]), panel);
+    syncRightPanels(relaunched, surfaceStore(relaunched).panels);
+    expect((next.rightPanels as Record<string, Obj>)['env:t1']).toMatchObject({ surfaces: [{ id: 'device:nucbox:emulator-5580' }], dismissedDeviceSurfaceIds: ['device:local:IPHONE'] });
+    // Then it opens the iPhone again (a new session): no tab, before or after another save.
+    apply(relaunched, state([opened('t1', pixel), opened('t1', iphone, '2026-01-01T00:05:00.000Z')]), panel);
+    syncRightPanels(relaunched, surfaceStore(relaunched).panels);
+    apply(relaunched, state([opened('t1', pixel), opened('t1', iphone, '2026-01-01T00:09:00.000Z')]), panel);
     expect(surfaceStore(relaunched).panels.get('env:t1')?.surfaces.map(surface => surface.device?.deviceId)).toEqual(['emulator-5580']);
     // Restored, the panel holds the dismissal; opening the device by hand clears it, and the record follows.
     const restored = surfaceStore(relaunched).panels.get('env:t1')!;
@@ -161,7 +169,7 @@ describe('applyDeviceSnapshot', () => {
     expect(restored.dismissedDevices).toEqual(['device:local:IPHONE']);
     restored.surfaces.push({ id: 'device:local:IPHONE', kind: 'device', path: '', line: 0, reveal: 0, device: { hostId: 'local', deviceId: 'IPHONE', platform: 'ios', name: 'iPhone 18 Pro' } });
     restored.userRevision++;
-    apply(relaunched, state([opened('t1', iphone, '2026-01-01T00:05:00.000Z'), opened('t1', pixel)]), panel);
+    apply(relaunched, state([opened('t1', pixel), opened('t1', iphone, '2026-01-01T00:09:00.000Z')]), panel);
     expect(restored.dismissedDevices).toEqual([]);
     syncRightPanels(relaunched, surfaceStore(relaunched).panels);
     expect((next.rightPanels as Record<string, Obj>)['env:t1']?.dismissedDeviceSurfaceIds).toBeUndefined();

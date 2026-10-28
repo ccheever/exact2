@@ -10,7 +10,7 @@
 // the panel is open, and a panel with nothing kept stays closed. The turn whose diff was last offered
 // proactively (`proactiveDiffTurnId`, 74541bab17) is kept with the panel, also when it keeps no surface,
 // so a closed proactive diff stays closed after a relaunch; so are the device tabs the person closed
-// (`dismissedDeviceSurfaceIds`, 7c3b3b3605ef), so an agent opening that device again after a relaunch adds no tab.
+// (`dismissedDeviceSurfaceIds`), so an agent opening that device again after a relaunch adds no tab.
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { PanelState, Surface } from './panel-surfaces';
 import { keepRestored, readRestored, RESTORED_KINDS, type RestoredSurface, type SurfaceEntry } from './saved-surfaces';
@@ -81,9 +81,15 @@ export function syncRightPanels(owner: Holder, panels: ReadonlyMap<string, Panel
 
 const restored = new WeakMap<object, Set<string>>();
 
-/** The device tabs a panel not restored yet closed in an earlier launch (an agent's opening in a background thread reads them). */
-export function savedDismissedDevices(owner: Holder, key: string): readonly string[] {
-  return restored.get(owner)?.has(key) ? [] : local(owner).rightPanels?.[key]?.dismissedDeviceSurfaceIds ?? [];
+/**
+ * The device tabs a panel closed in an earlier launch, for a panel not restored yet that the session has not given them:
+ * the store's loaded thread state keeps them (rightPanelStore `dismissedDeviceSurfaceIds`), so an agent's opening in a
+ * background thread finds them, and the panels' save writes them back with the tab it opened.
+ */
+export function adoptSavedDismissals(owner: Holder, key: string, state: { dismissedDevices?: string[] }): void {
+  if (state.dismissedDevices !== undefined || restored.get(owner)?.has(key)) return;
+  const saved = local(owner).rightPanels?.[key]?.dismissedDeviceSurfaceIds;
+  if (saved?.length) state.dismissedDevices = [...saved];
 }
 
 /** A panel the session has not touched takes its saved state, once, after the preferences were read and the

@@ -466,7 +466,7 @@ component CursorEnableLimits
         text "Requires access to your Cursor login in macOS Keychain." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
         row flex-wrap="wrap" gap="0.5rem"
           for env in cursor key=env.key
-            button press=op("usage-pool-cursor", env.key, "") disabled=env.busy data-focus-stop=(env.busy ? "" : "enabled page") aria-busy=env.busy aria-label=`Enable Cursor usage from ${env.label}` testId=`usage-cursor-enable-${env.key}` height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(env.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+            button id=`usage-pool-cursor-${env.key}` press=op("usage-pool-cursor", env.key, "") disabled=env.busy data-focus-stop=(env.busy ? "" : "enabled page") aria-busy=env.busy aria-label=`Enable Cursor usage from ${env.label}` testId=`usage-cursor-enable-${env.key}` height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(env.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
               text env.button font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
 
 // An external usage page (ChatGPT's when the plan is shared), with "Manage usage" (shell.openExternal).
@@ -486,7 +486,7 @@ component ExternalUsage
           text link.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
           if link.message != ""
             text link.message max-width="36rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
-      button press=op("usage-pool-open", link.url, "") hover=hover data-focus-stop="enabled page" testId="usage-external-manage" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      button id=`usage-external-manage-${link.key}` press=op("usage-pool-open", link.url, "") hover=hover data-focus-stop="enabled page" testId="usage-external-manage" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
         text "Manage usage" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
         PgIcon(name="external-link", size=14, color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
 

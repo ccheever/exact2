@@ -18,7 +18,7 @@ import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { browserAutoShowFloatingPreview } from '../browser/browser-capture';
 import { surfaceStore } from '../panel/panel-surfaces';
 import { deviceSurfaceId, openDeviceSurface } from '../panel/right-panel-tabs';
-import { savedDismissedDevices } from '../panel/saved-panel';
+import { adoptSavedDismissals } from '../panel/saved-panel';
 import { deviceStateOf, watchDevice } from './device-surface';
 import { closeMiniDevice, emptyMini, floatMiniDevice, miniStoreOf, type DeviceTarget, type DeviceMini } from './device-session';
 
@@ -59,11 +59,12 @@ function environmentOf(client: T3Client, threadId: string, source: EnvironmentFl
   return [...source.entries.values()].find(entry => entry.shell.threads.some(thread => thread.id === threadId))?.environmentId ?? client.environmentId;
 }
 /** useRightPanelStore.openDevice(ref, target, true): the thread's panel gets the device's tab unless it has one or the
- *  person closed it, in this launch or (a panel not restored yet) an earlier one. */
+ *  person closed it, in this launch or (a panel not restored yet) an earlier one, whose dismissals the panel takes. */
 function openDeviceTab(client: T3Client, environmentId: string, threadId: string, target: DeviceTarget): void {
-  const panels = surfaceStore(client).panels, key = `${environmentId}:${threadId}`, id = deviceSurfaceId(target);
-  if (panels.get(key)?.dismissedDevices?.includes(id) || savedDismissedDevices(client, key).includes(id)) return;
+  const panels = surfaceStore(client).panels, key = `${environmentId}:${threadId}`;
   const state = panels.get(key) ?? { surfaces: [], active: '', visible: false, userRevision: 0 };
+  adoptSavedDismissals(client, key, state);
+  if (state.dismissedDevices?.includes(deviceSurfaceId(target))) return;
   panels.set(key, state);
   if (state.surfaces.some(surface => surface.kind === 'device' && surface.device?.hostId === target.hostId && surface.device.deviceId === target.deviceId)) return;
   openDeviceSurface(state, target);

@@ -10,7 +10,7 @@ import { failure } from '../../src/transport/transport-wire';
 import { rpcPermissions } from '../../src/connections/command-permissions';
 import { scopedSettingPatch, writingStyleOf } from '../../src/settings/scoped-settings';
 import { canSnooze, pendingInput, raisedHand, sidebarStatus } from '../../src/sidebar/sidebar-model';
-import { mergeUsage } from '../../src/usage/pages-usage';
+import { mergeUsage, providersWithUsage } from '../../src/usage/pages-usage';
 
 const at = '2026-10-21T00:00:00.000Z';
 const usage = { usedTokens: 10, updatedAt: at, autoCompactThreshold: 200_000, promptCacheExpiresAt: at };
@@ -82,6 +82,8 @@ describe('what a 0.1.4 server adds', () => {
     const merged = mergeUsage([{ id: 'env', label: 'Mac', summary: { contractVersion: 6, readAt: at, buckets: [bucket],
       sources: [{ fingerprint: { hostId: 'mac', provider: 'muse', resolvedHomePath: '/m', volumeId: '1:2' }, status: 'ok', scannedFiles: 1, skippedFiles: 0, malformedRecords: 0, distinctSessions: 1, message: null }] } }]);
     expect(merged.providers.map(entry => [entry.provider, entry.costUsd, entry.sessions])).toEqual([['muse', 1, 1]]);
+    // A provider the page knows (usage-providers.ts), so it draws: Muse Code's series and its row.
+    expect(providersWithUsage(merged)).toEqual(['muse']);
   });
 
   test('a guest share update carries the whole thread and applies as a thread event', () => {

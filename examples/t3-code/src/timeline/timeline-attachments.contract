@@ -180,7 +180,7 @@ component ImagePreviewDialog
                 else
                   if failed or videoFailed
                     column width=min(windowWidth * 0.92 - 96, 512)
-                      MediaVideoFailure(media=MediaView(kind="video", state="failed", url=url, name=name, tip=name, source="", failText=(name != "" ? `Video unavailable · ${name}` : "Video unavailable"), openUrl=url, openLabel="Open in browser", openIcon="external-link", retryKey=`attachment:${id}`, retrying=false), dark=true, local=local, testId="image-preview-video-failed")
+                      MediaVideoFailure(media=MediaView(kind="video", state="failed", url=url, name=name, tip=name, source="", failText=(name != "" ? `Video unavailable · ${name}` : "Video unavailable"), openUrl=url, openLabel="Open in browser", openIcon="external-link", retryKey=`attachment:${id}`, retrying=false, revision=""), dark=true, local=local, testId="image-preview-video-failed")
                   else
                     box width=min(windowWidth * 0.92 - 96, 512) height="12rem" border-radius="0.5rem" background-color="#000000" role="status" aria-label="Loading video"
               else

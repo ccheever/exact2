@@ -6,7 +6,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { pullRequestsPage, prLocal, type PrInput } from '../../src/pull-requests/pages-prs';
-import { pullRequestAuthorChoices, pullRequestLabelChoices, selectedPullRequestAuthor } from '../../src/pull-requests/pages-pr-filter-options';
+import { filterOptionTargets, hostedFilterOptions, pullRequestAuthorChoices, pullRequestLabelChoices, selectedPullRequestAuthor } from '../../src/pull-requests/pages-pr-filter-options';
 import { contractComponent, value } from '../support/contract-action-fixture';
 import { appPath, appText } from '../support/app-files';
 
@@ -167,21 +167,55 @@ describe('the Filters menu pickers (PrFiltersMenu, PrFilterSub)', () => {
 describe("the root's picker search (pull-requests-members.contract)", () => {
   const root = contractComponent('app.contract', 'T3Code');
   const lines = appText('app.contract').split('\n').map(line => line.trim());
-  test('a picker opening clears its search; a keystroke is sent 250 ms after the last one, never as a command', () => {
+  test('a picker opening clears its search; keystrokes settle 250 ms after the last one, never as a command', () => {
     const state: Obj = { prOptionKind: '', prOptionTyped: 'x', prOptionSent: 'x', prQuery: '', prApplied: '', prTyped: false }, sent: unknown[][] = [];
     const scope = { command: (...args: unknown[]) => { sent.push(args); return {}; } };
+    // The gated task as the runner arms it: its timer runs while the gate holds, from the commit that last changed its key.
+    const at = lines.findIndex(line => line.startsWith('task prOptionSettle when '));
+    const [gate = '', key = ''] = lines[at]!.slice('task prOptionSettle when '.length).split(' key=');
+    const [, interval = '0', fire = ''] = /^after\((\d+), (\w+)\)$/.exec(lines[at + 1]!) ?? [];
+    let armedAt = -1, armedKey: unknown;
+    const commit = (now: number) => {
+      if (!value(gate, state)) { armedAt = -1; return; }
+      const next = value(key, state);
+      if (armedAt < 0 || next !== armedKey) { armedAt = now; armedKey = next; }
+    };
+    const advance = (now: number) => { if (armedAt >= 0 && now >= armedAt + Number(interval)) { armedAt = -1; root.call(fire, state, scope, []); commit(now); } };
     root.call('prControl', state, scope, ['option-kind', 'authors']);
-    expect([state.prOptionKind, state.prOptionTyped, state.prOptionSent, sent]).toEqual(['authors', '', '', []]);
-    root.call('prControl', state, scope, ['option-query', 'jul']);
-    expect([state.prOptionTyped, state.prOptionSent, sent]).toEqual(['jul', '', []]);
-    // OPTION_SEARCH_DEBOUNCE_MS: the task restarts with each keystroke (its key) and settles the search once it fires.
-    const task = lines.findIndex(line => line.startsWith('task prOptionSettle when '));
-    expect([lines[task], lines[task + 1]]).toEqual(['task prOptionSettle when prOptionKind != "" and prOptionSent != prOptionTyped key=prOptionTyped', 'after(250, prOptionSettled)']);
-    root.call('prOptionSettled', state, scope, []);
-    expect(state.prOptionSent).toBe('jul');
-    // The list resource takes the open picker and the search as sent, last.
+    commit(0);
+    expect([state.prOptionKind, state.prOptionTyped, state.prOptionSent, armedAt]).toEqual(['authors', '', '', -1]);
+    for (const [now, text] of [[0, 'j'], [100, 'ju'], [200, 'jul']] as const) { advance(now); root.call('prControl', state, scope, ['option-query', text]); commit(now); }
+    advance(449);
+    expect([state.prOptionTyped, state.prOptionSent]).toEqual(['jul', '']);
+    advance(450);
+    expect([state.prOptionSent, armedAt]).toEqual(['jul', -1]);
+    // The list resource takes the open picker and the search as sent, last; the other controls stay commands.
     expect(lines.find(line => line.startsWith('resource prList = '))).toEndWith('windowReturns, prOptionKind, prOptionSent) as shape PrListView');
+    expect(sent).toEqual([]);
     root.call('prControl', state, scope, ['sort', 'newest']);
     expect(sent).toEqual([['pageslocal:pr-sort', '', 'newest', 0]]);
+  });
+});
+
+describe('the host search over several servers (usePullRequestFilterOptions)', () => {
+  test("each server is asked in its own scope; one that fails leaves the others' options and marks the answer failed", async () => {
+    const asked: Obj[] = [];
+    let wakes = 0;
+    const client = { environmentId: 'focus', rpc: async (_native: unknown, method: string, payload: Obj) => {
+      asked.push({ method, ...payload });
+      if (payload.environmentId === 'down') throw new Error('Unknown request tag: pullRequests.filterOptions');
+      return { authors: [{ login: payload.environmentId ? 'from-second' : 'from-focus', name: null, avatarUrl: null }], labels: [], truncated: false };
+    } } as unknown as T3Client;
+    const native = { available: true, later: async () => { wakes++; return { ok: true }; } } as unknown as Native;
+    const targets = filterOptionTargets([{ environmentId: 'focus' }, { environmentId: 'second', projectIds: ['p2'] }, { environmentId: 'down' }], { projectId: '', host: 'github.com' }, 'authors', 'fro');
+    expect(await hostedFilterOptions(client, native, 'authors', 'fro', targets, 1_000)).toEqual({ authors: [], labels: [], busy: true, failed: false });
+    expect(wakes).toBe(1);
+    const answer = await hostedFilterOptions(client, native, 'authors', 'fro', targets, 1_000);
+    expect(asked).toEqual([
+      { method: 'pullRequests.filterOptions', kind: 'authors', host: 'github.com', query: 'fro' },
+      { method: 'pullRequests.filterOptions', kind: 'authors', projectIds: ['p2'], host: 'github.com', query: 'fro', environmentId: 'second' },
+      { method: 'pullRequests.filterOptions', kind: 'authors', host: 'github.com', query: 'fro', environmentId: 'down' },
+    ]);
+    expect([answer.authors.map(author => author.login), answer.busy, answer.failed]).toEqual([['from-focus', 'from-second'], false, true]);
   });
 });

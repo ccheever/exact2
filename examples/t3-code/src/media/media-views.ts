@@ -20,11 +20,13 @@ import { encodeMediaSource, externalWebLinkHost, mediaTooltip, openMediaLink, re
 import { letGo } from '../client/let-go';
 
 /** A media slot as Contract draws it (media-actions.contract MediaView). */
+/** `revision`: what a video's URL names, the file's own revision or else the workspace's, which its player holds its loaded
+ *  source by ('' for none). */
 export type MediaView = {
   kind: string; state: string; url: string; name: string; tip: string; source: string; failText: string;
-  openUrl: string; openLabel: string; openIcon: string; retryKey: string; retrying: boolean;
+  openUrl: string; openLabel: string; openIcon: string; retryKey: string; retrying: boolean; revision: string;
 };
-export const NO_MEDIA: MediaView = { kind: '', state: '', url: '', name: '', tip: '', source: '', failText: '', openUrl: '', openLabel: '', openIcon: '', retryKey: '', retrying: false };
+export const NO_MEDIA: MediaView = { kind: '', state: '', url: '', name: '', tip: '', source: '', failText: '', openUrl: '', openLabel: '', openIcon: '', retryKey: '', retrying: false, revision: '' };
 
 type MediaState = { failed: Set<string>; retrying: Set<string> };
 const states = new WeakMap<T3Client, MediaState>();
@@ -37,8 +39,8 @@ function stateOf(client: T3Client): MediaState {
 /** Whether a player or a picture reported an error for this URL (a `video` or `image` `error`, exact2 #121). */
 export const mediaFailed = (client: T3Client, url: string): boolean => !!url && stateOf(client).failed.has(url);
 
-// The workspace mutation each file preview image was last signed for (useAssetUrlRefresh's handled token); null after
-// the connection dropped, so the next connected view signs it again.
+// The workspace mutation each preview's image or Files video was last signed for (useAssetUrlRefresh's handled token);
+// null after the connection dropped, so the next connected view signs it again.
 const handledMutations = new WeakMap<T3Client, Map<string, string | null>>();
 function refreshDue(client: T3Client, id: string, mutationId: string | null): boolean {
   let handled = handledMutations.get(client);
@@ -53,8 +55,8 @@ function refreshDue(client: T3Client, id: string, mutationId: string | null): bo
 }
 
 // Signed URLs a surface minted (useAssetUrlState), re-minted after five minutes as the HTML page is. `fileRevision`: the
-// file's identity and contents, which a 0.1.4 server reports (AssetCreateUrlResult at 7c3b3b3605ef), unlike the URL, which
-// every mint signs anew.
+// file's identity and contents, which a newer server reports (AssetCreateUrlResult), unlike the URL, which every mint signs
+// anew.
 type Minted = { url: string; at: number; error: boolean; resource: Obj; fileRevision?: string };
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
 const STALE_URL_MS = 5 * 60_000;
@@ -79,28 +81,12 @@ async function mint(client: T3Client, native: Native | null | undefined, key: st
   return entry;
 }
 
-// The URL a Files video loaded for its file revision (MediaVideoPlayer's playbackSource): a re-sign or a workspace change
-// that leaves the file alone keeps it, so the player does not reload; up to LATCH_MS, well inside a signature's hour.
-const latched = new WeakMap<T3Client, Map<string, { revision: string; url: string; at: number }>>();
-const LATCH_MS = 45 * 60_000;
-function latchedVideoUrl(client: T3Client, key: string, entry: Minted, now: number): string {
-  if (!entry.fileRevision) return entry.url;
-  let map = latched.get(client);
-  if (!map) { map = new Map(); latched.set(client, map); }
-  const held = map.get(key);
-  if (held && held.revision === entry.fileRevision && (now <= 0 || held.at <= 0 || now - held.at < LATCH_MS)) return held.url;
-  // The revision goes in the URL too, since two mints in the same millisecond sign identical URLs.
-  const url = revisedUrl(entry.url, entry.fileRevision, 'file-revision');
-  map.set(key, { revision: entry.fileRevision, url, at: now });
-  if (map.size > 64) map.delete(map.keys().next().value!);
-  return url;
-}
-
 /**
  * The Files surface's media file: a signed image or video and its actions, or NO_MEDIA for any other file. `revision` is
- * the workspace's (workspaceMutationId): an image's URL carries it; a video is signed again when it moves, if the server
- * reports the file's revision, and then reloads only for a changed file (WorkspaceVideoPreview at 7c3b3b3605ef). An older
- * server's video keeps its URL until it is re-signed: its player cannot take a changed file only once playback pauses.
+ * the workspace's (workspaceMutationId), and an image's URL carries it. A video is signed again each time it moves
+ * (WorkspaceVideoPreview's useAssetUrlState), and its URL names the file's own revision when the server reports one, else
+ * the workspace's; its player (media-actions.contract FilesVideo) holds the source it loaded while that revision holds
+ * and takes a new one once playback pauses or ends (MediaVideoPlayer).
  */
 export async function filesMediaView(client: T3Client, native: Native | null | undefined, previewPath: string, absolutePath: string, cwd: string, revision: string, now = 0): Promise<MediaView> {
   const kind = isWorkspaceVideoPreviewPath(previewPath) ? 'video' : isWorkspaceImagePreviewPath(previewPath) ? 'image' : '';
@@ -110,9 +96,10 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
   const inside = mediaFileReference(absolutePath, cwd).relativePath !== undefined;
   const resource = client.threadId ? { _tag: kind === 'video' || !inside ? 'media-file' : 'workspace-file', threadId: client.threadId, path: absolutePath } : { _tag: 'draft-workspace-file', cwd, path: absolutePath };
   const key = `files:${JSON.stringify([client.environmentId, client.threadId, cwd, absolutePath, kind])}`;
-  const resign = kind === 'video' && !!revision && refreshDue(client, key, revision) && !!mintedOf(client).get(key)?.fileRevision;
-  const entry = await mint(client, native, key, resource, now, resign);
-  const url = !entry || entry.error ? '' : kind === 'video' ? latchedVideoUrl(client, key, entry, now) : revisedUrl(entry.url, revision);
+  const entry = await mint(client, native, key, resource, now, kind === 'video' && !!revision && refreshDue(client, key, revision));
+  // The revision goes in the URL too, since two mints in the same millisecond sign identical URLs.
+  const videoRevision = kind === 'video' ? entry?.fileRevision || revision : '';
+  const url = !entry || entry.error ? '' : kind === 'video' ? revisedUrl(entry.url, videoRevision, entry.fileRevision ? 'file-revision' : 'workspace-revision') : revisedUrl(entry.url, revision);
   const source: MediaActionSource = { kind, name: previewPath, src: url || null, reference: mediaFileReference(absolutePath, cwd), asset: { resource } };
   // WorkspaceImagePreview / WorkspaceVideoPreview: a refused signature, or the picture's or player's onError for this URL.
   const failed = !!entry?.error || mediaFailed(client, url);
@@ -121,6 +108,7 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
     kind, state: !entry ? 'loading' : failed ? 'failed' : 'ready', url, name: previewPath, tip: mediaTooltip(source), source: encodeMediaSource(source),
     failText: kind === 'video' ? `Video unavailable · ${previewPath}` : 'Unable to load workspace image.',
     openUrl: open?.url ?? '', openLabel: open?.label ?? '', openIcon: open?.icon ?? '', retryKey: kind === 'video' ? key : '', retrying: stateOf(client).retrying.has(key),
+    revision: videoRevision,
   };
 }
 
@@ -368,9 +356,8 @@ export async function mediaLocal(client: T3Client, native: Native, op: string, i
       if (value) state.failed.delete(value);
       if (id.startsWith('attachment:')) hooks.forgetAttachment?.(id.slice('attachment:'.length));
       else {
-        // useAssetUrlRefresh: sign the same resource again while "Retrying…" shows; a video takes the new URL.
+        // useAssetUrlRefresh: sign the same resource again while "Retrying…" shows.
         const entry = mintedOf(client).get(id);
-        latched.get(client)?.delete(id);
         if (entry) await mint(client, native, id, entry.resource, entry.at, true);
       }
     } finally { state.retrying.delete(id); }

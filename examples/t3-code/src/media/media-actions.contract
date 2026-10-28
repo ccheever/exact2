@@ -26,6 +26,8 @@ shape MediaView
   openIcon: string
   retryKey: string
   retrying: bool
+  // What a video's URL names: the file's revision, else the workspace's ("" for none); FilesVideo holds its source by it.
+  revision: string
 
 component MediaActions
   props
@@ -143,6 +145,39 @@ component MediaVideoFailure
             text (media.retrying ? "Retrying…" : "Retry video") font-size="0.8125rem" line-height="1.125rem" font-weight=500 white-space="nowrap" color=(dark ? "#ffffff" : "light-dark(#18181b, #f5f5f5)")
         MediaOpenLink(url=media.openUrl, label=media.openLabel, icon=media.openIcon, dark=dark, testId=`${testId}-open`)
 
+// MediaVideoPlayer's playbackSource: the player keeps the source it loaded while the file's revision holds, so a URL
+// signed again does not reload it, and takes the newest URL for a new revision once playback pauses or ends. A kept
+// source's error falls back to the newest URL; only the newest one's error is the player's failure (`media-video-error`).
+// With no revision the player follows each new URL.
+component FilesVideo
+  props
+    media: MediaView
+    local: action
+  state playing = false
+  state heldSrc = ""
+  state heldRevision = ""
+  derive keep = heldSrc != "" and (heldRevision == media.revision or playing)
+  derive src = keep ? heldSrc : media.url
+  derive sourceRevision = keep ? heldRevision : media.revision
+  action loaded
+    if sourceRevision != ""
+      heldSrc = src
+      heldRevision = sourceRevision
+  action started
+    playing = true
+    heldSrc = src
+    heldRevision = sourceRevision
+  action stopped
+    playing = false
+  action broke(message: string)
+    playing = false
+    heldSrc = ""
+    heldRevision = ""
+    if src == media.url
+      local("media-video-error", media.url, message)
+  view
+    video src controls=true playsinline=true preload="metadata" aria-label=media.name loadedmetadata=loaded play=started pause=stopped ended=stopped error=broke width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
+
 // The Files surface's image or video file (WorkspaceImagePreview / WorkspaceVideoPreview).
 component FilesMedia
   props
@@ -167,4 +202,6 @@ component FilesMedia
             if media.state == "failed"
               MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
             else
-              video media.url controls=true playsinline=true preload="metadata" aria-label=media.name error=local("media-video-error", media.url) width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
+              // A player per file (WorkspaceVideoPreview's key): another file's video starts with nothing held.
+              for shown in [media] key=media.retryKey
+                FilesVideo(media=shown, local=local)

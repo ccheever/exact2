@@ -10,8 +10,7 @@ import { triggerModelName } from '../composer/composer-controls-model';
 
 import { resolveProviderInstanceAcpRegistryIconUrl } from '../providers/acp-icons';
 import { instanceDisplayName } from '../sidebar/subagent-card';
-import { providerInstanceInitials } from '../client/presentation';
-import { providerBadge } from '../client/presentation';
+import { providerBadge, providerInstanceInitials } from '../client/presentation';
 import { formatElapsedSeconds, subagentElapsedMs, workActive } from './timeline-work-rows';
 
 const STATUS: Record<string, string> = {

@@ -515,10 +515,10 @@ component Segment
     over = value
   view
     if title != ""
-      button press=press hover=hover disabled=disabled data-focus-stop=(disabled ? "" : "enabled page") title=title role="radio" aria-checked=pressed testId=testId height="1.5rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(pressed ? "0 1px 2px #0000001a" : "none") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button id=testId press=press hover=hover disabled=disabled data-focus-stop=(disabled ? "" : "enabled page") title=title role="radio" aria-checked=pressed testId=testId height="1.5rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(pressed ? "0 1px 2px #0000001a" : "none") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
         text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(pressed or (over and not disabled) ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
     else
-      button press=press hover=hover disabled=disabled data-focus-stop=(disabled ? "" : "enabled page") role="radio" aria-checked=pressed testId=testId height="1.5rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(pressed ? "0 1px 2px #0000001a" : "none") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button id=testId press=press hover=hover disabled=disabled data-focus-stop=(disabled ? "" : "enabled page") role="radio" aria-checked=pressed testId=testId height="1.5rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(pressed ? "0 1px 2px #0000001a" : "none") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
         text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(pressed or (over and not disabled) ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 
 // RefreshIcon: busy and disabled while the refresh runs, the glyph turning unless motion is reduced.
@@ -532,7 +532,7 @@ component UsageRefresh
   action hover(value: bool)
     over = value
   view
-    button press=reload hover=hover disabled=busy data-focus-stop=(busy ? "" : "enabled page") aria-busy=busy aria-label=(limits ? "Refresh limits" : "Refresh usage") testId="usage-refresh" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color=(over and not busy ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+    button id="usage-refresh" press=reload hover=hover disabled=busy data-focus-stop=(busy ? "" : "enabled page") aria-busy=busy aria-label=(limits ? "Refresh limits" : "Refresh usage") testId="usage-refresh" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color=(over and not busy ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
       box display="flex" animation=(busy and not reduced ? "usageSpin 1s linear infinite" : "none")
         PgIcon(name="refresh-cw", size=14, color="light-dark(#71717b, #a1a1a1)")
 
@@ -550,7 +550,7 @@ component UsageSelect
     over = value
   view
     column position="relative"
-      button popovertarget=menuId hover=hover disabled=disabled data-focus-stop=(disabled ? "" : "enabled page") role="combobox" aria-label=ariaLabel testId=menuId height="1.75rem" padding-left="0.6875rem" padding-right="0.1875rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      button id=`${menuId}-trigger` popovertarget=menuId hover=hover disabled=disabled data-focus-stop=(disabled ? "" : "enabled page") role="combobox" aria-label=ariaLabel testId=menuId height="1.75rem" padding-left="0.6875rem" padding-right="0.1875rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
         text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap"
         PgIcon(name="chevron-down", size=12, color="light-dark(#71717b, #a1a1a1)")
       // aria-modal: Base UI's Select popup is modal, so its Escape closes it before the page's Back hears it.
@@ -712,7 +712,7 @@ component CursorEnableRow
         DriverMark(driver="cursor", size=16, initials="", icon="")
         text row.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1 min-width=0
       box position="relative" flex-shrink=0 hover=hover
-        button press=op("usage-pool-cursor", row.enable, "") disabled=row.busy data-focus-stop=(row.busy ? "" : "enabled page") aria-busy=row.busy aria-label=row.enableLabel testId=`usage-cursor-enable-${row.enable}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1) display="flex"
+        button id=`usage-cursor-row-enable-${row.enable}` press=op("usage-pool-cursor", row.enable, "") disabled=row.busy data-focus-stop=(row.busy ? "" : "enabled page") aria-busy=row.busy aria-label=row.enableLabel testId=`usage-cursor-enable-${row.enable}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1) display="flex"
           text "Enable" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" text-decoration-line=(over ? "underline" : "none") color="light-dark(#18181b, #f5f5f5)"
         if over
           CnTooltip(tip="Requires access to your Cursor login in macOS Keychain.", tipId=`usage-cursor-tip-${row.enable}`, above=24)
@@ -833,7 +833,7 @@ component PeriodTable
   action hover(rowKey: string, over: bool)
     hovered = over ? rowKey : (hovered == rowKey ? "" : hovered)
   view
-    scroll width="100%" overflow-x="scroll" overflow-y="hidden" role="region" aria-label="Usage breakdown by time" tabindex=0 data-focus-stop="enabled page" testId="usage-period-scroll"
+    scroll id="usage-period-scroll" width="100%" overflow-x="scroll" overflow-y="hidden" role="region" aria-label="Usage breakdown by time" tabindex=0 data-focus-stop="enabled page" testId="usage-period-scroll"
       // A flex item never shrinks below its content (min-width: auto), so a grid wider than the page overflows the row and the region scrolls.
       row width="100%"
         box flex-grow=1 flex-shrink=1 flex-basis=0 display="grid" grid-template-columns=page.periodColumns role="table" testId="usage-period-table"

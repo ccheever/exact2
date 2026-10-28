@@ -600,6 +600,17 @@ test('a GitLab read routes to a server signed in to the same GitLab account, nev
   expect((await read({ ...gitlab, provider: 'forgejo' })).answer).toEqual({ from: 'origin' });
 });
 
+test('an identity that names no provider routes nothing: the read stays with its own server', async () => {
+  const reference = { projectId: 'project-1', host: 'gitlab.com', repository: 'acme/web', number: 7 };
+  const unnamed = { host: 'gitlab.com', viewer: 'maria', accountId: '9' };
+  const host = new FakeHost({
+    [ORIGIN]: { 'pullRequests.routing': () => unnamed, 'pullRequests.summary': () => ({ from: 'origin' }) },
+    [LOCAL]: { 'pullRequests.routingIdentity': () => unnamed, 'pullRequests.summary': () => ({ from: 'local' }) },
+  });
+  expect(await new PullRequestRouter().request(host, 'pullRequests.summary', reference, false)).toEqual({ from: 'origin' });
+  expect(host.names()).toEqual(['origin:routing', 'origin:summary']);
+});
+
 test('refreshes identity before writes and invalidates prior readers across router instances', async () => {
   let originAccountId = '123';
   const mutations: { environment: string; expectedAccountId: unknown }[] = [];

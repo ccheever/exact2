@@ -92,6 +92,7 @@ export async function hostedFilterOptions(client: T3Client, native: Native, kind
     const shown = ofClient(pendingShown, client, () => new Set<string>());
     if (!shown.has(key)) {
       shown.add(key);
+      if (shown.size > MAX_ANSWERS) shown.delete(shown.values().next().value!);
       try { await native.later({ op: 'wake', topic: 't3.pr' }); } catch (error) { if (letGo(error)) throw error; }
       return { authors: [], labels: [], busy: true, failed: false };
     }
