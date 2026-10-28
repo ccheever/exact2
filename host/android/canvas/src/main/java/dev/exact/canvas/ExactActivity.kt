@@ -543,6 +543,9 @@ open class ExactActivity : Activity() {
     /** The launch extras that reach exact2 as its environment, written before its library loads. */
     private fun environment() {
         android.system.Os.setenv("XDG_CACHE_HOME", cacheDir.absolutePath, true)
+        // Rust's `temp_dir` is TMPDIR, else /data/local/tmp, which an app cannot write. API 29 sets none, and a
+        // drive with no scratch store keeps its `app:/` files under it (`exact_linux::picker`).
+        android.system.Os.setenv("TMPDIR", cacheDir.absolutePath, false)
         // The launching intent's URL is the launch location (LLP 1133.023 D15 item 3): the activity is exported, so
         // any app may start it with one, which reaches only what the navigation root routes, as a link does.
         intent.data?.takeUnless { Shares.isShare(intent) }?.let { android.system.Os.setenv("EXACT_LAUNCH_URL", it.toString(), true) }

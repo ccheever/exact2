@@ -17,6 +17,7 @@ bench = false
 
 [target.'cfg(target_os = "android")'.dependencies]
 photos-fixture-data = { path = "../data" }
+exact-data-host = { path = "../../../data/host" }
 exact-linux = { path = "../../../host/linux" }
 
 [build-dependencies]
