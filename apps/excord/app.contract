@@ -457,6 +457,7 @@ component Excord
         send acked = markRead(open)
     let t = performanceNow()
     now = t
+    topKey = open == id ? topKey : ""
     open = id
     typingAt = time.epochAtZero + t
     replyTo = ""
@@ -472,7 +473,6 @@ component Excord
     attachError = ""
     highlight = ""
     away = false
-    topKey = ""
     historyStart = false
     // A New divider only for what was unread on opening: what arrives while the
     // reader watches is not new to them.
