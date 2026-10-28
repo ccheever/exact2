@@ -98,6 +98,10 @@ shape AttachmentSurface
   mdUrls: AttachmentUrl[]
   codeCopied: string
   codeCopyNonce: number
+  // A Mermaid file's refusal (MermaidViewer), drawn instead of its diagram.
+  mermaidNote: string
+  // "No preview for this file" reports a failure: a font that did not load.
+  noPreviewAlert: bool
 // A composer file chip's preview (composer-chip-file.ts): open while its draft file is in the open draft.
 shape ComposerFilePreview
   open: bool
