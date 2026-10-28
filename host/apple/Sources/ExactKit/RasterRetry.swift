@@ -72,14 +72,14 @@ enum RasterRetry {
         return formatter
     }()
 
-    /// `text` with every link in it (a word with `://`) cut at its query or
+    /// `text` with every link in it (a word with `://`, or one starting `/`) cut at its query or
     /// fragment: a CDN's links carry signatures (Discord's `ex`, `is`, `hm`),
     /// and an image's `error` quotes only the host and path (the Linux host's
     /// `remote::without_queries`).
     static func withoutQueries(_ text: String) -> String {
         var out = "", word = ""
         func flush() {
-            if word.contains("://"), let cut = word.firstIndex(where: { $0 == "?" || $0 == "#" }) { word = String(word[..<cut]) }
+            if word.contains("://") || word.hasPrefix("/"), let cut = word.firstIndex(where: { $0 == "?" || $0 == "#" }) { word = String(word[..<cut]) }
             out += word; word = ""
         }
         for character in text {

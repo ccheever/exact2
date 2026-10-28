@@ -18,12 +18,21 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
-/// `text` with every link in it (a word with `://`) cut at its query or
-/// fragment: a CDN's links carry signatures (Discord's `ex`, `is`, `hm`), and
-/// an image's `error` and the log quote only the host and path.
+/// `link` cut at its query or fragment, whatever its form.
+fn without_query(link: &str) -> &str {
+    &link[..link.find(['?', '#']).unwrap_or(link.len())]
+}
+
+/// `text` with every link in it (a word with `://`, or one starting `/`) cut
+/// at its query or fragment: a CDN's links carry signatures (Discord's `ex`,
+/// `is`, `hm`), and an image's `error` and the log quote only the host and path.
 pub(crate) fn without_queries(text: &str) -> String {
     text.split_inclusive(char::is_whitespace)
-        .map(|word| match word.find("://").and(word.find(['?', '#'])) {
+        .map(|word| {
+            let link = word.contains("://") || word.starts_with('/');
+            (word, link.then(|| word.find(['?', '#'])).flatten())
+        })
+        .map(|(word, cut)| match cut {
             Some(cut) => {
                 let space = &word[word.trim_end().len()..];
                 format!("{}{space}", &word[..cut])
@@ -488,7 +497,7 @@ impl Downloads {
                 .join(location)
                 .ok()
                 .and_then(|next| clean(next.as_str()))
-                .ok_or_else(|| refused(format!("a redirect to {location}")))?;
+                .ok_or_else(|| refused(format!("a redirect to {}", without_query(location))))?;
         };
         if !(200..300).contains(&response.status) {
             let message = format!("HTTP {}", response.status);

@@ -475,6 +475,16 @@ fn run(p: &mut Presenter<()>, ms: u64) {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+/// Runs it until `done` (a generous bound: a busy machine is slow), then once more for anything after.
+fn until(p: &mut Presenter<()>, done: impl Fn(&serde_json::Value) -> bool) -> serde_json::Value {
+    let started = std::time::Instant::now();
+    while !done(&slots(p)) {
+        assert!(started.elapsed() < Duration::from_secs(30), "{}", slots(p));
+        run(p, 10);
+    }
+    run(p, 100);
+    slots(p)
+}
 fn slots(p: &mut Presenter<()>) -> serde_json::Value {
     let state = crate::agent::handle(p, r#"{"op":"state"}"#);
     serde_json::from_str::<serde_json::Value>(&state).unwrap()["slots"].clone()
@@ -495,17 +505,19 @@ fn a_picture_that_cannot_load_hears_error_once_with_its_reason() {
     let origin = scripted_server(asked.clone(), |path, n| match path {
         p if p.starts_with("/flaky/") && n < 2 => Reply::Status(503, ""),
         p if p.starts_with("/flaky/") => Reply::Picture,
-        p if p.starts_with("/dead/") => Reply::Status(503, ""),
         p if p.starts_with("/text/") => Reply::Text,
         p if p.starts_with("/moved/") => {
             Reply::Status(302, "location: ftp://cdn.example/x.png?ex=1&hm=secret\r\n")
         }
+        p if p.starts_with("/bad/") => {
+            Reply::Status(302, "location: //bad:port/a.png?hm=secret#f\r\n")
+        }
         _ => Reply::Status(404, ""),
     });
+    let errored = |s: &serde_json::Value| s["errors"].as_f64() == Some(1.);
     // Asking again cannot mend a 404: its error at once, with the reason.
     let mut p = error_app(&format!("{origin}/gone/"));
-    run(&mut p, 400);
-    let s = slots(&mut p);
+    let s = until(&mut p, errored);
     assert_eq!(
         (s["errors"].as_f64(), s["loads"].as_f64()),
         (Some(1.), Some(0.)),
@@ -515,20 +527,13 @@ fn a_picture_that_cannot_load_hears_error_once_with_its_reason() {
 
     // A busy server that answers in the end: its load, and no error.
     let mut p = error_app(&format!("{origin}/flaky/"));
-    run(&mut p, 600);
-    let s = slots(&mut p);
-    assert_eq!(
-        (s["errors"].as_f64(), s["loads"].as_f64()),
-        (Some(0.), Some(1.)),
-        "{s}"
-    );
+    let s = until(&mut p, |s| s["loads"].as_f64() == Some(1.));
+    assert_eq!(s["errors"].as_f64(), Some(0.), "{s}");
 
-    // A body this host cannot decode, and a redirect to a link it cannot
-    // follow, quoted without its query.
+    // A body this host cannot decode, and redirects to links it cannot
+    // follow, quoted without their queries.
     let mut p = error_app(&format!("{origin}/text/"));
-    run(&mut p, 400);
-    let s = slots(&mut p);
-    assert_eq!(s["errors"].as_f64(), Some(1.), "{s}");
+    let s = until(&mut p, errored);
     assert!(
         s["message"]
             .as_str()
@@ -537,13 +542,26 @@ fn a_picture_that_cannot_load_hears_error_once_with_its_reason() {
         "{s}"
     );
     let mut p = error_app(&format!("{origin}/moved/"));
-    run(&mut p, 400);
-    let s = slots(&mut p);
+    let s = until(&mut p, errored);
     assert_eq!(s["message"], "a redirect to ftp://cdn.example/x.png", "{s}");
+    let mut p = error_app(&format!("{origin}/bad/"));
+    let s = until(&mut p, errored);
+    assert!(!s["message"].as_str().unwrap().contains("hm="), "{s}");
 
     // A bundled picture that is not there.
     let mut p = error_app("pictures/");
-    run(&mut p, 300);
+    until(&mut p, errored);
+}
+
+/// A source over the 4096-byte cap is refused: its `error` once, though
+/// every sync gives it again.
+#[test]
+fn an_over_long_source_errs_once() {
+    let long = format!("pictures/{}", "x".repeat(5000));
+    let mut p = error_app(&long);
+    let s = until(&mut p, |s| s["errors"].as_f64() == Some(1.));
+    assert_eq!(s["message"], "a source over 4096 bytes");
+    run(&mut p, 200);
     assert_eq!(slots(&mut p)["errors"].as_f64(), Some(1.));
 }
 
@@ -577,14 +595,13 @@ fn a_failure_that_asking_again_may_mend_errs_once_its_showings_retries_are_spent
     );
     // Shown again: a whole ladder, then one error.
     press(&mut p, "toggle");
-    run(&mut p, 1500);
+    let s = until(&mut p, |s| s["errors"].as_f64() == Some(1.));
     assert_eq!(
         asked.lock().unwrap().len(),
         hidden + 6,
         "{:?}",
         asked.lock().unwrap()
     );
-    let s = slots(&mut p);
     assert_eq!(
         (s["errors"].as_f64(), s["loads"].as_f64()),
         (Some(1.), Some(0.)),
@@ -595,8 +612,7 @@ fn a_failure_that_asking_again_may_mend_errs_once_its_showings_retries_are_spent
     run(&mut p, 300);
     assert_eq!(asked.lock().unwrap().len(), hidden + 6);
     press(&mut p, "other");
-    run(&mut p, 400);
-    let s = slots(&mut p);
+    let s = until(&mut p, |s| s["loads"].as_f64() == Some(1.));
     assert_eq!(
         (s["errors"].as_f64(), s["loads"].as_f64()),
         (Some(1.), Some(1.)),

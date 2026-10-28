@@ -226,6 +226,7 @@ final class RasterRetryTests: XCTestCase {
         XCTAssertEqual(RasterRetry.withoutQueries("a redirect to https://cdn.example/a.png?ex=1&is=2&hm=3 now"),
                        "a redirect to https://cdn.example/a.png now")
         XCTAssertEqual(RasterRetry.withoutQueries("why? HTTP 404"), "why? HTTP 404")
+        XCTAssertEqual(RasterRetry.withoutQueries("to //bad:port/a.png?hm=1#f"), "to //bad:port/a.png")
         XCTAssertTrue(RasterRetry.transient(URLError(.timedOut)))
         XCTAssertTrue(RasterRetry.transient(RasterHTTPStatus(code: 502)))
         XCTAssertTrue(RasterRetry.transient(RasterHTTPStatus(code: 429)))

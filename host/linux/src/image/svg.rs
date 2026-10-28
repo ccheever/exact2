@@ -184,6 +184,8 @@ pub(super) fn decode(
     scale: f32,
     cancelled: impl Fn() -> bool,
 ) -> Result<Decoded, Refusal> {
+    // (A link's query, a CDN's signature, is not logged.)
+    let name = &super::remote::without_queries(name);
     let text = std::str::from_utf8(bytes).map_err(|_| {
         eprintln!("exact: image `{name}`: not UTF-8 text");
         Refusal::DecodeFailed

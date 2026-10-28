@@ -93,6 +93,9 @@ struct View {
     errored: bool,
     /// Counts its source's assignments: an event waiting is for one of them.
     assignment: u64,
+    /// The over-long source it was last given (its hash: the cap is what
+    /// keeps the string out), whose `error` has gone.
+    rejected: Option<u64>,
 }
 impl View {
     /// This assignment's `load` (no `error`) or `error`, if neither has gone.
@@ -137,7 +140,7 @@ fn refusal_text(refusal: Refusal) -> &'static str {
 fn passing(refusal: Refusal) -> bool {
     matches!(
         refusal,
-        Refusal::Budget | Refusal::QueueFull | Refusal::Paused | Refusal::Shutdown | Refusal::Stale
+        Refusal::Budget | Refusal::QueueFull | Refusal::Paused | Refusal::Stale
     )
 }
 
@@ -379,6 +382,7 @@ impl Images {
                 retry_at: None,
                 settled: false,
                 errored: false,
+                rejected: None,
                 assignment: 0,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
@@ -438,11 +442,13 @@ impl Images {
                 // is decoded would otherwise throw the work away, and the
                 // next row showing that picture decode it again.
                 if let Some((request, _)) = view.request {
-                    let decoding = matches!(
-                        self.backend.session.status(request),
-                        Some(RequestStatus::Decoding)
-                    );
-                    if !decoding {
+                    let status = self.backend.session.status(request);
+                    // (A decode that failed for good is its `error`, out of view too.)
+                    if status == Some(RequestStatus::Failed(Refusal::DecodeFailed)) {
+                        let message = refusal_text(Refusal::DecodeFailed).into();
+                        self.load_events.extend(view.settle(*id, Some(message)));
+                    }
+                    if status != Some(RequestStatus::Decoding) {
                         self.backend.cancel(request);
                         view.request = None;
                     }
@@ -459,8 +465,29 @@ impl Images {
                 view.source_id = None;
                 view.refusal = Some(Refusal::DecodeFailed);
                 self.deferred += 1;
+                // A new assignment, refused: its `error` once (the old picture stays).
+                let digest = {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    source.hash(&mut hasher);
+                    hasher.finish()
+                };
+                if view.rejected != Some(digest) {
+                    view.rejected = Some(digest);
+                    view.assignment += 1;
+                    (view.settled, view.errored) = (true, true);
+                    self.load_events.retain(|e| e.id != *id);
+                    self.load_events.push(LoadEvent {
+                        id: *id,
+                        key: view.key.view,
+                        source: source.to_owned(),
+                        assignment: view.assignment,
+                        error: Some("a source over 4096 bytes".into()),
+                    });
+                }
                 continue; // Deliberately keep only the previously accepted picture.
             }
+            view.rejected = None;
             if view.source != source {
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
@@ -633,12 +660,15 @@ impl Images {
             };
             if !view.visible {
                 // Its decode has finished since it went out of view: kept
-                // cold, its delivery cell free for the pictures that show.
+                // cold, its delivery cell free for the pictures that show (one
+                // that failed for good is its `error`, out of view too).
                 if let Some((request, _)) = view.request {
-                    if !matches!(
-                        self.backend.session.status(request),
-                        Some(RequestStatus::Decoding)
-                    ) {
+                    let status = self.backend.session.status(request);
+                    if status == Some(RequestStatus::Failed(Refusal::DecodeFailed)) {
+                        let message = refusal_text(Refusal::DecodeFailed).into();
+                        self.load_events.extend(view.settle(*id, Some(message)));
+                    }
+                    if status != Some(RequestStatus::Decoding) {
                         self.backend.cancel(request);
                         view.request = None;
                     }
@@ -795,7 +825,14 @@ impl Images {
                             }
                         }
                     }
-                    Err(e) => view.refusal = Some(e),
+                    Err(e) => {
+                        view.refusal = Some(e);
+                        // One asking again cannot get past: its `error`.
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
+                    }
                 }
             }
         }
