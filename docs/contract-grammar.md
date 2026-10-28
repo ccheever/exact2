@@ -1132,6 +1132,9 @@ props retain their declared spelling.
 inherited; `auto` restores ordinary greedy wrapping. `pretty` and `stable` are refused with the supported values, `auto | balance`. Every host balances the
 lines before a paragraph's first forced break, up to six, at the narrowest
 width that keeps their count, as Chrome does (LLP 1001 §6).
+`-webkit-font-smoothing` takes `auto` or `antialiased` and is inherited; `none`
+and `subpixel-antialiased` are refused. It changes how glyphs paint, never how
+text measures (LLP 1019 D12).
 
 `-exact-hairline` is a length every length row takes but a font's size and line
 height ([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md) D10.3): one

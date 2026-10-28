@@ -208,6 +208,17 @@ fn balanced_wrap_writes_the_same_property_for_bound_values() {
     assert_eq!(writes[0].map, None);
 }
 
+/// LLP 1019 D12: WebKit's and Chromium's name, bound or not.
+#[test]
+fn bound_font_smoothing_writes_the_prefixed_property() {
+    let writes = style_writes(StyleId::FontSmoothing as u16, false, true).unwrap();
+    assert_eq!(writes.len(), 2);
+    assert_eq!(writes[0].name, "-webkit-font-smoothing");
+    assert_eq!(writes[0].map, None);
+    assert_eq!(writes[1].name, "-moz-osx-font-smoothing");
+    assert!(writes[1].map.unwrap().contains("grayscale"));
+}
+
 /// LLP 1104 D3: a bound `::placeholder` colour writes css.rs's
 /// private property, which index.html's `::placeholder` rule reads.
 #[test]

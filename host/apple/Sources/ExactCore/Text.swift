@@ -207,6 +207,9 @@ package struct Spec: Hashable {
     package var textBoxUnder = 0
     /// CSS `text-wrap-style: balance` (TextBreaks.swift, `balance`).
     package var balance = false
+    /// `-webkit-font-smoothing: antialiased` (LLP 1019 D12): the glyphs
+    /// paint with Core Graphics font smoothing off. Paint only.
+    package var antialiased = false
     package init(runs: [Run], align: Int, lineClamp: Int, color: [Double], overflowWrap: Int = 0, direction: Int = 0, whiteSpace: Int = 0, strut: Run? = nil, ellipsis: Bool = false, source: SourceMap = SourceMap(), textIndent: CGFloat = 0, hyphens: Int = 0, language: String = "", shadow: [Double]? = nil, textBoxTrim: Int = 0, textBoxOver: Int = 0, textBoxUnder: Int = 0, balance: Bool = false) {
         self.runs = runs
         self.align = align

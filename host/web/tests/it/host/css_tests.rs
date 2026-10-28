@@ -150,6 +150,11 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::TextWrapStyle, &StyleValue::Text("auto".into()))
         .unwrap();
+    s.set_dynamic(
+        StyleId::FontSmoothing,
+        &StyleValue::Text("antialiased".into()),
+    )
+    .unwrap();
     // LLP 1093: multi-column layout reaches CSS by its own names.
     for (row, value) in [
         (StyleId::ColumnCount, StyleValue::Number(3.0)),
@@ -225,6 +230,7 @@ fn style_rows_lower_to_css_by_their_names() {
         "text-indent:-24px;",
         "hyphens:auto;",
         "text-wrap-style:auto;",
+        "-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;",
         "column-count:3;",
         "column-width:120px;",
         "column-fill:auto;",
