@@ -2,11 +2,14 @@
 // see LICENSE-T3: ChatView.tsx openFileAttachment → rightPanelStore.openAttachment
 // (an `attachment:<id>` file surface that replaces the standalone explorer tab),
 // components/files/AttachmentFilePreview.tsx and @t3tools/shared filePreview /
-// delimitedPreview). The captured bytes are read from a signed asset URL
+// delimitedPreview; T3 Code 7c3b3b3605ef). The captured bytes are read from a signed asset URL
 // (`assets.createUrl`, re-minted after five minutes), never from a workspace
 // file of the same name; the subheader reads "Attachment › name  size" with the
 // rendered/source toggle, word wrap, Copy contents and Save file. Its rendered
-// Markdown is ChatMarkdown with no `cwd`.
+// Markdown is ChatMarkdown with no `cwd`, a Mermaid file is its diagram, an image has the size and zoom bar
+// (preview-image.contract) and a font its specimen (font-preview.ts). The reference's lazy-loaded document viewers
+// (Office, OpenDocument, RTF, EPUB, notebooks, archives, SQLite) are not here yet: those files say "No preview for this
+// file", and a notebook shows its JSON source.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
@@ -26,6 +29,10 @@ import { mediaFrameSource } from '../media/media-frame'; // a PDF's or a rendere
 import { sourceGutter } from './files-crumbs-settle'; // the reference's line-number column
 import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
+import { filePreviewDelimiter, filePreviewKind, maskMarkdownFrontmatter, type FilePreviewKind } from './file-preview-kind';
+import { mermaidFile } from './mermaid-file'; // a Mermaid file's diagram
+import { FONT_REFUSED, fontPage, fontPageKept, forgetFontPage } from './font-preview'; // a font's specimen
+import { openInlineDocumentImage } from '../timeline/timeline-attachments'; // the expanded image dialog
 
 export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeBytes: number };
 type Content = { text: string; truncated: boolean };
@@ -50,41 +57,26 @@ export type AttachmentView = {
   // message (kind "attachment"), its chips and settings, code colours, Mermaid fences, host-path media and Copy code's check.
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[];
   mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[]; codeCopied: string; codeCopyNonce: number;
+  /** A Mermaid file's refusal (MermaidViewer), shown instead of its diagram; `diagrams` is then empty. */
+  mermaidNote: string;
+  /** "No preview for this file" reports a failure (FontViewer's), not only a format. */
+  noPreviewAlert: boolean;
 };
-type State = { url: string; urlAt: number; urlError: string; content: Content | null; contentError: string; rendered: boolean; saving: boolean; copiedAt: number; mediaError: string };
+type State = { url: string; urlAt: number; urlError: string; content: Content | null; contentError: string; rendered: boolean; saving: boolean; copiedAt: number; mediaError: string;
+  /** Why the font has no specimen: its read failed, or its frame's FontFace did not load it; kept while it is shown. */
+  fontError: string };
 const states = new WeakMap<T3Client, Map<string, State>>();
 const STALE_URL_MS = 5 * 60_000; // AttachmentFilePreview: signed URLs live an hour; re-mint after five minutes
 
-/** filePreviewKind (shared/filePreview.ts): content classification from the MIME type, then the name. */
-export function previewKind(file: { name: string; mimeType?: string }): string {
-  const mime = (file.mimeType ?? '').split(';', 1)[0]!.trim().toLowerCase(), name = file.name.toLowerCase(), extension = name.slice(name.lastIndexOf('.'));
-  const generic = !mime || mime === 'application/octet-stream' || mime === 'text/plain';
-  if (mime === 'application/pdf') return 'pdf';
-  if (mime === 'text/html') return 'html';
-  if (mime === 'text/markdown' || mime === 'text/x-markdown') return 'markdown';
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (generic) {
-    if (extension === '.pdf') return 'pdf';
-    if (/^\.html?$/.test(extension)) return 'html';
-    if (/^\.(md|markdown|mdown|mkd|mdx)$/.test(extension)) return 'markdown';
-    if (/^\.(avif|gif|ico|jpeg|jpg|png|svg|webp)$/.test(extension)) return 'image';
-    if (/^\.(mp4|m4v|mov|webm|ogv)$/.test(extension)) return 'video';
-    if (/^\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff)$/.test(extension)) return 'audio';
-    if (/^\.(txt|log|json|jsonc|jsonl|ndjson|yaml|yml|toml|ini|conf|config|env|csv|tsv|xml|css|scss|sass|less|js|jsx|mjs|cjs|ts|tsx|mts|cts|py|pyi|rb|go|rs|swift|kt|kts|java|c|h|cc|cpp|hpp|cs|php|sh|bash|zsh|fish|sql|graphql|gql|vue|svelte|r|lua|ex|exs|erl|hs|clj|dart|diff|patch|lock|properties|gradle)$/.test(extension)
-      || /^(dockerfile|makefile|gemfile|rakefile|license|readme|\.gitignore|\.gitattributes|\.editorconfig|\.env)(\.|$)/i.test(name.split(/[\\/]/).pop() ?? '')) return 'text';
-  }
-  if (mime.startsWith('text/') || /^(application\/(json|.*\+json|xml|.*\+xml|javascript|x-javascript|yaml|x-yaml|toml|sql))$/.test(mime)) return 'text';
-  return 'unsupported';
-}
-/** filePreviewDelimiter (shared/delimitedPreview.ts). */
-export function previewDelimiter(file: { name: string; mimeType?: string }): ',' | '\t' | null {
-  const mime = (file.mimeType ?? '').split(';', 1)[0]!.trim().toLowerCase();
-  if (mime === 'text/csv') return ',';
-  if (mime === 'text/tab-separated-values') return '\t';
-  if (mime && mime !== 'text/plain' && mime !== 'application/octet-stream') return null;
-  return /\.csv$/i.test(file.name) ? ',' : /\.tsv$/i.test(file.name) ? '\t' : null;
+/** filePreviewKind, as composer-chip-file.ts reads it. */
+export const previewKind = (file: { name: string; mimeType?: string }): FilePreviewKind => filePreviewKind(file);
+/**
+ * The body a kind draws here. The reference's document viewers are not here yet: a notebook shows its JSON source,
+ * which it did before it had a viewer, and the other documents say "No preview for this file".
+ */
+export function previewBody(kind: FilePreviewKind): FilePreviewKind {
+  if (kind === 'ipynb') return 'text';
+  return ['archive', 'sqlite', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp', 'rtf', 'epub'].includes(kind) ? 'unsupported' : kind;
 }
 
 /** The sent file attachment with this id in the thread's loaded history (ChatFileAttachment). */
@@ -108,7 +100,7 @@ function stateOf(client: T3Client, id: string): State {
   if (!map) { map = new Map(); states.set(client, map); }
   let state = map.get(id);
   // AttachmentFilePreview opens rendered.
-  if (!state) { state = { url: '', urlAt: 0, urlError: '', content: null, contentError: '', rendered: true, saving: false, copiedAt: 0, mediaError: '' }; map.set(id, state); }
+  if (!state) { state = { url: '', urlAt: 0, urlError: '', content: null, contentError: '', rendered: true, saving: false, copiedAt: 0, mediaError: '', fontError: '' }; map.set(id, state); }
   return state;
 }
 async function mint(client: T3Client, native: Native, meta: AttachmentMeta, disposition: 'inline' | 'attachment'): Promise<string> {
@@ -119,7 +111,7 @@ async function mint(client: T3Client, native: Native, meta: AttachmentMeta, disp
   return url;
 }
 const message = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
-const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
+const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [] as MermaidDiagramView[], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
 
 /**
  * AttachmentFilePreview's rendered Markdown: `<ChatMarkdown text cwd={undefined} />`, the chat renderer Files' rendered
@@ -130,7 +122,9 @@ const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace',
  * web URL loads as written, and a host path, relative or absolute, is "Image unavailable · <alt>" (MarkdownImage's
  * ChatMarkdownImageFallback), so nothing is signed.
  */
-async function renderedAttachment(client: T3Client, native: Native | null | undefined, id: string, text: string) {
+async function renderedAttachment(client: T3Client, native: Native | null | undefined, id: string, source: string) {
+  // A leading YAML frontmatter block is blanked (maskMarkdownFrontmatter), not drawn as a rule and a heading.
+  const text = maskMarkdownFrontmatter(source);
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
   const diagrams = filesMermaid(client, text);
   return {
@@ -141,11 +135,19 @@ async function renderedAttachment(client: T3Client, native: Native | null | unde
   };
 }
 
+/** renderedToggleLabel: the rendered/source toggle's label for the mode it switches. */
+function renderedToggleLabel(mode: string, rendered: boolean): string {
+  if (mode === 'mermaid') return rendered ? 'Show Mermaid source' : 'Show rendered diagram';
+  if (mode === 'markdown') return rendered ? 'Show markdown source' : 'Show rendered markdown';
+  if (mode === 'table') return rendered ? 'Show source' : 'Show table';
+  return mode === 'html' ? (rendered ? 'Show HTML source' : 'Show rendered page') : '';
+}
+
 /** The surface's projection: the URL (minted on first view), the text body for text kinds, and the header's controls. */
 export async function attachmentView(client: T3Client, native: Native | null | undefined, meta: AttachmentMeta, now: number, source = sentSource(meta)): Promise<AttachmentView> {
-  const state = stateOf(client, source.key), kind = previewKind(meta), delimiter = previewDelimiter(meta);
-  const renderedMode = kind === 'markdown' ? 'markdown' : kind === 'html' ? 'html' : delimiter ? 'table' : '';
-  const needsText = kind === 'text' || kind === 'markdown' || (kind === 'html' && !state.rendered);
+  const state = stateOf(client, source.key), kind = previewBody(filePreviewKind(meta)), delimiter = filePreviewDelimiter(meta);
+  const renderedMode = kind === 'mermaid' ? 'mermaid' : kind === 'markdown' ? 'markdown' : kind === 'html' ? 'html' : delimiter ? 'table' : '';
+  const needsText = kind === 'text' || kind === 'markdown' || kind === 'mermaid' || (kind === 'html' && !state.rendered);
   if (source.local) {
     state.url = source.local.url;
     if (needsText && !state.content && !state.contentError) {
@@ -154,7 +156,9 @@ export async function attachmentView(client: T3Client, native: Native | null | u
       else state.contentError = str(reply.message, 'Could not load this file.');
     }
   } else if (native?.available && client.ready) {
-    if (!state.urlError && (!state.url || (needsText && !state.content && !state.contentError && now && now - state.urlAt > STALE_URL_MS))) {
+    // A font whose specimen must be written again reads the font from a URL signed afresh, as its text does.
+    const rereads = (needsText && !state.content && !state.contentError) || (kind === 'font' && !state.fontError && !fontPageKept(source.key));
+    if (!state.urlError && (!state.url || (rereads && now && now - state.urlAt > STALE_URL_MS))) {
       try { state.url = await mint(client, native, meta, 'inline'); state.urlAt = now; }
       catch (error) { if (letGo(error)) throw error; state.urlError = message(error, 'The attachment is unavailable.'); }
     }
@@ -167,12 +171,17 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   // A PDF or a rendered page is a frame (media-frame.ts): a PDF is first written to app:/cache, which can fail.
   const frame = !needsText && (kind === 'pdf' || kind === 'html') && state.url && !state.urlError && !state.mediaError ? await mediaFrameSource(kind, state.url) : null;
   if (frame?.error) state.mediaError = frame.error;
+  // FontViewer: the specimen once its bytes are read; its frame says whether the face loaded.
+  const font = kind === 'font' && state.url && !state.urlError && !state.fontError ? await fontPage(source.key, state.url, meta.sizeBytes) : null;
+  if (font?.error) state.fontError = font.error;
+  const fontError = kind === 'font' ? state.fontError : '';
   const failure = state.urlError || (needsText ? state.contentError : state.mediaError);
   const content = state.content, rendered = state.rendered;
-  const showsRawText = !failure && needsText && !!content && !(delimiter && rendered) && !(kind === 'markdown' && rendered);
+  const showsRawText = !failure && needsText && !!content && !(delimiter && rendered) && !((kind === 'markdown' || kind === 'mermaid') && rendered);
   const preview = failure ? 'error' : !state.url || (needsText && !content) ? 'loading'
-    : needsText && content ? (delimiter && rendered ? 'table' : kind === 'markdown' && rendered ? 'markdown' : 'code')
-      : kind === 'image' ? 'image' : mediaBody(kind, rendered) || 'none';
+    : needsText && content ? (delimiter && rendered ? 'table' : kind === 'mermaid' && rendered ? 'mermaid' : kind === 'markdown' && rendered ? 'markdown' : 'code')
+      : kind === 'font' ? (fontError ? 'none' : font?.page ? 'font' : 'loading')
+        : kind === 'image' ? 'image' : mediaBody(kind, rendered) || 'none';
   const text = content?.text ?? '';
   const table = preview === 'table' ? tableRows(meta.name, text) : null;
   const lines = preview === 'code' ? codeLines(meta.name, text) : [];
@@ -181,29 +190,40 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   if (state.copiedAt < 0 && now) state.copiedAt = now;
   const copied = state.copiedAt < 0 || (state.copiedAt > 0 && now - state.copiedAt < 2000);
   const rich = preview === 'markdown' ? await renderedAttachment(client, native, source.id, text) : NO_MARKDOWN();
+  const diagram = preview === 'mermaid' ? mermaidFile(client, text) : null;
   return {
-    id: source.id, origin: source.origin, canRemove: source.dialog, canClose: source.dialog, name: meta.name, size: formatAttachmentSize(meta.sizeBytes), preview, error: failure,
-    canRender: !!renderedMode, rendered,
-    renderLabel: renderedMode === 'markdown' ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : renderedMode === 'table' ? (rendered ? 'Show source' : 'Show table') : renderedMode === 'html' ? (rendered ? 'Show HTML source' : 'Show rendered page') : '',
+    id: source.id, origin: source.origin, canRemove: source.dialog, canClose: source.dialog, name: meta.name, size: meta.sizeBytes > 0 ? formatAttachmentSize(meta.sizeBytes) : '', preview, error: failure,
+    canRender: !!renderedMode, rendered, renderLabel: renderedToggleLabel(renderedMode, rendered),
     renderIcon: rendered ? 'code' : renderedMode === 'table' ? 'table' : 'eye',
     showWrap: showsRawText, wrap: client.local.clientSettings.wordWrap !== false,
     canCopy: !!content, copyLabel: copied ? 'Copied' : content?.truncated ? 'Copy preview' : 'Copy contents', copied,
     canSave: !!state.url, saving: state.saving, saveLabel: state.saving ? 'Preparing file…' : 'Save file',
-    truncatedNote: content?.truncated ? `Preview limited to the first 1 MB of a ${meta.sizeBytes.toLocaleString('en-US')} byte file. Save the file to read it in full.` : '',
-    ...rich, table: table?.rows ?? [],
-    lines, gutter: sourceGutter(lines.length), url: preview === 'pdf' || preview === 'html' ? frame?.src ?? '' : preview === 'image' || mediaBody(preview, true) ? state.url : '',
-    // The unsupported body.
-    noPreview: preview === 'none' ? `Save it to open in an app that supports ${extension} files.` : '',
+    truncatedNote: content?.truncated ? `Preview limited to the first 1 MB${meta.sizeBytes > 0 ? ` of a ${meta.sizeBytes.toLocaleString('en-US')} byte file` : ''}. Save the file to read it in full.` : '',
+    ...rich, ...(diagram ? { diagrams: diagram.diagrams } : {}), table: table?.rows ?? [],
+    lines, gutter: sourceGutter(lines.length),
+    url: preview === 'pdf' || preview === 'html' ? frame?.src ?? '' : preview === 'font' ? font?.page ?? '' : preview === 'image' || mediaBody(preview, true) ? state.url : '',
+    // The unsupported body, or why a font has no specimen.
+    noPreview: preview !== 'none' ? '' : fontError ? `${fontError} Save it to open in another app.` : `Save it to open in an app that supports ${extension} files.`,
+    mermaidNote: diagram?.note ?? '', noPreviewAlert: !!fontError,
   };
 }
 export const emptyAttachment = (): AttachmentView => ({
   id: '', origin: 'Attachment', canRemove: false, canClose: false, name: '', size: '', preview: '', error: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', showWrap: false, wrap: true, canCopy: false,
   copyLabel: 'Copy contents', copied: false, canSave: false, saving: false, saveLabel: 'Save file', truncatedNote: '', table: [], lines: [], gutter: 0, url: '', noPreview: '', ...NO_MARKDOWN(),
+  mermaidNote: '', noPreviewAlert: false,
 });
 export const attachmentToken = (name: string) => fileIconToken(name);
 
 /** Drops a preview's state (a draft's preview opens afresh, as its dialog mounts a new AttachmentFilePreview). */
-export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); }
+export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); forgetFontPage(key); }
+/**
+ * A sent file's preview shown again after another surface: the reference mounts only the active surface, so its
+ * failures (a refused URL, a read, the media's or the font's) end with the preview that had them, and it tries again.
+ */
+export function previewShownAgain(client: T3Client, key: string): void {
+  const state = states.get(client)?.get(key);
+  if (state) { state.urlError = ''; state.contentError = ''; state.mediaError = ''; state.fontError = ''; }
+}
 
 /** `surface-linked-att-*`: the header's controls. */
 export async function attachmentLocal(client: T3Client, native: Native, op: string, id: string, now: number): Promise<string> {
@@ -214,11 +234,22 @@ export async function attachmentLocal(client: T3Client, native: Native, op: stri
 /** A preview's header controls (and its media body's error), on the bytes `source` names. */
 export async function attachmentOp(client: T3Client, native: Native, meta: AttachmentMeta, source: PreviewSource, op: string, now: number): Promise<string> {
   const state = stateOf(client, source.key);
-  if (op === 'render') { state.rendered = !state.rendered; if (previewKind(meta) === 'html') state.contentError = ''; return ''; }
+  if (op === 'render') { state.rendered = !state.rendered; if (filePreviewKind(meta) === 'html') state.contentError = ''; return ''; }
   if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
-  if (op === 'retry') { state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; return ''; }
-  // The audio/video player's `error` event; a late one from a body already gone is ignored.
-  if (op === 'media-error') { if (state.url && !state.mediaError) state.mediaError = mediaErrorMessage(previewKind(meta)); return ''; }
+  if (op === 'retry') {
+    forgetFontPage(source.key);
+    state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; state.fontError = '';
+    return '';
+  }
+  // The audio/video player's or the picture's `error` event; a late one from a body already gone is ignored.
+  if (op === 'media-error') { if (state.url && !state.mediaError) state.mediaError = mediaErrorMessage(previewBody(filePreviewKind(meta))); return ''; }
+  // The specimen's FontFace did not load the bytes (font-preview.ts).
+  if (op === 'font-failed') { if (fontPageKept(source.key)) state.fontError = FONT_REFUSED; return ''; }
+  // PreviewImageContent's press: the expanded image dialog over this one image, the focus going back to the picture.
+  if (op === 'image-open') {
+    if (/^https?:/i.test(state.url)) openInlineDocumentImage(client, state.url, meta.name, source.dialog ? 'chip-file-preview-image-zoom' : 'attachment-image-zoom');
+    return '';
+  }
   if (op === 'copy') {
     if (!state.content) return '';
     try { await client.restAccess(native).call({ op: 'copyText', text: state.content.text }); state.copiedAt = now || -1; }

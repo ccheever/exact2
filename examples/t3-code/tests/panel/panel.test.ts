@@ -179,7 +179,7 @@ describe('Files surface', () => {
     const subheader = async (path: string) => { await surfaceLocal(client, native, 'file', path, ''); const files = (await panelView(client, native, 0)).files; return [files.preview, files.rawText, files.openInBrowser]; };
     expect(await subheader('docs/notes.ts')).toEqual(['code', true, false]);
     expect(await subheader('docs/page.html')).toEqual(['html', false, true]);
-    // The PDF's frame shows a local copy of the asset (media-frame.ts).
+    // The PDF is framed at its signed URL (files-rendered-html.ts).
     const server = serveAssets(() => ({ body: '%PDF-1.4' }));
     memoryAppFiles();
     try { expect(await subheader('docs/guide.pdf')).toEqual(['pdf', false, true]); } finally { server.restore(); }
