@@ -50,7 +50,47 @@ impl Kernel {
         if self.measures_symbol(slot) {
             return Ok(());
         }
+        if size.is_some_and(|size| self.mark_reported(slot, size)) {
+            self.arena.set_intrinsic(slot, size);
+            return Ok(());
+        }
         self.arena.set_intrinsic(slot, size);
+        self.intrinsic_changed(slot);
+        Ok(())
+    }
+
+    /// A host reported `size` for `slot`. A mark with no size of its own yet
+    /// that already shows its kind's last report keeps its layout. Otherwise
+    /// the report is its kind's, and every mark still showing the kind's
+    /// last one is laid out again with it. Whether `slot`'s layout stands.
+    pub(crate) fn mark_reported(&mut self, slot: u32, size: (f32, f32)) -> bool {
+        let Some(key) = crate::control::mark_key(&self.arena, slot) else {
+            return false;
+        };
+        let shown = crate::control::shared_size(&self.arena, slot);
+        if self.arena.intrinsic(slot).is_none() && shown == Some(size) {
+            return true;
+        }
+        if shown == Some(size) {
+            return false;
+        }
+        self.arena.mark_sizes.retain(|(k, _)| *k != key);
+        self.arena.mark_sizes.push((key, size));
+        let reading: Vec<u32> = (self.arena.iter_live())
+            .filter(|&s| {
+                s != slot
+                    && self.arena.intrinsic(s).is_none()
+                    && crate::control::mark_key(&self.arena, s) == Some(key)
+            })
+            .collect();
+        for s in reading {
+            self.intrinsic_changed(s);
+        }
+        false
+    }
+
+    /// `slot`'s natural size changed: lay it out again.
+    pub(crate) fn intrinsic_changed(&mut self, slot: u32) {
         // A native face's image has no layout node; its button owns measurement.
         let button = self
             .arena
@@ -68,7 +108,6 @@ impl Kernel {
             layout.mark_dirty(node);
         }
         self.inline_image_resized(slot);
-        Ok(())
     }
 
     /// An image in a paragraph's text took a new natural size, or a size

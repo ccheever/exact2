@@ -160,5 +160,42 @@ final class ListRowsIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["opacity": 0.5]]]))
         XCTAssertEqual(p.navigation.syncCalls, before + 1, "outside the rows")
     }
+
+    /// A batch that changes a list's rows configures the controls of the
+    /// rows it builds, and leaves those of the rows it keeps as they were;
+    /// a row it moves under a box that says it is unavailable takes that.
+    func testARowsBatchLeavesTheControlsOfTheRowsItKeeps() throws {
+        let p = Presenter()
+        func row(_ id: Int, y: Double) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "view"],
+             ["op": "create", "id": id + 1, "kind": "control", "props": ["type": "checkbox", "accessibilityLabel": "Done \(id)"]],
+             ["op": "children", "id": id, "ids": [id + 1]],
+             ["op": "frame", "id": id, "x": 0.0, "y": y, "w": 300.0, "h": 48.0],
+             ["op": "frame", "id": id + 1, "x": 16.0, "y": 13.0, "w": 22.0, "h": 22.0]]
+        }
+        p.apply(wireBatch([
+            ["op": "collections", "items": [["view": 1, "revision": 1, "scrollSequence": 0, "count": 50, "totalExtent": 2400,
+                                              "rows": [["view": 10, "root": 10, "epoch": 1]]]]],
+            ["op": "create", "id": 30, "kind": "view"],
+            ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 40, "kind": "view", "props": ["accessibilityDisabled": "true"]],
+        ] + row(10, y: 0) + [
+            ["op": "children", "id": 1, "ids": [10]], ["op": "children", "id": 30, "ids": [1, 40]], ["op": "roots", "ids": [30]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+        ]))
+        let kept = try XCTUnwrap(p.controls.controls[11] as? ExactCheckbox)
+        XCTAssertEqual(kept.accessibilityLabel, "Done 10")
+        kept.accessibilityLabel = "as the last sync left it"
+
+        p.apply(wireBatch(row(20, y: 48) + [["op": "children", "id": 1, "ids": [10, 20]],
+                                            ["op": "content", "id": 1, "w": 300.0, "h": 2400.0]]))
+        XCTAssertEqual(try XCTUnwrap(p.controls.controls[21]).accessibilityLabel, "Done 20", "a new row's control is configured")
+        XCTAssertEqual(kept.accessibilityLabel, "as the last sync left it", "a kept row's control is not configured again")
+        XCTAssertFalse(kept.ariaUnavailable)
+
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [20]], ["op": "children", "id": 40, "ids": [10]]]))
+        XCTAssertTrue(kept.ariaUnavailable, "a row moved under an unavailable box takes it")
+        XCTAssertEqual(kept.accessibilityLabel, "Done 10")
+    }
 }
 #endif
