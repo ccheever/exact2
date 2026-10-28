@@ -43,7 +43,7 @@ const FOCUSED = 'focused';
 /** The ops of the focused connection this transport answers (the rest are the module's). */
 const SESSION_OPS = new Set(['status', 'ids', 'connect', 'retry', 'disconnect', 'http', 'previewStreamAccess', 'deviceHubAccess', 'uploadAttachment', 'request', 'subscribe', 'unsubscribe', 'events', 'ack',
   'readChunk', 'releaseChunk', 'environments', 'connectionPreferences', 'setConnectionPreferences', 'setEnvironmentEnabled', 'forgetEnvironment',
-  'pairEnvironment', 'setRoutes', 'prDiff']);
+  'pairEnvironment', 'setRoutes', 'prDiff', 'readSession']);
 
 export interface Slot { key: string; attempt: number; check: number; url: string }
 export interface UpdateSlot { key: string; step: number }
@@ -143,7 +143,7 @@ export class Transport {
     } } as RequestInit);
   }
 
-  /** The HTTP steps of a slot's attempt, or the better-route check it was asked for. */
+  /** The HTTP steps of a slot's attempt, or the work it was asked for while connected (a route check, the session read). */
   async connect(slot: number, key: string, attempt: number, check: number, module: Bridge | null | undefined): Promise<{ attempt: number; seq: number }> {
     if (module?.available) this.module = module;
     refillRandom();
@@ -151,7 +151,7 @@ export class Transport {
     if (!session || !key || (slot === 0 ? key !== FOCUSED : session.key !== key)) return { attempt, seq: this.seq };
     if (session.wantsFlow(attempt)) await session.connectFlow(attempt).catch(() => '');
     else if (session.flowRunning === attempt) await session.joinFlow(attempt);
-    else if (check > 0) await session.checkRoutes(check).catch(() => undefined);
+    else if (check > 0) await session.background(check).catch(() => undefined);
     // The delivering answer is asked again, and sees the socket's URL in the table it reports.
     this.bump();
     return { attempt, seq: this.seq };

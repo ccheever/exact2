@@ -1,19 +1,20 @@
 // Stop settles background rows the server already finished (T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3:
 // packages/client-runtime/src/state/threadCommands.ts interruptTurn, state/threads.ts reconcilePendingWork).
 // A row can stay running here after the server finished it, with no event left to name it (it finished while
-// the socket was down, outside the loaded window). After any Stop, whether or not the server accepted it, the
-// open thread's active background items are read with `getTurnItem`, four at a time with 10 s each, and those
-// the server settled replace their local copies (domain.ts settleTurnItems). The lookups do not hold the Stop:
-// as the reference forks them off, each is sent with a `deliver` key, so its reply joins the inbox and the
-// snapshot's drain takes it (stopRepairEvent), sending the next. The reference also repairs the snapshot it
-// cached for the thread; this client keeps no thread cache.
+// the socket was down, outside the loaded window). After each Stop action (the reference's interruptTurn wraps
+// interruptThreadTurn, however many commands that sends, or none), whether or not the server accepted it, its
+// thread's active background items are read with `getTurnItem`, four at a time with 10 s each, and those the
+// server settled replace their local copies (domain.ts settleTurnItems). Only the open thread's state is held.
+// The lookups do not hold the Stop: as the reference forks them off, each is sent with a `deliver` key, so its
+// reply joins the inbox and the snapshot's drain takes it (stopRepairEvent), sending the next. The reference also
+// repairs the snapshot it cached for the thread; this client keeps no thread cache.
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { letGo } from './let-go';
 import { obj, str, pendingBackgroundTurnItems, settleTurnItems, turnItemReply, workActive, type Obj } from './domain';
 
-/** The commands every Stop path dispatches (the composer's Stop, Stop background work, a subagent's Stop). */
-export const STOP_COMMANDS = ['thread.stop', 'run.interrupt', 'subagent.stop'];
+/** The Stop actions (client.ts `command`): the composer's Stop, Stop background work, a subagent's Stop. */
+export const STOP_ACTIONS = ['stop', 'cc:stop-background', 'shell:stop-subagent'];
 const KEY = 'stop-repair:';
 const CONCURRENCY = 4;
 const TIMEOUT_SECONDS = 10;
@@ -26,10 +27,9 @@ const keyOf = (repair: Repair, itemId: string) => `${KEY}${repair.id}:${itemId}`
 const current = (client: T3Client, repair: Repair) => repairs.get(client) === repair && client.generation === repair.generation
   && client.threadId === repair.threadId && !!client.thread;
 
-/** Starts the open thread's repair; a newer Stop's repair replaces one still running. */
-export async function repairAfterStop(client: T3Client, native: Native): Promise<void> {
-  const threadId = client.threadId;
-  if (!threadId || !client.thread || client.connection !== 'connected') return;
+/** Starts the repair of `threadId` while it is the open thread; a newer Stop's repair replaces one still running. */
+export async function repairAfterStop(client: T3Client, native: Native, threadId: string): Promise<void> {
+  if (!threadId || threadId !== client.threadId || !client.thread || client.connection !== 'connected') return;
   const pending = pendingBackgroundTurnItems(client.thread.projection);
   if (!pending.length) { repairs.delete(client); return; }
   const repair: Repair = { id: ++serial, generation: client.generation, threadId, queue: pending.map(item => str(item.id)), inFlight: new Set(), settled: new Map() };

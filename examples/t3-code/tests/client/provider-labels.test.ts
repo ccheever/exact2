@@ -30,11 +30,18 @@ describe('the spoken model name', () => {
     expect([resolveModelShortName({ name: 'Grok 4 Pro' }, 'cursor'), resolveModelShortName({ name: 'Grok 4 Pro' }, 'codex')]).toEqual(['4 Pro', undefined]);
   });
 
-  test('the composer\'s trigger label is the short name on its driver', async () => {
+  test('the trigger names the model in full, and gives its short name apart for the visible text', async () => {
     const { client } = await opened();
     const provider = arr(client.config.providers)[0]!;
     Object.assign(provider, { driver: 'claudeAgent' });
     obj(arr(provider.models)[0]).name = 'Claude Opus 5.5';
-    expect(snapshot(client).modelLabel).toBe('Opus 5.5');
+    // The accessible name stays the full name (ProviderModelPicker.tsx aria-label); only the visible text is short.
+    expect([snapshot(client).modelLabel, snapshot(client).modelShortLabel]).toEqual(['Claude Opus 5.5', 'Opus 5.5']);
+    obj(arr(provider.models)[0]).isUnavailable = true;
+    expect([snapshot(client).modelLabel, snapshot(client).modelShortLabel]).toEqual(['Claude Opus 5.5 (Unavailable)', 'Opus 5.5']);
+    // A name with no short form on its driver keeps the full name in both.
+    Object.assign(provider, { driver: 'codex' });
+    Object.assign(obj(arr(provider.models)[0]), { name: 'Grok 4 Pro', isUnavailable: false });
+    expect([snapshot(client).modelLabel, snapshot(client).modelShortLabel]).toEqual(['Grok 4 Pro', 'Grok 4 Pro']);
   });
 });

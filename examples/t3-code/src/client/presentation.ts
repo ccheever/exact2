@@ -163,8 +163,10 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
     canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
-    // getTriggerDisplayModelName: the short name the model's own provider icon leaves (model-short-name.ts).
-    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName({ ...currentModel, shortName: resolveModelShortName(currentModel, str(selectedProvider?.driver)) ?? '' }) : selectedModel || 'Choose model',
+    // ProviderModelPicker: the trigger's accessible name is the full name (triggerLabel), its text the name said on the
+    // model's provider (triggerTitle, getTriggerDisplayModelName with model-short-name.ts).
+    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? `${triggerModelName({ ...currentModel, shortName: '' })}${currentModel.isUnavailable === true ? ' (Unavailable)' : ''}` : selectedModel || 'Choose model',
+    modelShortLabel: currentModel ? triggerModelName({ ...currentModel, shortName: resolveModelShortName(currentModel, str(selectedProvider?.driver)) ?? '' }) : selectedModel || 'Choose model',
     composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
     planModeEnabled: client.local.deviceSettings.planModeEnabled,
     composerResting: transcriptFacts(client).owner === `${client.origin}:${client.projectId}:${client.threadId}` && transcriptFacts(client).resting,

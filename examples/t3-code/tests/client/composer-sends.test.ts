@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
 import { connected, opened } from '../support/composer-controls-fixture';
+import { toasts } from '../../src/shell/toast';
 
 const NOW = Date.parse('2026-10-03T12:00:30.000Z');
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -70,6 +71,34 @@ describe('feedback on an approval', () => {
     const { native, command } = await waiting(false);
     await command('send', '', 'Use the other file');
     expect(writes(native.committed)).toEqual([{ decision: 'decline', requestId: 'a', feedback: undefined }, { type: 'message.dispatch', text: 'Use the other file' }]);
+  });
+
+  // useComposerSend.ts: a draft edited since Send, or an approval already being answered, ends the send unsent, without a toast.
+  test('a draft edited since Send is not sent as feedback, and stays', async () => {
+    const { client, native, command } = await waiting(true);
+    const later = native.later.bind(native);
+    native.later = async (input: unknown) => {
+      if (obj(input).op === 'ids') client.local.drafts[client.draftKey] = 'Use the staging bucket, and';
+      return later(input);
+    };
+    await command('draft', '', 'Use the staging bucket');
+    await command('send', '', 'Use the staging bucket');
+    expect(writes(native.committed)).toEqual([]);
+    expect([client.draft, client.error, toasts(client).length]).toEqual(['Use the staging bucket, and', '', 0]);
+  });
+
+  test('an approval already being answered takes no feedback, and the draft stays', async () => {
+    const { client, native, command } = await waiting(true);
+    const later = native.later.bind(native);
+    native.later = async (input: unknown) => {
+      if (obj(input).op === 'ids') client.local.pending[client.environmentId] = { method: 'orchestration.dispatchCommand', description: 'Approve',
+        payload: { type: 'runtime-request.respond', threadId: client.threadId, requestId: 'a', decision: 'accept' }, threadId: client.threadId, text: '', uncertain: false };
+      return later(input);
+    };
+    await command('draft', '', 'Use the staging bucket');
+    await command('send', '', 'Use the staging bucket');
+    expect(writes(native.committed)).toEqual([]);
+    expect([client.draft, client.error, toasts(client).length]).toEqual(['Use the staging bucket', '', 0]);
   });
 
   test('feedback refuses attachments', async () => {

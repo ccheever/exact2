@@ -92,7 +92,6 @@ describe('routes (driver.ts connectOverRoutes, supervisor.ts checkBetterRoutes)'
     // The learned route asks for the descriptor with no credential first, then borrows the paired route's token, and owns none.
     const lanRequests = lan.requests.map(request => `${request.path} ${request.headers.Authorization ?? '-'}`);
     expect(lanRequests[0]).toBe('/.well-known/t3/environment -');
-    expect(lanRequests).toContain('/api/auth/session Bearer token-1');
     expect(lanRequests).toContain('/api/auth/websocket-ticket/rpc Bearer token-1');
     expect(Object.keys(JSON.parse(drive.store.get('t3-catalog')!).tokens)).toEqual([`${A}\nenv-1`]);
   });
@@ -203,6 +202,25 @@ describe('outdated hosts (outdatedHostUpdate.ts)', () => {
     await drive.advance(2_000);
     expect(value(await drive.op({ op: 'status', fleet: key })).state).toBe('connected');
     expect(old.sockets.length).toBe(sockets + 1); // the session's own socket, not an update socket
+  });
+
+  // transport-outdated.ts: the job's socket ticket is an RPC one (remote.ts issueWebSocketTicketWithFallback).
+  test("the update job's ticket mints at /rpc, and at the bare path after a 404 from a server that predates ticket routes", async () => {
+    for (const ticketRoutes of [true, false]) {
+      const old = new FakeServer(A, 'env-old', { orchestrationProtocolVersion: 1, serverVersion: '0.0.40', capabilities: { serverSelfUpdate: 'respawn' } });
+      old.ticketRoutes = ticketRoutes;
+      const drive = new Drive(old);
+      await drive.op({ op: 'fleetOutdatedPair', fleet: `${A}\n`, credential: 'code-1' });
+      old.methods['server.updateServer'] = () => ({ targetVersion: '0.0.46', method: 'respawn' });
+      const before = old.requests.length, sockets = old.sockets.length;
+      await drive.op({ op: 'fleetOutdatedUpdate', fleet: `${A}\nenv-old`, targetVersion: '0.0.46' });
+      await drive.settle();
+      expect(old.requests.slice(before).filter(request => request.path.startsWith('/api/auth/websocket-ticket')).map(request => request.path))
+        .toEqual(ticketRoutes ? ['/api/auth/websocket-ticket/rpc'] : ['/api/auth/websocket-ticket/rpc', '/api/auth/websocket-ticket']);
+      // The server accepts a socket only on a ticket it minted; this one carried the update.
+      expect(old.sockets.length).toBe(sockets + 1);
+      expect(old.rpcs.map(rpc => rpc.method)).toContain('server.updateServer');
+    }
   });
 
   test('a host that does not come back in time fails the job', async () => {

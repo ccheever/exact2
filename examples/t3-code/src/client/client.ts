@@ -61,7 +61,8 @@ import { adoptPreviewAnnotations } from '../browser/browser-annotation'; // Anno
 import { adoptReviewComments } from '../composer/composer-editor'; // review comments and pull requests behind the drafts' chips
 import { providerSetupEvent } from '../providers/provider-setup'; // the auth and install streams
 import { composerReplyEvent, settleLostReplies, settleStaleReplies } from '../composer/composer-replies'; // detached requests' replies
-import { STOP_COMMANDS, pumpStopRepair, repairAfterStop, stopRepairDue, stopRepairEvent } from './stop-repair'; // Stop's lookups of settled rows
+import { STOP_ACTIONS, pumpStopRepair, repairAfterStop, stopRepairDue, stopRepairEvent } from './stop-repair'; // Stop's lookups of settled rows
+import { SESSION_STATE_KEY } from '../transport/transport-session';
 import { codexHandoffEvent } from '../providers/codex-handoff-events'; // the handoff stream when this connection is the primary
 import { adoptTerminalPrefs } from '../terminal/terminal-ui-state';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
@@ -77,6 +78,8 @@ export type AttachmentUpload = { status: 'uploading' | 'ready' | 'failed'; progr
 export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean;
   /** A draft's launch a new-thread flow left while it was in flight, with the sent images the composer gave up (draft-launch.ts). */
   detached?: { images: Obj[] } };
+const CONTEXT_NOTICE = 'Update the T3 server to send messages from this client. Existing threads remain readable.';
+const PAIR_AGAIN = 'Pair with the T3 server again.';
 const uncertainError = (pending: Pending) => `${pending.description} may have reached T3. Check the synchronized thread, then retry only if needed.`;
 /** The types a draft image is kept in: a capture's PNG, an attached image's own (composer-attach-stage.ts). */
 const DRAFT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -121,8 +124,12 @@ export class T3Client {
   interactionMode = 'default';
   /** What the session grants, as sessionGrantsScope reads it (remote-scopes.ts sessionPermissions). */
   scopes: string[] = [];
+  /** The grants are in for this environment (the session read's reply, `session-state`); kept across its reconnects. */
+  scopesKnown = false;
   /** The server kept this session's grant from before the permission split (the re-pair notice). */
   legacyPermissions = false;
+  /** The session read found a session the server no longer accepts (`authenticated: false`): pair again. */
+  private sessionRejected = false;
   shellLive = false;
   threadLive = false;
   configLive = false;
@@ -143,6 +150,8 @@ export class T3Client {
    * (0 to 1), ready, or failed with the reason. Kept in memory, as the reference's upload store is.
    */
   attachmentUploads: Record<string, AttachmentUpload> = {};
+  /** The uploads running, by image id (attachmentUploadQueue.ts jobsByImageId): a second ask joins the first. */
+  private uploadsRunning = new Map<string, { environmentId: string; upload: Promise<string> }>();
   get answers(): Record<string, RequestDraft> { return this.answerDrafts[`${this.environmentId}\u0000${this.threadId}`] ??= {}; }
   local = preferences();
   busy = false;
@@ -208,7 +217,9 @@ export class T3Client {
   raw(native: Native, request: unknown) { return bridgeReply(native, request); }
   async call(native: Native, request: unknown, expected = this.generation, write = false): Promise<Obj> {
     if (this.generation !== expected) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
-    if (this.connection === 'connected') requireRpcPermissions(this.scopes, request);
+    // Until the session's grants are in (`scopesKnown`), the server is the only check; the reference holds a guarded
+    // write up to 6 s for them (client-runtime state/commandPermissions.ts).
+    if (this.connection === 'connected' && this.scopesKnown) requireRpcPermissions(this.scopes, request);
     let response;
     // shell-slow.ts "Some requests are slow", with a trace the transport lists while pending (protocol-reader.ts).
     const traced = traceRpc(this, request);
@@ -225,17 +236,6 @@ export class T3Client {
   }
   async http(native: Native, path: string, expected = this.generation) {
     return this.call(native, { op: 'http', path }, expected);
-  }
-  /**
-   * The session's grants (reference 7c3b3b3605ef, client-runtime state/session.ts fetchEnvironmentSessionState): a
-   * timeout says nothing about them, and failing would show a busy host as read-only, so the read asks again with
-   * double the time, from 6 s up to 60 s.
-   */
-  async sessionState(native: Native, expected = this.generation): Promise<Obj> {
-    for (let timeoutMs = 6_000; ; timeoutMs = Math.min(timeoutMs * 2, 60_000)) {
-      try { return await this.call(native, { op: 'http', path: '/api/auth/session', timeoutMs }, expected); }
-      catch (error) { if (!(error instanceof ClientError && error.reason === 'timeout') || timeoutMs >= 60_000) throw error; }
-    }
   }
   async request(native: Native, method: string, payload: Obj, expected = this.generation, write = false) {
     return this.call(native, { op: 'request', method, payload }, expected, write);
@@ -370,6 +370,7 @@ export class T3Client {
       this.homeMove = null; // the window went elsewhere before the landing's move (settleHome clears it before its own)
       this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
       this.config = {}; this.providerId = ''; this.modelId = '';
+      this.scopes = []; this.scopesKnown = false; this.legacyPermissions = false; this.sessionRejected = false;
       this.diffOpen = false; this.diffText = ''; this.threadEpoch++; adoptHandoff(this); // keep-alive.ts: a kept thread opened from a background environment shows at once
     }
     if (replaced) {
@@ -451,9 +452,8 @@ export class T3Client {
     this.synchronizedGeneration = -1;
     this.shellLive = false; this.threadLive = false;
     delete this.subscriptions.config; delete this.subscriptions.shell; this.streamRetryDue.clear();
-    const auth = await this.sessionState(native, generation);
-    if (auth.authenticated !== true) throw new ClientError('Pair with the T3 server again.', 'auth');
-    this.scopes = sessionPermissions(auth); this.legacyPermissions = sessionHasLegacyPermissions(auth);
+    // The grants come in on their own (`session-state`, adoptSession): the config and the shell do not wait on them.
+    await this.call(native, { op: 'readSession' }, generation);
     const config = await this.request(native, 'server.getConfig', {}, generation);
     const environment = obj(config.environment);
     const incompatible = compatibilityProblem(environment); // protocol-outdated.ts: the message names the direction
@@ -478,11 +478,30 @@ export class T3Client {
     else { this.thread = null; this.threadLive = true; this.chooseDefaults(); }
     if (generation === this.generation) {
       this.synchronizedGeneration = generation;
-      // A read-only connection says so on Send ("This connection cannot change threads."), not in a banner.
-      this.error = this.scopes.includes('orchestration:operate') && obj(environment.capabilities).serverResolvedCommandContext !== true
-        ? 'Update the T3 server to send messages from this client. Existing threads remain readable.' : '';
+      this.error = this.sessionNotice();
     }
     this.changed();
+  }
+  /**
+   * The banner the session decides: pair again for a session the server no longer accepts; else, a server that
+   * cannot resolve a command's context, on a session that may operate, takes no message from this client. A
+   * read-only connection says so on Send ("This connection cannot change threads."), not in a banner.
+   */
+  private sessionNotice(): string {
+    if (this.sessionRejected) return PAIR_AGAIN;
+    return this.scopes.includes('orchestration:operate') && obj(obj(this.config.environment).capabilities).serverResolvedCommandContext !== true
+      ? CONTEXT_NOTICE : '';
+  }
+  /**
+   * The session read's reply (`session-state`). A failed read grants nothing and shows no banner, as the
+   * reference's sessionHasScope reads a failure (apps/web state/session.ts).
+   */
+  private adoptSession(entry: Obj): void {
+    const item = obj(entry.value), read = item._replyError === undefined, auth = read ? obj(item._reply) : {};
+    this.scopes = sessionPermissions(auth); this.legacyPermissions = sessionHasLegacyPermissions(auth);
+    this.scopesKnown = read && auth.authenticated === true; this.sessionRejected = read && auth.authenticated !== true;
+    // Only the notices the session decides change; another failure's banner stays.
+    if (this.synchronizedGeneration === this.generation && [CONTEXT_NOTICE, PAIR_AGAIN, ''].includes(this.error)) this.error = this.sessionNotice();
   }
 
   /** The same-session resubscribe a stream failure scheduled (client-runtime rpc/client.ts). */
@@ -597,6 +616,7 @@ export class T3Client {
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // device-surface.ts: the device hub state
         if (isDiscoveredServersKey(key)) { discoveredServersEvent(this, entry); continue; } // browser-targets.ts: subscribeDiscoveredLocalServers
+        if (key === SESSION_STATE_KEY) { this.adoptSession(entry); continue; } // the session read's grants (transport-session.ts readSession)
         if (commandOutputEvent(this, entry) || providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || stopRepairEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
@@ -767,12 +787,8 @@ export class T3Client {
     await this.save(storage);
   }
   async dispatch(native: Native, storage: Files, payload: Obj, description: string, beforeRequest?: () => void): Promise<Obj> {
-    const written = this.write(native, storage, { method: 'orchestration.dispatchCommand', payload, description,
+    return this.write(native, storage, { method: 'orchestration.dispatchCommand', payload, description,
       threadId: str(payload.threadId), text: str(payload.text), uncertain: false }, beforeRequest);
-    if (!STOP_COMMANDS.includes(str(payload.type))) return written;
-    // Every Stop, accepted or not, reads the open thread's background rows the server may have settled (stop-repair.ts).
-    try { return await written; }
-    finally { await repairAfterStop(this, native).catch(error => { if (letGo(error)) throw error; }); }
   }
 
   async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files, providers?: ProvidersRoute): Promise<{ revision: number; message: string; relaunch: boolean; routeReorder: number }> {
@@ -782,6 +798,8 @@ export class T3Client {
     const local = op.startsWith('ue:') || op.startsWith('sidebar:ue:') || ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('secretlocal:') || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
     const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
+    // A Stop action, whatever it dispatched and whether or not it was accepted, repairs its thread's rows once (stop-repair.ts).
+    const stopThread = STOP_ACTIONS.includes(op) ? this.threadId : '';
     if (!local) {
       // A newer command lets the older one's reply go, so its write may have reached T3; a draft's launch that a
       // new-thread flow leaves is settled from that reply instead (draft-launch.ts).
@@ -815,7 +833,10 @@ export class T3Client {
       // Main-window actions the reference toasts (shell-commands.ts) leave the transcript banner alone.
       if (!this.pending?.uncertain && !formCommand) { if (!shellFailure(this, op, resultMessage)) this.error = resultMessage; else if (this.error === resultMessage) this.error = ''; }
       else if (formCommand && !this.pending?.uncertain && settingsFailure(this, op, id, value, resultMessage)) resultMessage = `toasted:${resultMessage}`;
-    } finally { if (!local && epoch === this.commandEpoch) this.busy = false; this.changed(); }
+    } finally {
+      if (stopThread) await repairAfterStop(this, native, stopThread).catch(() => undefined);
+      if (!local && epoch === this.commandEpoch) this.busy = false; this.changed();
+    }
     return { revision: this.revision, message: resultMessage, relaunch: out.relaunch === true, routeReorder };
   }
 
@@ -1067,7 +1088,15 @@ export class T3Client {
   async uploadDraftImage(native: Native, storage: Files, image: Obj, current: () => boolean = () => true): Promise<string> {
     const id = str(image.id), uploaded = str(image.uploadId);
     if (uploaded) { this.attachmentUploads[id] = { status: 'ready', progress: 1, reason: '', attachmentId: uploaded }; return uploaded; }
-    const generation = this.generation;
+    const running = this.uploadsRunning.get(id);
+    if (running?.environmentId === this.environmentId) return running.upload;
+    const job = { environmentId: this.environmentId, upload: this.runDraftUpload(native, storage, image, current) };
+    this.uploadsRunning.set(id, job);
+    try { return await job.upload; }
+    finally { if (this.uploadsRunning.get(id) === job) this.uploadsRunning.delete(id); }
+  }
+  private async runDraftUpload(native: Native, storage: Files, image: Obj, current: () => boolean): Promise<string> {
+    const id = str(image.id), generation = this.generation;
     this.attachmentUploads[id] = { status: 'uploading', progress: 0, reason: '', attachmentId: '' };
     let attachmentId = '';
     try {

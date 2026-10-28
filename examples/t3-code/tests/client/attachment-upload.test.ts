@@ -49,3 +49,16 @@ test('a refused upload reads failed with its reason, and its attachment is delet
   expect(f.calls.at(-1)).toMatchObject({ op: 'request', method: 'attachments.delete', payload: { attachmentId: 'att-1' } });
   expect(f.image.uploadId).toBeUndefined();
 });
+
+test('a second ask for an image whose upload runs joins that upload (attachmentUploadQueue.ts jobsByImageId)', async () => {
+  const f = fixture();
+  const [first, second] = await Promise.all([f.client.uploadDraftImage(f.native, f.files, f.image), f.client.uploadDraftImage(f.native, f.files, f.image)]);
+  expect([first, second]).toEqual(['att-1', 'att-1']);
+  expect(f.calls.filter(call => call.op === 'uploadAttachment' || call.method === 'attachments.createUploadUrl')).toHaveLength(2);
+  // Another environment's ask is its own upload.
+  delete f.image.uploadId;
+  const moving = f.client.uploadDraftImage(f.native, f.files, f.image);
+  f.client.environmentId = 'env-2';
+  await Promise.all([moving, f.client.uploadDraftImage(f.native, f.files, f.image)]);
+  expect(f.calls.filter(call => call.op === 'uploadAttachment')).toHaveLength(3);
+});
