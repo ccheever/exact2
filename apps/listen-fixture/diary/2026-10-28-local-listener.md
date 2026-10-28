@@ -15,6 +15,16 @@ task: build a small app that listens on a local socket and answers a command-lin
   crate it does not depend on (`exact_apple_update` in `linked.rs`); the
   error names the generated file, not the manifest.
 - Journal lines are stamped with the time, so a test matches their ends.
+- `refresh echo` after the answering mutation re-asked the listener and so
+  closed it and every connection: a listener's resource is refreshed only to
+  start over.
+- `nc -U` closes its writing side at the end of its input, which ends the
+  connection (never half-open) before the echo goes out; a dialer that waits
+  for a reply keeps its side open.
+- This Mac's Apple Development identity would not sign
+  (`errSecInternalComponent`); `EXACT_IDENTITY=-` builds ad-hoc.
+- The Linux host's drive exited without closing its sessions, leaving its
+  socket file; the listener now removes its files at `exit()`.
 
 ## Lean in
 
@@ -27,3 +37,6 @@ task: build a small app that listens on a local socket and answers a command-lin
 - window activation: provided (`focus()`)
 
 ## Checkpoints
+
+- macOS: listens, echoes, answers a kept connection from a mutation, journals `focus window`.
+- A takeover by the Linux host's instance and the hand-back, across processes.

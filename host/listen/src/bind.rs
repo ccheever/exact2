@@ -265,6 +265,7 @@ pub fn publish(path: &Path, takeover: bool, over: bool) -> Result<Bound, Failure
     let identity = identity(path).ok_or_else(|| {
         Failure::Network(format!("{} vanished as it was published", path.display()))
     })?;
+    remember(path, identity);
     Ok(Bound {
         listener,
         identity,
@@ -274,10 +275,36 @@ pub fn publish(path: &Path, takeover: bool, over: bool) -> Result<Bound, Failure
 
 /// Remove `path` while it is still the file `ours`, under the lock.
 pub fn unpublish(path: &Path, ours: Identity) {
+    PUBLISHED
+        .lock()
+        .unwrap()
+        .retain(|(p, i)| !(p == path && *i == ours));
     let Ok(_lock) = Lock::take(path) else { return };
     if identity(path) == Some(ours) {
         let _ = fs::remove_file(path);
     }
+}
+
+/// The files this process has published and not removed: removed at its
+/// exit too, so a host that exits without closing its sessions (a drive's
+/// end, `exit()`) leaves no socket behind (D4). A crash still leaves a stale
+/// one, which the next listener replaces.
+static PUBLISHED: std::sync::Mutex<Vec<(PathBuf, Identity)>> = std::sync::Mutex::new(Vec::new());
+
+extern "C" fn at_exit() {
+    let published = std::mem::take(&mut *PUBLISHED.lock().unwrap_or_else(|e| e.into_inner()));
+    for (path, ours) in published {
+        unpublish(&path, ours);
+    }
+}
+
+fn remember(path: &Path, ours: Identity) {
+    static REGISTERED: std::sync::Once = std::sync::Once::new();
+    // SAFETY: `at_exit` is a plain function that lives as long as the process.
+    REGISTERED.call_once(|| unsafe {
+        libc::atexit(at_exit);
+    });
+    PUBLISHED.lock().unwrap().push((path.to_path_buf(), ours));
 }
 
 #[cfg(test)]
