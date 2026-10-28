@@ -1,0 +1,121 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Newest first. Each row shows the sender, subject, a two-line preview and the date (or the time for today's messages). Unread rows get an orange dot."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Swiping left offers Flag and Archive, and swiping right offers Read/Unread; both work. Archived messages appear on the Archive tab, where a swipe offers 'Inbox' to move them back."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Each row has a flag button, and Flag is also in the swipe actions, the long-press menu and the message screen. The All / Unread / Flagged chips filter correctly."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Tapping a row pushes a message screen. Opening it marks it read and the count drops by one. The screen has flag, archive and 'Mark as unread' buttons."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Pull to refresh adds two new unread messages at the top, stamped with the current time."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "The unread count shows under the title and as a badge on the Inbox tab. It updates on read, unread and refresh."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "After a relaunch, read, flagged and archived states and the refreshed messages are all still there."
+      }
+    ],
+    "bugs": [
+      "The Archive screen says '1 messages' (wrong plural).",
+      "The swipe-action buttons don't appear in the accessibility tree, so VoiceOver users can only reach those actions through other controls."
+    ],
+    "tells": [
+      "Custom beige/terracotta theme everywhere instead of system backgrounds and tint.",
+      "Filters are custom pill chips, not a system segmented control or menu.",
+      "Swipe actions are separate circles with captions underneath, not iOS's full-height swipe-action buttons.",
+      "The header (unread count, message count and chips) stays pinned when scrolling and takes about a third of the screen. Rows slide under it with a hard edge.",
+      "'ON MY IPHONE' caption in the top-left of the navigation bar.",
+      "Custom floating capsule tab bar.",
+      "The message screen has an initials avatar, a 'To: You' line and a 'Mark as unread' text pill, which looks more like a web app than Mail.",
+      "The back button has no 'Inbox' label, and the title is the generic 'Message'."
+    ],
+    "scroll": "Slow drags and flings are smooth: no blank rows, rows don't pop in, and the large title collapses properly. Scroll position is kept after opening a message and coming back. The pinned header leaves a short visible list.",
+    "scores": {
+      "features": 9,
+      "platform": 6,
+      "polish": 8,
+      "overall": 6
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Newest first. Each row shows the sender, subject, a two-line preview and a relative date (time / weekday / M/D/YY), with a blue unread dot, a flag mark and a disclosure chevron, much like Mail."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Swiping left archives; swiping right toggles read/unread. The Archive screen opens from a toolbar button and lists archived messages."
+      },
+      {
+        "n": 3,
+        "status": "partial",
+        "note": "Flagging works from the message screen and the long-press menu, but not from a swipe or from the row itself. The filter menu (All / Unread Only / Flagged Only) works; the active filter only shows in the footer, and the title stays 'Inbox'."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Tapping a row pushes the message, and opening it marks it read. The screen has flag, unread and archive buttons."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Pull to refresh (and a refresh toolbar button) adds two new unread messages at the top."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "A footer shows 'N unread · M messages' and stays current."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Read, flagged and archived states and the refreshed messages survive a relaunch."
+      }
+    ],
+    "bugs": [
+      "When the list scrolls, the collapsed 'Inbox' title sits left-aligned on top of the list content and overlaps the rows passing under it.",
+      "There is a 'Refresh mail' button on the Archive screen too, which makes little sense there."
+    ],
+    "tells": [
+      "Swipe actions are circular buttons with the swiped row turning into a rounded grey card, not iOS's full-height swipe-action buttons.",
+      "The inline titles ('Message' on the message screen, and 'Inbox' when collapsed) sit left-aligned beside the back button instead of centred.",
+      "The unread count lives in a grey bar fixed above a bottom search field, which isn't how Mail lays it out. At the largest text size this bar takes about two lines of the screen.",
+      "At the largest text size the unread dot and flag line up with the preview instead of the sender.",
+      "No flag swipe action, although Mail has one."
+    ],
+    "scroll": "Smooth when dragged slowly and when flung: no blank or popping rows, with a scroll-edge blur under the bar. Position is kept after visiting a message. The collapsed title overlapping the content is the one jarring moment.",
+    "scores": {
+      "features": 8,
+      "platform": 7,
+      "polish": 7,
+      "overall": 7
+    }
+  },
+  "better": "B",
+  "why": "Both apps do everything the spec asks and keep state across relaunches. A is the more complete and carefully finished app, but it is skinned with a custom theme, chips, a capsule tab bar and a pinned header that does not look like iOS. B uses system menus, a system-looking list with a blue dot and chevrons, and Mail-like dates, so it is closer to a hand-built iPhone mail app, despite its collapsed-title overlap and its flag being only in the message screen and the long-press menu."
+}

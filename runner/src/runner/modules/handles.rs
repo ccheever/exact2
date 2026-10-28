@@ -54,7 +54,10 @@ impl<D: DataSource> Runner<D> {
                 None => return,
             },
         };
-        if self.substitute(&row)["handles"].is_object() {
+        // A member's answer carries handles too (LLP 1133.014 D12).
+        let members =
+            (self.members_of(&row).iter()).any(|(_, m)| self.substitute(m)["handles"].is_object());
+        if self.substitute(&row)["handles"].is_object() || members {
             let source = self.plan.str(self.plan.sources[row.source.0 as usize].name);
             let provisional = Provisional {
                 source: source.to_owned(),
@@ -68,7 +71,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The module name a data-code call's body names, `{"extension",
     /// "send"|"source"}`.
-    fn called(&self, body: &[u8]) -> Option<super::ModulesRow> {
+    pub(super) fn called(&self, body: &[u8]) -> Option<super::ModulesRow> {
         let v: Json = serde_json::from_slice(body).ok()?;
         let extension = v.get("extension")?.as_str()?;
         let declared = v["send"].as_str().or(v["source"].as_str())?;

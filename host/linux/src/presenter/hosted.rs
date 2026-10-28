@@ -459,6 +459,7 @@ impl<D: DataSource> Presenter<D> {
         }
         if focused {
             self.hold_input(Some(id)); // a finger on the field lets a hold of it go (presenter/held.rs)
+            self.touched();
         }
         // Under an open surface of the top layer the page is inert (LLP
         // 1115.001 D10): a field there is not given the focus, whatever

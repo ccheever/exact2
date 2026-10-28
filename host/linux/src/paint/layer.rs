@@ -2,7 +2,7 @@
 //! underlying values into a layer the backend keeps apart, so the reader
 //! moves and fades it every frame without the row being recorded again.
 
-use super::{border, gradient, Backend, Painter, Presented, Rect4, RunPaint, Shape};
+use super::{border, gradient, Backend, FrameTarget, Painter, Presented, Rect4, RunPaint, Shape};
 use crate::host::lower::{
     LOWER_COLOR, LOWER_DASH, LOWER_MOVE, LOWER_OPACITY, LOWER_R, LOWER_TRANSFORM,
 };
@@ -12,7 +12,7 @@ use exact_kernel::motion::motion_node;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Transform};
 
-/// Where a fully transparent subtree draws: nowhere.
+/// Walk geometry without drawing pixels, including fully transparent subtrees.
 pub(super) struct Unpainted;
 impl Backend for Unpainted {
     fn name(&self) -> &'static str {
@@ -38,7 +38,14 @@ impl Backend for Unpainted {
     fn pop_opacity(&mut self) {}
     fn pointer(&mut self, _: f32, _: f32) {}
     fn finish(&mut self) -> Result<Pixmap, String> {
-        Err("a transparent subtree has no frame".into())
+        Err("an unpainted walk has no pixels".into())
+    }
+    fn finish_for(&mut self, target: FrameTarget) -> Result<Option<Pixmap>, String> {
+        if target == FrameTarget::Geometry {
+            Ok(None)
+        } else {
+            self.finish().map(Some)
+        }
     }
 }
 

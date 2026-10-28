@@ -1272,6 +1272,61 @@ fn an_older_noop_picture_keeps_the_new_collection_seeks_completion() {
 }
 
 #[test]
+fn an_older_moving_picture_keeps_the_new_collection_seeks_completion() {
+    // As above, but the older picture moves (a seek to 200, painted, then retargeted to 400 on the same
+    // sequence): acknowledging 200 advances the newer target's base, and the copy `scrollend` keeps of it must
+    // follow, or the seek to 400 never completes.
+    let mut p = boot_source(
+        r#"component App
+  state order = ""
+  state ends = 0
+  action near
+    scrollIntoView("items", 2)
+  action jump
+    scrollIntoView("items", 4)
+  action moved(x: number, y: number)
+    order = `${order}s`
+  action ended
+    ends = ends + 1
+    order = `${order}e`
+  view
+    column
+      button "Near" testId="near" press=near
+      button "Jump" testId="jump" press=jump
+      list id="items" virtualized=true testId="port" width=200 height=100 scroll=moved scrollend=ended
+        for x in [0, 1, 2, 3, 4, 5, 6] key=x
+          box height=100
+"#,
+    );
+    assert_eq!(p.settle_collections(), None);
+    let a = p.display_frame().unwrap();
+    assert!(p.display_complete(&a));
+    p.pump(0.);
+    let port = named(&p, "port");
+    press(&mut p, "near", 0.);
+    assert_eq!(p.settle_collections(), None);
+    let previous = p.pending_model_scroll(port).unwrap();
+    let b = p.display_frame().unwrap();
+    press(&mut p, "jump", 0.);
+    assert_eq!(p.settle_collections(), None);
+    let newer = p.pending_model_scroll(port).unwrap();
+    assert_eq!(previous.sequence, newer.sequence);
+    assert!(p.display_complete(&b));
+    assert_eq!(
+        p.scroll_of(port).1,
+        200.,
+        "the older picture moved the offset"
+    );
+    p.pump(0.);
+    let c = p.display_frame().unwrap();
+    assert!(p.display_complete(&c));
+    assert_eq!(p.scroll_of(port).1, 400.);
+    p.pump(0.);
+    assert!(number(&p, "ends") >= 1., "the seek to 400 completes");
+    assert!(text(&p, "order").ends_with("e"), "{}", text(&p, "order"));
+}
+
+#[test]
 fn an_unacknowledged_jump_keeps_its_completion_when_layout_clamps_its_target() {
     let mut p = boot_source(
         r#"component App

@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Three square tiles per row, edge to edge with hairline gaps, newest first (600 tiles, '600 tiles · Newest first'). HSL colour with the emoji symbol centred."},
+      {"n": 2, "status": "pass", "note": "Filter button in the nav bar opens a native menu with 'All boards' plus ten boards and a checkmark; Night shows 58 tiles and the label and count update."},
+      {"n": 3, "status": "pass", "note": "Tapping a tile pushes a large view with title, board and 'Added October 26, 2026'. Swiping left and right moves between neighbours ('2 of 600'); there are also prev/next buttons. Swiping stays inside the active filter ('2 of 58')."},
+      {"n": 4, "status": "pass", "note": "There's a Like/Liked button plus a heart in the nav bar. The Liked tab shows the same grid with heart badges and updates right away."},
+      {"n": 5, "status": "pass", "note": "Select → circles on tiles, an 'N selected' count and Select All. Like and Delete buttons at the bottom act on the selection. Delete asks for confirmation in a native alert ('Delete 2 tiles?'); the count goes to 598."},
+      {"n": 6, "status": "pass", "note": "Likes, unlikes and the 2 deletions all survived a relaunch."}
+    ],
+    "bugs": [
+      "Entering select mode puts a '0 selected' line and a full-width Select All row above the grid, so the whole grid jumps down about 66 pt. A tap aimed at a tile can land in empty space."
+    ],
+    "tells": [
+      "Tiles are exposed to accessibility as Switches (value 0/1) rather than buttons or selectable images",
+      "The nav title text has a soft hyphen inside 'Mood­board' (visible in the accessibility label)",
+      "Select All is a full-width blue text row inside the content instead of a nav-bar button",
+      "Bulk Like/Delete are small grey pill icons floating above the tab bar, not a system bottom toolbar",
+      "The detail view has both a heart in the nav bar and a full-width Like button, plus web-style prev/next arrow buttons and a 'Swipe the tile to explore' hint",
+      "Otherwise very native: large title that collapses to an inline blurred bar, Liquid Glass tab bar, system menu and alert, push navigation with back button, system colours in dark mode, Dynamic Type scales everywhere"
+    ],
+    "scroll": "Smooth, native momentum and bounce with no blank or popping rows. The large title collapses into a translucent inline bar, and the scroll position is kept after visiting a tile.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Three per row, newest first, 600 tiles. The tiles are rounded cards with a 12 pt inset and gaps, so they don't strictly fill the width, but the grid spans the screen."},
+      {"n": 2, "status": "pass", "note": "A dark 'All boards ⌄' pill opens a native menu with All plus ten boards and a checkmark; Night shows 58 tiles."},
+      {"n": 3, "status": "pass", "note": "Tapping a tile opens a full-screen paging view with board, serif title and date. Swiping moves between neighbours ('2 / 600') and stays inside the active filter. Closes with X."},
+      {"n": 4, "status": "pass", "note": "There's a 'Like this tile'/'Liked' button. The Liked tab ('Your favorites.') shows the same grid with heart badges."},
+      {"n": 5, "status": "pass", "note": "Select → check circles, an 'N selected' count, Select all, and large Like/Delete buttons in a bottom panel. Delete asks for confirmation and then offers an Undo toast, which works."},
+      {"n": 6, "status": "pass", "note": "Likes, unlikes and deletions survived relaunch."}
+    ],
+    "bugs": [
+      "The '2 tiles deleted · Undo' toast never goes away on its own. It survived about ten minutes and several relaunches, covering the bottom row of the grid, and at the largest text size it covers a third of the screen.",
+      "Select mode hides the header and board filter, so the grid jumps up when entering select mode and you can't filter while selecting"
+    ],
+    "tells": [
+      "No navigation bar or large title: a hand-drawn header with a letter-spaced caps eyebrow ('FIND YOUR INSPIRATION'), a serif display title and a tagline. Nothing collapses on scroll, and the tiles slide under the status bar with no bar material.",
+      "Web/marketing look: serif headings, letter-spaced caps captions, a cream background, a dark custom pill as the filter control, and filler copy ('A LITTLE INSPIRATION, COLLECTED.')",
+      "The tab bar isn't exposed in the accessibility tree, so its Collection/Liked tabs can't be found by VoiceOver or by label",
+      "The detail view is a full-screen cover titled 'The collection' with a decorative, non-interactive grid icon in the nav bar, and a custom bottom pager bar with arrows",
+      "Small caps captions (NEWEST FIRST, SWIPE TO EXPLORE) and the detail emoji don't scale with Dynamic Type",
+      "Rounded inset card tiles rather than a Photos-style edge-to-edge grid"
+    ],
+    "scroll": "Momentum and bounce are smooth with no blank or popping rows, and the position is kept after closing a tile. But there's no collapsing bar, so content runs straight under the status bar, and the stuck undo toast permanently cuts off the bottom of the list.",
+    "scores": {"features": 9, "platform": 5, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements and persist correctly. B adds a nice undo for deletions. A looks and behaves like a stock iOS app: collapsing large title, push navigation, system toolbar items and colours. B is a custom-styled, web-like design with no navigation bar, an inaccessible tab bar, and an undo toast that never goes away."
+}

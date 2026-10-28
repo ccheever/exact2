@@ -13,6 +13,9 @@ use tiny_skia::Transform;
 
 #[path = "island.rs"]
 mod island;
+#[cfg(test)]
+#[path = "symbol_tests.rs"]
+mod symbol_tests;
 
 /// What a fill or a stroke paints with.
 pub enum Ink<'a> {
@@ -119,14 +122,16 @@ impl Painter {
     /// A portable symbol role (LLP 1035.004 D1) as the web draws it: the
     /// role's path in a 24-unit box at the image's font size, placed by
     /// `object-fit`, stroked `1.1 + (weight − 100) / 400` units with round
-    /// caps and joins (a `-fill` role filled even-odd), in its tint, which
-    /// starts as `AccentColor`. An icon token draws its path under its viewBox, filled (LLP 1121
+    /// caps and joins (a `-fill` role filled even-odd), in `ink` (its
+    /// presented `color`, or a list sheet's tint) or else its computed `color`
+    /// (LLP 1081 stage 2).
+    /// An icon token draws its path under its viewBox, filled (LLP 1121
     /// D10); an `sf/` name that is no role's Apple name stays an empty box (LLP 1035.004.000 D4).
     pub(super) fn symbol(
         &mut self,
         node: &NodeRef<'_>,
         content: Rect4,
-        tint: Option<[u8; 4]>,
+        ink: Option<[u8; 4]>,
         ts: Transform,
     ) {
         let Some(role) = node
@@ -147,14 +152,7 @@ impl Painter {
         let Some(rect) = super::object_fit(natural, fit, content) else {
             return;
         };
-        let colour = tint.unwrap_or_else(|| {
-            rgba(
-                style
-                    .tint_color
-                    .unwrap_or_else(|| node.text_color())
-                    .resolve(self.dark),
-            )
-        });
+        let colour = ink.unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)));
         let face = node.computed_style(exact_kernel::StyleMask::of(
             exact_kernel::StyleId::FontWeight,
         ));
@@ -170,8 +168,9 @@ impl Painter {
         colour: [u8; 4],
         ts: Transform,
     ) {
-        // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
-        let Some(path) = exact_kernel::symbol_path(role) else {
+        // A role (in this platform's shape), an icon token's form, or `sf/` a
+        // role's Apple name (LLP 1121 D10, LLP 1115.001 D14).
+        let Some(path) = exact_kernel::symbol_path_in(role, self.symbols) else {
             return;
         };
         self.glyph_face(path, style, rect, colour, ts);

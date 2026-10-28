@@ -68,6 +68,9 @@ pub struct Work {
     pub later: bool,
     /// Refused answers by resource index since measuring began (LLP 1142 D4).
     pub failures: Vec<Failures>,
+    /// Asks of the app's data source by resource index since measuring
+    /// began: `perf`'s `resources` (LLP 1146 D3). Never rolled back.
+    pub asked: Vec<u64>,
     /// Current request and last successful request, only while measuring (LLP 1142 D9).
     pub resources: Vec<ResourceWork>,
     /// Next observation identifier; refusals never reuse one.
@@ -314,7 +317,18 @@ pub fn reply<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         let _ = write!(s, "\"kernelLayouts\":{count}");
     }
     s.push_str("},\"coverage\":\"virtual row operations by collection site; kernelLayouts only when the host reports actual entries\"}");
-    let _ = write!(s, ",\"walked\":{walked},\"truncated\":{truncated}}}");
+    // Each resource the data source was asked for, and how often (LLP 1146 D3).
+    s.push_str(",\"resources\":[");
+    let asked = ids.work.asked.iter().enumerate().filter(|(_, n)| **n > 0);
+    for (i, (r, n)) in asked.enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str("{\"name\":");
+        quote(plan.str(plan.resources[r].name), &mut s);
+        let _ = write!(s, ",\"asked\":{n}}}");
+    }
+    let _ = write!(s, "],\"walked\":{walked},\"truncated\":{truncated}}}");
     s
 }
 

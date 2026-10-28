@@ -656,7 +656,9 @@ impl Machine {
         let Some((transport, fetch)) = &self.transports[lane] else {
             return refuse(failed(FailureKind::Refused, self.unbound.clone()));
         };
-        let (transport, fetch) = (transport.clone(), scoped.unwrap_or_else(|| fetch.clone()));
+        let fetch =
+            super::reach::gate_fetch(scoped.unwrap_or_else(|| fetch.clone()), request.reach);
+        let transport = transport.clone();
         let limit = match request.http {
             HttpScheduling::Ordered => MAX_BODY,
             HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,

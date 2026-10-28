@@ -65,6 +65,67 @@ final class BoxFilterTests: XCTestCase {
         return ["p": .array(program.map(BatchValue.number))]
     }
 
+    /// `drop-shadow(dx dy σ rgba)` as `box_filter` encodes it: the region
+    /// how far past the box it reaches, the subregion the same.
+    private func dropShadow(dx: Double, dy: Double, sigma: Double, rgba: [Double], darkRGBA: [Double]? = nil) -> BatchValue {
+        func program(_ c: [Double]) -> [Double] {
+            let reach = 3 * sigma
+            let region = [-reach + min(dx, 0), -reach + min(dy, 0), 2 * reach + abs(dx), 2 * reach + abs(dy)]
+            return region + [1, 6, -1, -3] + region + [0, sigma, sigma, dx, dy] + c
+        }
+        var o: [String: BatchValue] = ["p": .array(program(rgba).map(BatchValue.number))]
+        if let darkRGBA { o["pd"] = .array(program(darkRGBA).map(BatchValue.number)) }
+        return .object(o)
+    }
+
+    #if os(iOS) || os(tvOS)
+    /// A lone `drop-shadow()` is the box's own layer shadow: no picture,
+    /// no mask hiding the box, nothing to draw again after a batch. A box
+    /// that clips, which would clip its layer's shadow, and a chain of more
+    /// than the shadow are pictured.
+    func testALoneDropShadowIsTheLayersShadow() throws {
+        let box = node(1)
+        box.applyStyle(["filter": dropShadow(dx: 0, dy: 2, sigma: 2, rgba: [0, 0, 0, 0.6])])
+        p.boxFilters.render()
+        XCTAssertNotNil(box.boxFilter)
+        XCTAssertNil(box.boxFilter?.picture.superlayer, "no picture stands in for the box")
+        XCTAssertNil(box.layer.mask, "the box itself shows")
+        XCTAssertEqual(box.layer.shadowRadius, 2, "Core Animation's radius is the σ")
+        XCTAssertEqual(box.layer.shadowOffset, CGSize(width: 0, height: 2))
+        XCTAssertEqual(box.layer.shadowOpacity, 0.6, accuracy: 0.001)
+        XCTAssertEqual(box.layer.shadowColor?.components?.prefix(3).map { Double($0) }, [0, 0, 0])
+
+        box.overrideUserInterfaceStyle = .dark
+        box.updateTraitsIfNeeded()
+        XCTAssertTrue(box.drawsDark)
+        box.applyStyle(["filter": dropShadow(dx: 0, dy: 0, sigma: 1, rgba: [0, 0, 0, 1], darkRGBA: [1, 1, 1, 1])])
+        XCTAssertEqual(box.layer.shadowColor?.components?.prefix(3).map { Double($0) }, [1, 1, 1], "the dark appearance's colour")
+        box.overrideUserInterfaceStyle = .unspecified
+        box.updateTraitsIfNeeded()
+
+        box.applyStyle(["filter": try filter()])
+        XCTAssertNotNil(box.boxFilter?.picture.superlayer, "a chain of more than the shadow is pictured")
+        XCTAssertEqual(box.layer.shadowOpacity, 0, "and the layer casts none")
+        XCTAssertTrue(box.layer.mask === box.boxFilter?.hide)
+
+        let shadow = dropShadow(dx: 0, dy: 2, sigma: 2, rgba: [0, 0, 0, 0.6])
+        box.applyStyle(["filter": shadow, "overflow_x": "hidden", "overflow_y": "hidden"])
+        p.boxFilters.render()
+        XCTAssertTrue(box.layer.masksToBounds)
+        XCTAssertNotNil(box.boxFilter?.picture.superlayer, "a box that clips is pictured, its shadow past its bounds")
+        XCTAssertEqual(box.layer.shadowOpacity, 0)
+
+        box.applyStyle(["filter": shadow])
+        p.boxFilters.render()
+        XCTAssertNil(box.boxFilter?.picture.superlayer)
+        XCTAssertEqual(box.layer.shadowOpacity, 0.6, accuracy: 0.001)
+        box.applyStyle([:])
+        XCTAssertTrue(p.boxFilters.isEmpty)
+        XCTAssertEqual(box.layer.shadowOpacity, 0, "an unfiltered box casts nothing")
+        XCTAssertNil(box.layer.mask)
+    }
+    #endif
+
     private func picture(_ node: NodeView) throws -> CGImage {
         try XCTUnwrap(node.boxFilter?.picture.sublayers?.first?.contents) as! CGImage
     }
@@ -87,7 +148,7 @@ final class BoxFilterTests: XCTestCase {
             for (i, corner) in corners.enumerated() { style["border_radius_" + corner] = .number(selected & (1 << i) == 0 ? 0 : 16) }
             box.applyStyle(style)
             window.displayIfNeeded()
-            box.renderFilter()
+            box.renderFilter(); settle()
             let image = try picture(box)
             let alpha = try [(1,1), (38,1), (38,38), (1,38)].map { try pixel(image, x: $0.0, y: $0.1)[3] }
             XCTAssertEqual(alpha, (0..<4).map { selected & (1 << $0) == 0 ? 255 : 0 }, "corners \(selected)")
@@ -105,7 +166,7 @@ final class BoxFilterTests: XCTestCase {
                 if filtered { style["filter"] = effect }
                 box.applyStyle(style)
                 window.displayIfNeeded()
-                if filtered { box.renderFilter(); return try picture(box) }
+                if filtered { box.renderFilter(); settle(); return try picture(box) }
                 return try XCTUnwrap(Capture.picture(of: XCTUnwrap(box.layer), size: box.bounds.size, scale: 1))
             }
             let reduced = try render(radius: 20), oversized = try render(radius: 999)
@@ -135,7 +196,7 @@ final class BoxFilterTests: XCTestCase {
                     #if os(macOS)
                     window.displayIfNeeded()
                     #endif
-                    box.renderFilter()
+                    box.renderFilter(); settle()
                     let image = try picture(box)
                     let alpha = try [(1,1), (38,1), (38,38), (1,38)].map { try pixel(image, x: $0.0, y: $0.1)[3] }
                     XCTAssertEqual(alpha, (0..<4).map { selected & (1 << $0) == 0 ? 255 : 0 }, "corners \(selected), border \(bordered), clip \(clipped)")
@@ -147,6 +208,43 @@ final class BoxFilterTests: XCTestCase {
     }
 
     #endif
+
+    /// A batch draws a box's picture again only when it touched the box or
+    /// something in it, or the box's size changed; otherwise the picture
+    /// follows the box. A picture after the first is drawn off the main
+    /// thread, the old one showing until it lands.
+    func testABoxIsDrawnAgainOnlyWhenWhatItShowsChanged() throws {
+        let box = node(1)
+        _ = node(2, in: box); _ = node(3)
+        box.applyStyle(["background_color": [255,0,0,255], "filter": try filter()])
+        #if os(macOS)
+        window.displayIfNeeded()
+        box.renderFilter()
+        #endif
+        settle()
+        let first = try picture(box)
+        p.touched(3)
+        p.boxFilters.render()
+        XCTAssertFalse(p.boxFilters.drawing, "a batch that touched nothing in it draws nothing")
+        box.frame.origin = CGPoint(x: 10, y: 20)
+        p.boxFilters.render()
+        XCTAssertFalse(p.boxFilters.drawing)
+        XCTAssertTrue(try picture(box) === first)
+        let moved: CALayer? = box.layer
+        XCTAssertEqual(box.boxFilter?.picture.position, moved?.position, "a box that moved is followed")
+        p.touched(2)
+        p.boxFilters.render()
+        XCTAssertTrue(p.boxFilters.drawing, "a change inside it draws it again, off the main thread")
+        XCTAssertTrue(try picture(box) === first, "the old picture shows until the new one lands")
+        settle()
+        let second = try picture(box)
+        XCTAssertFalse(second === first)
+        XCTAssertEqual(try pixel(second, x: 20, y: 20), [255,0,0,255])
+        box.frame.size = CGSize(width: 50, height: 40)
+        p.boxFilters.render()
+        settle()
+        XCTAssertFalse(try picture(box) === second, "so does a new size")
+    }
 
     func testAnImageDecodeUpdatesItsFilteredAncestorWithoutABatch() throws {
         let outer = node(3), box = node(1, in: outer), image = node(2, kind: "image", in: box)
@@ -173,16 +271,18 @@ final class BoxFilterTests: XCTestCase {
         let end = Date(timeIntervalSinceNow: 20)
         while image.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
         XCTAssertNotNil(image.raster)
-        drainPublication()
+        settle()
         let after = try picture(box)
         XCTAssertFalse(before === after)
         XCTAssertEqual(try pixel(after, x: 20, y: 20), [255,0,0,255])
         XCTAssertEqual(try pixel(picture(outer), x: 20, y: 20), [255,0,0,255], "inner pictures publish before their ancestors")
     }
-    private func drainPublication() {
-        let published = expectation(description: "queued paint publication")
-        DispatchQueue.main.async { published.fulfill() }
-        wait(for: [published], timeout: 20)
+    /// Every picture drawn and landed: a box's first on screen is drawn
+    /// in place, any later one off the main thread.
+    private func settle() {
+        let end = Date(timeIntervalSinceNow: 20)
+        repeat { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) } while p.boxFilters.drawing && Date() < end
+        XCTAssertFalse(p.boxFilters.drawing)
     }
 
     func testALateTextRasterUpdatesItsFilteredAncestorWithoutABatch() throws {
@@ -209,7 +309,7 @@ final class BoxFilterTests: XCTestCase {
         #else
         text.showTextRaster(result, for: key)
         #endif
-        drainPublication()
+        settle()
         let after = try picture(box)
         XCTAssertFalse(before === after)
         let bytes = try XCTUnwrap(after.dataProvider?.data)

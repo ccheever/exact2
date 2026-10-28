@@ -1,0 +1,54 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All contacts sorted by last name, in lettered sections with counts, plus a star-to-Z section index that jumps cleanly. The first row lands fully visible below the sticky header."},
+      {"n": 2, "status": "pass", "note": "Top search field filters by name, company ('umbra'), phone (digits '9266190' or '926-6190') and email as you type. Shows a result count and an empty state; Clear/Close restore the full list."},
+      {"n": 3, "status": "pass", "note": "Details show avatar, name, company, phone, email and birthday (only when known), with Call/Email buttons. Phone and email are tinted and exposed as buttons."},
+      {"n": 4, "status": "pass", "note": "Add to / Remove from Favorites toggles on the details screen. Favorites appear at the top as a horizontal card carousel, sorted, with a count; rows also get a star."},
+      {"n": 5, "status": "pass", "note": "Sheet form with first, last, company, phone and email. Save stays disabled with an inline hint until a first or last name is entered. Edit uses the same form; the focused field scrolls above the keyboard."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete on list rows and Delete Contact on the details screen; both confirm with an alert."},
+      {"n": 7, "status": "pass", "note": "Added, edited and deleted contacts and favorite changes survive relaunch."}
+    ],
+    "bugs": [
+      "Search result count says '1 results'.",
+      "The swipe-to-delete button is partly covered by the section index, which stays on top of the swiped row."
+    ],
+    "tells": [
+      "Heavily custom branded look: beige/green palette, tinted dark mode, coloured initials avatars, card-style favorites carousel. It reads as a designed app, not a stock iOS list.",
+      "Inline small title instead of a large 'Contacts' title; a decorative '320 people. One place. • ON DEVICE' banner row sits in the list.",
+      "The section index sits on a pill background and overlaps the favorites carousel (the 4th card shows through under the letters).",
+      "Swipe-to-delete action is a green rounded pill instead of the system red destructive action.",
+      "At the largest text size the search pill grows huge while its placeholder stays tiny. Row and field icons (phone, envelope, star, gift) do not scale.",
+      "At the largest text size the email breaks as 'example.-com', inserting a hyphen inside the domain, and the phone wraps between '(785)' and '851-9456'."
+    ],
+    "scroll": "Smooth slow drags and flings with no blank or popping rows. Sticky section headers blur over content, the pull past the top bounces normally, and scroll position holds (about 13pt nudge) on returning from details.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Sorted lettered sections, a large title and a working star-to-Z index. But after an index jump the first contact of the section sits under the sticky header and can't be tapped (tapping it hits the header) until you scroll."},
+      {"n": 2, "status": "partial", "note": "Filtering by name, company, phone ('9266190', '(340) 926') and email works, with a 'No Results' state and clearing restores the list. However, the bottom-toolbar search field stays behind the keyboard while typing: you can't see your query or reach its clear/close buttons, and scrolling doesn't dismiss the keyboard (only Return does)."},
+      {"n": 3, "status": "pass", "note": "Inset grouped details with avatar, name, company, phone, email and birthday when known. Phone and email are system-blue tappable rows."},
+      {"n": 4, "status": "pass", "note": "Add to / Remove from Favorites on the details screen. Favorites appear as a starred section at the top of the list."},
+      {"n": 5, "status": "pass", "note": "Native-looking grouped form with the correct email keyboard. Done stays disabled with the hint 'Enter a first or last name to save'. Edit works the same way."},
+      {"n": 6, "status": "partial", "note": "Delete from details (with alert) works, and long-press on a row gives a context-menu Delete. There is no swipe-to-delete: a horizontal swipe on a row just opens the contact."},
+      {"n": 7, "status": "pass", "note": "Added, edited and deleted contacts and favorite changes survive relaunch."}
+    ],
+    "bugs": [
+      "The bottom search field is hidden behind the keyboard while typing, so the query, clear button and close button can't be seen or tapped.",
+      "After a section-index jump, the section's first row is covered by the pinned header and taps on it hit the header.",
+      "No swipe-to-delete on list rows; swiping a row opens it instead."
+    ],
+    "tells": [
+      "Missing trailing swipe actions on contact rows, which every iOS list user expects.",
+      "Keyboard doesn't dismiss on scroll, and the bottom search bar doesn't rise above the keyboard as the system one does.",
+      "Section header overlaps the first row after an index jump (wrong content inset under the pinned header).",
+      "At the largest text size the phone number wraps between '(946)' and '389-8378', and list rows look cramped with text touching the separators.",
+      "Otherwise very close to stock: large title, system-blue index, inset grouped details, standard colours in light and dark."
+    ],
+    "scroll": "Smooth drags and flings, no blank or popping rows, normal bounce at the top, and position kept (about 14pt nudge) on returning. Index jumps hide the first row under the sticky header.",
+    "scores": {"features": 6, "platform": 7, "polish": 5, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement in some form and both persist changes. A has no functional flaws beyond a '1 results' typo, while B's search field is hidden behind the keyboard, its index jumps bury the first row under the header, and it lacks swipe-to-delete. B looks more like stock iOS, but A is the one that works properly and I'd ship it, despite its custom branded styling and a green delete pill partly covered by the index."
+}

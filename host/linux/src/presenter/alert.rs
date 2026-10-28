@@ -1,14 +1,38 @@
-//! Desktop Neutral confirmations. Admission shares the windowed shape reader;
-//! layout and action order remain the authored tree (LLP 1115.000 D13.4, D17).
+//! Authored desktop top-layer boxes, laid out and painted as ordinary subtrees.
+//! Alerts keep their title prefix; dialogs add a scrim; popovers anchor to an invoker.
 use super::*;
 use exact_kernel::{BlockAxis, HostBlock, NodeKey};
+use std::collections::BTreeSet;
 
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Kind {
+    Alert,
+    Dialog,
+    Popover,
+}
+
+impl Kind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Alert => "alert",
+            Self::Dialog => "dialog",
+            Self::Popover => "popover",
+        }
+    }
+}
 pub(super) struct Open {
+    kind: Kind,
+    modal: bool,
+    invoker: Option<ViewId>,
+    anchor: Option<Rect4>,
+    reading_anchor: bool,
+    point: Option<(f32, f32)>,
     serial: u32,
     key: NodeKey,
-    restore: Option<NodeKey>,
+    pub(super) restore: Option<NodeKey>,
     title: Option<(String, Rect4)>,
     measured: Option<Inputs>,
+    placement: top::area::History,
 }
 #[derive(PartialEq)]
 struct Inputs {
@@ -21,6 +45,7 @@ struct Inputs {
     fonts: usize,
     dark: bool,
     scroll: (f32, f32),
+    anchor: Option<Rect4>,
 }
 impl<D: DataSource> Presenter<D> {
     fn alert_scroll(&self, id: ViewId) -> (f32, f32) {
@@ -43,7 +68,7 @@ impl<D: DataSource> Presenter<D> {
             .and_then(|a| self.host.kernel().node_by_key(a.key))
             .map(|n| n.id)
     }
-    pub(super) fn alert_allows(&self, id: ViewId) -> bool {
+    pub(crate) fn alert_allows(&self, id: ViewId) -> bool {
         let Some(open) = &self.alert else {
             return true;
         };
@@ -60,71 +85,119 @@ impl<D: DataSource> Presenter<D> {
         self.alert
             .as_ref()
             .filter(|open| open.key == target)
-            .map(|_| true)
+            .map(|open| open.modal)
     }
-    fn alert_admitted(&self, id: ViewId) -> bool {
+    fn alert_kind(&self, id: ViewId, modal: bool) -> Option<Kind> {
         let k = self.host.kernel();
-        !self.host.route_visibility(id).1
-            && top::shape::neutral_alert(k, id, &|id| {
-                self.host
-                    .runner()
-                    .handlers_of(id)
-                    .contains(&EventKind::Press)
-            })
+        let n = k.node(id)?;
+        if n.props.bool(PropId::Inert) == Some(true)
+            || n.parent.is_some_and(|p| self.host.route_visibility(p).1)
+        {
+            return None;
+        }
+        if !modal {
+            return (n.props.str(PropId::Popover).is_some()
+                && (!self.neutral_alerts()
+                    || n.props.str(PropId::AccessibilityRole) != Some("menu")))
+            .then_some(Kind::Popover);
+        }
+        if n.props.str(PropId::SemanticTag) != Some("dialog")
+            || n.props.get(PropId::NavigationKey).is_some()
+        {
+            return None;
+        }
+        Some(
+            if n.props.str(PropId::AccessibilityRole) == Some("alertdialog") {
+                Kind::Alert
+            } else {
+                Kind::Dialog
+            },
+        )
     }
     pub(super) fn alert_present(
         &mut self,
         target: Option<NodeKey>,
         name: &str,
         invoker: Option<ViewId>,
+        point: Option<(f32, f32)>,
+        modal: bool,
         now: f64,
     ) -> bool {
         let node = target.and_then(|key| self.host.kernel().node_by_key(key));
-        let Some((id, key)) = node
-            .map(|n| (n.id, n.key))
-            .filter(|(id, _)| self.alert_admitted(*id))
+        let Some((id, key, kind)) =
+            node.and_then(|n| self.alert_kind(n.id, modal).map(|kind| (n.id, n.key, kind)))
         else {
-            self.host.log(format!("showModal {name:?} refused: this host presents only alert-shaped alertdialog confirmations"));
+            if !modal && self.neutral_alerts() {
+                self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
+            } else {
+                self.host.log(format!(
+                    "showModal {name:?} refused: no available dialog has that id"
+                ));
+            }
             return false;
         };
         if self.alert.as_ref().is_some_and(|a| a.key == key) {
             return true;
         }
-        if self.host.kernel().host_block(id).is_some()
-            || self
-                .host
-                .kernel()
-                .arena()
-                .slot_of(id)
-                .is_some_and(|s| self.host.kernel().arena().cover(s).is_some())
+        if modal
+            && (self.host.kernel().host_block(id).is_some()
+                || self
+                    .host
+                    .kernel()
+                    .arena()
+                    .slot_of(id)
+                    .is_some_and(|s| self.host.kernel().arena().cover(s).is_some()))
         {
             self.host
                 .log("showModal refused: dialog already has a host container");
             return false;
         }
-        self.alert_close(now);
-        let restore = self
-            .focus
-            .or(invoker)
-            .and_then(|id| self.host.kernel().node(id).map(|n| n.key));
+        let anchor = invoker.and_then(|id| self.box_of(id)).map(|b| b.rect);
+        let restore = self.replace_surface(invoker, now);
         if let Err(e) = self.pointer_cancel(now) {
             self.host.log(e);
         }
         if let Some(e) = self.set_focus(None, now) {
             self.host.log(e);
         }
+        // A surface presented by a synchronous blur handler owns focus and paint.
+        if self.top_open() {
+            return false;
+        }
         // A blur handler can destroy or replace the dialog.
-        if self.host.kernel().node_by_key(key).is_none() || !self.alert_admitted(id) {
+        if self.host.kernel().node_by_key(key).is_none() || self.alert_kind(id, modal) != Some(kind)
+        {
+            let restore = restore
+                .and_then(|key| self.host.kernel().node_by_key(key))
+                .map(|node| node.id)
+                .filter(|id| self.focusable(*id) && self.focus_refusal(*id).is_none());
+            if let Some(e) = self.set_focus(restore, now) {
+                self.host.log(e);
+            }
             return false;
         }
         let serial = self.next_surface_serial();
         self.alert = Some(Open {
+            kind,
+            modal,
+            invoker,
+            anchor,
+            reading_anchor: false,
+            point,
             serial,
             key,
             restore,
             title: None,
             measured: None,
+            placement: top::area::History::default(),
         });
+        if !modal {
+            if let Err(e) = self.host.show_authored_popover(Some(id)) {
+                self.host.log(e);
+                self.alert_close(now);
+                return false;
+            }
+        }
         if let Err(e) = self.alert_layout() {
             self.host.log(e);
             self.alert_close(now);
@@ -133,7 +206,7 @@ impl<D: DataSource> Presenter<D> {
         self.dirty = true;
         // An attached display still has the page's previous boxes. Initial
         // dialog focus follows its new layout before that picture is acknowledged.
-        let boxed = self
+        let boxed: BTreeSet<ViewId> = self
             .host
             .preorder()
             .into_iter()
@@ -145,9 +218,30 @@ impl<D: DataSource> Presenter<D> {
                     .is_some_and(|n| n.frame.width > 0. && n.frame.height > 0.)
             })
             .collect();
-        if let Some(e) = self.move_focus_in(false, now, &boxed) {
+        let autofocus = self.host.preorder().into_iter().find(|id| {
+            boxed.contains(id)
+                && self.focusable(*id)
+                && self.focus_refusal(*id).is_none()
+                && self
+                    .host
+                    .kernel()
+                    .node(*id)
+                    .is_some_and(|n| n.props.bool(PropId::Autofocus) == Some(true))
+        });
+        let error = match autofocus {
+            Some(id) => self.set_focus(Some(id), now),
+            None => self.move_focus_in(false, now, &boxed),
+        };
+        if let Some(e) = error {
             self.host.log(e);
         }
+        // HTML's dialog focusing steps fall back to the dialog itself.
+        if self.focus.is_none() && self.alert.as_ref().is_some_and(|a| a.serial == serial) {
+            if let Some(e) = self.set_focus(Some(id), now) {
+                self.host.log(e);
+            }
+        }
+        self.queue_toggle(key, true);
         self.back_changed();
         true
     }
@@ -157,6 +251,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(open) = self.alert.take() else {
             return;
         };
+        self.queue_surface_closed(open.key, open.modal);
         if let Err(e) = self.pointer_cancel(now) {
             self.host.log(e);
         }
@@ -165,11 +260,20 @@ impl<D: DataSource> Presenter<D> {
             if let Some(node) = self.host.kernel().node_by_key(open.key) {
                 let id = node.id;
                 let k = self.host.runner_mut().kernel_mut();
-                let _ = k.set_alert_prefix(id, false);
-                let _ = k.set_host_block(id, None);
+                if open.kind == Kind::Alert {
+                    let _ = k.set_alert_prefix(id, false);
+                }
+                if open.modal {
+                    let _ = k.set_host_block(id, None);
+                }
                 if let Err(e) = self.host.layout() {
                     self.host.log(e);
                 }
+            }
+        }
+        if !open.modal && self.alert.as_ref().is_none_or(|a| a.modal) {
+            if let Err(e) = self.host.show_authored_popover(None) {
+                self.host.log(e);
             }
         }
         // A new opening owns its own paint and focus.
@@ -195,11 +299,16 @@ impl<D: DataSource> Presenter<D> {
         let Some(root) = self.alert_root() else {
             return false;
         };
-        if self
-            .host
-            .kernel()
-            .node(root)
-            .is_some_and(|node| node.props.str(PropId::Closedby) != Some("none"))
+        let open = self.alert.as_ref().unwrap();
+        let (serial, modal) = (open.serial, open.modal);
+        if self.host.kernel().node(root).is_some_and(|node| {
+            if modal {
+                node.props.str(PropId::Closedby) != Some("none")
+            } else {
+                node.props.str(PropId::Popover) != Some("manual")
+            }
+        }) && (!modal || !self.dialog_close_prevented(root, now))
+            && self.alert.as_ref().is_some_and(|a| a.serial == serial)
         {
             self.alert_close(now);
         }
@@ -209,7 +318,11 @@ impl<D: DataSource> Presenter<D> {
         if self.alert.is_none() {
             return;
         }
-        if self.alert_root().is_none_or(|id| !self.alert_admitted(id)) {
+        let open = self.alert.as_ref().unwrap();
+        if self
+            .alert_root()
+            .is_none_or(|id| self.alert_kind(id, open.modal) != Some(open.kind))
+        {
             self.alert_close(self.host.now());
             return;
         }
@@ -222,33 +335,56 @@ impl<D: DataSource> Presenter<D> {
         let Some(id) = self.alert_root() else {
             return Ok(());
         };
+        let open = self.alert.as_ref().unwrap();
+        if open.reading_anchor {
+            return Ok(());
+        }
+        if let Some(invoker) = open.invoker.filter(|_| !open.modal && open.point.is_none()) {
+            // box_of may paint fresh geometry, which synchronizes this surface again.
+            self.alert.as_mut().unwrap().reading_anchor = true;
+            // An attached display keeps its old hit boxes until acknowledgement.
+            // During submission, place against the page being painted instead.
+            if self.display.submitting() {
+                let _ = self.frame_for(crate::paint::FrameTarget::Geometry);
+            }
+            let anchor = self.box_of(invoker).map(|b| b.rect);
+            let Some(open) = self.alert.as_mut() else {
+                return Ok(());
+            };
+            open.reading_anchor = false;
+            open.anchor = anchor.or(open.anchor);
+        }
         if self.alert.as_ref().and_then(|a| a.measured.as_ref()) == self.alert_inputs(id).as_ref() {
             return Ok(());
         }
-        // Desktop covers are otherwise owned only by the bars path, excluded
-        // at admission. Neither the cover nor block writes authored rows.
-        self.host
-            .runner_mut()
-            .kernel_mut()
-            .set_host_block(
-                id,
-                Some(HostBlock {
-                    width: BlockAxis::Fit(self.viewport.0),
-                    height: BlockAxis::Fit(self.viewport.1),
-                }),
-            )
-            .map_err(|e| format!("alert block: {e:?}"))?;
+        let (kind, modal) = self.alert.as_ref().map(|a| (a.kind, a.modal)).unwrap();
+        if modal {
+            self.host
+                .runner_mut()
+                .kernel_mut()
+                .set_host_block(
+                    id,
+                    Some(HostBlock {
+                        width: BlockAxis::Fit(self.viewport.0),
+                        height: BlockAxis::Fit(self.viewport.1),
+                    }),
+                )
+                .map_err(|e| format!("top-layer block: {e:?}"))?;
+        }
         let label = self
             .host
             .kernel()
             .node(id)
+            .filter(|_| kind == Kind::Alert)
             .and_then(|node| node.props.str(PropId::AccessibilityLabel))
             .map(str::to_owned);
-        self.host
-            .runner_mut()
-            .kernel_mut()
-            .set_alert_prefix(id, label.is_some())
-            .map_err(|e| format!("alert title: {e:?}"))?;
+        if kind == Kind::Alert {
+            self.host
+                .runner_mut()
+                .kernel_mut()
+                .set_alert_prefix(id, label.is_some())
+                .map_err(|e| format!("alert title: {e:?}"))?;
+        }
         self.host.layout()?;
         let k = self.host.kernel();
         let node = k.node(id).ok_or("alert removed during layout")?;
@@ -269,10 +405,24 @@ impl<D: DataSource> Presenter<D> {
             .node_by_key(key)
             .ok_or("alert removed during title layout")?;
         let f = node.frame;
-        let origin = (
-            (self.viewport.0 - f.width) / 2.,
-            (self.viewport.1 - f.height) / 2.,
-        );
+        let open = self.alert.as_ref().unwrap();
+        let origin = if let Some(point) = open.point {
+            top::area::at_point(point, (f.width, f.height), self.viewport)
+        } else if let Some(anchor) = open.anchor.filter(|_| !modal) {
+            top::area::origin(
+                &node.computed_style(exact_kernel::StyleMask::INHERITED),
+                &k.env(),
+                anchor,
+                (f.width, f.height),
+                self.viewport,
+                &mut self.alert.as_mut().unwrap().placement,
+            )
+        } else {
+            (
+                (self.viewport.0 - f.width) / 2.,
+                (self.viewport.1 - f.height) / 2.,
+            )
+        };
         let offset = (f.x - origin.0, f.y - origin.1);
         let dark = self.host.presented(id).dark.unwrap_or(self.dark());
         let scroll = self.alert_scroll(id);
@@ -298,8 +448,35 @@ impl<D: DataSource> Presenter<D> {
         if title.is_none() {
             self.alert.as_mut().unwrap().title = None;
         }
-        self.brush.alert = Some(crate::paint::AlertPicture { key, offset, title });
+        let scrim = modal.then(|| {
+            self.colors.contrast.palette.map_or_else(
+                || {
+                    if self.desktop_overlays() {
+                        [0, 0, 0, 77]
+                    } else {
+                        [
+                            0,
+                            0,
+                            0,
+                            (255.
+                                * crate::paint::look::number(
+                                    exact_kernel::generated::metric::SCRIM_ALPHA,
+                                ))
+                            .round() as u8,
+                        ]
+                    }
+                },
+                |p| [p.window[0], p.window[1], p.window[2], 204],
+            )
+        });
+        self.brush.alert = Some(crate::paint::AlertPicture {
+            key,
+            offset,
+            title,
+            scrim,
+        });
         self.alert.as_mut().unwrap().measured = self.alert_inputs(id);
+        self.dirty = true;
         Ok(())
     }
     fn alert_inputs(&self, id: ViewId) -> Option<Inputs> {
@@ -314,14 +491,17 @@ impl<D: DataSource> Presenter<D> {
             fonts: self.host.runner().runtime_font_count(),
             dark: self.host.presented(id).dark.unwrap_or(self.dark()),
             scroll: self.alert_scroll(id),
+            anchor: self.alert.as_ref()?.anchor,
         })
     }
     pub(crate) fn alert_message(&self, id: ViewId) -> bool {
-        self.alert_root().is_some_and(|root| {
-            self.host.kernel().node(id).is_some_and(|node| {
-                node.parent == Some(root) && node.props.str(PropId::AlertPart) == Some("message")
+        self.alert.as_ref().is_some_and(|a| a.kind == Kind::Alert)
+            && self.alert_root().is_some_and(|root| {
+                self.host.kernel().node(id).is_some_and(|node| {
+                    node.parent == Some(root)
+                        && node.props.str(PropId::AlertPart) == Some("message")
+                })
             })
-        })
     }
 
     pub(crate) fn alert_message_overflows(&self, id: ViewId) -> bool {
@@ -338,7 +518,26 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn alert_message_key(&mut self, name: &str) -> bool {
-        let Some(id) = self.focus.filter(|id| self.alert_message(*id)) else {
+        let Some(id) = self.focus.filter(|id| self.alert_message(*id)).or_else(|| {
+            (matches!(
+                name,
+                "ArrowLeft"
+                    | "ArrowRight"
+                    | "ArrowUp"
+                    | "ArrowDown"
+                    | "PageUp"
+                    | "PageDown"
+                    | "Home"
+                    | "End"
+            ) && !self.focus.is_some_and(|id| {
+                self.host
+                    .kernel()
+                    .node(id)
+                    .is_some_and(|n| n.node_type == NodeType::TextInput)
+            }))
+            .then(|| self.alert_root())
+            .flatten()
+        }) else {
             return false;
         };
         self.restore_scroll_anchors();
@@ -371,7 +570,7 @@ impl<D: DataSource> Presenter<D> {
         true
     }
 
-    pub(super) fn alert_key(&mut self, name: &str, now: f64) -> bool {
+    pub(super) fn alert_key(&mut self, name: &str, code: &str, repeat: bool, now: f64) -> bool {
         let Some(_) = self.alert_root() else {
             return false;
         };
@@ -379,7 +578,7 @@ impl<D: DataSource> Presenter<D> {
         let focus = self
             .focus
             .and_then(|id| self.host.kernel().node(id).map(|n| n.key));
-        let (error, prevented) = self.key_event(EventKind::Key, name, "", false, now);
+        let (error, prevented) = self.key_event(EventKind::Key, name, code, repeat, now);
         if let Some(error) = error {
             self.host.log(error);
         }
@@ -392,6 +591,25 @@ impl<D: DataSource> Presenter<D> {
                     != focus
         {
             return true;
+        }
+        if self.alert.as_ref().unwrap().kind != Kind::Alert {
+            if name == "Escape" {
+                self.alert_close_request(now);
+            } else {
+                self.key_default(name, code, repeat, now);
+            }
+            return true;
+        }
+        if !matches!(name, "Escape" | "Tab") {
+            if let Some(id) = self.focus.filter(|id| {
+                self.host
+                    .kernel()
+                    .node(*id)
+                    .is_some_and(|n| n.node_type == NodeType::TextInput)
+            }) {
+                self.field_key(id, name, now);
+                return true;
+            }
         }
         if self.alert_message_key(name) {
             return true;
@@ -417,18 +635,42 @@ impl<D: DataSource> Presenter<D> {
         }
         true
     }
+    /// Whether a press outside the open box closes it: a modal dialog's only
+    /// under `closedby="any"`, a popover's unless it is `manual`.
+    pub(super) fn alert_light_dismiss(&self) -> bool {
+        self.alert_root()
+            .and_then(|id| self.host.kernel().node(id))
+            .is_some_and(|n| {
+                if self.alert.as_ref().unwrap().modal {
+                    n.props.str(PropId::Closedby) == Some("any")
+                } else {
+                    n.props.str(PropId::Popover) != Some("manual")
+                }
+            })
+    }
     pub(super) fn alert_pointer(&mut self, x: f32, y: f32, now: f64) -> bool {
         if self.alert.is_none() || self.hit(x, y).is_some() {
             return false;
         }
-        if self
-            .alert_root()
-            .and_then(|id| self.host.kernel().node(id))
-            .is_some_and(|n| n.props.str(PropId::Closedby) == Some("any"))
-        {
-            self.alert_close(now);
+        if self.alert_light_dismiss() {
+            // The dismissing press is absorbed, including on the invoker:
+            // a second press opens it again (WinUI Flyout light dismiss).
+            self.alert_close_request(now);
         }
         true
+    }
+    /// The agent's `tap` on a node under the open box: a press outside it,
+    /// which dismisses it where a person's would and presses nothing.
+    pub(super) fn alert_outside_tap(&mut self, id: ViewId) -> Option<Result<String, String>> {
+        let serial = self.alert.as_ref()?.serial;
+        if self.alert_allows(id) || !self.alert_light_dismiss() {
+            return None;
+        }
+        self.alert_close_request(self.host.now());
+        let dismissed = (self.alert.as_ref().map(|a| a.serial) != Some(serial)).then_some(serial);
+        Some(Ok(
+            serde_json::json!({"tapped": id, "dismissed": dismissed}).to_string(),
+        ))
     }
     pub(crate) fn alert_json(&self) -> serde_json::Value {
         let Some(id) = self.alert_root() else {
@@ -445,6 +687,15 @@ impl<D: DataSource> Presenter<D> {
             .filter(|b| self.alert_allows(b.id))
             .map(|b| serde_json::json!({"id":b.id,"rect":b.rect}))
             .collect();
-        serde_json::json!({"kind":"alert", "node":id, "title":title, "rows":rows})
+        let open = self.alert.as_ref().unwrap();
+        serde_json::json!({"kind":open.kind.name(), "modal":open.modal, "node":id, "title":title, "rows":rows})
     }
 }
+
+#[cfg(test)]
+#[path = "alert_input_tests.rs"]
+mod input_tests;
+
+#[cfg(test)]
+#[path = "press_point_tests.rs"]
+mod press_point_tests;

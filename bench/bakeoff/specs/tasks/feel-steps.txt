@@ -1,0 +1,2 @@
+# The long lists are one tap in: All has every open task.
+tap "All"

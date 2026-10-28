@@ -1,0 +1,27 @@
+dev.bakeoff.podcasts.bbd9c85: SwiftUI.UpdateCoalescingCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 24.18 s of motion
+  ok    hitch ratio (ms/s)                     1.9
+  tell  longest frame (ms)                     44.5
+  ok    main thread p95 (ms/frame)             5.73
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       504
+  ok    momentum hand-off (content/asked)      1.04
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.83
+  ok    rubber band (overscroll/finger)        0.48
+  ok    rubber band settle (s)                 0.54
+  ok    status-bar scroll to top (s)           0.95
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              222.3
+  bad   scrub: longest frame (ms)              72.4
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  17 ok, 1 tell, 2 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 1.9):
+    slow-drag: 1 late frame (0 on a timer's tick), 18 ms late; app code 15 ms (in SwiftUI 8); in the main queue 15 ms
+    scrub-top: 1 late frame (0 on a timer's tick), 28 ms late; app code 23 ms (in SwiftUI 16) · SwiftUI 12 ms · text & drawing 4 ms; in display links and ports 27 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 33 late frames (0 on a timer's tick), 938 ms late; app code 1178 ms (in SwiftUI 589) · SwiftUI 220 ms · text & drawing 26 ms; in events 870 ms, display links and ports 345 ms, the main queue 13 ms, timers 2 ms

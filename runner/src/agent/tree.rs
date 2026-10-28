@@ -103,6 +103,12 @@ fn tree_rows<D: DataSource>(
         if runner.unopened_tabs().contains(&node.id) {
             s.push_str(",\"unopened\":true");
         }
+        // A status item is placed in the menu bar or tray, not the window,
+        // where the target has one (LLP 1133.025 D4); `tap` reaches it the
+        // same. Elsewhere the button is an ordinary button.
+        if runner.places_status_items() && crate::desktop::presents(node.props, "status") {
+            s.push_str(",\"presented\":\"status\"");
+        }
         s.push_str(",\"children\":");
         ids(&node.children(), &mut s);
         s.push('}');

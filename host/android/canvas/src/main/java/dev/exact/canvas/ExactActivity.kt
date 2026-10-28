@@ -57,8 +57,8 @@ open class ExactActivity : Activity() {
     protected open fun drive(scroll: (Float) -> Unit): Drive? = null
     private var driver: Drive? = null
     private lateinit var view: ExactView
-    /** Gamepads ([Pads]): every key and motion event is offered to them first. */
-    private val pads by lazy { Pads(this) }
+    /** The process's gamepads ([Pads]): every key and motion event is offered to them first. */
+    private val pads: Pads get() = Pads.attach(this)
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean = pads.key(event) || super.dispatchKeyEvent(event)
     override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean =
@@ -106,6 +106,23 @@ open class ExactActivity : Activity() {
         }
         setContentView(root)
         accessibility.addAccessibilityStateChangeListener(accessWatch)
+        // A launch with a URL (a shortcut, a link) into a process whose host runs goes where the URL says; one the
+        // system restores (a saved state) keeps where it was. The first launch's is the host's launch location
+        // ([environment]).
+        if (again && state == null) received(intent)
+    }
+
+    /** A URL or a share given to the running activity: its location, as a link's (LLP 1133.023 D15 item 3), or the
+     * share's (LLP 1133.024 D5; `singleTask` brings this task forward for it). */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        received(intent)
+    }
+
+    private fun received(intent: android.content.Intent) {
+        if (Shares.isShare(intent)) Shares.request(this, intent)?.let { Exact.share(it) }
+        else intent.data?.let { Exact.open(it.toString()) }
     }
 
     /** Whether an accessibility service is on (LLP 1115.001 D13). The reader answers one through its root
@@ -273,6 +290,7 @@ open class ExactActivity : Activity() {
                 val start = intent.getStringExtra("start")?.toIntOrNull() ?: 0
                 if (start > 0 && startPitchDp > 0f) view.scrollBy(start * startPitchDp * Device.scale(this))
                 driver?.contentReady()
+                Extensions.firstFrame()
             }
         }
         view.booting = booting
@@ -457,8 +475,11 @@ open class ExactActivity : Activity() {
     override fun onStop() {
         stopped = true
         Exact.hidden(true)
-        pads.blur()
+        if (reads()) pads.background()
         view.running(false, reads())
+        // Behind the hide, the pads' release and the stop of the turns (none queued after it), what they and anything
+        // since the pause committed is on disk before Android may kill it.
+        if (!Exact.drainStore()) android.util.Log.w("exact", "the store's writes did not finish before the stop")
         contentResolver.unregisterContentObserver(settings)
         super.onStop()
     }
@@ -472,6 +493,8 @@ open class ExactActivity : Activity() {
     }
 
     override fun onPause() {
+        // Everything committed before the pause is on disk (exact2 writes the store on a thread of its own).
+        if (!Exact.drainStore()) android.util.Log.w("exact", "the store's writes did not finish before the pause")
         Extensions.paused()
         super.onPause()
     }
@@ -490,7 +513,6 @@ open class ExactActivity : Activity() {
     }
 
     override fun onDestroy() {
-        pads.release()
         accessibility.removeAccessibilityStateChangeListener(accessWatch)
         requests.destroy()
         release()
@@ -521,6 +543,14 @@ open class ExactActivity : Activity() {
     /** The launch extras that reach exact2 as its environment, written before its library loads. */
     private fun environment() {
         android.system.Os.setenv("XDG_CACHE_HOME", cacheDir.absolutePath, true)
+        // Rust's `temp_dir` is TMPDIR, else /data/local/tmp, which an app cannot write. API 29 sets none, and a
+        // drive with no scratch store keeps its `app:/` files under it (`exact_linux::picker`).
+        android.system.Os.setenv("TMPDIR", cacheDir.absolutePath, false)
+        // The launching intent's URL is the launch location (LLP 1133.023 D15 item 3): the activity is exported, so
+        // any app may start it with one, which reaches only what the navigation root routes, as a link does.
+        intent.data?.takeUnless { Shares.isShare(intent) }?.let { android.system.Os.setenv("EXACT_LAUNCH_URL", it.toString(), true) }
+        // A share that starts the app is its launch location, claimed before the boot (LLP 1133.024 D5).
+        Shares.request(this, intent)?.let { android.system.Os.setenv("EXACT_SHARE", it, true) }
         // rows=0: no kept rows, every frame walks every row (exact2's EXACT_ROWS), to compare.
         if (intent.getStringExtra("rows") == "0") android.system.Os.setenv("EXACT_ROWS", "0", true)
         // imgvp=N: keep N viewports of decoded pictures (exact2's EXACT_IMAGE_VIEWPORTS; 12 by default).

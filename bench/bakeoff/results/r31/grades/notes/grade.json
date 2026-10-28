@@ -1,0 +1,43 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, newest first, with a Pinned section on top. Each row shows the title, a date (time today, weekday this week, otherwise M/D/YYYY) and a one-line preview of the body with its lines joined."},
+      {"n": 2, "status": "pass", "note": "The search field in the navigation bar filters by title and body on every keystroke (e.g. 'garden' matches notes whose bodies mention the garden). The toolbar count changes to 'N Found'."},
+      {"n": 3, "status": "pass", "note": "Tapping a row opens a Notes-style editor with a wrapping large title and the body. Edits save on Back with no Save button, and the note moves to the top of its section with a fresh time."},
+      {"n": 4, "status": "pass", "note": "The compose button in the bottom toolbar opens a blank note with the title focused, and Return moves to the body. An empty new note is discarded on Back (count stays 90); a non-empty one is kept (91)."},
+      {"n": 5, "status": "pass", "note": "Native swipe actions: a leading swipe pins or unpins (a full swipe pins at once) and a trailing swipe deletes. A long press gives a context menu with Pin/Unpin and Delete, and the editor's ⋯ menu has both too."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' is centred in the bottom toolbar, as in Apple Notes, and it updates on add and delete."},
+      {"n": 7, "status": "pass", "note": "An edit, an unpin and a delete all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "A search with no matches shows a completely blank list, with no 'No Results' empty state; only the toolbar says '0 Found'.",
+      "When returning from a new note, the list content settled about 17pt lower than at launch (Pinned header pushed down)."
+    ],
+    "scroll": "The list is a native table: slow drags track the finger, flings decelerate and rubber-band naturally, the search field stays docked while scrolling, and the scroll position is kept on returning from a note. I saw no blank or popping rows.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, newest first, with a Pinned section on top. Each row shows the title (long titles wrap to two lines), a short date (time / weekday / M/D/YY) and the first line of the body."},
+      {"n": 2, "status": "pass", "note": "Search sits at the bottom, iOS 26 style, and filters title and body as you type. No matches shows a proper 'No Results for …' screen."},
+      {"n": 3, "status": "pass", "note": "Tapping a row opens an editor with title and body. Edits save on Back with no Save button and the note moves to the top; the header reads 'Today at …'."},
+      {"n": 4, "status": "pass", "note": "The compose button opens a blank note. An empty note is discarded on Back and a non-empty one is kept (count 91). However, Return in the title closes the keyboard instead of moving to the body, so text typed next is lost (see bugs)."},
+      {"n": 5, "status": "pass", "note": "A trailing swipe deletes. Pin/Unpin and Delete are in a native long-press context menu, and there are pin/trash buttons in the editor. There is no leading swipe to pin."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' appears as a subtitle under the large title, and in the compact title when scrolled. It updates on add and delete."},
+      {"n": 7, "status": "pass", "note": "The new note, its pinned state, the edit and the deletes all survived relaunch."}
+    ],
+    "bugs": [
+      "Pressing Return in the editor's title field dismisses the keyboard instead of moving to the body. Typing 'title⏎body' leaves a note with an empty body ('No additional text'), and the body text is silently lost."
+    ],
+    "tells": [
+      "No leading swipe action to pin a note; a rightward swipe on a row is treated as a tap and opens the note.",
+      "The editor's title is a single-line text field: long titles scroll horizontally and are cut off while editing, and at the largest text size the title truncates ('Podcast rec…') instead of wrapping.",
+      "There is no keyboard Done button in the navigation bar while editing (Return shows a checkmark instead)."
+    ],
+    "scroll": "Scrolling feels native: smooth tracking, a natural fling and rubber-band, and the large title collapses into a compact 'Notes / 90 Notes' title. The scroll position is kept on returning from a note, and I saw no blank or popping rows.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and look and scroll like native iOS 26 apps. A feels more like Apple Notes: a wrapping title editor where Return goes to the body, plus leading swipe-to-pin. B silently loses body text when you press Return in the title, truncates long titles in the editor, and has no pin swipe. B's 'No Results' screen is nicer than A's blank list, but that does not outweigh its editor problems."
+}

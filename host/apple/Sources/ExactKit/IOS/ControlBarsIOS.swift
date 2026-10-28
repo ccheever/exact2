@@ -98,39 +98,40 @@ final class ControlBars {
             || n.props["accessibilityRole"] == "tab"
     }
 
-    /// The control bars between `s` and `c`'s edge on one side (D2): `s`'s
-    /// parent's shown in-flow children on that side, every one a bar placed
-    /// wholly beyond `s`, which spans its parent's width and fills what they
-    /// leave; above that parent, boxes with no in-flow child on that side and
-    /// at their parent's edge, up to `c`, none of them clipping, transforming,
-    /// scrolling or hidden. Empty when nothing is between them; nil when
-    /// anything else is.
+    /// The control bars between `s` and `c`'s edge on one side (D2): at each
+    /// level from `s` up to `c`, the box's shown in-flow siblings on that
+    /// side, every one a bar placed wholly beyond it, which spans its parent's
+    /// width and fills what they leave; a box with none is at its parent's
+    /// edge. No parent transforms, scrolls or hides, and none below `c` clips. Empty
+    /// when nothing is between them; nil when anything else is.
     func bars(of s: NodeView, in c: NodeView, top: Bool) -> [NodeView]? {
         var x = s, found: [NodeView] = []
         while x !== c {
             var up = x.superview
             // Between nodes, a host view that clips (a clip box) or scrolls cuts the band off.
             while let v = up, !(v is NodeView) { if v is UIScrollView || v.clipsToBounds || v.layer.mask != nil { return nil }; up = v.superview }
-            guard let p = up as? NodeView, !p.isHidden, !p.clipsToBounds, p.clipPath == nil, p.layer.mask == nil, p.transform.isIdentity,
+            // The container clipping to its own box cuts nothing off: no band reaches past it (a route
+            // written `overflow="hidden"` at `inset=0`, which looks the same on the web).
+            guard let p = up as? NodeView, !p.isHidden, !p.clipsToBounds || p === c, p.clipPath == nil, p.layer.mask == nil, p.transform.isIdentity,
                   p.scrollView == nil || p === c else { return nil }
             let k = children(of: p)
             guard let i = k.at[ObjectIdentifier(x)] else { return nil }
             let room = available(p)
-            if x === s {
-                if !(top ? k.barsBefore[i] : k.barsAfter[i]) { return nil }
-                let side = (top ? k.all[..<i] : k.all[(i + 1)...]).compactMap { $0 }
-                // The host is not told the flex direction: the frames say which side a bar is on.
-                guard side.allSatisfy({ top ? Self.laid($0).maxY <= s.frame.minY + 0.5 : Self.laid($0).minY >= s.frame.maxY - 0.5 }) else { return nil }
-                if side.isEmpty {
-                    // Nothing between them: open only where it reaches its parent's edge.
-                    if !reaches(s, room, top: top) { return nil }
-                } else {
-                    // The scroller spans its parent and takes the room its bars leave (the host's `flexGrows`:
-                    // an item of a column growing by 1 or more, with no `max-height`), as a hand-built screen's list does.
-                    guard abs(s.frame.minX - room.minX) <= 0.5, abs(s.frame.maxX - room.maxX) <= 0.5, s.props["flexGrows"] == "true" else { return nil }
-                }
-                found = side
-            } else if (top ? i > 0 : i < k.all.count - 1) || !reaches(x, room, top: top) { return nil }
+            if !(top ? k.barsBefore[i] : k.barsAfter[i]) { return nil }
+            let side = (top ? k.all[..<i] : k.all[(i + 1)...]).compactMap { $0 }
+            // The host is not told the flex direction: the frames say which side a bar is on.
+            guard side.allSatisfy({ top ? Self.laid($0).maxY <= x.frame.minY + 0.5 : Self.laid($0).minY >= x.frame.maxY - 0.5 }) else { return nil }
+            if side.isEmpty {
+                // Nothing between them: open only where it reaches its parent's edge.
+                if !reaches(x, room, top: top) { return nil }
+            } else {
+                // It spans its parent and takes the room its bars leave (the host's `flexGrows`: an item
+                // of a column growing by 1 or more, with no `max-height`), as a hand-built screen's list
+                // does; so does a box holding it beside its own neighbours (a chat's thread and its
+                // floating button, over a composer).
+                guard abs(x.frame.minX - room.minX) <= 0.5, abs(x.frame.maxX - room.maxX) <= 0.5, x.props["flexGrows"] == "true" else { return nil }
+            }
+            found += side
             // A box between the scroller and the container has no padding or border at that edge: a gap.
             if p !== c {
                 let content = p.contentBox()

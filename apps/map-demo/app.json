@@ -11,9 +11,20 @@
     "id": "com.exact.mapdemo",
     "name": "Map Demo"
   },
-  "modules": [
-    "native-map"
-  ],
+  "packages": {
+    "@exact/maps": {
+      "web": {
+        "tiles": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "attribution": "© OpenStreetMap contributors",
+        "maxZoom": 19
+      },
+      "android": {
+        "apiKey": {
+          "env": "EXACT_GOOGLE_MAPS_API_KEY"
+        }
+      }
+    }
+  },
   "host": {
     "ios": {
       "minimumOS": "17.0",

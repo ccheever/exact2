@@ -506,7 +506,7 @@ fn provider_identity_outlives_metadata_churn_and_generation_retirement() {
     for n in 100..180 {
         let owner = images
             .backend
-            .source(images.generation, &n.to_string(), &images.assets)
+            .source(images.generation, &n.to_string(), &images.assets, false)
             .unwrap();
         until(|| matches!(images.backend.prepared(owner.id), Some(Prepared::Ready(_))));
     }

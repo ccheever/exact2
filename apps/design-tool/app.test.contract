@@ -385,6 +385,32 @@ test "a restarted server starts the changeset again"
   expect tree has "entry-1"
   expect tree has "changed-by-surface.card"
 
+test "a held proposal's title names what it edits, then what reads it, a param by component.param (stage 15 D4 batch 1 #4)"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "p9", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "cards.avatar-default"}, {"file": "app.tamber", "token": "cards.banner"}, {"file": "app.tamber", "token": "@exact/cards/profile-header.contract#ProfileHeader.banner"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "cards.avatar-default", "value": "#aa00aa"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p9" == "agent:d4 proposes cards.avatar-default (and 2 that read it: cards.banner, ProfileHeader.banner)"
+  // A rename edits both its names; a param's add names its component.
+  request POST "/__stub/hold" {"proposal": "p10", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "app.tamber", "token": "surface.panel"}, {"file": "app.tamber", "token": "ink.on-card"}], "ops": [{"index": 0, "op": {"op": "rename-token", "from": "surface.card", "to": "surface.panel"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p11", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "@app/app.contract#Card.fill"}], "ops": [{"index": 0, "op": {"op": "add-param", "component": "Card", "name": "fill", "value": "surface.card"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p10" == "agent:d4 proposes surface.card, surface.panel (and 1 that read them: ink.on-card)"
+  expect text "held-title-p11" == "agent:d4 proposes Card.fill"
+  // An operation naming no file edits the app's design, so a same-named reader elsewhere is still a reader; a declaring
+  // path is matched whole, so another component's param of the same short name is one too.
+  request POST "/__stub/hold" {"proposal": "p12", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "brand.tamber", "token": "surface.card"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "surface.card", "value": "#eeeeee"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p13", "client": "agent:d4", "diff": "", "changed": [{"file": "app.tamber", "token": "@a/a.contract#Card.fill"}, {"file": "app.tamber", "token": "@b/b.contract#Card.fill"}], "ops": [{"index": 0, "op": {"op": "set-param", "name": "@a/a.contract#Card.fill", "value": "surface.card"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p12" == "agent:d4 proposes surface.card (and 1 that read it: surface.card)"
+  expect text "held-title-p13" == "agent:d4 proposes Card.fill (and 1 that read it: Card.fill)"
+  request POST "/__stub/restart" {} as ada
+
 test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"
   type "name" "Ada"
   tap "save-name"
@@ -556,6 +582,174 @@ test "a value edited with a role override left unticked (third pass #6): it stay
   tap "accept-edited-1"
   clock data
   expect text "write-note" == "edited-1 was recomputed on the files as they are now, as edited-1-r: review its diff and accept it again."
+
+test "against a 1.17 server the tool never sends choose (tamber/1.18): a tick stays the page's, carried by its flips through an edit, as before"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  request POST "/__stub/protocol" {"protocol": "tamber/1.17"} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree has "held-edited-1"
+  expect text "held-diff-edited-1" == ""
+  expect text "override-edited-1-AccentColor" == "true"
+  tap "accept-edited-1"
+  clock data
+  expect text "write-note" == "Accepted edited-1."
+
+test "a tick sent as the proposal's choice (tamber/1.18 choose): accepting right after takes the choice the page itself sent, never stale"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "Accepted imp."
+
+test "another client's choice since the page saw one (tamber/1.18): the card takes it as it comes, its own flips dropped, and accepting takes theirs, never the mix"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/choose" {"proposal": "imp", "items": [0], "client": "design-tool:Bo"} as ada
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "override-imp-AccentColor" == "false"
+  expect state picked == []
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "imp was recomputed on the files as they are now, as imp-r: review its diff and accept it again."
+
+test "a recomputed import's diff follows its card's choice at once: the plan of what is chosen, the held one when all is, none when nothing is (stage 15 D1.1)"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp-r", "replaces": "imp", "client": "design-tool:Ada", "diff": "--- app.tamber\n+++ app.tamber\n+  every operation\n", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "#ffffff"}}, {"index": 1, "op": {"op": "add-token", "name": "shadcn.ring", "value": "#000000"}}], "review": {"importer": "shadcn", "counted": {"source": 2, "mapped": 2, "reported": 0}, "tokens": 2, "unmapped": [], "offers": []}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  every operation\n"
+  tap "take-imp-r-1"
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  {\"op\":\"add-token\",\"name\":\"shadcn.card\",\"value\":\"#ffffff\"}\n"
+  tap "take-imp-r-0"
+  clock data
+  expect text "held-diff-imp-r" == ""
+  expect text "held-diff-note-imp-r" == "Nothing is chosen, so accepting it would write nothing."
+  tap "take-imp-r-0"
+  tap "take-imp-r-1"
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  every operation\n"
+  expect tree missing "held-diff-note-imp-r"
+
+test "H1: accepting right after a tick whose choose answer was lost records what it accepts first (tamber/1.18), never refused as another client's change"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/lose-choose" {"n": 1} as ada
+  tap "override-imp-AccentColor"
+  clock data
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "Accepted imp."
+
+test "H2: the page's own choose whose answer was lost comes back as its own (tamber/1.18): its tick shows, and accepting takes it"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/lose-choose" {"n": 1} as ada
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "override-imp-AccentColor" == "true"
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "Accepted imp."
+
+test "H3: a tick made after another client's choice rebased the card counts (tamber/1.18): only the flip the page had then is dropped"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/choose" {"proposal": "imp", "items": [0, 1], "client": "design-tool:Bo"} as ada
+  clock data
+  tap "take-imp-0"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "take-imp-0" == "false"
+  expect text "override-imp-AccentColor" == "true"
 
 test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
   type "name" "Ada"
@@ -1120,7 +1314,7 @@ test "the variant gallery: a toggle beside a local canvas frames the dev loop's 
   tap "canvas-gallery"
   expect state galleryOn == true
   expect tree has "canvas-frame"
-  expect text "gallery-note" == "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame."
+  expect text "gallery-note" == "The variant gallery: each library component the app uses, once per variant value, on the app's design. Each cell is a column's width, as a caller's column shows it. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame."
   // States: the copies hold the selection's own view, the app's.
   type "canvas-view" "states"
   expect tree missing "canvas-gallery"

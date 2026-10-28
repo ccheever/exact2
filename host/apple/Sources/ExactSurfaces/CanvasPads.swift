@@ -21,8 +21,9 @@ import UIKit
 /// sends nothing more.
 final class CanvasPads {
     static let shared = CanvasPads()
-    /// A pad's index is its slot; the next pad to connect takes the lowest free
-    /// one, and the world treats it as a fresh device.
+    /// A pad's index is its slot in the process's table (`table`); the next
+    /// pad to connect takes the lowest free one, and the world treats it as
+    /// a fresh device.
     private var slots: [GCController?] = []
     private var sent: [Int: [Double]] = [:]
     private weak var sink: CanvasInputHost?
@@ -90,10 +91,9 @@ final class CanvasPads {
         sent.removeAll()
     }
     private func connect(_ controller: GCController?) {
-        guard let controller, !slots.contains(where: { $0 === controller }) else { return }
-        let index = slots.firstIndex(where: { $0 == nil }) ?? slots.endIndex
-        guard index < Self.maxPads else { return }
-        if index == slots.endIndex { slots.append(controller) } else { slots[index] = controller }
+        guard let controller, !slots.contains(where: { $0 === controller }), let index = Self.take(controller) else { return }
+        while slots.count <= index { slots.append(nil) }
+        slots[index] = controller
         controller.extendedGamepad?.valueChangedHandler = { [weak self] _, _ in self?.report(index) }
         report(index)
     }
@@ -101,7 +101,30 @@ final class CanvasPads {
         guard let controller, let index = slots.firstIndex(where: { $0 === controller }) else { return }
         controller.extendedGamepad?.valueChangedHandler = nil
         slots[index] = nil
+        let table = Self.table
+        if index < table.count, table[index] as AnyObject === controller { table[index] = NSNull() }
         report(index)
+    }
+    /// The process's slot table, which @exact/gamepad numbers its pads from
+    /// too (`ExactPads`, host/apple/modules/ExactPackage.swift, by the same
+    /// rules): by index, a `GCController` or `NSNull`, in the main thread's
+    /// dictionary, which the host and the app's module share.
+    private static var table: NSMutableArray {
+        let d = Thread.main.threadDictionary
+        if let t = d["exact.pads"] as? NSMutableArray { return t }
+        let t = NSMutableArray()
+        d["exact.pads"] = t
+        return t
+    }
+    /// `controller`'s slot in the table: the one it holds, else the lowest free.
+    private static func take(_ controller: GCController) -> Int? {
+        let t = table
+        if let held = (0..<t.count).first(where: { t[$0] as AnyObject === controller }) { return held }
+        let index = (0..<t.count).first { t[$0] is NSNull } ?? t.count
+        guard index < maxPads else { return nil }
+        while t.count <= index { t.add(NSNull()) }
+        t[index] = controller
+        return index
     }
     private static func quantize(_ v: Float, low: Double) -> Double {
         min(1, max(low, (Double(v) * step).rounded() / step)) + 0 // + 0: no -0 on the wire

@@ -1,7 +1,7 @@
 # Recipe: list rows: search, swipe, filter and long-press
 
-A list under a large title and the bar's search field; its rows swipe to delete and
-long-press for a menu.
+A list under a large title and the bar's search; its rows swipe to delete and long-press
+for a menu.
 
 ```contract
 routes nav
@@ -54,16 +54,17 @@ test "search, swipe to delete, delete from the menu"
   expect tree missing "note-1"
 ```
 
-- `delete=` on a row is its swipe to delete: a red Delete (on iOS UIKit's own; a full swipe
-  runs it). `disabled` beside it keeps that row from deleting; the row still opens. A test
-  taps `"<row testId>-delete"`. Other actions than Delete: `contract vocab swipe`.
-- The swipe deletes without asking, as Mail and Notes do; an irreversible loss (a detail
-  screen's Delete, a bulk clear) asks first in an alert (`contract vocab confirm`).
+- `delete=` on a row is its swipe to delete (iOS: UIKit's); `disabled` keeps the row from
+  deleting. A test taps `"<row testId>-delete"`; other actions: `contract vocab swipe`.
+- The swipe deletes without asking (as Mail); a detail screen's Delete asks first
+  (`contract vocab confirm`).
 - The empty search field scrolls away on iOS, as UIKit's does; `position="sticky" top=0`
   on the `input` pins it. Querying a server: `contract vocab search`.
 - A filter: a `row role="radiogroup"` of `button role="radio"`
-  ([persisted-setting](persisted-setting.md)): a segmented control; radios you paint
-  (background, border, radius) or `appearance="none"` stay yours, keys and all. iOS 26 bar
-  buttons share one glass capsule; `buttonStyle="glass"` gives one its own.
-- One long-press menu serves every row: the row notes which (`aim`), each item acts on `aimed`
-  and hides it (iOS: a `UIMenu`). Test: `tap "note-1" contextmenu`.
+  ([persisted-setting](persisted-setting.md)): a segmented control, unless you paint them.
+- One long-press menu serves every row: the row notes which (`aim`); each item acts on
+  `aimed` and hides it (iOS: a `UIMenu`).
+- The list runs under the bar and under a row of only controls pinned beside it (a
+  composer), blurred as iOS does. A caption or a filled row there stops the rows in a hard
+  line (`lower-list-beside-fixed`): put it in a section's `header` or `footer`.
+- `verify ios` scrolls the list by real touches and names what differs from UIKit's.

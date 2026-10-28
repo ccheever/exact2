@@ -125,6 +125,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
+    touched = true; // any key, Tab included: a route's focus shows the ring to a keyboard's user (`arrive`, below)
     if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
     if (event.isComposing || event.keyCode === 229 || event.key === "Process" || !ready() || event.defaultPrevented) return; // an input method's key, WebKit's committing Enter included (rt.js `onKey`)
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
@@ -619,15 +620,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // (so a route that arrives with no press never takes the focus from where a person put it), but for one still in a
   // leaving element (`[data-exiting]`: a sheet sliding away or a presence view leaving), which is no one's. Another
   // tab's stack is no arrival (the focus stays on its tab), nor is the first sight of a page. Nothing scrolls, and the
-  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's (`focusVisible` says
-  // which, where the engine takes it). The stack is read from the attributes navigation.js projects from.
-  let shown = null, pressed = null;
+  // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's, and none before the
+  // person has pressed a key or the pointer, as for a page's first route (`focusVisible` says which, where the engine
+  // takes it). The stack is read from the attributes navigation.js projects from.
+  let shown = null, pressed = null, touched = false;
   const origins = new WeakMap();
   // The press is noted as it begins (the pointer going down; Enter or Space, in the keys' listener above), before the
   // click any listener navigates by: a link to a route is followed from the document's capture phase (above, and the
   // JS target's router.js), so its commit arrives before a listener here would hear that click. A click with neither
   // before it (a script's, the agent's) is noted as it is heard.
-  const note = (e, key) => { if (root.contains(e.target)) pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
+  const note = (e, key) => { if (!root.contains(e.target)) return; touched = true; pressed = { el: e.target?.closest?.("button, a[href], [tabindex]") ?? null, focus: document.activeElement, key, at: performance.now() }; };
   document.addEventListener("pointerdown", e => note(e, false), true);
   document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
   const lands = el => !!el?.isConnected && !inertAncestor(el) && el.getClientRects().length > 0 && !el.matches(":disabled");
@@ -660,7 +662,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
     const to = lands(origin) ? origin : titleOf(top) ?? top;
     if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
-    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
+    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : touched ? {} : { focusVisible: false }) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
   };
   return {
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`
@@ -948,9 +950,58 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
-  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+  if (["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
+  if (!seen) {
+    (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    return { revealed: id, scrolled: true, from: [x, y], to: clear(el, middle) ?? middle() };
+  }
+  const to = clear(el, middle);
+  return to ? { revealed: id, scrolled: true, from: [x, y], to } : { revealed: id, scrolled: false };
+}
+
+// A target whose middle a sticky or fixed box covers (the design tool's edit dock), as the tap's own hit-test finds it:
+// its scroller (or the page) scrolled so the middle lands in the band of its port the box leaves, as a person scrolls a
+// row out from under a docked bar. Only a box in the target's own scroller, or the page's fixed one, and never one in
+// the top layer (a popover, a modal), which no scroll takes away: the tap still refuses there. The middle it moved to,
+// or null when nothing covered it or nothing could move.
+function clear(el, middle) {
+  const [x, y] = middle(), root = el.getRootNode() ?? document, hit = root.elementFromPoint(x, y);
+  if (!hit || el === hit || el.contains(hit)) return null;
+  // (Anything of the top layer over it, a popover or a modal, is no scroll's to clear, whatever holds it.)
+  const above = a => a.closest(":popover-open, dialog[open], :modal");
+  if (above(hit)) return null;
+  const pinned = a => { const p = getComputedStyle(a).position; return p === "sticky" || p === "fixed"; };
+  // The sticky or fixed box a hit at a point is in, or null.
+  const coverAt = (h) => { let c = h; while (c && c.id !== "exact-root" && !pinned(c)) c = c.parentElement; return !c || c.id === "exact-root" || c.contains(el) || above(c) ? null : c; };
+  const cover = coverAt(hit);
+  if (!cover) return null;
+  // A sticky box's scroll container, as CSS finds it (the nearest ancestor whose overflow isn't visible on either axis),
+  // which must hold the target; for a fixed one, the target's nearest scroller with travel down, else the page.
+  const sticky = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) { const cs = getComputedStyle(s); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) return s; } return document.scrollingElement; };
+  const travel = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) if (/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight) return s; return document.scrollingElement; };
+  const fixed = getComputedStyle(cover).position === "fixed", port = fixed ? travel(el) : sticky(cover);
+  if (port !== document.scrollingElement && !port.contains(el)) return null;
+  // Vertical only: a scroller with no travel down (a horizontal one, its sticky column) is no band's to clear.
+  if (port.scrollHeight <= port.clientHeight) return null;
+  const page = port === document.scrollingElement, box = page ? { top: 0, bottom: innerHeight, height: innerHeight } : port.getBoundingClientRect();
+  // What of the port the viewport shows, less each cover: the band above one whose middle is in the lower half, below
+  // one in the upper. Its middle hit-tested again: a second box there (a header across from a dock) narrows it too.
+  let [top, bottom] = [Math.max(box.top, 0), Math.min(box.bottom, innerHeight)];
+  const mid = (top + bottom) / 2;
+  for (let c = cover, n = 0; c && n < 4 && bottom > top; n++) {
+    const r = c.getBoundingClientRect();
+    if ((r.top + r.bottom) / 2 > mid) bottom = Math.min(bottom, r.top); else top = Math.max(top, r.bottom);
+    const next = bottom > top ? root.elementFromPoint(x, (top + bottom) / 2) : null;
+    // (Only a box of the same port, or a fixed one: a sticky of another scroller doesn't stay where this one moves.)
+    c = next && !(next === el || el.contains(next)) ? coverAt(next) : null;
+    if (c && getComputedStyle(c).position !== "fixed" && sticky(c) !== port) c = null;
+  }
+  if (bottom <= top) return null;
+  // (A scaled port scrolls by its own pixels: the viewport's distance over its scale.)
+  const scale = page || !port.clientHeight ? 1 : box.height / port.offsetHeight || 1;
+  const before = port.scrollTop;
+  port.scrollBy({ top: (y - (top + bottom) / 2) / scale, behavior: "instant" });
+  return port.scrollTop === before ? null : middle();
 }
 
 // A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
@@ -1079,5 +1130,40 @@ export function typeControl(el, request, inertAncestor, settleValue) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
-export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
+// A scroller moving on its own after an input (a fling's glide, a smooth scroll, a page that scrolls it every frame):
+// its `scroll` events go on. `clock settle` waits until two whole frames pass with none, 4 s at most, as a native
+// host waits for a scroll view a finger left moving (agent.mjs reason `scroll`). Two frames: a scroll written in a
+// frame's callbacks has its event at the next frame's rendering step. (Not `scrollend`: a page's instant step each
+// frame ends each time.) Watched from the agent's first operation on: never in an app's own run.
+let scrolls = 0, glides = false;
+export function watchGlides() {
+  if (glides) return;
+  glides = true;
+  addEventListener('scroll', () => { scrolls += 1; }, { capture: true, passive: true });
+}
+/** The `scroll` events seen so far: a settle round compares it before and after its work. */
+export const scrollsSeen = () => scrolls;
+/** Waits until two frames pass with no `scroll` event: whether they did before scrolling outlasted `budget.ms`, which
+ * the wait spends (one budget for a whole `clock settle`, so only time spent waiting on scrolls counts against its
+ * 4 s; a round that comes after it is spent still answers true when nothing scrolls). A frame that doesn't come
+ * (a throttled page) answers false. */
+export async function glidesSettled(budget) {
+  const started = performance.now(), deadline = started + budget.ms;
+  // (a frame gets at least 250 ms, past the budget too: a page drawing frames, however slowly, shows two quiet ones)
+  const frame = () => new Promise(r => {
+    const timer = setTimeout(() => r(false), Math.max(250, deadline - performance.now()));
+    requestAnimationFrame(() => { clearTimeout(timer); r(true); });
+  });
+  try {
+    for (;;) {
+      const before = scrolls;
+      if (!(await frame()) || !(await frame())) return false;
+      if (scrolls === before) return true;
+      if (performance.now() >= deadline) return false;
+    }
+  } finally {
+    budget.ms = Math.max(0, budget.ms - (performance.now() - started));
+  }
+}
+export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, watchGlides, glidesSettled, scrollsSeen };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

@@ -128,6 +128,39 @@ export function exercise(source: string): string {
       ['compact-sd',{notation:'compact',maximumSignificantDigits:3}],
     ] as [string,Intl.NumberFormatOptions][]) out[locale+' '+name]=values.map(v=>new Intl.NumberFormat(locale,options).format(v));
     out['en-US toLocaleString']=values.map(v=>v.toLocaleString('en-US',{notation:'compact'}));
+    // toLocaleString keeps a formatter per locales and options it reads the
+    // same: an options object changed between calls formats by its new value.
+    const changing:Intl.NumberFormatOptions={maximumFractionDigits:1};
+    const kept=[1.25,1.25,12345.678].map(v=>v.toLocaleString('en-US',changing));
+    changing.maximumFractionDigits=3;
+    kept.push((1.23456).toLocaleString('en-US',changing),(1.23456).toLocaleString(['de-DE'],changing),(1.23456).toLocaleString('de-DE',changing),(1234.5).toLocaleString('en-US'));
+    out['en-US toLocaleString kept']=kept;
+    // A DateTimeFormat made with the same locales and options shares one
+    // engine formatter, each `new` an object of its own; a Date's
+    // toLocale…String adds its default fields when the options name none.
+    const days=[Date.UTC(2026,0,5,9,30,15),Date.UTC(2025,11,31,23,5,0),Date.UTC(2024,1,29,12,0,0)].map(t=>new Date(t));
+    const utc={timeZone:'UTC'} as const, short:Intl.DateTimeFormatOptions={month:'short',day:'numeric',year:'numeric',timeZone:'UTC'};
+    const dtf=(locale:string,options:Intl.DateTimeFormatOptions)=>days.map(d=>new Intl.DateTimeFormat(locale,options).format(d));
+    out['dtf short']=dtf('en-US',short).concat(dtf('en-US',short),dtf('de-DE',short));
+    out['dtf long']=dtf('en-US',{dateStyle:'long',timeZone:'UTC'}).concat(dtf('fr-FR',{weekday:'long',month:'long',day:'numeric',timeZone:'UTC'}));
+    const a=new Intl.DateTimeFormat('en-US',short), b=new Intl.DateTimeFormat('en-US',short);
+    out['dtf objects']=[String(a===b),String(a instanceof Intl.DateTimeFormat),String(a.constructor===Intl.DateTimeFormat),Object.prototype.toString.call(a),
+      String(Intl.DateTimeFormat.length),String(Date.prototype.toLocaleDateString.length),a.resolvedOptions().month as string,a.resolvedOptions().timeZone as string,
+      a.formatToParts(days[0]).map(p=>p.value).join(''),String(a.format===b.format),String(a.format===a.format)];
+    const changingDate:Intl.DateTimeFormatOptions={month:'long',timeZone:'UTC'};
+    const keptDates=days.map(d=>d.toLocaleDateString('en-US',changingDate));
+    changingDate.month='numeric';
+    keptDates.push(days[0].toLocaleDateString('en-US',changingDate));
+    out['date kept']=keptDates;
+    const call=(f:()=>string)=>{try{return f();}catch(e){return (e as Error).name;}};
+    out['toLocaleDateString']=days.map(d=>d.toLocaleDateString('en-US',utc)).concat(days.map(d=>d.toLocaleDateString('en-GB',utc)),
+      days.map(d=>d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})),
+      days.map(d=>d.toLocaleDateString('en-US',{hour:'numeric',hourCycle:'h23',timeZone:'UTC'})),
+      [call(()=>days[0].toLocaleDateString('en-US',{timeStyle:'short',timeZone:'UTC'})),new Date(NaN).toLocaleDateString('en-US',utc),call(()=>Date.prototype.toLocaleDateString.call({} as Date,'en-US'))]);
+    out['toLocaleTimeString']=days.map(d=>d.toLocaleTimeString('en-US',{hourCycle:'h23',timeZone:'UTC'})).concat(days.map(d=>d.toLocaleTimeString('de-DE',utc)),
+      days.map(d=>d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZone:'UTC'})),[call(()=>days[0].toLocaleTimeString('en-US',{dateStyle:'short',timeZone:'UTC'}))]);
+    out['Date toLocaleString']=days.map(d=>d.toLocaleString('en-US',{hourCycle:'h23',timeZone:'UTC'})).concat(days.map(d=>d.toLocaleString('de-DE',utc)),
+      days.map(d=>d.toLocaleString('en-US',{month:'short',timeZone:'UTC'})),days.map(d=>d.toLocaleString('en-US',{dateStyle:'medium',timeZone:'UTC'})));
     for(const locale of ['en-US','de-DE','fr-FR']) {
       out[locale+' currency']=[1234.5,-0.41,166.07].map(v=>new Intl.NumberFormat(locale,{style:'currency',currency:'USD'}).format(v));
       out[locale+' percent']=[0.0041,-0.0041,0.5].map(v=>new Intl.NumberFormat(locale,{style:'percent',minimumFractionDigits:2}).format(v));

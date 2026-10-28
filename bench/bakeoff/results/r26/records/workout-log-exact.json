@@ -1,0 +1,26 @@
+{
+  "spec": "workout-log",
+  "arm": "exact",
+  "model": "claude",
+  "appId": "dev.bakeoff.workoutlog.bc7e695",
+  "assignedId": "dev.bakeoff.workoutlog.bc7e695",
+  "appName": "Workout Log",
+  "sim": "498D6D1F-C21C-4B31-90F4-5D857216E256",
+  "pin": "9d23a92da4",
+  "minutes": 21.88,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 4152780,
+    "fresh": 107943,
+    "input": 4110887,
+    "cached": 4002944,
+    "output": 41893,
+    "cost": 2.5016248,
+    "calls": 88,
+    "toolCalls": 51
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r26/built/workout-log-exact.app",
+  "notes": true,
+  "finished": "2026-10-27T09:14:42.980Z"
+}

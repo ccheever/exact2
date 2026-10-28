@@ -4,7 +4,11 @@
   "private": true,
   "dependencies": {
     "@exact/age-range": "file:../../packages/age-range",
+    "@exact/dock": "file:../../packages/dock",
+    "@exact/hid": "file:../../packages/hid",
+    "@exact/in-app-browser": "file:../../packages/in-app-browser",
     "@exact/local-auth": "file:../../packages/local-auth",
+    "@exact/login-item": "file:../../packages/login-item",
     "@exact/translation": "file:../../packages/translation",
     "fflate": "0.8.3"
   }

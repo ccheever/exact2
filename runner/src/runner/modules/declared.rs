@@ -19,6 +19,10 @@
 //! - **Checks** every route holds a call to (`"checks"`, LLP 1133.030 D2):
 //!   exactly `one` of some options, an instant option `after` now, options
 //!   at least a `min`, options `nonEmpty`, each refused with its `error`.
+//! - **An entry that changes** (`update.rs`, LLP 1133.033 D21): a list's
+//!   `with`, `absent`, `stamp`, `refuse`, `ends` and `inCall`; `when`'s
+//!   alternatives, `set`'s value forms, and a choice's own `when`, `set`
+//!   and `event`, so a call is listed and its state moves.
 //! - **A value** in the agent's state: `"set": {"state", "scope", "from",
 //!   "absent", "zero"}` sets it from the option `from` (`absent` when the
 //!   call leaves it out, `zero` for 0), or to `value`. `"scope": "app"`
@@ -27,7 +31,7 @@
 //!   badge.
 //!
 //! Outside the agent a bound implementation takes the call, and journals
-//! its own outcome.
+//! its own outcome; a data-code call settles from its reply.
 
 use super::super::{DataSource, Runner};
 use super::{error_code, response, CallOrigin, Json, ModulesRow, Pending, Waits};
@@ -39,8 +43,14 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 mod app_list;
+mod desktop;
+mod handed;
 mod reach;
+mod region_list;
+mod update;
 mod wake_list;
+
+pub(in crate::runner) use handed::CHOSEN;
 
 /// The host's app-wide state: one per app, shared by its sessions.
 pub type AppState = Arc<Mutex<BTreeMap<String, Json>>>;
@@ -63,6 +73,9 @@ pub(in crate::runner) struct Declared {
     reach: reach::Reach,
     /// Each app-scoped list's revision this session last heard, by its key.
     seen: BTreeMap<String, u64>,
+    /// A launch the login item made (`--login`), and whether its
+    /// registration asked `hidden` (`desktop.rs`).
+    login_launch: Option<bool>,
 }
 
 /// One entry of a keyed list.
@@ -101,7 +114,7 @@ impl<D: DataSource> Runner<D> {
         self.extensions.declared.app = Some(state);
     }
 
-    fn app_state(&mut self) -> AppState {
+    pub(in crate::runner) fn app_state(&mut self) -> AppState {
         self.extensions
             .declared
             .app
@@ -174,31 +187,45 @@ impl<D: DataSource> Runner<D> {
             ));
             return Effect::Now(refusal);
         }
-        if self.route(row) == super::Route::Real {
+        // The implementation answers: bound as in production, or, for an
+        // interface that is its own substitute, told it runs under the agent.
+        if self.route(row) != super::Route::Substitute {
             let request = self.as_origin(origin, |r| r.bound_request(row, args, None));
             let lines = self.extensions.declared.lines.clone();
             let slot = self.native_slot();
-            if let Some(handler) = slot.handler() {
-                handler(
-                    request.body,
-                    Reply::new(move |outcome| {
-                        let refused = match &outcome {
-                            Outcome::Response(r) => serde_json::from_slice::<Json>(&r.body)
-                                .ok()
-                                .and_then(|v| error_code(&v).map(str::to_owned)),
-                            Outcome::Failed { message, .. } => Some(message.clone()),
-                            _ => None,
-                        };
-                        if let Some(why) = refused {
-                            let mut lines = lines.lock().unwrap_or_else(|e| e.into_inner());
-                            lines.push(format!("{declared}: refused: {why}"));
-                            drop(lines);
-                            slot.changed("");
-                        }
-                    }),
-                );
-            }
-            return Effect::Now(Json::Null);
+            let Some(handler) = slot.handler() else {
+                return Effect::Now(json!({ "error": "NotSupportedError" }));
+            };
+            // A data-code call settles from the implementation's reply, so
+            // it is the caller's work until the platform has the effect (LLP
+            // 1133.004 D5; LLP 1133.021 §9 item 10): a wake does not end on
+            // the handoff. A Contract statement answers nothing to wait for.
+            let pending = reply.clone();
+            handler(
+                request.body,
+                Reply::new(move |outcome| {
+                    let refused = match &outcome {
+                        Outcome::Response(r) => serde_json::from_slice::<Json>(&r.body)
+                            .ok()
+                            .and_then(|v| error_code(&v).map(str::to_owned)),
+                        Outcome::Failed { message, .. } => Some(message.clone()),
+                        _ => None,
+                    };
+                    if let Some(why) = refused {
+                        let mut lines = lines.lock().unwrap_or_else(|e| e.into_inner());
+                        lines.push(format!("{declared}: refused: {why}"));
+                        drop(lines);
+                        slot.changed("");
+                    }
+                    if let Some(pending) = &pending {
+                        Pending::complete(pending, outcome);
+                    }
+                }),
+            );
+            return match reply {
+                Some(_) => Effect::Held,
+                None => Effect::Now(Json::Null),
+            };
         }
         let said = self.say_person_required(row, true, origin);
         // The permission that settles the call: its own, or one it requires.
@@ -241,7 +268,7 @@ impl<D: DataSource> Runner<D> {
             {
                 Ok(()) => {
                     self.effect_played(row, &args, origin);
-                    Effect::Now(Json::Null)
+                    Effect::Now(self.effect_answer(row, &args))
                 }
                 Err(refusal) => {
                     let code = refusal["error"].as_str().unwrap_or_default();
@@ -256,7 +283,7 @@ impl<D: DataSource> Runner<D> {
     /// a target the name does not exist on (under the agent), a declared
     /// check, or an `update` with nothing in the state it changes.
     fn effect_refusal(&self, row: &ModulesRow, args: &Json) -> Option<Json> {
-        let real = self.route(row) == super::Route::Real;
+        let real = self.route(row) != super::Route::Substitute;
         if !real && self.unsupported_here(row) {
             return Some(json!({ "error": "NotSupportedError" }));
         }
@@ -314,6 +341,12 @@ impl<D: DataSource> Runner<D> {
     /// What `row`'s declaration says its call does to the agent's state: a
     /// refusal where an `update` finds nothing in the state it changes.
     fn apply_effect(&mut self, row: &ModulesRow, args: &Json) -> Result<(), Json> {
+        if let Some(answer) = self.device_effect(row, args) {
+            return match error_code(&answer) {
+                Some(_) => Err(answer),
+                None => Ok(()),
+            };
+        }
         if let Some(answer) = self.apply_reach(row, args) {
             return if answer.is_null() {
                 Ok(())
@@ -321,15 +354,27 @@ impl<D: DataSource> Runner<D> {
                 Err(answer)
             };
         }
+        if self.apply_stops(row) {
+            return Ok(());
+        }
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let extension = self.plan.str(row.extension).to_owned();
+        // A call the platform answers with its own UI and nothing else
+        // (`openLoginItemSettings`): journaled.
+        if sub["journal"] == true {
+            self.log(format!("{declared}: {args}"));
+        }
         let mut fields = args.as_object().cloned().unwrap_or_default();
         fields.values_mut().for_each(whole);
         if sub["update"].is_object() {
             self.apply_update(row, args)?;
         }
         if let Some(list) = sub["list"].as_object() {
+            if let Err(code) = self.listing(&extension, list, &mut fields) {
+                self.log(format!("{declared}: refused: {code}"));
+                return Err(json!({ "error": code }));
+            }
             let state = list["state"].as_str().unwrap_or("listed").to_owned();
             let key = list["key"].as_str().unwrap_or_default().to_owned();
             let value = fields.get(&key).cloned().unwrap_or(Json::Null);
@@ -339,6 +384,17 @@ impl<D: DataSource> Runner<D> {
                 fields.insert("kind".into(), kind.clone());
             }
             self.due_fields(&sub["list"], &mut fields);
+            // What an entry starts with beside its options (`initial`), and
+            // the most a list holds of its kind (`most`, LLP 1133.021 D11).
+            for (field, v) in list
+                .get("initial")
+                .and_then(Json::as_object)
+                .into_iter()
+                .flatten()
+            {
+                fields.entry(field.clone()).or_insert_with(|| v.clone());
+            }
+            self.list_room(&extension, list, &value)?;
             let reference = if list.get("scope").and_then(Json::as_str) == Some("app") {
                 self.app_reference()
             } else {
@@ -515,7 +571,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 ("granted", "denied") => json!({ "error": next["denied"] }),
                 ("granted", _) => match self.apply_effect(&row, &h.args) {
-                    Ok(()) => Json::Null,
+                    Ok(()) => self.effect_answer(&row, &h.args),
                     Err(refusal) => refusal,
                 },
                 _ => json!({ "error": self.permission_named(&row, name)["denied"] }),
@@ -638,6 +694,9 @@ impl<D: DataSource> Runner<D> {
             }
             // A cold call is the calls' (`calls.rs`).
             "launchEntry" if v["launch"] == "call" => None,
+            "launchEntry" if v["launch"] == "login" => {
+                Some(self.launch_login(v["entry"] == "hidden"))
+            }
             "launchEntry" => {
                 let entry = v["entry"]
                     .as_str()
@@ -715,6 +774,10 @@ impl<D: DataSource> Runner<D> {
         }
         // A registration's tap is a wake, and leaves it listed.
         let row = self.module_row(&entry.source);
+        if self.substitute(&row)["list"]["tap"]["keep"] == true {
+            let entry = entry.clone();
+            return self.tap_registration(&row, &entry);
+        }
         if self.substitute(&row)["list"]["tap"]["as"] == "wake" {
             return self.tap_wake(&state, at);
         }
@@ -768,7 +831,15 @@ impl<D: DataSource> Runner<D> {
         let Some(event) = tap["event"].as_str() else {
             return Ok(json!({ "ref": reference, "delivery": "substituted" }).to_string());
         };
-        let args = entry_args(&tap, entry);
+        // In every keyed list, an entry posted without its key is tapped
+        // with "" for it (the Notifications API's untagged `tag`).
+        let mut entry = entry.clone();
+        if let Some(key) = self.substitute(row)["list"]["key"].as_str() {
+            if entry.is_object() && entry.get(key).is_none_or(Json::is_null) {
+                entry[key] = json!("");
+            }
+        }
+        let args = entry_args(&tap, &entry);
         let extension = self.plan.str(row.extension).to_owned();
         self.raise_module_event(
             &extension,
@@ -781,22 +852,33 @@ impl<D: DataSource> Runner<D> {
 }
 
 /// The event's arguments a listed entry's tap declares: each a field of the
-/// entry, an object of its fields, or a literal.
-fn entry_args(tap: &Json, entry: &Json) -> Vec<Json> {
+/// entry, an object of its fields (or literals, where a value is no field's
+/// name), or a literal.
+pub(super) fn entry_args(tap: &Json, entry: &Json) -> Vec<Json> {
     (tap["args"].as_array().into_iter().flatten())
         .map(|a| match a {
             Json::String(field) => entry.get(field).cloned().unwrap_or(Json::Null),
-            Json::Object(map) => Json::Object(
-                map.iter()
-                    .map(|(k, f)| {
-                        let v = f.as_str().and_then(|f| entry.get(f)).cloned();
-                        (k.clone(), v.unwrap_or(Json::Null))
-                    })
-                    .collect(),
-            ),
+            Json::Object(map) => entry_record(map, entry),
             other => other.clone(),
         })
         .collect()
+}
+
+/// An object of an entry's fields, each named by its field, a record of
+/// them in turn (a `GeofenceEvent`'s `geofence`), or a literal.
+fn entry_record(map: &Map<String, Json>, entry: &Json) -> Json {
+    Json::Object(
+        map.iter()
+            .map(|(k, f)| {
+                let v = match f {
+                    Json::Object(inner) => entry_record(inner, entry),
+                    Json::String(f) => entry.get(f).cloned().unwrap_or(Json::Null),
+                    literal => literal.clone(),
+                };
+                (k.clone(), v)
+            })
+            .collect(),
+    )
 }
 
 /// A number the plan holds as a float, written as JSON writes a whole

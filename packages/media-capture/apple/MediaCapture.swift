@@ -25,19 +25,42 @@
 // - Under the agent no engine is made and nothing is asked: a stream with
 //   one track, "Agent microphone", whose mute follows the agent's preferred
 //   `mediaStreamTrack` (D10 item 11).
-// - Tier 3 (D5): `MediaCaptureModule.hatch` is given the engine once per
-//   capture, before it starts. The input node's bus 0 is the fan-out's.
+// - Tier 3 (D5): `MediaCaptureModule.hatch` is given the engine and a mixer
+//   after the input node once per capture, before it starts. The input
+//   node's bus 0 is the fan-out's; a hatch taps the mixer, and
+//   `holdsCapture(track:)` makes that tap a consumer that holds the capture.
 import AVFoundation
 import ExactPackage
 import Foundation
 #if os(iOS)
 import UIKit
+#else
+import AudioToolbox
+import CoreAudio
 #endif
 
 public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
-    /// The app's access hatch (D5): the capture's engine, once per capture,
-    /// before `start()`.
-    public static var hatch: ((AVAudioEngine) -> Void)?
+    /// The app's access hatch (D5): the capture's engine and the mixer after
+    /// its input node, once per capture, before `start()`. The app may tap
+    /// the mixer's output bus and attach nodes after it; the input node, its
+    /// bus 0 and every connection into the mixer are the module's.
+    public static var hatch: ((AVAudioEngine, AVAudioMixerNode) -> Void)?
+
+    /// A hatch's tap declared a consumer of `track` (D5): it holds the
+    /// capture as a recorder does, until the app cancels the answer. Nil for
+    /// a track no session holds. On the main thread.
+    public static func holdsCapture(track id: String) -> ExactSubscription? {
+        for m in ProcessCapture.shared.modules where m.tracks[id] != nil {
+            return try? m.subscribe(id, HatchTap(), start: true, origin: "app")
+        }
+        return nil
+    }
+
+    private final class HatchTap: ExactTrackConsumer {
+        func muted(_ reason: String) {}
+        func unmuted() {}
+        func ended() {}
+    }
     /// The camera's capture session, inside each configuration, on its queue
     /// (LLP 1133.008 D5): add outputs, never touch UI.
     public static var sessionHatch: ((AVCaptureSession) -> Void)?
@@ -280,16 +303,18 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
         }
     }
 
-    /// The app left the foreground or came back (D8): without the background
-    /// mode on iOS a capture's tracks mute, `background`, and its lease goes.
+    /// The app left the foreground or came back (D8): without
+    /// `device.microphone-background` on iOS a capture's tracks mute,
+    /// `background`, and its lease goes (LLP 1133.033 D3). Under the agent
+    /// too, so a drive sees the pause; the lease is then the agent's.
     public func foreground(_ shown: Bool) {
         cameras.foreground(shown)
         if shown { context.changed("media-capture.microphoneStatus"); context.changed("media-capture.cameraStatus") }
         #if os(iOS)
-        guard !context.agent, !Permission.recordsInBackground else { return }
+        guard !Permission.recordsInBackground else { return }
         for t in tracks.values where t.readyState == "live" && t.active {
             if shown {
-                t.platformMute = nil
+                t.platformMute = overlay
                 activate(t)
             } else {
                 t.platformMute = "background"
@@ -355,14 +380,22 @@ public final class MediaCaptureModule: ExactPackage, ExactTrackOwner {
 /// What a lease configures (D2, D4): voice processing, the session's mode and options.
 struct CaptureOptions {
     let voiceProcessing: Bool, mode: String?, categoryOptions: [String], background: Bool
+    /// The capture asked `echoCancellation=false`: no voice processing even during a call.
+    let echoRefused: Bool
     let preferredIOBufferDuration: Double?, deviceId: String?
+    /// iOS's words for the input (D4): no system alert interrupts, a data source (front, back, bottom) and its pattern.
+    let prefersNoInterruptions: Bool, inputDataSource: String?, polarPattern: String?
     init(constraints: [String: Any], apple: [String: Any]) {
         voiceProcessing = ["echoCancellation", "noiseSuppression", "autoGainControl"].contains { constraints[$0] as? Bool == true }
+        echoRefused = constraints["echoCancellation"] as? Bool == false
         mode = apple["mode"] as? String
         categoryOptions = apple["categoryOptions"] as? [String] ?? []
-        background = (Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []).contains("audio")
+        background = Permission.recordsInBackground
         preferredIOBufferDuration = (apple["preferredIOBufferDuration"] as? Double) ?? (constraints["latency"] as? Double)
         deviceId = constraints["deviceId"] as? String
+        prefersNoInterruptions = apple["prefersNoInterruptionsFromSystemAlerts"] as? Bool == true
+        inputDataSource = apple["inputDataSource"] as? String
+        polarPattern = apple["polarPattern"] as? String
     }
     /// What the track applied.
     func settings(_ format: AVAudioFormat) -> [String: Any] {
@@ -442,9 +475,11 @@ enum Permission {
             .map { ["deviceId": $0.uniqueID, "kind": "audioinput", "label": $0.localizedName, "groupId": $0.modelID] }
         #endif
     }
-    /// `audio` in `UIBackgroundModes`: the capture records on in the background (D8).
+    /// `device.microphone-background`'s key (LLP 1133.033 D3): the capture
+    /// records on in the background. Not the `audio` mode, which other lines
+    /// and an app's own playback derive too.
     static var recordsInBackground: Bool {
-        (Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []).contains("audio")
+        Bundle.main.object(forInfoDictionaryKey: "ExactCapturesInBackground") as? Bool == true
     }
 }
 
@@ -467,6 +502,7 @@ final class ProcessCapture: ExactAudioSource {
 
     func listen(_ m: MediaCaptureModule) { listeners[ObjectIdentifier(m)] = { [weak m] in m } }
     func forget(_ m: MediaCaptureModule) { listeners[ObjectIdentifier(m)] = nil }
+    var modules: [MediaCaptureModule] { listeners.values.compactMap { $0() } }
     private func tell(_ event: String) { for get in Array(listeners.values) { get()?.heard(event) } }
 
     func tap(_ block: @escaping (AVAudioPCMBuffer, AVAudioTime) -> Void) -> ExactSubscription {
@@ -501,11 +537,26 @@ final class ProcessCapture: ExactAudioSource {
     private func start(_ options: CaptureOptions) throws {
         let engine = AVAudioEngine()
         let input = engine.inputNode
-        if options.voiceProcessing { try input.setVoiceProcessingEnabled(true) }
         #if os(iOS)
         let s = AVAudioSession.sharedInstance()
+        // During a call (LLP 1133.033 D10) the session is the call's, `.voiceChat` or `.videoChat`, which applies no
+        // echo cancellation without voice processing on the I/O unit.
+        let inCall = s.mode == .voiceChat || s.mode == .videoChat
+        #else
+        let inCall = false
+        #endif
+        if options.voiceProcessing || (inCall && !options.echoRefused) { try input.setVoiceProcessingEnabled(true) }
+        #if os(iOS)
         if let d = options.preferredIOBufferDuration { try? s.setPreferredIOBufferDuration(d) }
         if let id = options.deviceId, let port = s.availableInputs?.first(where: { $0.uid == id }) { try? s.setPreferredInput(port) }
+        if options.prefersNoInterruptions { try? s.setPrefersNoInterruptionsFromSystemAlerts(true) }
+        if options.inputDataSource != nil || options.polarPattern != nil { Self.chooseDataSource(options, s, log) }
+        #else
+        // A `deviceId` is ideal, not exact (Media Capture): one the Mac does not have leaves the default input.
+        if let id = options.deviceId, let unit = input.audioUnit, var device = Self.device(uid: id) {
+            let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &device, UInt32(MemoryLayout<AudioDeviceID>.size))
+            if status != noErr { log("media-capture: the input \(id) was not chosen (\(status))") }
+        }
         #endif
         let format = input.outputFormat(forBus: 0)
         // No input: a tap on a 0 Hz format raises an exception that ends the app, so refuse first.
@@ -516,7 +567,16 @@ final class ProcessCapture: ExactAudioSource {
             self.lock.lock(); let taps = Array(self.taps.values); self.lock.unlock()
             for tap in taps { tap(buffer, time) }
         }
-        MediaCaptureModule.hatch?(engine)
+        if let hatch = MediaCaptureModule.hatch {
+            let mixer = AVAudioMixerNode()
+            engine.attach(mixer)
+            engine.connect(input, to: mixer, format: format)
+            // The engine renders what reaches its output: the mixer feeds the main mixer at no volume,
+            // which keeps its own output whole for a tap and never plays the input (§13's monitoring).
+            engine.connect(mixer, to: engine.mainMixerNode, format: format)
+            mixer.volume = 0
+            hatch(engine, mixer)
+        }
         engine.prepare()
         try engine.start()
         self.engine = engine
@@ -525,6 +585,39 @@ final class ProcessCapture: ExactAudioSource {
             DispatchQueue.main.async { self?.reopen() }
         }
     }
+
+    #if os(iOS)
+    /// The input's data source and polar pattern (D4), by the source's
+    /// orientation or name: a built-in microphone's are front, back and bottom
+    /// ([Selecting a microphone](https://developer.apple.com/documentation/avfaudio/avaudiosessiondatasourcedescription)).
+    private static func chooseDataSource(_ options: CaptureOptions, _ s: AVAudioSession, _ log: (String) -> Void) {
+        guard let port = s.preferredInput ?? s.currentRoute.inputs.first.flatMap({ i in s.availableInputs?.first { $0.uid == i.uid } }) else { return }
+        let sources = port.dataSources ?? []
+        let want = options.inputDataSource?.lowercased()
+        guard let source = want.map({ w in sources.first { $0.orientation?.rawValue.lowercased() == w || $0.dataSourceName.lowercased() == w } })
+                ?? (port.selectedDataSource ?? sources.first) else { return log("media-capture: \(port.portName) has no data source \(options.inputDataSource ?? "")") }
+        let patterns: [String: AVAudioSession.PolarPattern] = ["stereo": .stereo, "cardioid": .cardioid, "omnidirectional": .omnidirectional]
+        if let p = options.polarPattern.flatMap({ patterns[$0] }) {
+            if source.supportedPolarPatterns?.contains(p) == true { try? source.setPreferredPolarPattern(p) }
+            else { log("media-capture: \(source.dataSourceName) has no \(options.polarPattern ?? "") pattern") }
+        }
+        try? port.setPreferredDataSource(source)
+        try? s.setPreferredInput(port)
+    }
+    #endif
+
+    #if os(macOS)
+    /// The Core Audio device whose UID `AVCaptureDevice.uniqueID` is.
+    private static func device(uid: String) -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var cf = uid as CFString, device = AudioDeviceID(kAudioObjectUnknown), size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = withUnsafeMutablePointer(to: &cf) {
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, UInt32(MemoryLayout<CFString>.size), $0, &size, &device)
+        }
+        return status == noErr && device != kAudioObjectUnknown ? device : nil
+    }
+    #endif
 
     private func stop() {
         if let observer { NotificationCenter.default.removeObserver(observer) }

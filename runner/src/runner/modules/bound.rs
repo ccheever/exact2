@@ -57,7 +57,8 @@ impl<D: DataSource> Runner<D> {
         for extension in &answering {
             self.tell_preferred(extension);
         }
-        if self.page.hidden {
+        self.hand_over_all();
+        if self.page.in_background() {
             self.tell_foreground();
         }
         self.publish_sync();
@@ -109,7 +110,10 @@ impl<D: DataSource> Runner<D> {
         args: Json,
         reader: Option<usize>,
     ) -> Request {
-        Request::native(self.forward_body(row, args, reader))
+        let origin = self.call_origin();
+        let body = self.forward_body(row, args, reader);
+        self.anchor_body(row, &body, origin);
+        Request::native(body)
     }
 
     /// The body of a call of `row` for its implementation, `{"extension",
@@ -238,16 +242,22 @@ impl<D: DataSource> Runner<D> {
 
     /// Request `ticket`'s reply landed: its send is no longer cancelled.
     pub(in crate::runner) fn landed_send(&mut self, ticket: u64) {
-        self.extensions.sent.remove(&ticket);
+        if let Some((_, n)) = self.extensions.sent.remove(&ticket) {
+            self.unanchor(n);
+        }
     }
 
     /// Each send let go before its reply landed (superseded, its commit
     /// refused): its implementation is told `{"extension", "cancel": n}`,
     /// so the work no one reads stops (LLP 1133.016 D15 item 2).
     pub(in crate::runner) fn cancel_let_go(&mut self) {
-        let gone: Vec<u64> = (self.extensions.sent.keys())
-            .filter(|t| !self.pending.iter().any(|p| p.ticket == **t))
-            .copied()
+        // A call whose final handler runs is held until it answers (LLP
+        // 1133.034 D16 item 1): its cancel goes once that ends.
+        let gone: Vec<u64> = (self.extensions.sent.iter())
+            .filter(|(t, (_, n))| {
+                !self.pending.iter().any(|p| p.ticket == **t) && !self.final_running(*n)
+            })
+            .map(|(t, _)| *t)
             .collect();
         let handler = self.native_slot().handler();
         for ticket in gone {
@@ -255,6 +265,7 @@ impl<D: DataSource> Runner<D> {
                 continue;
             };
             self.log(format!("cancel {key} request {n}: its call was let go"));
+            self.unanchor(n);
             let extension = key.split_once('.').map_or(key.as_str(), |(e, _)| e);
             if let Some(handler) = &handler {
                 let body = json!({ "extension": extension, "cancel": n });
@@ -307,6 +318,14 @@ impl<D: DataSource> Runner<D> {
         if let Some(facts) = self.facts_of(extension) {
             values.insert("facts".into(), facts);
         }
+        // The app's catalogue, which a synthetic store sells (LLP 1133.015 §9).
+        let catalog = (self.plan.modules.iter())
+            .filter(|m| self.plan.str(m.extension) == extension)
+            .map(|m| self.substitute(m)["catalog"].clone())
+            .find(|c| !c.is_null());
+        if let Some(catalog) = catalog {
+            values.insert("catalog".into(), catalog);
+        }
         let body =
             json!({ "extension": extension, "preferred": values, "permissions": permissions });
         handler(body.to_string().into_bytes(), Reply::new(|_| {}));
@@ -325,7 +344,7 @@ impl<D: DataSource> Runner<D> {
             .map(|m| self.plan.str(m.extension))
             .collect();
         for extension in told {
-            let body = json!({ "extension": extension, "foreground": !self.page.hidden });
+            let body = json!({ "extension": extension, "foreground": !self.page.in_background() });
             handler(body.to_string().into_bytes(), Reply::new(|_| {}));
         }
     }
@@ -348,12 +367,7 @@ impl<D: DataSource> Runner<D> {
     /// group data code asks for is released only with the whole name.
     pub(in crate::runner) fn release_idle(&mut self) {
         let live: Vec<String> = self.extensions.live.iter().cloned().collect();
-        let handler = self.native_slot().handler();
-        let release = |body: Json| {
-            if let Some(handler) = &handler {
-                handler(body.to_string().into_bytes(), Reply::new(|_| {}));
-            }
-        };
+        let mut released: Vec<Json> = Vec::new();
         for key in live {
             let Some((extension, name)) = key.split_once('.') else {
                 continue;
@@ -363,7 +377,7 @@ impl<D: DataSource> Runner<D> {
                 self.extensions.readers.remove(&key);
                 self.extensions.groups.remove(&key);
                 self.log(format!("release {key}: no reader is left"));
-                release(json!({ "extension": extension, "release": name }));
+                released.push(json!({ "extension": extension, "release": name }));
                 continue;
             }
             if self.asking(&key) {
@@ -379,7 +393,30 @@ impl<D: DataSource> Runner<D> {
             for group in gone {
                 self.log(format!("release {key} {group}: no reader asks with it"));
                 let args: Json = serde_json::from_str(&group).unwrap_or_default();
-                release(json!({ "extension": extension, "release": name, "args": args }));
+                released.push(json!({ "extension": extension, "release": name, "args": args }));
+            }
+        }
+        let handler = self.native_slot().handler();
+        for body in released {
+            let key = format!(
+                "{}.{}",
+                body["extension"].as_str().unwrap_or_default(),
+                body["release"].as_str().unwrap_or_default()
+            );
+            let row = (self.plan.modules.iter())
+                .find(|m| self.key(m) == key)
+                .cloned();
+            // A registration the substitute answers is unlisted rather than
+            // told (`declared/desktop.rs`).
+            match row {
+                Some(row) if self.route(&row) == Route::Substitute => {
+                    self.shortcut_released(&row, body.get("args"));
+                }
+                _ => {
+                    if let Some(handler) = &handler {
+                        handler(body.to_string().into_bytes(), Reply::new(|_| {}));
+                    }
+                }
             }
         }
     }

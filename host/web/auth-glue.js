@@ -29,7 +29,12 @@ function finish(env, report) {
  * (the runner's word, `exact_auth`), `deliver(ticket)` (fulfil what the
  * runner settled), `active(ticket)`, `agent`, `log`. */
 export function arm(op, env) {
-  const activated = navigator.userActivation ? navigator.userActivation.isActive : true;
+  // A window the provider's button opened at the press waits for this request (LLP 1133.014 D5): navigating a
+  // window the page holds needs no activation.
+  const waiting = globalThis.exact?.authWaiting;
+  const adopted = waiting && !waiting.claimed && !waiting.window.closed ? waiting : null;
+  if (adopted) { adopted.claimed = true; globalThis.exact.authWaiting = null; }
+  const activated = adopted ? true : navigator.userActivation ? navigator.userActivation.isActive : true;
   const reply = env.call({ op: 'arm', ticket: op.ticket, agent: env.agent, origin: location.origin, popup: activated });
   if (reply.error) { env.log(`auth ${op.ticket}: ${reply.error}`); return; }
   if (reply.settled) { env.deliver(op.ticket); return; }
@@ -38,7 +43,9 @@ export function arm(op, env) {
   // its ticket go, or refused this one with 409).
   if (live) finish(env, null);
   const name = 'exact-auth-' + Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
-  const popup = window.open(reply.present.url, name, 'popup,width=520,height=680');
+  let popup = null;
+  if (adopted) { popup = adopted.window; try { popup.location.href = reply.present.url; } catch { popup = null; } }
+  else popup = window.open(reply.present.url, name, 'popup,width=520,height=680');
   if (!popup) {
     env.call({ op: 'done', ticket: op.ticket, status: 428, message: 'popup blocked' });
     env.deliver(op.ticket);

@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed with avatar, author, handle, relative time (updates live), full text, full-width rounded images at their aspect ratio, and carousels of titled cards that run to the screen edge with a '9 moments / Swipe to explore' footer."},
+      {"n": 2, "status": "pass", "note": "Heart toggles liked/unliked and the count (872↔873), filled red when liked; reply count shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a 'Post' screen with a larger image (382 pt wide). Tapping an image in the feed, detail or a carousel card opens a black full-screen viewer; swipe down dismisses it."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh shows a system spinner and adds three made-up posts (with images) at the top; the post count goes from 401 to 404."},
+      {"n": 5, "status": "pass", "note": "Compose sheet with Cancel and Post; Post is disabled until text is entered, and the new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "Like, composed post and refreshed posts all survive relaunch."}
+    ],
+    "bugs": [
+      "VoiceOver label reads '1 minutes ago' (bad plural)."
+    ],
+    "tells": [
+      "Custom fixed header (serif 'Feed *' wordmark, tagline, big round green compose button) instead of a navigation bar with a large title; it never collapses and takes about 180 pt of every screen.",
+      "Branded cream/green palette and a serif filler line ('A moment worth sharing.') on the detail screen read more like a styled web or brand app than a stock iOS one.",
+      "Feed rows are buttons with a separate '↗' open-post button, rather than plain tappable cells.",
+      "At the largest text size the avatars stay tiny and sit off-axis from the huge names, the '· 407 posts' line wraps awkwardly, and the '↗' glyph does not scale.",
+      "The full-screen viewer hides the status bar and has a home-made circular close button."
+    ],
+    "scroll": "Smooth with no blank rows or pop-in; images are already there when flung into view, and the scroll position is kept after going to a post and back. The fixed header leaves less room for content, and flings felt slightly short.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed: author, handle · relative time, full text, full-width rounded images at their aspect ratio, and paging carousels of image cards with titles."},
+      {"n": 2, "status": "pass", "note": "Like is exposed as a switch; toggles liked and count (872↔873) with a red filled heart; reply count shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a 'Post' screen with the image edge to edge (402 pt). Tapping an image or card opens a black full-screen viewer; swipe down dismisses it."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top (text only, newest first); there is also a refresh button in the nav bar."},
+      {"n": 5, "status": "pass", "note": "Compose sheet with Cancel and a prominent Post that is disabled until text is entered; the post appears at the top."},
+      {"n": 6, "status": "pass", "note": "Like, composed post and refreshed posts all survive relaunch."}
+    ],
+    "bugs": [
+      "Relative times are frozen: refreshed and composed posts say 'Just now' indefinitely, and older posts keep their original '16m ago'."
+    ],
+    "tells": [
+      "Carousel is clipped to the content margins instead of running to the screen edge, so the next card is cut off at 16 pt from the edge.",
+      "Refreshed posts never have images, so they look plainer than the seed data.",
+      "Filler footer text ('You're all caught up on this post.') on the detail screen."
+    ],
+    "scroll": "Feels like a native list: the large title collapses into an inline title over a scroll-edge blur, flings are long and smooth with no blank rows, carousels page card by card, and the scroll position is kept after going to a post and back.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement and keep their state across relaunch. B looks and behaves like a stock iOS 27 app (native nav bar with a collapsing large title, Liquid Glass toolbar buttons, system sheet, clean scaling at large text). A is a polished, branded design but a custom fixed header and some layout issues at large text give it away."
+}

@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first; sender, subject, preview capped at two lines, Oct 24 / time; blue dot on unread rows; rows grow for 2-line previews."},
+      {"n": 2, "status": "pass", "note": "Leading swipe toggles Read/Unread, trailing swipe offers Flag + Archive, a full swipe archives; 'Message archived — Undo' toast; Archive screen lists archived mail with its own unread count."},
+      {"n": 3, "status": "pass", "note": "Flag from swipe and from the reader toolbar; flag icon on row; All/Unread/Flagged filter works (23 flagged)."},
+      {"n": 4, "status": "pass", "note": "Reader shows subject, avatar initials, full date, body; opening dropped unread 109→108; toolbar Mark Unread / Flag / Archive."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds two new unread messages at the top stamped with the current time; repeated pulls add more."},
+      {"n": 6, "status": "pass", "note": "'N unread' shown under the search field and updated live; Archive shows its own count."},
+      {"n": 7, "status": "pass", "note": "After relaunch read, flagged, archived states and the refreshed messages all survived."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Filter is a custom segmented control with a solid blue selected pill, not the system segmented control look",
+      "No large title: 'Inbox' is a small centred inline title from the start, unlike Mail",
+      "'320 messages / 109 unread' summary line between the search field and the list feels like it was added by hand",
+      "Swipe actions are circular buttons with captions below, not standard full-height UIContextualAction blocks",
+      "Disclosure chevron on every mail row"
+    ],
+    "scroll": "Slow drags, flings and fling-back were smooth with no blank or popping rows; pull past the top refreshes; scroll position kept when returning from Archive.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Newest first with sender, subject, preview, Mail-style dates (time / weekday / 10/20/26) and a blue unread dot. At the largest text size the preview isn't capped at two lines and runs on for 5+ lines, clipped by the next row."},
+      {"n": 2, "status": "pass", "note": "Trailing swipe Flag + Archive, full swipe archives, leading swipe Mark Read/Unread; Archive screen works. No undo after archiving."},
+      {"n": 3, "status": "pass", "note": "Flag from swipe and from the message nav bar; orange flag on row; filter menu (All Mail/Unread/Flagged) with checkmark works."},
+      {"n": 4, "status": "pass", "note": "Reader shows subject, sender, To, date, body; opening dropped unread 109→108."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh (also a refresh button) adds two new unread messages at the top with the current time."},
+      {"n": 6, "status": "pass", "note": "'N unread' subtitle under the large title, updated live."},
+      {"n": 7, "status": "pass", "note": "After relaunch read, flagged, archived states and the refreshed messages persisted."}
+    ],
+    "bugs": [
+      "At the largest text size the preview isn't limited to two lines and is cut off at the bottom of the row",
+      "Archive screen has a refresh button and filter that make no sense there",
+      "No undo after archiving, so a mistaken full swipe can only be fixed by finding the message in Archive"
+    ],
+    "tells": [
+      "A swiped row gets a grey rounded card background, which is not how a list cell behaves",
+      "Mark Unread swipe action is a grey capsule rather than the blue system action",
+      "When collapsed, the nav bar shows a small left-aligned 'Inbox / 109 unread' with rows showing faintly through it, not the system centred inline title",
+      "Rows have fixed height: one-line previews leave a large gap and two-line previews touch the separator, so spacing looks uneven",
+      "'Mark as Unread' is a centred text link in the message body rather than a toolbar or nav-bar action",
+      "Search field text in the bottom toolbar doesn't grow with Dynamic Type",
+      "Row accessibility labels don't say whether a message is unread or flagged (each row is a single button)",
+      "Back button is only a chevron with no 'Inbox' label"
+    ],
+    "scroll": "Flings and slow drags were smooth with no blank rows, and position is kept on return from Archive; the large title collapses but leaves a cramped left-aligned header with content showing through.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both meet every requirement and keep state across relaunch, but A adds an undo toast and keeps previews at two lines. It also adapts its filter into a menu at the largest text size. B has the more Mail-like large title and dates, but its rows have uneven fixed heights and swiped rows get a grey card background. Its previews overflow at large text, and its odd Archive-screen controls make it feel less finished."
+}

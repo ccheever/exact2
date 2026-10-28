@@ -13,6 +13,9 @@ pub struct Batch {
     collection_accepted: bool,
     seq: Option<(u64, u64)>,
     alerts: Vec<String>,
+    /// A data module's timer continuation an advance released is still out
+    /// (`Runner::data_timer_landing`): the agent's jump waits for its reply.
+    landing: bool,
 }
 
 /// Validate before token translation or storage/continuation serialization.
@@ -666,6 +669,16 @@ impl Batch {
             s.push_str(",\"redirect\":");
             quote(r.request.redirect.name(), &mut s);
         }
+        // Who asked it, for the local network's rule at the page's fetch
+        // and WebSocket open (LLP 1133.036 D6); absent is the app's own.
+        // Under the agent the substitute's state stands for the browser's.
+        let reach = r.request.reach;
+        if reach.origin != exact_runner::CallOrigin::App {
+            push_text!(&mut s, ",\"origin\":\"{}\"", reach.origin.word());
+            if let Some(state) = reach.substitute {
+                push_text!(&mut s, ",\"reachState\":\"{}\"", state.word());
+            }
+        }
         s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
         s.push_str("\",\"cache\":\"");
@@ -912,6 +925,12 @@ impl Batch {
         self
     }
 
+    /// With `"landing":true` while a released timer's continuation is out.
+    pub fn landing(mut self, landing: bool) -> Batch {
+        self.landing = landing;
+        self
+    }
+
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
@@ -952,6 +971,9 @@ impl Batch {
         }
         if self.collection_accepted {
             s.push_str(",\"accepted\":true");
+        }
+        if self.landing {
+            s.push_str(",\"landing\":true");
         }
         if let Some((first, last)) = self.seq {
             push_text!(&mut s, ",\"seq\":[{},{}]", first, last);

@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "4-across square centre-cropped grid with 1–2 pt gaps, oldest at top, opens scrolled to the newest at the bottom, a heading for each day, and a '1,500 Photos' footer. Tapping the status bar scrolls to the top."},
+      {"n": 2, "status": "partial", "note": "Opens a pushed viewer at the photo's own aspect ratio; swiping left goes to the next photo and swiping down closes it. Swiping right never shows the previous photo: at any speed and from any start point it triggers the navigation back gesture and returns to the grid."},
+      {"n": 3, "status": "pass", "note": "The heart button in the viewer toolbar toggles Favorite/Unfavorite, and a white heart appears on the grid thumbnail at once."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title shows 8 albums in a 2-column grid with a rounded cover, name and count. An album opens a grid with a Select button, the edge swipe goes back, and counts update after deletes."},
+      {"n": 5, "status": "pass", "note": "Select puts 'Select All', 'N Photos Selected' and Cancel in the nav bar with blue checkmark badges on selected photos. The toolbar Favorite works, and Delete shows a system confirmation popover anchored to the trash button ('Delete 2 Photos')."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions (count 1,498) survive a relaunch."}
+    ],
+    "bugs": [
+      "In the full-screen viewer, swiping right always pops back to the grid instead of paging to the previous photo, so you can only move forward by swiping.",
+      "After unfavoriting in the viewer, the image's accessibility label still says 'Favorite' (minor)."
+    ],
+    "tells": [
+      "The selection title truncates to '1 Photo Sel…' at the largest text size.",
+      "The library title is always inline, never large; this is acceptable for Photos but differs from the large-title Albums tab.",
+      "At the largest size the '1,498 Photos' footer sits under the tab bar (it scrolls, but it is cramped)."
+    ],
+    "scroll": "This is a native collection view. Slow drags, flings and the status-bar scroll-to-top are all smooth, with no blank or popping thumbnails, and the scroll position is kept when returning from the viewer.",
+    "scores": {"features": 7, "platform": 9, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "4-across square centre-cropped grid with thin gaps, oldest at top, opens at the newest at the bottom, with day headings. The footer reads '1,500 Photos, 80 Favorites', and the large title appears when scrolled to the top."},
+      {"n": 2, "status": "pass", "note": "A black full-screen viewer at the photo's aspect ratio, with date/time and an 'Album · n of N' caption. Swiping left and right moves between photos, and swiping down closes it."},
+      {"n": 3, "status": "pass", "note": "The heart in the viewer toggles Favorite/Unfavorite, and a heart appears on the grid thumbnail."},
+      {"n": 4, "status": "pass", "note": "Albums tab shows 8 albums with a rounded cover, name and count. The album grid has Select, the edge swipe goes back, and counts update after deletes."},
+      {"n": 5, "status": "pass", "note": "Select shows empty circles that become blue checkmarks, plus a bottom bar with Favorite, a count and Delete. Batch favorite works, and Delete shows a system alert 'Delete 2 photos?' with Delete/Cancel."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions survive a relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the viewer layout breaks: the close button and title grow huge, and the heart and trash buttons stack vertically, overlapping the photo and the wrapped caption.",
+      "Entering select mode shifts the grid content down about 44 pt, so the photo under your finger moves."
+    ],
+    "tells": [
+      "The selection action bar is a flat, opaque, pre-Liquid-Glass strip at the very bottom; the home indicator overlaps its 'N Photos Selected' label, and at large text the label wraps to two huge lines.",
+      "Favorite hearts on thumbnails scale with Dynamic Type to about 50 pt at the largest size and cover the thumbnails.",
+      "The viewer is a custom black modal with hand-drawn circular close, heart and trash buttons rather than system bar buttons; it looks fine at the default size but does not adapt like system controls.",
+      "Thumbnails are exposed to accessibility as switches (on/off) rather than images or buttons."
+    ],
+    "scroll": "Slow drags, hard flings and the status-bar scroll-to-top are all smooth, with no blank rows or late-loading thumbnails. At the largest text size it does not open quite at the bottom: the last row sits under the tab bar.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 8}
+  },
+  "better": "B",
+  "why": "The two apps look almost identical at the default size, and A is the more native build (system toolbar, popover delete confirmation, nothing breaking at large text). But A's viewer can't swipe back to the previous photo: a right swipe always drops you back to the grid, which breaks the core browsing gesture. B does every requirement correctly. Its flaws are mostly cosmetic and only bad at the largest text size, so it's the one I'd rather use."
+}

@@ -8,7 +8,7 @@
 //
 //   bun semantics/difftest/js/drive.mjs <batch.json>
 //
-// The batch: { compiler, work, hostSources: [name…], cases: [{ file, events,
+// The batch: { compiler, work, cases: [{ file, events, hostSources: [name…],
 // answers: [[source, [arg…], answer]…], facts: {resource: value} }] }, every
 // number as {"$": "<16 hex digits of IEEE bits>"}. Prints one JSON line per
 // case: {lines} (the observation), {outside} (exact-web-js refused the
@@ -87,7 +87,7 @@ function datetime(e, text) {
   const bound = k => { const b = e.getAttribute(k); return b && f.test(b) ? b : null; };
   return !(bound('min') && text < bound('min')) && !(bound('max') && text > bound('max'));
 }
-const fire = (e, type) => { for (const f of [...(e.$listeners?.[type] ?? [])]) f({ type, target: e, currentTarget: e, stopPropagation() {}, preventDefault() {}, key: '' }); };
+const fire = (e, type) => { for (const f of [...(e.$listeners?.[type] ?? [])]) f({ type, target: e, currentTarget: e, composedPath() { const path = []; for (let n = e; n; n = n.parentNode) path.push(n); return path; }, stopPropagation() {}, preventDefault() {}, key: '' }); };
 
 // ---------------------------------------------------------------- the runtime
 // Every file the bundle may reach, as host/web-js/build.mjs lays them out.
@@ -100,7 +100,7 @@ function runtime(dir) {
   const text = readFileSync(roster, 'utf8');
   if (!text.includes(engine)) throw new Error(`roster.js no longer has \`${engine}\``);
   writeFileSync(roster, text.replace(engine, 'export const x_sin = x => globalThis.__trig.sin(x), x_cos = x => globalThis.__trig.cos(x);'));
-  for (const f of ['admission.js', 'agent.js']) writeFileSync(resolve(dir, f), localImports(readFileSync(resolve(webJs, f), 'utf8')));
+  for (const f of ['admission.js', 'agent.js', 'modules.js']) writeFileSync(resolve(dir, f), localImports(readFileSync(resolve(webJs, f), 'utf8')));
   writeFileSync(resolve(dir, 'draw.js'), 'export const drawer = null;\n');
   writeFileSync(resolve(dir, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');
   writeFileSync(resolve(dir, 'admission-data.js'), "import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(''),rustGrantSet=createGrantSet('');\n");
@@ -186,7 +186,7 @@ async function drive(code, c, hostSources) {
   // The host's facts (viewport, page, time…) as the runner answered them at
   // boot: the module's own readers of the page (facts.js) assign in vain.
   data.reserved = {};
-  for (const s of hostSources) {
+  for (const s of new Set(hostSources)) {
     const f = (source, args, name) => name in c.facts ? decode(c.facts[name]) : unanswered(source, args);
     Object.defineProperty(data.reserved, s, { get: () => f, set() {}, enumerable: true });
   }
@@ -283,6 +283,9 @@ async function drive(code, c, hostSources) {
     if (ev.tap !== undefined) {
       out.push(`== tap ${quote(ev.tap)}`);
       const e = find(ev.tap);
+      // The runner dispatches even a disabled control; a browser cannot
+      // deliver that press, so it is outside this host comparison.
+      if (e?.hasAttribute('disabled')) return { outside: 'a press on a disabled control: the runner dispatches it, the browser does not' };
       if (!e || !e.$listeners?.click?.length) refused = true; else fire(e, 'click');
     } else if (ev.type !== undefined) {
       const [id, text] = ev.type;
@@ -294,7 +297,11 @@ async function drive(code, c, hostSources) {
       const options = e?.localName === 'select' ? e.getElementsByTagName('option') : null;
       const deliverable = e && e.type !== 'checkbox' && e.type !== 'radio' && datetime(e, text)
         && (!options || options.some(o => !o.hasAttribute('disabled') && (o.getAttribute('value') ?? o.textContent) === text));
-      if (!deliverable || !e.$listeners?.change?.length) refused = true; else { e.value = text; fire(e, 'change'); }
+      const event = e?.$listeners?.input?.length ? 'input' : 'change';
+      if (!deliverable || !e.$listeners?.[event]?.length) refused = true; else { e.value = text; fire(e, event); }
+    } else if (ev.land) {
+      out.push('== land');
+      advance(clock.now, false, undefined, false);
     } else {
       const ms = fromHex(ev.clock.$);
       out.push(`== clock +${String(ms)}`);
@@ -320,7 +327,7 @@ for (const c of batch.cases) {
   let result;
   try {
     const b = await build(batch.compiler, batch.work, c.file);
-    result = b.outside !== undefined ? b : await drive(b.code, c, batch.hostSources);
+    result = b.outside !== undefined ? b : await drive(b.code, c, c.hostSources);
   } catch (e) { result = { error: String(e?.stack ?? e) }; }
   process.stdout.write(JSON.stringify(result) + '\n');
 }

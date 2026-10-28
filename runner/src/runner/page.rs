@@ -44,9 +44,10 @@ impl<D: DataSource> Runner<D> {
         if result.is_err() {
             self.transport.suspend = false;
             self.page = previous;
-        } else if previous.hidden != page.hidden {
-            self.samples_visibility(page.hidden);
+        } else if previous.in_background() != page.in_background() {
+            self.samples_visibility(page.in_background());
             self.tell_foreground();
+            self.arrival_visibility(page.hidden);
         }
         result
     }

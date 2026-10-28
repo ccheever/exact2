@@ -50,29 +50,31 @@ pub(in crate::image) fn decode<R: Read + Seek>(
         if natural != plan.natural() {
             return Err(Refusal::ConflictingMetadata);
         }
-        let full = plan.full();
-        let scaled = factory
-            .CreateBitmapScaler()
-            .map_err(|_| Refusal::DecodeFailed)?;
-        scaled
-            .Initialize(
-                &frame,
-                if swaps_axes { full.height } else { full.width },
-                if swaps_axes { full.width } else { full.height },
-                WICBitmapInterpolationModeLinear,
-            )
-            .map_err(|_| Refusal::DecodeFailed)?;
         let converted = factory
             .CreateFormatConverter()
             .map_err(|_| Refusal::DecodeFailed)?;
         converted
             .Initialize(
-                &scaled,
+                &frame,
                 &GUID_WICPixelFormat32bppPRGBA,
                 WICBitmapDitherTypeNone,
                 None,
                 0.0,
                 WICBitmapPaletteTypeCustom,
+            )
+            .map_err(|_| Refusal::DecodeFailed)?;
+        let full = plan.full();
+        let scaled = factory
+            .CreateBitmapScaler()
+            .map_err(|_| Refusal::DecodeFailed)?;
+        // HighQualityCubic widens the filter for reductions beyond 2x:
+        // https://learn.microsoft.com/windows/win32/api/wincodec/ne-wincodec-wicbitmapinterpolationmode
+        scaled
+            .Initialize(
+                &converted,
+                if swaps_axes { full.height } else { full.width },
+                if swaps_axes { full.width } else { full.height },
+                WICBitmapInterpolationModeHighQualityCubic,
             )
             .map_err(|_| Refusal::DecodeFailed)?;
         let transform = match plan.header.orientation {
@@ -90,13 +92,13 @@ pub(in crate::image) fn decode<R: Read + Seek>(
             _ => WICBitmapTransformRotate0,
         };
         let source: IWICBitmapSource = if transform == WICBitmapTransformRotate0 {
-            converted.cast().map_err(|_| Refusal::DecodeFailed)?
+            scaled.cast().map_err(|_| Refusal::DecodeFailed)?
         } else {
             let oriented = factory
                 .CreateBitmapFlipRotator()
                 .map_err(|_| Refusal::DecodeFailed)?;
             oriented
-                .Initialize(&converted, transform)
+                .Initialize(&scaled, transform)
                 .map_err(|_| Refusal::DecodeFailed)?;
             oriented.cast().map_err(|_| Refusal::DecodeFailed)?
         };
@@ -116,6 +118,12 @@ pub(in crate::image) fn decode<R: Read + Seek>(
             .map_err(|_| Refusal::DecodeFailed)?;
         if cancelled() {
             return Err(Refusal::Stale);
+        }
+        for pixel in pixels.data_mut().chunks_exact_mut(4) {
+            let alpha = pixel[3];
+            for channel in &mut pixel[..3] {
+                *channel = (*channel).min(alpha);
+            }
         }
         Ok(pixels)
     }

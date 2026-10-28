@@ -473,7 +473,15 @@ export function tapWords(args, held = false) {
       return [first, { into }];
     }
     // A wheel at the target's middle or `at` in it, the modifiers held (a pinch is a Control-held wheel; studio diary R3).
-    case 'wheel': return [first, { wheel: [number(rest[0], 'wheel'), number(rest[1], 'wheel')], ...options(rest.slice(2), ['gesture', 'at', 'modifiers']) }];
+    // `fling`, `hold` and `release` are a trackpad's, through the window server (macOS, LLP 1142 D3).
+    case 'wheel': {
+      const opts = { wheel: [number(rest[0], 'wheel'), number(rest[1], 'wheel')], ...options(rest.slice(2), ['gesture', 'fling', 'hold', 'release', 'at', 'modifiers']) };
+      const forms = ['gesture', 'fling', 'hold', 'release'].filter((f) => opts[f]);
+      if (forms.length > 1) refuse(`wheel takes one of gesture, fling, hold and release, not ${forms.join(' and ')}`);
+      if ((opts.fling || opts.hold || opts.release) && opts.modifiers) refuse(`wheel ${forms[0]} holds no modifiers`);
+      if (opts.release && (opts.wheel[0] !== 0 || opts.wheel[1] !== 0 || opts.at)) refuse('wheel release is `wheel 0 0 release`: it lifts the held gesture where it is');
+      return [first, opts];
+    }
     // The mouse's buttons (#107): the left, a double click, the right (`contextmenu`), the middle (`auxclick`), n clicks.
     case 'mouse': case 'dblclick': case 'contextmenu': case 'auxclick': return [first, { [form]: true, ...options(rest, ['at', 'modifiers']) }];
     case 'clicks': return [first, { clicks: number(rest[0], 'clicks'), ...options(rest.slice(1), ['at', 'modifiers']) }];
@@ -482,7 +490,7 @@ export function tapWords(args, held = false) {
       if (!['left', 'right'].includes(rest[0]) || !(rest.length === 3 || (rest.length === 5 && rest[3] === 'for'))) refuse('stick takes left or right, x and y in [-1, 1], and optionally for <ms>');
       return [first, { stick: rest[0], value: [number(rest[1], 'stick'), number(rest[2], 'stick')], ...(rest[3] === 'for' ? { for: number(rest[4], 'for') } : {}) }];
     // Most often a target of several words left unquoted (sb4 farm wave 4, 053: `tap Why are my…`).
-    default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | dragenter <path…> | dragleave | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
+    default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture | fling | hold] [at <x> <y>] [modifiers <M>] | wheel 0 0 release | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | dragenter <path…> | dragleave | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
   }
 }
 
@@ -530,7 +538,7 @@ export function pointerGap(host, browser, opts) {
   const held = opts.modifiers ?? opts.drag?.modifiers;
   const gaps = [
     opts.auxclick && 'a middle-button click (auxclick)',
-    opts.clicks !== undefined && `clicks ${opts.clicks}`,
+    opts.clicks !== undefined && host !== 'web' && `clicks ${opts.clicks}`, // the Playwright carrier clicks at a point (agent-playwright.mjs)
     opts.wheel && opts.at !== undefined && 'a wheel at a point',
     opts.dblclick && opts.at !== undefined && !['ios', 'host-ios'].includes(host) && 'a double click at a point', // iOS: the double tap that selects a word there
     host === 'web' && opts.mouse && 'a mouse click', // the Playwright carrier has none

@@ -184,7 +184,7 @@ impl Ty {
             "number" => Ty::Number,
             "string" => Ty::String,
             "bool" => Ty::Bool,
-            "Router" | "Entry" | "Geometry" => Ty::Record(spec.into()),
+            "Router" | "Entry" | "Geometry" | "SharedFiles" => Ty::Record(spec.into()),
             "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
             "list<string>" => Ty::List(Box::new(Ty::String)),
             "list<number>" => Ty::List(Box::new(Ty::Number)),
@@ -951,6 +951,9 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             }
         }
         Expr::Unary(op, inner, span) => {
+            if let Some(e) = calls::unquoted_token(*op, inner, scope, *span) {
+                return Err(e);
+            }
             let t = infer(inner, scope, shapes)?;
             if t == Ty::Unknown {
                 return Ok(Ty::Unknown);

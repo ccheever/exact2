@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen: Today (21) and All (135) in their own group, then 'My Lists' with six coloured list icons and open counts. Counts updated correctly after completing, adding and deleting tasks."},
+      {"n": 2, "status": "pass", "note": "Open tasks first, then a 'Completed (n)' header with a disclosure chevron that collapses and expands. Completed rows have orange filled checks and struck-through titles. Tapping the circle completes or reopens a task at once."},
+      {"n": 3, "status": "pass", "note": "New Task sheet with title, List and Priority pop-up menus, a Due Date switch that shows an inline calendar (it labels the chosen date 'Overdue' while you pick), and notes. Tapping a row opens Edit Task with the same fields plus Delete Task. Edits saved."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with an exclamation icon and the word 'Overdue'. Priority shows as ! / !! / !!! before the title, red for high."},
+      {"n": 5, "status": "pass", "note": "Native trailing swipe-to-delete with a trash button. Edit mode shows system reorder handles, and a drag moved the row (a very fast drag did not pick it up, which is normal UITableView behaviour)."},
+      {"n": 6, "status": "pass", "note": "'Add List' opens a system alert with a text field and opens the new list on Create. Rename and Delete are in the list's ••• menu and in a swipe on the list row (Rename plus Delete). Delete asks for confirmation."},
+      {"n": 7, "status": "pass", "note": "After relaunch, the completion, the edited title, the deleted task, the new order, the new task (with priority, date and notes) and the list changes were all kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The tint for buttons and the selected day in the date picker is black, not the system accent. The 'New Task' label on an empty list turned blue, so tinting is inconsistent.",
+      "Tapping the 'Due Date' row label does not flip its switch (minor).",
+      "The floating 'New Task' / 'Add List' capsule buttons cover the last rows; that is acceptable on iOS 26-style glass but still overlaps content."
+    ],
+    "scroll": "Native table scrolling: a slow drag tracked the finger, flings decelerated naturally, there were no blank or popping rows, the large title collapsed into an inline title, and it rubber-banded at the top.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Lists screen with Today (21) and All (135), then 'My Lists' with counts. Counts updated correctly. All groups tasks under coloured list headers, and Today shows the list name with red overdue dates."},
+      {"n": 2, "status": "pass", "note": "Open tasks, then a 'Completed · n' row with a Show/Hide text button; it starts collapsed and the state is kept. Checkboxes complete and reopen at once. A ••• menu also has 'Hide Completed'."},
+      {"n": 3, "status": "pass", "note": "New Task sheet with title, List menu, Due Date switch with a compact date picker, a None/Low/Medium/High segmented control and notes. Save stays disabled until there is a title. Tapping a row opens a 'Details' sheet that saved edits and has Delete Task."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with '· Overdue'. Priority shows as ! (blue) up to !!! (red) before the title."},
+      {"n": 5, "status": "pass", "note": "Swipe left shows a Delete button that works. Rows have always-visible grip handles, and dragging one reorders the list."},
+      {"n": 6, "status": "pass", "note": "+ opens a New List sheet. Touching and holding a list opens a context menu with Rename and Delete. Swiping a list shows Delete, which asks for confirmation in an alert."},
+      {"n": 7, "status": "pass", "note": "After relaunch, the completion, the edit, the deletion, the reorder, the added task and the collapse state were all kept."}
+    ],
+    "bugs": [
+      "VoiceOver state is wrong: after tapping 'High' in the priority segmented control, the control still reports 'None' as selected."
+    ],
+    "tells": [
+      "The list screens use a plain white background with full-width hairlines, and there is a separator above the first row and between the 'Completed' header and its first row, unlike UITableView/List.",
+      "Grip handles are always visible instead of reordering through Edit mode or a long press. There is no Edit button.",
+      "Every list on the main screen has the same orange hamburger glyph instead of coloured list icons, and the list rows have heavy black chevrons while Today/All have light grey ones.",
+      "The main screen has a footer that explains gestures ('Swipe a list to delete it; touch and hold to rename it.'), which is not an iOS convention.",
+      "Dates always include the year ('Nov 12, 2026'), even for the current year.",
+      "In All, the list-name headers are rows between separators and do not stick while scrolling.",
+      "At the largest text size the checkbox circles stay small while the text grows, and the grip handle reaches the right edge. Notes truncate to 'See the e…'.",
+      "The completed section is shown or hidden with a text 'Show/Hide' button rather than a disclosure chevron."
+    ],
+    "scroll": "Smooth: slow drags tracked the finger, flings decelerated naturally, there were no blank rows or stutter, the large title collapsed and the list returned to the top cleanly. Section headers do not stick.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and keep everything across a relaunch. A looks and behaves like a stock UIKit/SwiftUI app: inset-grouped lists with coloured icons, Edit-mode reordering, swipe actions with Rename, system alerts, disclosure sections, and controls that scale at large text. B works just as well, but it shows a run of non-native details: a plain white list with full-width hairlines, always-on grip handles, the same orange glyph on every list, a footer explaining gestures, headers that don't stick, and checkboxes that don't scale."
+}

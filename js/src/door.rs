@@ -162,6 +162,11 @@ pub(crate) unsafe extern "C" fn host_door(
             crypto::hex(&bytes)
         })),
         10 => Ok(wire::canvas_image(state.canvas.as_ref(), &a)),
+        // Whether this host listens (LLP 1133.005 §8): the desktop's, where
+        // the prelude installs `exactListen`.
+        12 if a == "listen" => {
+            Ok(cfg!(any(target_os = "macos", target_os = "linux")).then(|| "1".into()))
+        }
         12 => Ok(crypto::auth_callback(state, &a)),
         // A journal line the runtime writes (LLP 1097 D8): a failed or
         // refused storage operation, an unhandled rejection. `logs` reads
@@ -220,6 +225,9 @@ pub(crate) unsafe extern "C" fn host_door(
             };
             if yes { "1" } else { "0" }.to_string()
         })),
+        // The runner's clock as this call began, ms: when a timer the answer
+        // arms is due (binary.js `timers`). None at bake.
+        21 => Ok(state.store.map(|s| (*s).clock_ms().to_string())),
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();

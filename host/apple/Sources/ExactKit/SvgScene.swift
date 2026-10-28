@@ -297,7 +297,10 @@ final class SvgScene {
     /// colour space (`color-interpolation-filters`) changes only how the
     /// element's antialiased edge blends over its own shadow.
     static func dropShadow(_ fl: [String: Any]) -> (region: CGRect, sigma: CGFloat, offset: CGSize, color: CGColor, opacity: Float)? {
-        let p = nums(fl["p"])
+        dropShadow(program: nums(fl["p"]))
+    }
+    /// The same of a chain's numbers (`Filter::encode`), a box's included.
+    static func dropShadow(program p: [Double]) -> (region: CGRect, sigma: CGFloat, offset: CGSize, color: CGColor, opacity: Float)? {
         // region (4), count, then code, in, in2, subregion (4), linear, σx, σy, dx, dy, rgba.
         guard p.count == 5 + 8 + 8, p[4] == 1, p[5] == 6, p[6] == -1, p[13] == p[14], p[13] >= 0,
               p[15].isFinite, p[16].isFinite else { return nil }

@@ -1,0 +1,36 @@
+dev.bakeoff.watchlist.b74f27e: ExactGroupedLists.GroupedCollectionView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 23.15 s of motion
+  bad   hitch ratio (ms/s)                     12.1
+  tell  longest frame (ms)                     38.7
+  ok    main thread p95 (ms/frame)             4.72
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       508
+  ok    momentum hand-off (content/asked)      1.03
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.67
+  ok    rubber band (overscroll/finger)        0.48
+  ok    rubber band settle (s)                 0.54
+  ok    status-bar scroll to top (s)           0.96
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              15.8
+  tell  scrub: longest frame (ms)              38.1
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  16 ok, 2 tell, 2 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 11.6, from scrolling 0.5):
+    slow-drag: 3 late frames (3 on a timer's tick), 54 ms late; Exact host 15 ms (in UIKit 4) · app JS (main waits on exact.owner) 4 ms · Exact runtime (main waits on exact.owner) 3 ms; in timers 22 ms, display links and ports 4 ms
+    fling-1500: 1 late frame (1 on a timer's tick), 18 ms late; Exact host 11 ms (in UIKit 6) · app JS (main waits on exact.owner) 3 ms · Exact runtime (main waits on exact.owner) 3 ms; in timers 11 ms, display links and ports 3 ms, events 3 ms
+    fling-6000: 1 late frame (1 on a timer's tick), 19 ms late; Exact host 11 ms (in UIKit 6) · Exact host (main waits on exact.owner) 6 ms (in text & drawing 3) · app JS (main waits on exact.owner) 3 ms; in timers 14 ms, events 3 ms
+    pull-top: 2 late frames (2 on a timer's tick), 36 ms late; Exact host 15 ms (in UIKit 9) · Exact runtime (main waits on exact.owner) 8 ms · app JS (main waits on exact.owner) 8 ms; in timers 19 ms, display links and ports 6 ms, events 6 ms, the main queue 3 ms
+    fling-partway: 2 late frames (2 on a timer's tick), 34 ms late; Exact host 19 ms (in UIKit 8) · app JS (main waits on exact.owner) 8 ms · Exact host (main waits on exact.owner) 3 ms; in timers 25 ms, events 5 ms, display links and ports 3 ms
+    fling-for-tap: 1 late frame (1 on a timer's tick), 18 ms late; Exact host 16 ms (in UIKit 13) · Exact runtime (main waits on exact.owner) 3 ms · Exact host (main waits on exact.owner) 3 ms; in display links and ports 8 ms, timers 8 ms, events 5 ms, the main queue 3 ms
+    find-carousel-1: 1 late frame (1 on a timer's tick), 17 ms late; Exact host 11 ms (in UIKit 3) · Exact runtime (main waits on exact.owner) 3 ms · Exact host (main waits on exact.owner) 3 ms; in timers 11 ms, display links and ports 3 ms, events 3 ms
+    find-carousel-2: 1 late frame (1 on a timer's tick), 17 ms late; Exact host 10 ms (in UIKit 5) · Exact runtime (main waits on exact.owner) 3 ms · app JS (main waits on exact.owner) 3 ms; in timers 10 ms, the main queue 3 ms, display links and ports 3 ms
+    find-carousel-3: 1 late frame (1 on a timer's tick), 17 ms late; Exact runtime (main waits on exact.owner) 6 ms · Exact host 6 ms (in UIKit 3) · Exact host (main waits on exact.owner) 3 ms; in timers 14 ms, display links and ports 3 ms
+    find-carousel-4: 1 late frame (1 on a timer's tick), 18 ms late; Exact host 11 ms (in UIKit 3) · Exact host (main waits on exact.owner) 3 ms · app JS (main waits on exact.owner) 3 ms; in timers 13 ms, events 3 ms
+    find-carousel-8: 2 late frames (1 on a timer's tick), 33 ms late; Exact host 14 ms (in UIKit 11) · app JS (main waits on exact.owner) 6 ms · Exact runtime (main waits on exact.owner) 3 ms; in events 12 ms, timers 9 ms, display links and ports 3 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 3 late frames (2 on a timer's tick), 52 ms late; Exact host 46 ms (in UIKit 25) · Exact runtime (main waits on exact.owner) 5 ms · app JS (main waits on exact.owner) 5 ms; in timers 18 ms, the main queue 13 ms, display links and ports 13 ms, events 13 ms

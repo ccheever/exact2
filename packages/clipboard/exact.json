@@ -1,0 +1,55 @@
+{
+  "kind": "interface",
+  "name": "@exact/clipboard",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "ClipboardItem": {
+      "record": {
+        "text/plain": {
+          "type": "string",
+          "maxBytes": 1048576
+        },
+        "image/png": {
+          "type": "path",
+          "access": "read",
+          "or": "bytes",
+          "maxBytes": 2097152
+        }
+      }
+    }
+  },
+  "names": [
+    {
+      "send": "write",
+      "contract": false,
+      "params": ["data"],
+      "options": {
+        "data": "ClipboardItem[]"
+      },
+      "answers": null,
+      "origin": "app",
+      "sequence": "write",
+      "substitute": {
+        "unsupported": ["android", "linux", "windows", "tvos"]
+      }
+    },
+    {
+      "send": "writeText",
+      "contract": false,
+      "params": ["data"],
+      "options": {
+        "data": {
+          "type": "string",
+          "maxBytes": 1048576
+        }
+      },
+      "answers": null,
+      "origin": "app",
+      "sequence": "write",
+      "substitute": {
+        "unsupported": ["android", "linux", "windows", "tvos"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+dev.bakeoff.feed.bd1dd6c: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 16.58 s of motion
+  ok    hitch ratio (ms/s)                     0
+  ok    longest frame (ms)                     16.7
+  ok    main thread p95 (ms/frame)             4.15
+  ok    tracking ratio                         1.005
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       503
+  ok    momentum hand-off (content/asked)      1.04
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.8
+  ok    rubber band (overscroll/finger)        0.64
+  ok    rubber band settle (s)                 0.58
+  ok    status-bar scroll to top (s)           0.95
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              138
+  tell  scrub: longest frame (ms)              66.6
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  ok    carousel: hitch ratio (ms/s)           0
+  ok    carousel: longest frame (ms)           16.7
+  ok    carousel: tracking ratio               1
+  ok    carousel: deceleration τ (ms; .normal 500) 507
+  ok    carousel: momentum hand-off (content/asked) 0.95
+  ok    carousel: edge bounce settle (s)       0.65
+  ok    carousel: a mostly-horizontal drag (carousel/finger, list pt) 0.95, 0
+  ok    carousel: a mostly-vertical drag (list/finger, carousel pt) 0.95, 0
+  26 ok, 1 tell, 1 bad
+  where the scrub's late frames' main-thread time went:
+    scrub: 19 late frames (0 on a timer's tick), 453 ms late; Exact host 557 ms (in UIKit 357) · Exact runtime (main waits on exact.owner) 76 ms · Exact host (main waits on exact.owner) 53 ms (in text & drawing 16); in display links and ports 598 ms, events 105 ms, the main queue 6 ms, run-loop observers (the commit) 3 ms

@@ -1781,6 +1781,12 @@
       "params": ["string", "number", "number"],
       "returns": "Geometry",
       "_comment": "@ref LLP 1114.007: `Range.getBoundingClientRect()` of a text field's UTF-16 range, read in an action from the field's last presented layout: offsets truncated toward zero; a collapsed range the caret's rectangle, a wider one the union of its line fragments, untrimmed by scrolling or the field's clip. Unavailable for a non-finite or negative offset, a start past the end, an end past the text, a missing or hidden field, active composition, or a host with no reader."
+    },
+    {
+      "name": "sharedFiles",
+      "params": ["Entry", "string"],
+      "returns": "SharedFiles",
+      "_comment": "@ref LLP 1133.024 D3: the files a received share carried, by the token in the entry's `name` parameter: `{files: Picked[], dropped, pending}`, `pending` those still being copied. A token the host did not set this launch answers no files. The host sets the token by `set_shared`, so a read is not a pure function of its arguments: the runner re-evaluates its readers at every update."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

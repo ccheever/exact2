@@ -304,7 +304,9 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app,
 // name as the title, and its first icon as the favicon. An installed PWA's
 // icon and name are the browser's cached copies of these — the origin's
 // carrier, at its real strength.
-const webManifest = webAppManifest(app.manifest, app.displayName);
+const manifestNotes = [];
+const webManifest = webAppManifest(app.manifest, app.displayName, manifestNotes);
+for (const note of manifestNotes) console.log(note);
 writeFileSync(resolve(stage, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
 const sourceRevision = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], {cwd:app.dir,encoding:'utf8'});
 const sourceChanges = spawnSync('git', ['status', '--porcelain'], {cwd:app.dir,encoding:'utf8'});

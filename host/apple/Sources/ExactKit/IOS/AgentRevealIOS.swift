@@ -44,12 +44,14 @@ extension Agent {
     /// One pass of `reveal`: the list first, then each enclosing scroller.
     /// Whether anything scrolled.
     private func scrollIn(_ v: NodeView) -> Bool {
-        var scrolled = presenter.groupedLists?.reveal(v.id, port: visiblePort) ?? false
+        var scrolled = presenter.groupedLists?.reveal(v.id, port: { self.visiblePort($0) }) ?? false
         guard v.window != nil else { return scrolled }
         // A hidden scroller (the authored one under a grouped list) shows nothing where it scrolls.
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled && !sv.isHidden {
             let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
-            let port = visiblePort(sv)
+            let port = visiblePort(sv, for: v)
+            // (No band left between the covers: nothing to scroll the middle into, so nothing moves.)
+            if port.height <= 0 { continue }
             var o = sv.contentOffset
             if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
             // Inline, only as far as it takes from the side its middle is on; a
@@ -64,6 +66,23 @@ extension Agent {
             if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
         }
         return scrolled
+    }
+
+    /// The sticky (or fixed) box of `sv`'s content a finger at `at` (in the window) lands in, by the window's own hit
+    /// test (as the tap's): none holding `v`, none of a scroller inside `sv`, none in a popover.
+    private func stickyCover(at: CGPoint, over v: UIView, in sv: UIScrollView) -> NodeView? {
+        guard let hit = v.window?.hitTest(at, with: nil), hit !== v, !hit.isDescendant(of: v) else { return nil }
+        var up: UIView? = hit, found: NodeView?
+        while let u = up, u !== sv {
+            if u is UIScrollView { return nil }
+            if let n = u as? NodeView {
+                if n.props["popover"] != nil { return nil }
+                if found == nil, ["sticky", "fixed"].contains(n.layoutPosition) { found = n }
+            }
+            up = u.superview
+        }
+        guard up === sv, let found, !v.isDescendant(of: found) else { return nil }
+        return found
     }
 
     /// After a scroll, the target's box at rest, for at most half a second:
@@ -92,7 +111,10 @@ extension Agent {
     /// viewport's own end (`resizes-content`) or inset (`resizes-visual`)
     /// and `overlays-content`, which insets nothing, all count it
     /// (LLP 1086.000.000 D2).
-    func visiblePort(_ sv: UIScrollView) -> CGRect {
+    /// With a target (`v`, the agent's `reveal`), also clear of each sticky box of `sv`'s content that a finger at its
+    /// middle lands on and that doesn't hold `v` (the design tool's edit dock; theme2's 14:49 ruling): a person scrolls
+    /// a row out from under it. Never a popover or a top-layer box, which no scroll takes away.
+    func visiblePort(_ sv: UIScrollView, for v: UIView? = nil) -> CGRect {
         var port = sv.pageBounds.inset(by: sv.adjustedContentInset)
         guard let window = sv.window else { return port }
         var covers = bars(over: sv).map { $0.convert($0.bounds, to: nil) }
@@ -105,6 +127,20 @@ extension Agent {
             // One in the port's upper half starts it below; one lower ends it above.
             if r.midY < port.midY { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
             else { port.size.height = max(0, r.minY - port.minY) }
+        }
+        // The target's covers: the sticky box at its middle, then each one at the middle of the band that leaves (a
+        // header across from a dock), by the window's hit test, as the tap's.
+        if let v {
+            let x = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: sv).x, mid = port.midY
+            var at = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
+            for _ in 0..<4 {
+                guard port.height > 0, let cover = stickyCover(at: at, over: v, in: sv) else { break }
+                let r = cover.convert(cover.bounds, to: sv).intersection(port)
+                guard !r.isNull, r.height > 0 else { break }
+                if r.midY < mid { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
+                else { port.size.height = max(0, r.minY - port.minY) }
+                at = sv.convert(CGPoint(x: x, y: port.midY), to: nil)
+            }
         }
         return port
     }

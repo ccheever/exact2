@@ -1,0 +1,34 @@
+dev.bakeoff.feed.b046c92: SwiftUI.HostingScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 16.72 s of motion
+  ok    hitch ratio (ms/s)                     1
+  ok    longest frame (ms)                     33.3
+  ok    main thread p95 (ms/frame)             4.34
+  ok    tracking ratio                         1.006
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       503
+  ok    momentum hand-off (content/asked)      1.03
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.73
+  ok    rubber band (overscroll/finger)        0.63
+  ok    rubber band settle (s)                 0.58
+  ok    status-bar scroll to top (s)           0.97
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              307.2
+  tell  scrub: longest frame (ms)              65.5
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  ok    carousel: hitch ratio (ms/s)           0
+  ok    carousel: longest frame (ms)           16.7
+  ok    carousel: tracking ratio               1
+  bad   carousel: deceleration τ (ms; .normal 500) 102
+  ok    carousel: momentum hand-off (content/asked) 0.88
+  ok    carousel: edge bounce settle (s)       0.63
+  ok    carousel: a mostly-horizontal drag (carousel/finger, list pt) 1.32, 0
+  ok    carousel: a mostly-vertical drag (list/finger, carousel pt) 0.95, 0
+  25 ok, 1 tell, 2 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 1):
+    slow-drag: 1 late frame (0 on a timer's tick), 17 ms late; SwiftUI 5 ms · text & drawing 5 ms · app code 5 ms (in SwiftUI 5); in the main queue 2 ms, display links and ports 2 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 33 late frames (0 on a timer's tick), 1019 ms late; app code 1155 ms (in SwiftUI 519) · SwiftUI 243 ms · text & drawing 56 ms; in events 611 ms, display links and ports 509 ms, the main queue 10 ms

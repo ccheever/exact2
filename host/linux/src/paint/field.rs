@@ -518,14 +518,13 @@ impl Painter {
 /// A node's effective overflow per axis — the kernel's own rule: a
 /// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
 /// unset axis beside a non-visible one is scrollable (CSS Overflow §3). A
-/// neutral alert and its part boxes read the alert's defaults too
-/// (kernel/src/arena/alert.rs): its message box scrolls.
+/// neutral top-layer box and alert part read their structural defaults too.
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let resolved;
     let s = if look::neutral()
         && (node.props.get(PropId::AlertPart).is_some()
             || node.props.str(PropId::SemanticTag) == Some("dialog")
-                && node.props.str(PropId::AccessibilityRole) == Some("alertdialog"))
+            || node.props.str(PropId::Popover).is_some())
     {
         resolved = node.computed_style(StyleMask::EMPTY);
         &resolved

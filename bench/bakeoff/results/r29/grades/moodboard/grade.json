@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Three-column grid of rounded HSL squares with the emoji centred, newest first, under a tile count. The grid sits below a large custom header (eyebrow, serif title, tagline, filter card), so it starts about a third of the way down the screen."},
+      {"n": 2, "status": "pass", "note": "A wide card opens a system menu with All boards plus the ten boards and a checkmark on the current one. Filtering works (Coast shows 64 tiles)."},
+      {"n": 3, "status": "pass", "note": "Large view shows title, board chip and 'Added October 26, 2026'. It is a real paging collection: the page follows the finger, a short drag snaps back, and 'n of N' in the nav bar updates. The prev/next buttons also work. Opened from Liked, it pages through liked tiles only."},
+      {"n": 4, "status": "pass", "note": "A big Like/Liked button in the detail view toggles the like. The Liked tab shows the same grid with heart badges, and its count updates after like and unlike."},
+      {"n": 5, "status": "pass", "note": "Select puts check circles on tiles and offers Select all. A bottom panel has Like and Delete. Delete asks for confirmation in an alert ('Delete 2 tiles?'). Bulk like works and leaves select mode."},
+      {"n": 6, "status": "pass", "note": "After relaunch: 598 tiles, the likes kept, Liked count 65."}
+    ],
+    "bugs": [
+      "At the largest text size the main screen in select mode shows no tiles: the huge header, wrapped 'All boards' card, 'Select all' and the tall bottom action panel take up the whole screen, and 'Select all' is cut off behind the panel.",
+      "At the largest text size the detail view's 'Added …' date line is hidden behind the bottom Like bar."
+    ],
+    "tells": [
+      "Custom web-like header (letter-spaced eyebrow caption, serif display title, tagline) instead of a navigation bar with a large title. It scrolls away with no nav bar left behind.",
+      "Board filter is a hand-drawn full-width card with its own chevron, not a toolbar menu button or segmented control.",
+      "Select mode shows '3 selected' and 'Done' twice: in the header and again in a custom bottom panel with big pill buttons, instead of a system toolbar.",
+      "Liked tab icon is always drawn filled, even when not selected.",
+      "Custom cream/green palette and pill buttons throughout, which reads as a designed web or React Native look rather than system styling.",
+      "At large text the header blocks reflow badly ('All boards' wraps onto two lines inside the card, and Select drops onto its own line), pushing the grid far down.",
+      "Grid emoji do not scale with Dynamic Type (fine), but the header does, without limits."
+    ],
+    "scroll": "Smooth: no blank or popping tiles during flings, a normal rubber-band past the top, and the scroll position is kept on returning from the detail view. The grid's content frame grows lazily as you scroll, which you can't see.",
+    "scores": {"features": 9, "platform": 5, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Edge-to-edge three-column grid with 1–2 pt gutters, newest first, starting right under the nav bar. The emoji are small (about a quarter of the tile) at default size."},
+      {"n": 2, "status": "pass", "note": "A filter button in the nav bar opens a system menu (Boards header, All Boards plus ten, checkmark). The title becomes the board name and the subtitle shows the count (Coast, 64 tiles)."},
+      {"n": 3, "status": "pass", "note": "Detail shows a full-width square, title, board and date, with prev/next buttons and an 'n of N' label. The swipe is a gesture that swaps the tile: the page does not follow the finger, and a short slow 60 pt drag already jumps to the next tile. Opened from Liked, it pages through liked tiles only."},
+      {"n": 4, "status": "pass", "note": "A heart button in the nav bar toggles like. The Liked tab uses the same grid, its count updates, and an unliked tile disappears from the list after going back."},
+      {"n": 5, "status": "pass", "note": "Select turns the title into 'N Selected' and adds Like and Delete buttons in the nav bar, with system-style blue check circles. Delete asks for confirmation in an alert. Bulk like works and leaves select mode."},
+      {"n": 6, "status": "pass", "note": "After relaunch: 598 tiles, the likes kept, Liked count 65."}
+    ],
+    "bugs": [
+      "Detail swipe triggers on a short drag and does not track the finger. It feels like a gesture recogniser rather than paging, so an accidental small horizontal drag changes the tile."
+    ],
+    "tells": [
+      "The swipe between tiles is not interactive paging: the content doesn't move with the finger and there is no snap-back.",
+      "The nav title jumps from leading-aligned ('Moodboard') to centred ('Coast', 'Liked') depending on the screen or filter.",
+      "The detail view's like heart is black (not tinted or red) when liked, while the grid uses red heart badges.",
+      "The detail view's nav title is just 'Tile', and prev/next are hand-drawn grey circle buttons in the content.",
+      "At the largest text size the grid emoji scale up until they overlap the selection circles, and the select-mode title truncates to '1 Selec…'.",
+      "Tab label 'All Tiles' uses a photo icon, which is fine. Overall the look stays close to system defaults."
+    ],
+    "scroll": "Smooth: no blank or popping tiles mid-fling, a normal bounce at the top, and the scroll position is kept after opening and closing a tile.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "B",
+  "why": "Both meet every requirement and keep their state across relaunches. A has the better detail pager (true paging with snap-back) but wraps everything in a custom, web-like header and bottom panel, which falls apart at large text (no tiles visible in select mode). B looks and behaves much closer to a stock iOS app: nav-bar menu, nav-bar select actions, edge-to-edge grid. Its main flaws are a non-interactive swipe and some large-text truncation."
+}

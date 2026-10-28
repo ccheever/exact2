@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and % since open. Green with ↗ when up, red with ↘ when down."},
+      {"n": 2, "status": "pass", "note": "Prices tick every second in place. With Change sort the order updates live, and updates continue while scrolling. No blank or flashing rows."},
+      {"n": 3, "status": "pass", "note": "Sort menu offers Symbol/Price/Change plus Ascending/Descending; it resorts live. Search matches symbol and company name and has a clear button and a proper 'No matching symbols' empty state."},
+      {"n": 4, "status": "pass", "note": "Star buttons on each row and in the detail screen. The All/My List segmented control filters correctly, with a count."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, $ and % change, open, volume, and a live 60-sample line chart with fill and a 'collecting history n of 60' state. Updates every second."},
+      {"n": 6, "status": "pass", "note": "My List (3 starred) and Change↓ sort both restored after relaunch."}
+    ],
+    "bugs": [
+      "A short quick downward flick on the main list was repeatedly ignored (the list did not move), though slower or longer drags and upward flicks scroll normally."
+    ],
+    "tells": [
+      "Custom warm off-white / navy palette and copper accent instead of system backgrounds and tint, so it reads as a branded web/dashboard theme.",
+      "Search is a hand-made 52pt pill text field instead of a system search bar (.searchable); it has no Cancel button and does not hide on scroll.",
+      "The 'Simulated live' summary card (Symbols/Advancing/Declining) looks like a web dashboard tile.",
+      "Segmented control and search are pinned above the list. At the largest text size they plus the sticky sort header take over half the screen, leaving room for about one row.",
+      "At the largest text size 'SIMULATED' breaks mid-word into 'SIMULA / TED'.",
+      "In dark mode the selected segment of the segmented control is darker than its track (inverted from the iOS look).",
+      "The row star does not grow at large text and floats beside a tall, stacked row.",
+      "No swipe actions on rows (e.g. swipe to add or remove from My List). Rows have no disclosure chevrons.",
+      "Rows are tall (79pt) with inset separators that start under the text, unlike a standard list cell.",
+      "The detail screen repeats the star as both a nav-bar button and a large tinted 'In My List' pill button."
+    ],
+    "scroll": "Smooth with no blank or popping rows during flings, even while rows reorder live. Scroll position is kept when returning from detail. Flings feel a bit short, and a quick downward flick was sometimes ignored.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers with symbol, name, price and signed % since open in system green/red, with disclosure chevrons."},
+      {"n": 2, "status": "pass", "note": "Prices update every second in place. Change sort reorders live, and the list keeps updating while scrolled."},
+      {"n": 3, "status": "partial", "note": "Sort menu (Symbol/Price/Change plus an Ascending/Descending toggle) works and resorts live. Search filters correctly, but the bottom search field stays behind the keyboard while typing, so the query, its clear button and its close button can't be seen or reached. The empty state's 'Clear Search' resets the results but leaves the old text in the field."},
+      {"n": 4, "status": "pass", "note": "Stars on rows and in the detail nav bar. The All/My List system segmented control filters correctly."},
+      {"n": 5, "status": "pass", "note": "Inset-grouped detail with a large price, % since open, a live 60-sample chart with low/high and a 'collecting history' state, and open and volume rows. Updates every second. No $ change shown."},
+      {"n": 6, "status": "pass", "note": "My List (3 starred) and Change↓ sort restored after relaunch."}
+    ],
+    "bugs": [
+      "While searching, the bottom search field stays under the keyboard instead of riding above it. You type blind, and the field's clear button and close button are hidden behind the keyboard, so taps there hit keys instead.",
+      "The 'Clear Search' button in the no-results state shows all 260 rows again but leaves the stale query (e.g. 'emberzzzz') in the search field."
+    ],
+    "tells": [
+      "Rows are exposed as links and the star as a switch with value 0/1, so it behaves and reads like a web view rather than a native button and cell.",
+      "A hairline divider sits under the large title above the segmented control, which a native large-title nav bar doesn't draw.",
+      "At the largest text size the % change is oddly indented under the price, and the star sits alone on its own line above each row.",
+      "The segmented control and the floating search field don't grow with Dynamic Type while the content does.",
+      "No swipe actions on rows.",
+      "The sort menu uses a single 'Ascending ↑/Descending ↓' toggle item with a text arrow rather than checkmarked order options."
+    ],
+    "scroll": "Feels like a native list: fast flings with momentum, scroll-edge blur under the nav bar and search field, and no blank or popping rows while prices and order change. Position is kept when returning from detail, and pull past the top bounces normally.",
+    "scores": {"features": 7, "platform": 7, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both meet nearly every requirement and persist correctly, but B's search, a core feature, is broken in use: the field hides behind the keyboard and 'Clear Search' leaves stale text. A works cleanly everywhere. B looks closer to stock iOS (system colours, bottom search, inset detail), while A's custom theme and hand-built search field look less native, so B edges ahead on platform but A is the one I would ship."
+}

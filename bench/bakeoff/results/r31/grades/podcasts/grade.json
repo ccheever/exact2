@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 420 episodes, newest first. Each row has artwork, show, title, date · length and a Played/Unplayed indicator."},
+      {"n": 2, "status": "pass", "note": "A native segmented control (All episodes / Unplayed) filters the list to 293. The show screen has the same control."},
+      {"n": 3, "status": "pass", "note": "A Shows grid of 12 artwork cards, each with episode and unplayed counts. Tapping a card pushes that show's episodes, with a header and its own unplayed filter."},
+      {"n": 4, "status": "pass", "note": "The episode screen has large artwork, date, length, summary and a Play button. Play changes to 'Playing' with a pause icon, marks the episode played, and shows a Now Playing mini-player above the tab bar."},
+      {"n": 5, "status": "pass", "note": "The Played/Unplayed control in the row toggles state. A full leading swipe toggles played, and the … menu offers Mark Played/Unplayed."},
+      {"n": 6, "status": "pass", "note": "You can add from the row button, a trailing swipe, the menu or the detail screen. Up Next uses Edit mode with real drag handles and red delete controls, and swipe-to-Remove works."},
+      {"n": 7, "status": "pass", "note": "Played state, Up Next membership and order all survived a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Heavily themed (cream background, serif titles, rust accent, 'Stay curious.' marketing hero): it reads more like an editorial brand app than a stock iOS list, though the controls underneath are system ones.",
+      "Every row carries a visible Played/Unplayed pill, a … button and a queue button. That is busy compared with Apple Podcasts, which leaves these actions to swipes and menus.",
+      "Large empty gap between the segmented control and the 'Latest episodes' header.",
+      "At the largest text size the pinned 'Latest episodes / 420' section header grows to about a third of the screen while it stays stuck under the nav bar.",
+      "Every artwork card carries the same 'IN GOOD COMPANY' kicker, and on some covers the show name overlaps the art."
+    ],
+    "scroll": "Smooth through the 420 rows with native momentum and bounce. There are no blank or popping rows, the section header pins correctly under a blurred bar, pulling down reveals a search field, and scroll position is kept after pushing to an episode and coming back.",
+    "scores": {"features": 10, "platform": 8, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 420 episodes, newest first, in an inset-grouped list: show, title, date · length · Played/Unplayed. There is no artwork."},
+      {"n": 2, "status": "pass", "note": "An 'Unplayed Only' system switch filters to 293 and is remembered across launches. The header then reads the redundant '293 episodes · 293 unplayed'."},
+      {"n": 3, "status": "pass", "note": "A plain inset list of the 12 shows with 'N episodes · M unplayed'. Tapping one pushes that show's episodes with a counts header."},
+      {"n": 4, "status": "pass", "note": "The detail card shows show, title, date · length, status, a Play button and the summary. Play becomes Pause with a 'Playing' label and marks the episode played."},
+      {"n": 5, "status": "pass", "note": "Inline 'Mark Played' / 'Played' buttons on every row toggle the state."},
+      {"n": 6, "status": "partial", "note": "You can add from the row or the detail screen, and removing works by swiping, by the Queued toggle or by the Remove button in Edit mode. Reordering is done only with 'Move Up' / 'Move Down' buttons in Edit mode; there are no drag handles."},
+      {"n": 7, "status": "pass", "note": "Played state and the Up Next contents and order survived a relaunch."}
+    ],
+    "bugs": [
+      "A horizontal swipe on an episode row in the Library opens that episode's screen as if it had been tapped; it neither reveals swipe actions nor stays put.",
+      "A long press on a row also just pushes the episode; there is no context menu."
+    ],
+    "tells": [
+      "No swipe actions on the episode lists. Mark played and Up Next are always-visible text buttons in each row, which makes every row about 145pt tall.",
+      "Up Next reordering uses hand-made 'Move Up' / 'Move Down' / 'Remove' pill buttons instead of the standard drag reorder handles.",
+      "No episode or show artwork anywhere; the same generic waveform glyph stands in for all 12 shows.",
+      "The swiped-open Up Next row turns a grey highlighted rounded rectangle, clipped against the card edge.",
+      "The 'N IN QUEUE' captions over each queue row are odd: the first reads 'UP NEXT', then '2 IN QUEUE', '3 IN QUEUE'.",
+      "In the episode detail the Mark as Played/Unplayed row icons are inverted (a checkmark labelled 'selected' on an unplayed episode)."
+    ],
+    "scroll": "Smooth native scrolling with momentum and a blurring inline title. There are no blank rows or stutter, and position is kept after returning from an episode. Rows are tall, so a fling covers few episodes.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "A meets every requirement with system idioms: swipe actions both ways, … menus, real drag-to-reorder in Edit mode, and a tab-bar Now Playing accessory. It also adds artwork and a confident visual design, and has no functional bugs. B is plainer and closer to stock styling but lacks list swipe actions (a sideways swipe opens the episode instead), reorders with Move Up/Down buttons, and fills every row with text buttons."
+}

@@ -2,7 +2,7 @@
 //! and its literal style values against their rows.
 
 use crate::{dataset, native, shorthands, svg, tags, values, LowerError, MAX_REFUSALS};
-use contract_syntax::{Attr, File, Node, Span};
+use contract_syntax::{Attr, Expr, File, Node, Span};
 use contract_types::Ty;
 use exact_kernel::StyleId;
 use exact_motion::animation::LONGHANDS;
@@ -395,6 +395,122 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     }
 }
 
+/// The names expansion replaces in a child's view: its props and injects,
+/// by what its use and the `provide` above it pass, and its derives, by
+/// their bodies. It replaces none of the root's: the plan reads those at
+/// run time.
+#[derive(Clone, Default)]
+struct Substituted<'a> {
+    values: Vec<&'a str>,
+    derives: Vec<(&'a str, &'a Expr)>,
+    /// Names that a `for` row or a `case some` binds here, which hide a
+    /// prop, inject or derive of the same name.
+    hidden: Vec<&'a str>,
+    /// The names a `use` brings from a package: one may be a module's event,
+    /// heard as an attribute on the root (LLP 1133.004 D6), which only the
+    /// package's declaration, read when sources resolve, can say.
+    imported: Vec<&'a str>,
+}
+
+impl<'a> Substituted<'a> {
+    fn hiding(&self, names: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut out = self.clone();
+        out.hidden.extend(names);
+        out
+    }
+}
+
+/// A shorthand's arms as lowering judges them: each value it may be,
+/// through `?:` and `match`, with what expansion puts in `names`' places
+/// (a derive's body; no prop's value, which lowering judges). `font`'s type
+/// tokens are judged across the arms, as lowering judges them
+/// (`type_tokens`), with what a lint does not know left out: declared fonts
+/// and the node's children.
+fn shorthand(a: &Attr, names: &Substituted) -> Result<(), LowerError> {
+    let mut budget = DERIVE_READS;
+    let Some(value) = known_arms(&a.value, names, &mut budget) else {
+        return Ok(());
+    };
+    let a = Attr { value, ..a.clone() };
+    if a.name == "font"
+        && crate::type_tokens::tokens_named(
+            &a,
+            exact_tamber::Kind::Type,
+            &[],
+            &Default::default(),
+            false,
+        )?
+        .is_some()
+    {
+        return Ok(());
+    }
+    shorthands::component(&a.value, &a.name, 0).map(|_| ())
+}
+
+/// At most this many derive bodies read into one value: a derive read twice
+/// in each link of a chain of derives doubles the value at every link.
+const DERIVE_READS: usize = 64;
+
+/// `v` with each arm that is a prop or inject taken out and each derive's
+/// body in its place, read where the derive is declared; `None` when no arm
+/// is left. A derive read inside its own body, or past `budget`, is taken
+/// out as a prop is (a cycle is the type pass's refusal).
+fn known_arms(v: &Expr, names: &Substituted, budget: &mut usize) -> Option<Expr> {
+    match v {
+        Expr::Ternary(cond, yes, no, span) => match (
+            known_arms(yes, names, budget),
+            known_arms(no, names, budget),
+        ) {
+            (Some(yes), Some(no)) => Some(Expr::Ternary(
+                cond.clone(),
+                Box::new(yes),
+                Box::new(no),
+                *span,
+            )),
+            (one, other) => one.or(other),
+        },
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            span,
+        } => match (
+            known_arms(some, &names.hiding([var.as_str()]), budget),
+            known_arms(none, names, budget),
+        ) {
+            (Some(some), Some(none)) => Some(Expr::Match {
+                subject: subject.clone(),
+                var: var.clone(),
+                some: Box::new(some),
+                none: Box::new(none),
+                span: *span,
+            }),
+            (one, other) => one.or(other),
+        },
+        Expr::Ident(name, _) if !names.hidden.contains(&name.as_str()) => {
+            if names.values.contains(&name.as_str()) {
+                return None;
+            }
+            match names.derives.iter().position(|(d, _)| d == name) {
+                Some(_) if *budget == 0 => None,
+                Some(i) => {
+                    *budget -= 1;
+                    let mut declared = Substituted {
+                        hidden: Vec::new(),
+                        ..names.clone()
+                    };
+                    let (derive, body) = declared.derives.remove(i);
+                    declared.values.push(derive);
+                    known_arms(body, &declared, budget)
+                }
+                None => Some(v.clone()),
+            }
+        }
+        other => Some(other.clone()),
+    }
+}
+
 /// What an authored element can be refused for without any types: its
 /// tag, its attributes' names, and its literal style values against their
 /// rows. The driver runs this when an earlier pass refused, so a misspelled
@@ -404,7 +520,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
     // row's value is one, so each stands for any.
     crate::theme::bind_axes(file);
     let _theme = crate::theme::lint_scope(file);
-    fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
+    fn walk(nodes: &[Node], names: &Substituted, errors: &mut Vec<LowerError>) {
         for n in nodes {
             match n {
                 Node::Element {
@@ -425,6 +541,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 && a.name != "delete"
                                 && a.name != crate::row_look::ROW_LOOK
                                 && !native::leftover(tag, a)
+                                && !names.imported.contains(&a.name.as_str())
                         }) {
                             if let Some(e) = native::refused(tag, a) {
                                 errors.push(e);
@@ -493,17 +610,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                             )
                                         })
                                 }
-                                // A type token's longhands are its own (stage 6 C).
-                                Some(tags::AttrTarget::Shorthand)
-                                    if a.name == "font"
-                                        && matches!(&a.value, contract_syntax::Expr::Str(t, _)
-                                            if crate::theme::measure_values(t).is_some()) =>
-                                {
-                                    Ok(())
-                                }
-                                Some(tags::AttrTarget::Shorthand) => {
-                                    super::shorthands::component(&a.value, &a.name, 0).map(|_| ())
-                                }
+                                Some(tags::AttrTarget::Shorthand) => shorthand(a, names),
                                 Some(_) => Ok(()),
                             };
                             // An expression over a token is folded by the
@@ -527,27 +634,57 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                             }
                         }
                     }
-                    walk(children, errors);
+                    walk(children, names, errors);
                 }
-                Node::Use { children, .. } => walk(children, errors),
+                Node::Use { children, .. } => walk(children, names, errors),
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, errors);
-                    walk(otherwise, errors);
+                    walk(then, names, errors);
+                    walk(otherwise, names, errors);
                 }
-                Node::Each { body, .. } => walk(body, errors),
+                Node::Each {
+                    var, index, body, ..
+                } => {
+                    let row = std::iter::once(var.as_str()).chain(index.as_deref());
+                    walk(body, &names.hiding(row), errors);
+                }
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, errors);
-                    walk(none, errors);
+                    walk(&some.1, &names.hiding([some.0.as_str()]), errors);
+                    walk(none, names, errors);
                 }
                 Node::Children { .. } => {}
             }
         }
     }
     let mut errors = Vec::new();
-    for c in &file.components {
-        walk(&c.view, &mut errors);
+    let imported: Vec<&str> = (file.uses.iter())
+        .filter(|u| u.path.starts_with('@'))
+        .flat_map(|u| u.names.iter().map(|n| n.local()))
+        .collect();
+    for (i, c) in file.components.iter().enumerate() {
+        let names = match i {
+            0 => Substituted {
+                imported: imported.clone(),
+                ..Substituted::default()
+            },
+            _ => Substituted {
+                values: c
+                    .props
+                    .iter()
+                    .chain(&c.injects)
+                    .map(|p| p.name.as_str())
+                    .collect(),
+                derives: c
+                    .derives
+                    .iter()
+                    .map(|d| (d.name.as_str(), &d.expr))
+                    .collect(),
+                hidden: Vec::new(),
+                imported: imported.clone(),
+            },
+        };
+        walk(&c.view, &names, &mut errors);
     }
     // A component's anatomy, which no type is needed to check (LLP 1139 D2).
     for c in file.components.iter().filter(|c| !c.anatomy.is_empty()) {

@@ -25,6 +25,7 @@ impl Executor {
         grants: &str,
         wake: Option<(WakeFn, *mut c_void)>,
     ) -> Self {
+        exact_runner::local_network::launch_once(local_network_prompts);
         let wake = wake.map(|(f, ctx)| (f, ctx as usize));
         Self {
             core: core::Core::start_switched(
@@ -100,6 +101,10 @@ impl Executor {
     pub fn retry_reader(&self) -> exact_runner::RetryReader {
         self.core.retry_reader()
     }
+    /// Each listener's address and connections, by its stream ticket, live.
+    pub fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        self.core.listen_reader()
+    }
 }
 
 /// What the bridge asks of the I/O executor (LLP 1047.001): the executor's
@@ -132,6 +137,10 @@ pub trait Io {
     fn socket_reader(&self) -> exact_runner::SocketReader;
     /// [`Executor::retry_reader`].
     fn retry_reader(&self) -> exact_runner::RetryReader;
+    /// [`Executor::listen_reader`]; none by default.
+    fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        std::sync::Arc::new(|_| None)
+    }
 }
 
 impl Io for Executor {
@@ -174,6 +183,76 @@ impl Io for Executor {
     fn retry_reader(&self) -> exact_runner::RetryReader {
         Executor::retry_reader(self)
     }
+    fn listen_reader(&self) -> exact_runner::listen::ListenReader {
+        Executor::listen_reader(self)
+    }
+}
+
+/// Whether this process's target has local network privacy, said once per
+/// launch (LLP 1133.036 D6, D8): iOS, and macOS from 15 (TN3179). The iOS
+/// Simulator has none ("The simulator doesn't support local network
+/// privacy"), nor tvOS, so there the fact is `granted`. Under the agent the
+/// substitute's state stands for the fact on every target.
+fn local_network_prompts() -> bool {
+    let simulator = cfg!(all(target_os = "ios", target_abi = "sim"));
+    cfg!(target_os = "ios") && !simulator || cfg!(target_os = "macos") && macos_major() >= 15
+}
+
+/// The running macOS's major version, from `kern.osproductversion`; 0 if
+/// it cannot be read.
+#[allow(unsafe_code)] // sysctlbyname(3) into a buffer this function owns.
+fn macos_major() -> u32 {
+    extern "C" {
+        fn sysctlbyname(
+            name: *const std::os::raw::c_char,
+            old: *mut c_void,
+            len: *mut usize,
+            new: *mut c_void,
+            new_len: usize,
+        ) -> std::os::raw::c_int;
+    }
+    let mut buffer = [0u8; 32];
+    let mut len = buffer.len();
+    // SAFETY: the name is NUL-terminated and `len` is the buffer's size.
+    let read = unsafe {
+        sysctlbyname(
+            c"kern.osproductversion".as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    let text =
+        (read == 0).then(|| String::from_utf8_lossy(&buffer[..len.saturating_sub(1)]).into_owned());
+    text.and_then(|t| t.split('.').next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Evidence of the host's local-network fact (LLP 1133.036 D8), which
+/// `@exact/local-network`'s browse or resolve reports through the host's
+/// `exact.localNetwork` notification: 0 `granted`, 2 `denied`. Answers 1
+/// if the fact moved.
+pub fn report_local_network(state: u32) -> u32 {
+    use exact_runner::local_network::{report, State};
+    let state = match state {
+        0 => State::Granted,
+        2 => State::Denied,
+        _ => return 0,
+    };
+    report(state) as u32
+}
+
+/// Export [`report_local_network`] from the application's static archive.
+#[macro_export]
+macro_rules! local_network_exports {
+    () => {
+        /// The package's evidence of the local-network fact (LLP 1133.036 D8).
+        #[no_mangle]
+        pub extern "C" fn exact_local_network_report(state: u32) -> u32 {
+            $crate::executor::report_local_network(state)
+        }
+    };
 }
 
 /// Start the executor as the bridge holds it: [`crate::link::IoLinks`]'s.

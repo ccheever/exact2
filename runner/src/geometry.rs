@@ -318,6 +318,24 @@ impl Scrolled {
         Some((entry, within))
     }
 
+    /// `view`'s frame as `frame()` reports it when a host placed the block it
+    /// is in (LLP 1115.002 D8.2), else `frame`, the kernel's in the root's space.
+    pub(crate) fn agent_frame(
+        &self,
+        kernel: &Kernel,
+        view: ViewId,
+        frame: Frame,
+    ) -> GeometryAnswer {
+        let mut at = kernel.arena().slot_of(view);
+        while let Some(slot) = at {
+            if self.placed_block(kernel, slot).is_some() {
+                return kernel_frame(kernel, self, view);
+            }
+            at = kernel.arena().parent(slot);
+        }
+        GeometryAnswer::of(frame, false, (0., 0.))
+    }
+
     pub(crate) fn is_open(&self, key: NodeKey) -> bool {
         self.top_layer.iter().any(|open| open.key == key)
     }

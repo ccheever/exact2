@@ -1,0 +1,23 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/geocoding@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {
+    "geocode": { "maxResults": "number", "locale": "string" },
+    "reverseGeocode": { "maxResults": "number", "locale": "string" }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.geocoding.GeocodingModule"
+}

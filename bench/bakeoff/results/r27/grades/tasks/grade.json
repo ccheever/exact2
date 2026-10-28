@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped main screen: Today (22) and All (135) cards, then My Lists with coloured round icons and open counts and chevrons. Counts update after completing, adding and deleting tasks."},
+      {"n": 2, "status": "pass", "note": "Open tasks first, then a 'Completed (n)' header with a chevron that collapses and expands; the collapsed state survives a relaunch. Tapping the circle completes a task (blue filled check) and reopens it, and it moves between sections."},
+      {"n": 3, "status": "fail", "note": "Adding a task with a title, notes and priority (None/Low/High segmented control) works, and so does editing by tapping (Edit Task sheet with Completed and Delete Task). But turning on Due Date in New Task, or tapping an existing task's due date in Edit Task, hangs the app: the switch freezes mid-animation, taps stop working and the app pins a CPU. It reproduced every time, so a due date can never be set or changed."},
+      {"n": 4, "status": "pass", "note": "Overdue tasks show a red '! Overdue · Wed, Oct 21' with an alert icon, and Today has an Overdue section. High priority shows a red '!!' before the title; low shows a grey '!'."},
+      {"n": 5, "status": "pass", "note": "Native trailing swipe with a Delete action. The Edit button shows the standard minus buttons and reorder grips; dragging a grip reorders, and both the new order and the deletion survive a relaunch."},
+      {"n": 6, "status": "pass", "note": "'Add List' in the toolbar opens an alert with a text field. Swiping a list gives Rename and Delete; delete asks for confirmation in an action sheet. All of it persists."},
+      {"n": 7, "status": "pass", "note": "Completions, the new task, edits, the new order, deletions, lists and the collapsed state all survived relaunch."}
+    ],
+    "bugs": [
+      "Turning on the Due Date switch in New Task freezes the app (UI stops responding, CPU at 100%). It reproduced twice and needs a force quit.",
+      "Tapping the due date row in Edit Task to change the date freezes the app the same way, so no task's due date can be edited.",
+      "On one 'Save' tap in the Rename List alert, the label-matched tap landed off the button and the alert stayed open; the second tap worked (minor, may be the driver)."
+    ],
+    "tells": [
+      "Priority has only None/Low/High (no Medium), and high is shown as '!!' rather than Reminders' '!!!' (minor).",
+      "The New Task title field is a multi-line text view, not a single-line field (Return adds a line rather than moving on).",
+      "Swiping a list row on the main screen turns the nav bar's Edit into a Done checkmark while the swipe is open; this is standard but noticeable."
+    ],
+    "scroll": "A native inset-grouped table: slow drags, flings and the return to the top were smooth with no blank or late rows. In the All view, list-coloured section headers group the tasks, and the large title collapses into the inline title as expected.",
+    "scores": {"features": 5, "platform": 9, "polish": 6, "overall": 5}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped main screen: Today and All with counts, then My Lists with counts and chevrons. Counts update after adding and deleting, but every list has the same orange 'lines' icon."},
+      {"n": 2, "status": "pass", "note": "Open tasks, then a 'Completed (n)' section with a Show/Hide button (collapsed by default). Tapping the circle completes and reopens tasks, and they move between sections."},
+      {"n": 3, "status": "pass", "note": "+ opens a New Task sheet: Title, Notes, a Due Date switch revealing a system compact date picker (the calendar works), a Priority pop-up menu (None/Low/Medium/High) and a List picker. Tapping a task opens a Details sheet that edits correctly."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red 'Overdue · Wed, Oct 21' text. High priority is a red '!!!' before the title; low is a grey '!'."},
+      {"n": 5, "status": "pass", "note": "Every row has an always-visible drag grip, and dragging it reorders. Swiping reveals a red Delete; a full swipe deletes at once. Order and deletions survive relaunch."},
+      {"n": 6, "status": "pass", "note": "+ on the main screen creates a list (sheet). The '…' menu in a list has Rename List (sheet) and Delete List; swiping on the main screen also deletes, after an alert. All of it persists."},
+      {"n": 7, "status": "pass", "note": "The added task, edits, completions, reorder, deletion and list rename all survived relaunch."}
+    ],
+    "bugs": [
+      "The newly created list's row ('Gifts') was missing from the accessibility tree, though it was drawn and could be swiped, so VoiceOver users likely can't reach it.",
+      "A swiped-open row stays open even after you tap another row, open and cancel its sheet, and come back. iOS closes it on the next touch.",
+      "At the largest text size task titles break inside a word ('plumb' / 'er'), and text in rows with notes runs right up to the separators."
+    ],
+    "tells": [
+      "Task rows are very tight: two- and three-line rows have almost no top or bottom padding, so text touches the separators, unlike UITableView/List self-sizing cells.",
+      "Checkboxes are small 22-point circles, and they and the grips don't scale with Dynamic Type.",
+      "Reorder grips are always visible on every row instead of appearing in an Edit mode.",
+      "The swipe action is a flat full-height red rectangle, not the iOS 26+ rounded capsule.",
+      "Every list has the same orange icon, with no per-list colour.",
+      "The view tree is web-like: the screen is ScrollViews nested inside an 'app' container, each row is its own scroll view, and the main-screen rows are Buttons rather than cells.",
+      "At the largest text size the title column is squeezed to a few words per line by the fixed checkbox and grip columns.",
+      "The New Task form shows an 'Enter a title to save.' footer, which iOS apps don't usually do."
+    ],
+    "scroll": "Flings and returning to the top were smooth, with no blank rows or late-appearing rows. The plain-style list with cramped rows reads denser than an iOS list, but it scrolls without stutter.",
+    "scores": {"features": 9, "platform": 5, "polish": 5, "overall": 6}
+  },
+  "better": "B",
+  "why": "A looks and feels like a hand-built UIKit app (inset-grouped tables, native swipe actions, Edit-mode reordering, clean Dynamic Type), but it hangs whenever you try to set or change a due date. That is a core part of requirement 3 and makes it unshippable. B does every requirement, including date picking, but has clear tells: cramped rows, tiny fixed-size checkboxes, always-visible grips, a web-like view tree and a mid-word break at the largest text size. It is still the one I'd ship today."
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@exact/clipboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Async Clipboard API's write: a ClipboardItem of a PNG image and its text, sanitized as Chrome does (LLP 1133.006).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

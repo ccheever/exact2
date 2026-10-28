@@ -18,6 +18,9 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// what the route hatch last saw; whether the hatch has run; the header
     /// lifted into the bar; the content scroll view a hatch was handed.
     var projectedSource: BarSource?, projected: HatchSource?, backSource: String?
+    /// `projectedSource` with every item's enabling left out, and the items made from it by node: an item that is
+    /// only enabled or disabled changes in place (`NavigationHost.enable`).
+    var projectedFaces: BarSource?, barItemOf: [UInt32: UIBarButtonItem] = [:]
     var hatched = false
     /// Whether a route of its stack is beneath it, to go back to: written
     /// as the stack's routes are prepared, before UIKit shows any of them
@@ -258,6 +261,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         presenter.transformGeometry.changed()
         presenter.videoVisibility?.changed()
         presenter.scrollPump.scrolled(nil)
+        FrameSampler.scrolled(scrollView, in: presenter.session, person: false)
         node.repaintThrough()
     }
 
@@ -295,6 +299,33 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     override func setContentScrollView(_ scrollView: UIScrollView?, for edge: NSDirectionalRectEdge) {
         super.setContentScrollView(scrollView, for: edge)
         (parent as? HeldStack)?.setContentScrollView(scrollView, for: edge)
+        if edge == .top { followTopEdge(scrollView) }
+    }
+
+    private var topEdgeWatch: NSKeyValueObservation?
+    /// iOS 26 draws the bar's edge effect on the outermost scroll view under
+    /// it, which for a route whose scroller (a list) lies in its page is the
+    /// page's viewport, not that scroller (measured on iOS 27: UIKit alone
+    /// does the same with a table view in a scroll view). So the viewport's
+    /// top effect shows only while that scroller is scrolled from its top,
+    /// as UIKit's does over a list that is the controller's own: no effect
+    /// over a list at rest. Its style stays `automatic`: the rows blurred and
+    /// faded under the whole bar to a line at its foot, as a UIKit or SwiftUI
+    /// list or scroll view draws them there (iOS 27, measured), where `soft`
+    /// left them legible under the title.
+    private func followTopEdge(_ scrollView: UIScrollView?) {
+        topEdgeWatch = nil
+        guard #available(iOS 26.0, tvOS 26.0, *), let page = contentViewport else { return }
+        guard let scrollView, scrollView !== page, node.style["scroll_edge_effect"] == nil else {
+            if page.topEdgeEffect.isHidden, node.style["scroll_edge_effect"]?.string != "none" { page.topEdgeEffect.isHidden = false }
+            return
+        }
+        let follow = { [weak page] (sv: UIScrollView) in
+            let rest = sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top
+            if let page, page.topEdgeEffect.isHidden != rest { page.topEdgeEffect.isHidden = rest }
+        }
+        follow(scrollView)
+        topEdgeWatch = scrollView.observe(\.contentOffset) { sv, _ in follow(sv) }
     }
 }
 
@@ -1253,6 +1284,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let departed = stacks[ObjectIdentifier(navigationController)]?.written.last.flatMap { id in
             controllers.values.first { ObjectIdentifier($0) == id && !navigationController.viewControllers.contains($0) }
         }
+        let written = Set(stacks[ObjectIdentifier(navigationController)]?.written ?? [])
+        let poppedKeys = controllers.values.filter { written.contains(ObjectIdentifier($0)) && !navigationController.viewControllers.contains($0) }.map(\.key)
         let source = swipe.map { (node: $0.node, key: $0.key) } ?? departed.map { (node: $0.node, key: $0.key) }
         recordPop(navigationController)
         guard navigationController === navigation, let viewController = navigationController.topViewController else { return }
@@ -1296,11 +1329,19 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let sourceReplaced = swipe != nil && sourceKey == nil
             && selectedRouteCount == swipe?.depth
         let rootKey = selectedKey ?? ""
-        let dispatches = (viewController as? RouteController).map {
+        let uikitTop = (viewController as? RouteController)?.key ?? ""
+        let sourceRule = (viewController as? RouteController).map {
             NavigationRules.dispatchesBack(shownKey: $0.key, rootKey: rootKey,
                                            sourceKey: sourceKey, sourceReplaced: sourceReplaced,
                                            modalActive: presenter.modals.inTransition)
         } ?? false
+        let behindUIKit = !presenter.modals.inTransition
+            && NavigationRules.appIsBehind(poppedKeys: poppedKeys, uikitTop: uikitTop, shownKeys: shownKeys, rootKey: rootKey)
+        // A cancelled pop performed no Back, whatever the app did to its source meanwhile
+        let dispatches = !cancelled && (sourceRule || behindUIKit)
+        if dispatches, !sourceRule {
+            presenter.session?.log("navigation: UIKit popped to \(uikitTop); the app's stack follows it from \(rootKey)")
+        }
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")
         guard dispatches else { return }
         if swipe == nil, let destination = (viewController as? RouteController)?.key,

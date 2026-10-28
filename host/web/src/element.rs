@@ -930,7 +930,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         };
         let name = match id {
             // macOS menu hints have no DOM representation.
-            PropId::MenuPlacement | PropId::MenuRemove => continue,
+            PropId::MenuPlacement | PropId::MenuRemove | PropId::MenuKeys => continue,
             PropId::Text => "text",
             PropId::Markup => "markup",
             PropId::Decorations => "data-decorations",

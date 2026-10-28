@@ -25,8 +25,9 @@ pub struct Device {
     pub ios: &'static [&'static str],
     /// iOS `Info.plist` keys set to true.
     pub ios_flags: &'static [&'static str],
-    /// Android's runtime permissions (`<uses-permission>`), asked in one
-    /// request (LLP 1133.002 D6). One the platform retired at an API level
+    /// Android's permissions (`<uses-permission>`): the runtime ones a module
+    /// asks for in one request (LLP 1133.002 D6), and the normal ones granted
+    /// at install (a foreground service's, LLP 1133.033 D16). One the platform retired at an API level
     /// is written `<name> maxSdkVersion=<level>`, which the manifest
     /// declares as `android:maxSdkVersion` (LLP 1133.019 D4).
     pub android: &'static [&'static str],
@@ -47,6 +48,9 @@ pub struct Device {
     /// iOS signing entitlements the device needs beside its usage strings
     /// (LLP 1069.008.000 D2): HealthKit authorizes nothing without its own.
     pub ios_entitlements: &'static [&'static str],
+    /// The value of each of `ios_entitlements` that is no boolean, by name:
+    /// NFC's reader-session formats are an array (LLP 1133.035 D16 item 2).
+    pub ios_entitlement_values: &'static [(&'static str, &'static [&'static str])],
     /// A usage key written with this row's text when no granted row writes it
     /// (LLP 1069.008.000 D1): App Store Connect wants both HealthKit keys
     /// beside the entitlement, and iOS shows only the prompt an app asks for.
@@ -60,6 +64,9 @@ pub struct Device {
     /// `geolocation-approximate` is of `geolocation`, LLP 1133.002 D7): an app
     /// grants one or the other, never both (`grant-twice`).
     pub narrows: Option<&'static str>,
+    /// A row the platforms will not give beside this one (D13: no region is
+    /// watched under approximate location): refused together (`grant-conflict`).
+    pub conflicts: Option<&'static str>,
     /// Whether the line names a purpose: false for a row no platform asks
     /// the person about, written `device.<name>` alone (LLP 1133.017 D14).
     pub purpose: bool,
@@ -68,6 +75,20 @@ pub struct Device {
     /// The `BGTaskScheduler` identifiers the row permits, each after the
     /// bundle id and a dot in `BGTaskSchedulerPermittedIdentifiers`.
     pub ios_tasks: &'static [&'static str],
+    /// The row another must stand beside (`grant-needs`, LLP 1133.033 D3):
+    /// a capture in the background is a capture first, and background
+    /// location is asked of an app with foreground location (LLP 1133.021 D13).
+    pub needs: Option<&'static str>,
+    /// The Android reader's foreground services the row declares in the
+    /// manifest, each `<kind>:<type>` (`capture:microphone`; LLP 1133.033
+    /// D2): a kind's `<service>` is declared with every type its rows give
+    /// it, so a later row adds a type to a kind (LLP 1133.032 D11 item 3).
+    pub android_services: &'static [&'static str],
+    /// Android hardware features the row declares, each written
+    /// `<uses-feature android:name="android.hardware.<name>"
+    /// android:required="false"/>` so a store still offers the app to a
+    /// device without it (LLP 1133.037 D17: `usb.host`).
+    pub android_features: &'static [&'static str],
 }
 
 /// What a row has unless it says otherwise.
@@ -82,13 +103,18 @@ const ROW: Device = Device {
     web: None,
     policy: &[],
     ios_entitlements: &[],
+    ios_entitlement_values: &[],
     companion: None,
     tvos: true,
     keeps_no_answers: false,
     narrows: None,
+    conflicts: None,
     purpose: true,
     ios_modes: &[],
     ios_tasks: &[],
+    needs: None,
+    android_services: &[],
+    android_features: &[],
 };
 
 /// Every device grant. Adding a row is one entry here and no host code.
@@ -100,6 +126,48 @@ pub const DEVICES: &[Device] = &[
         hardened: Some("com.apple.security.device.audio-input"),
         web: Some("microphone"),
         android: &["android.permission.RECORD_AUDIO"],
+        ..ROW
+    },
+    // @ref LLP 1133.033 D3 — a microphone capture keeps running while the app
+    // is in the background. iOS keeps the process for the `audio` mode, and
+    // the capture reads `ExactCapturesInBackground`, since other lines derive
+    // `audio` too; Android runs it in the reader's `capture` service, whose
+    // notification's text is the purpose. A Mac and the web need nothing,
+    // and tvOS's recording cell is later.
+    Device {
+        name: "microphone-background",
+        ios_flags: &["ExactCapturesInBackground"],
+        ios_modes: &["audio"],
+        android: &[
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        ],
+        android_services: &["capture:microphone"],
+        needs: Some("microphone"),
+        tvos: false,
+        ..ROW
+    },
+    // @ref LLP 1133.033 D16 — `@exact/calls`. A call keeps the process for
+    // its active audio session on iOS (`audio`), and CallKit refuses a
+    // transaction as `unentitled` without `voip` (measured on an iOS 27
+    // simulator, 2026-10-27). On Android it runs in the reader's `call` service,
+    // which needs `MANAGE_OWN_CALLS`; the purpose names the call
+    // notification's channel. Every Android permission here is normal but
+    // `USE_FULL_SCREEN_INTENT`, a special access the person can turn off.
+    // No call service on a Mac, the web or tvOS.
+    Device {
+        name: "calls",
+        ios_modes: &["audio", "voip"],
+        android: &[
+            "android.permission.MANAGE_OWN_CALLS",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
+            "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+            "android.permission.USE_FULL_SCREEN_INTENT",
+        ],
+        android_services: &["call:phoneCall", "call:microphone"],
+        needs: Some("microphone"),
+        tvos: false,
         ..ROW
     },
     // The camera, `@exact/camera`'s (LLP 1133.008 D6). Its Android features
@@ -143,6 +211,28 @@ pub const DEVICES: &[Device] = &[
         hardened: Some("com.apple.security.personal-information.location"),
         web: Some("geolocation"),
         narrows: Some("geolocation"),
+        ..ROW
+    },
+    // Background location, as geofencing needs it (LLP 1133.021 D13): iOS
+    // asks with its own key beside the When In Use one; a Mac's location
+    // authorization is one grant; Android adds the background permission and
+    // the boot broadcast its geofences are re-armed by. Neither platform
+    // watches a region under approximate location. No tvOS cell.
+    Device {
+        name: "geolocation-background",
+        ios: &["NSLocationAlwaysAndWhenInUseUsageDescription"],
+        macos: &[
+            "NSLocationUsageDescription",
+            "NSLocationWhenInUseUsageDescription",
+        ],
+        hardened: Some("com.apple.security.personal-information.location"),
+        android: &[
+            "android.permission.ACCESS_BACKGROUND_LOCATION",
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+        ],
+        tvos: false,
+        needs: Some("geolocation"),
+        conflicts: Some("geolocation-approximate"),
         ..ROW
     },
     // iOS's prompt text is fixed and the web's is not policy-controlled; the
@@ -275,10 +365,13 @@ pub const DEVICES: &[Device] = &[
         keeps_no_answers: true,
         ..ROW
     },
-    // Local network privacy (TN3179): macOS 15 and iOS 14 ask before the app
-    // first reaches a LAN address, and show this text. Deviation: the web's
-    // Local Network Access prompt is the browser's own, and Android asks
-    // for nothing, so the row writes Apple keys only.
+    // @ref LLP 1133.036 D7 — local network privacy (TN3179): macOS 15 and
+    // iOS 14 ask before the app first browses or reaches a LAN address, and
+    // show this text. The `net.dns-sd` and `local-network` lines it requires
+    // derive `NSBonjourServices`, `NSAllowsLocalNetworking` and Android's
+    // multicast permission (`bake/src/reach.rs`). Deviation: the web's Local
+    // Network Access prompt is the browser's own, and Android asks nothing
+    // until the host targets API 37, so the row writes Apple keys only.
     Device {
         name: "local-network",
         ios: &["NSLocalNetworkUsageDescription"],
@@ -341,6 +434,22 @@ pub const DEVICES: &[Device] = &[
         purpose: false,
         ..ROW
     },
+    // A login item and global shortcuts (LLP 1133.025 D10): nothing asks the
+    // person, so the lines name no purpose; each is the app's statement of
+    // what it may do, checked at bake. The installed Windows build's
+    // `desktop:StartupTask` derives from `login-item`. Desktop only.
+    Device {
+        name: "login-item",
+        purpose: false,
+        tvos: false,
+        ..ROW
+    },
+    Device {
+        name: "global-shortcuts",
+        purpose: false,
+        tvos: false,
+        ..ROW
+    },
     // App Attest and Play Integrity (LLP 1133.028 D6): nothing is shown or
     // asked. The entitlement's value, `development` or `production`, is the
     // build's to choose (`host/apple/build.mjs`); a Mac takes it only with a
@@ -384,6 +493,50 @@ pub const DEVICES: &[Device] = &[
             "android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED",
         ],
         tvos: false,
+        ..ROW
+    },
+    // NFC, `@exact/nfc`'s (LLP 1133.035 D15): iOS asks nothing, yet ends an
+    // app that reads a tag without the usage key, and reads none without the
+    // reader-session entitlement, whose value lists the formats (`TAG`, the
+    // one Apple documents). Android's permission is a normal one, granted at
+    // install. Web NFC has no policy feature; Core NFC is on neither the Mac
+    // nor the TV.
+    Device {
+        name: "nfc",
+        ios: &["NFCReaderUsageDescription"],
+        android: &["android.permission.NFC"],
+        ios_entitlements: &["com.apple.developer.nfc.readersession.formats"],
+        ios_entitlement_values: &[("com.apple.developer.nfc.readersession.formats", &["TAG"])],
+        tvos: false,
+        ..ROW
+    },
+    // @ref LLP 1133.037 D17 — Web Serial, WebHID and WebUSB. No platform
+    // shows a purpose for any of them, so no line names one. The web's
+    // policy features are the APIs' names. Android declares USB host mode,
+    // not required, for serial and USB; HID is absent there (D11). macOS
+    // derives nothing while the app is not sandboxed. No device API exists
+    // for apps on iOS or tvOS (D21).
+    Device {
+        name: "serial",
+        web: Some("serial"),
+        purpose: false,
+        tvos: false,
+        android_features: &["usb.host"],
+        ..ROW
+    },
+    Device {
+        name: "hid",
+        web: Some("hid"),
+        purpose: false,
+        tvos: false,
+        ..ROW
+    },
+    Device {
+        name: "usb",
+        web: Some("usb"),
+        purpose: false,
+        tvos: false,
+        android_features: &["usb.host"],
         ..ROW
     },
 ];
@@ -455,6 +608,22 @@ pub fn device_grants(spec: &str) -> Result<Vec<DeviceGrant<'_>>, Vec<String>> {
         }
     }
     for g in &grants {
+        if let Some(needed) = g.device.needs {
+            if !grants.iter().any(|h| h.device.name == needed) {
+                errors.push(format!(
+                    "`device.{}` needs `device.{needed} <purposeKey>` beside it (grant-needs)",
+                    g.device.name
+                ));
+            }
+        }
+        if let Some(other) = g.device.conflicts {
+            if grants.iter().any(|h| h.device.name == other) {
+                errors.push(format!(
+                    "`device.{}` and `device.{other}` both: no platform gives the first beside the second (grant-conflict)",
+                    g.device.name
+                ));
+            }
+        }
         if let Some(wider) = g.device.narrows {
             if grants.iter().any(|h| h.device.name == wider) {
                 errors.push(format!(
@@ -522,6 +691,27 @@ mod tests {
         let both = format!("{one}\ndevice.geolocation locationPurpose");
         let errors = device_grants(&both).unwrap_err();
         assert!(errors[0].contains("(grant-twice)"), "{errors:?}");
+    }
+
+    /// LLP 1133.021 D13: background location adds to precise location, and
+    /// is refused without it and beside the approximate line.
+    #[test]
+    fn background_location_needs_precise_location() {
+        let ok = "device.geolocation where\ndevice.geolocation-background arrival";
+        assert!(granted(ok, "geolocation-background") && granted(ok, "geolocation"));
+        let alone = device_grants("device.geolocation-background arrival").unwrap_err();
+        assert!(alone[0].contains("(grant-needs)"), "{alone:?}");
+        let approximate =
+            "device.geolocation-approximate where\ndevice.geolocation-background arrival";
+        let errors = device_grants(approximate).unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.contains("(grant-needs)")),
+            "{errors:?}"
+        );
+        assert!(
+            errors.iter().any(|e| e.contains("(grant-conflict)")),
+            "{errors:?}"
+        );
     }
 
     #[test]
@@ -602,12 +792,30 @@ mod tests {
     fn the_policy_allows_what_is_granted_and_denies_the_rest() {
         assert_eq!(
             permissions_policy("device.microphone p\ndevice.speech-recognition q"),
-            "microphone=(self), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
+            "microphone=(self), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=(), serial=(), hid=(), usb=()"
         );
         assert_eq!(
             permissions_policy(""),
-            "microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()"
+            "microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=(), serial=(), hid=(), usb=()"
         );
+    }
+
+    /// LLP 1133.033 D3: the background line stands beside the capture's own.
+    #[test]
+    fn a_capture_in_the_background_needs_the_microphone_line() {
+        let errors = device_grants("device.microphone-background purpose.bg").unwrap_err();
+        assert!(
+            errors[0].contains("needs `device.microphone <purposeKey>` beside it (grant-needs)"),
+            "{errors:?}"
+        );
+        let both =
+            device_grants("device.microphone purpose.mic\ndevice.microphone-background purpose.bg")
+                .unwrap();
+        let row = both[1].device;
+        assert_eq!(row.ios_modes, ["audio"]);
+        assert_eq!(row.ios_flags, ["ExactCapturesInBackground"]);
+        assert_eq!(row.android_services, ["capture:microphone"]);
+        assert!(row.web.is_none() && !row.tvos && row.macos.is_empty());
     }
 
     /// LLP 1133.013 D11: one line turns on the three sensors' features.

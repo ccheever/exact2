@@ -1,0 +1,43 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/geofencing@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {
+    "addGeofence": {
+      "limit": "number",
+      "loiteringDelay": "number",
+      "notificationResponsiveness": "number",
+      "expirationDuration": "number"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "manifest": {
+    "receivers": [
+      {
+        "name": "exact.geofencing.GeofenceReceiver"
+      },
+      {
+        "name": "exact.geofencing.GeofenceBootReceiver",
+        "actions": [
+          "android.intent.action.BOOT_COMPLETED"
+        ]
+      }
+    ]
+  },
+  "maven": [
+    "com.google.android.gms:play-services-location:21.4.0"
+  ],
+  "artifacts": [],
+  "class": "exact.geofencing.GeofencingModule"
+}

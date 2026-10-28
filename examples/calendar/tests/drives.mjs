@@ -82,7 +82,7 @@ if (host !== 'web') {
   const cancel = ['tap invite', 'clock +100', 'tap @contacts cancel', 'clock settle', 'state guests', 'state pending'];
   const r = drive('calendar-drives-3', { contacts: 'prompt' }, [...open, 'tap invite', 'clock +100', 'state pending', 'type @contacts c2,c5', 'clock settle', 'state guests', 'tree', ...(host === 'web' ? cancel : [])], { reset: true });
   const pick = ticket(r[5], 'contacts');
-  check(host, '3: Invite holds a contacts ticket for name and email, many', pick?.device?.args?.options?.multiple === true && JSON.stringify(pick?.device?.args?.options?.properties) === '["name","email"]', JSON.stringify(r[5]));
+  check(host, '3: Invite holds a contacts ticket for name, email and phone, many', pick?.device?.args?.options?.multiple === true && JSON.stringify(pick?.device?.args?.options?.properties) === '["name","email","tel"]', JSON.stringify(r[5]));
   const names = g => (g?.guests ?? []).map(x => x.name).join(',');
   check(host, '3: two guests on the item', names(r[8]) === 'Ben Okafor,Eli Navarro' && text(r[9]).includes('Guests: Ben Okafor, Eli Navarro'), names(r[8]));
   let after = r.slice(10);

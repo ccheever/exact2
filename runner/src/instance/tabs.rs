@@ -402,9 +402,7 @@ fn open_panel(
                 None => u.eval(s.init, &inner)?,
             };
             if !v.conforms(plan, s.ty) {
-                return Err(InstanceError::SlotType {
-                    slot: name.to_string(),
-                });
+                return Err(InstanceError::slot_type(plan, &v, s.ty, name));
             }
             slots.borrow_mut().insert(i as u32, v);
         }

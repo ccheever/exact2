@@ -237,7 +237,10 @@ impl Module {
             ("args", Json::Array(args)),
             ("store", store_pairs(&snapshot)),
             ("grants", grants),
+            ("clock", store.clock_ms().into()),
         ]);
+        // Its next turn's request, should this one wait for its own timer.
+        let resume = input.clone();
         let response = match outcome {
             None => call(input)?,
             // A stream's message, or its end: mapped now (LLP 1016.000 D1).
@@ -281,7 +284,26 @@ impl Module {
                 }
             }
         };
-        self.step(store, source, key, &response)
+        let answer = self.step(store, source, key.clone(), &response)?;
+        // A wait for the answer's own timer (LLP 1027.000 D1): its next turn,
+        // registered now, which the runner keeps back until it is due.
+        if let Answer::Later(Request {
+            continuation: None,
+            due_ms: Some(due),
+            ..
+        }) = answer
+        {
+            let mut resume = resume;
+            resume["op"] = "resume".into();
+            resume["outcome"] = outcome_json(Dispatch::again_outcome())?;
+            let turn = json::parse(&call(resume)?).map_err(|e| unavailable(e.to_string()))?;
+            let token = turn["continuation"]
+                .as_u64()
+                .ok_or_else(|| unavailable("a timer's turn has no continuation"))?;
+            self.waiting.insert(key, true);
+            return Ok(Answer::Later(Request::continuation(token).due(due)));
+        }
+        Ok(answer)
     }
 
     fn step(
@@ -296,7 +318,8 @@ impl Module {
         };
         let reply = json::reply(bytes, result).map_err(|e| unavailable(e.to_string()))?;
         let response = reply.fields;
-        if let Some(token) = response["continuation"].as_u64() {
+        let timer = response["timer"].as_u64();
+        if let (Some(token), None) = (response["continuation"].as_u64(), timer) {
             self.waiting.insert(key, true);
             return Ok(Answer::Later(Request::continuation(token)));
         }
@@ -351,7 +374,10 @@ impl Module {
                 ),
             });
         }
-        let answer = if response["tag"] == 1 {
+        let answer = if let (1, Some(due)) = (response["tag"].as_u64().unwrap_or(0), timer) {
+            // Its own timer: `invoke` registers the turn that resumes it.
+            Answer::Later(Request::get("").due(due))
+        } else if response["tag"] == 1 {
             let r = &response["request"];
             let mut request = Request::get(
                 r["url"]
@@ -498,6 +524,7 @@ impl DataSource for Module {
                 | DataError::UnknownSource(e)
                 | DataError::Interface(e)
                 | DataError::DeferredAtBake(e)
+                | DataError::Overrun(e)
                 | DataError::Failed(_, e, _),
             ) => exact_runner::DrawReply {
                 error: Some(e),
@@ -690,6 +717,7 @@ impl DataSource for Module {
             ("token", token.into()),
             ("store", store_pairs(&snapshot)),
             ("grants", grants),
+            ("clock", store.clock_ms().into()),
         ]))
         .and_then(|bytes| json::parse(&bytes).map_err(|e| unavailable(e.to_string())))
         {

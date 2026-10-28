@@ -28,7 +28,7 @@ const BEFORE = 'This was made before the tool paired with another design server,
  * local token's alone. */
 export const NEEDS: Record<string, string> = {
   hello: 'read', describe: 'read', resolve: 'read', explain: 'read', uses: 'read', history: 'read', export: 'read', inspect: 'read', subscribe: 'read', events: 'read',
-  propose: 'propose', import: 'propose', revert: 'propose', drop: 'propose', 'edit-held': 'propose',
+  propose: 'propose', import: 'propose', revert: 'propose', drop: 'propose', 'edit-held': 'propose', choose: 'propose',
   transaction: 'write', undo: 'write', commit: 'write', accept: 'write', pin: 'write', preview: 'write', outline: 'write', hold: 'write', navigate: 'write', scrub: 'write', 'scrub-release': 'write', 'scrub-cancel': 'write',
   clients: 'local', revoke: 'local', 'pair-code': 'local',
   canvas: 'read',
@@ -40,13 +40,13 @@ const LONG_POLL_MAX = 16 * 1024 * 1024;
 // rather than left to a host's default (a fetch's is 64 MiB, a stream's 1 MiB).
 const BATCH_MAX = 17 * 1024 * 1024;
 /** What a request needs, as the server reads it: inspect other than a
- * refresh is `write` (it moves the builds), and so is a drop or an edit of another
+ * refresh is `write` (it moves the builds), and so is a drop, an edit or a choice of another
  * client's held proposal (`ownerOf` its proposer, null when not known); a
  * method not in the table, `local`. */
 export const needOf = (path: string, body: any, ownerOf: (id: string) => string | null = () => null) => {
   if (path !== '/__tamber') return 'read';
   if (body?.method === 'inspect' && body.refresh !== true) return 'write';
-  if (body?.method === 'drop' || body?.method === 'edit-held') { const by = ownerOf(String(body.proposal)); return by !== null && by !== body.client ? 'write' : 'propose'; }
+  if (body?.method === 'drop' || body?.method === 'edit-held' || body?.method === 'choose') { const by = ownerOf(String(body.proposal)); return by !== null && by !== body.client ? 'write' : 'propose'; }
   return NEEDS[String(body?.method)] ?? 'local';
 };
 /** Why a paired client at `scope` does not send `need`'s request; "" when it may. */

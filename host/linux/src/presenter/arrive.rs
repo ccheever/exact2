@@ -99,7 +99,7 @@ impl<D: DataSource> Presenter<D> {
         for id in candidates {
             if self.autofocus_processed.contains(&id)
                 || !self.focusable(id)
-                || self.host.route_visibility(id).1
+                || self.focus_refusal(id).is_some()
             {
                 continue;
             }
@@ -225,14 +225,23 @@ impl<D: DataSource> Presenter<D> {
             .filter(|id| self.lands(*id))
             .or_else(|| self.route_title(top))
             .unwrap_or(top);
-        // None after a pointer's press, one after a key's; with no press,
-        // as the pointer is: a finger leaves no ring (LLP 1115.001 D7.6).
-        let ring = by.map_or(!self.direct(), |p| p.key);
-        if !ring || self.brush.ringless == Some(to) {
-            self.brush.ringless = (!ring).then_some(to);
-        }
+        // None after a pointer's press, one after a key's. With no press a
+        // finger leaves none (LLP 1115.001 D7.6), and otherwise the focus
+        // left decides, as for any focus the app moves (`set_focus`).
+        // In Android's touch mode, whether a key came after the last finger.
+        let ring = if self.brush.touch_mode {
+            Some(!self.brush.keyless)
+        } else {
+            by.map(|p| p.key).or((self.direct()).then_some(false))
+        };
         if let Some(e) = self.set_focus(Some(to), self.host.now()) {
             eprintln!("exact: {e}");
+        }
+        if let Some(ring) = ring {
+            if !ring || self.brush.ringless == Some(to) {
+                self.brush.ringless = (!ring).then_some(to);
+                self.dirty = true;
+            }
         }
     }
 }

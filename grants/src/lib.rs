@@ -18,8 +18,11 @@
 //! @ref LLP 0059.000#4-capability-summary — the six capabilities and their granularity
 
 use std::collections::BTreeSet;
+mod local;
 mod presence;
+pub mod process;
 mod windows_path;
+pub use local::{is_local_network, is_service_type, DEVELOPMENT, LOCAL_NETWORK};
 pub use presence::{
     line_presence, presence_words, Policy, Presence, PLATFORM_WORDS, PRESENCE_PREFIX,
 };
@@ -76,10 +79,13 @@ impl PathPrefix {
         }
         // `doc:/` names the documents a person chose (Exact patch: LLP
         // 1069.010 D1), a namespace beside `app:/` resolved by the host.
-        let (namespace, path) = if let Some(path) = path.strip_prefix("app:/") {
-            ("app:", path)
-        } else if let Some(path) = path.strip_prefix("doc:/") {
-            ("doc:", path)
+        // `home:/` and `bundle:/` name the person's home directory and the
+        // app's installed bundle (LLP 1133.007 D6), resolved by the host.
+        let namespace = ["app:", "doc:", "home:", "bundle:"]
+            .into_iter()
+            .find_map(|ns| Some((ns, path.strip_prefix(ns)?.strip_prefix('/')?)));
+        let (namespace, path) = if let Some(found) = namespace {
+            found
         } else if path.starts_with('/') {
             ("", path)
         } else {
@@ -181,6 +187,17 @@ pub enum Grant {
     WebSocketSubdomains(Origin),
     /// `net.websocket ws:` or `net.websocket wss:`: every origin of the scheme.
     WebSocketScheme(String),
+    /// `net.fetch local-network` (LLP 1133.036 D5): an `http:` or `https:`
+    /// origin whose host, as written, is on the local network
+    /// ([`is_local_network`]), at any port; `loopback` in a development
+    /// build (`net.fetch local-network development`, which the bake writes).
+    FetchLocalNetwork {
+        loopback: bool,
+    },
+    /// `net.websocket local-network`: the same hosts, for `ws:` and `wss:`.
+    WebSocketLocalNetwork {
+        loopback: bool,
+    },
     FsRead(PathPrefix),
     FsWrite(PathPrefix),
     EnvRead(String),
@@ -206,6 +223,14 @@ impl Grant {
             (Grant::WebSocket(granted), Operation::WebSocket { origin }) => granted == origin,
             (Grant::WebSocketScheme(scheme), Operation::WebSocket { origin }) => {
                 origin.scheme == *scheme
+            }
+            (Grant::FetchLocalNetwork { loopback }, Operation::Fetch { origin }) => {
+                matches!(origin.scheme.as_str(), "http" | "https")
+                    && is_local_network(&origin.host, *loopback)
+            }
+            (Grant::WebSocketLocalNetwork { loopback }, Operation::WebSocket { origin }) => {
+                matches!(origin.scheme.as_str(), "ws" | "wss")
+                    && is_local_network(&origin.host, *loopback)
             }
             (Grant::FsRead(prefix), Operation::FsRead { path }) => prefix.covers(path),
             (Grant::FsWrite(prefix), Operation::FsWrite { path }) => prefix.covers(path),
@@ -258,7 +283,7 @@ impl GrantSet {
             if prefix
                 .0
                 .first()
-                .is_some_and(|p| p == "app:" || p == "doc:" || p.starts_with("win:"))
+                .is_some_and(|p| p.ends_with(':') || p.starts_with("win:"))
             {
                 return prefix.clone();
             }
@@ -384,6 +409,26 @@ impl GrantSet {
                 ));
             }
             let grant = match capability {
+                // The local network, decided from a URL's host as written
+                // (LLP 1133.036 D5). Only a development build's bake writes
+                // the word after it.
+                "net.fetch" | "net.websocket" if target == LOCAL_NETWORK => {
+                    let loopback = match parts.next() {
+                        None => false,
+                        Some(DEVELOPMENT) => true,
+                        Some(extra) => {
+                            return Err(format!(
+                                "line {}: unexpected `{extra}` after the target",
+                                index + 1
+                            ))
+                        }
+                    };
+                    if capability == "net.fetch" {
+                        Grant::FetchLocalNetwork { loopback }
+                    } else {
+                        Grant::WebSocketLocalNetwork { loopback }
+                    }
+                }
                 // A scheme source, as CSP writes one (`https:`): every origin
                 // of the scheme. The platform's own refusals still apply (App
                 // Transport Security, a browser's mixed-content blocking).
@@ -442,6 +487,8 @@ impl GrantSet {
                             index + 1
                         )
                     })?;
+                    namespace_refusal(capability, &prefix)
+                        .map_err(|e| format!("line {}: `{target}`: {e}", index + 1))?;
                     match capability {
                         "fs.read" => Grant::FsRead(prefix),
                         "fs.write" => Grant::FsWrite(prefix),
@@ -497,6 +544,22 @@ impl GrantSet {
 
 #[cfg(test)]
 mod quoted_tests;
+
+/// Why a path line's namespace refuses it (LLP 1133.007 D6): a line naming
+/// the whole home directory would stop meaning anything
+/// (`home-grant-whole`), and the bundle is read only.
+pub fn namespace_refusal(capability: &str, prefix: &PathPrefix) -> Result<(), String> {
+    match prefix.components() {
+        [home] if home == "home:" => Err(
+            "home-grant-whole: a line names a subtree of the home directory, such as `home:/.ssh`"
+                .into(),
+        ),
+        [bundle, ..] if bundle == "bundle:" && capability != "fs.read" => Err(format!(
+            "the bundle is read only: `{capability}` cannot name it"
+        )),
+        _ => Ok(()),
+    }
+}
 
 /// A CSP scheme source ([CSP3 `scheme-source`](https://www.w3.org/TR/CSP3/#grammardef-scheme-source)):
 /// a scheme and its colon, nothing else.
@@ -757,6 +820,31 @@ mod tests {
             "net.fetch 1http:",
             "net.fetch https::",
             "net.fetch :",
+        ] {
+            assert!(GrantSet::parse(bad).is_err(), "{bad} parsed");
+        }
+    }
+
+    #[test]
+    fn a_local_network_line_admits_the_local_network_of_its_family() {
+        let set = GrantSet::parse("net.fetch local-network\nnet.websocket local-network").unwrap();
+        let fetch = |origin: Origin| set.permits(&Operation::Fetch { origin });
+        let socket = |origin: Origin| set.permits(&Operation::WebSocket { origin });
+        assert!(fetch(Origin::new("http", "192.168.1.40", 80)));
+        assert!(fetch(Origin::new("https", "wled-a1b2c3.local", 8443)));
+        assert!(socket(Origin::new("ws", "[fd00::5]", 81)));
+        assert!(!fetch(Origin::new("http", "example.com", 80)));
+        assert!(!fetch(Origin::new("http", "127.0.0.1", 4790)));
+        assert!(!fetch(Origin::new("ws", "192.168.1.40", 80)));
+        assert!(!socket(Origin::new("http", "192.168.1.40", 80)));
+        let development = GrantSet::parse("net.fetch local-network development").unwrap();
+        assert!(development.permits(&Operation::Fetch {
+            origin: Origin::new("http", "127.0.0.1", 4790)
+        }));
+        for bad in [
+            "net.fetch local-network production",
+            "net.fetch local-network development extra",
+            "net.fetch local-network:",
         ] {
             assert!(GrantSet::parse(bad).is_err(), "{bad} parsed");
         }

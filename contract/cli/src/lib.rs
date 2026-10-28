@@ -45,14 +45,16 @@ mod resolve;
 mod retained;
 mod shape_schema;
 pub use retained::{retention_build, Kept, Retained};
+mod properties;
 mod reach;
 mod rust;
 mod sources;
 mod strings;
 mod surface;
 mod symbols;
+pub use properties::{check_properties_path, properties, tests};
 mod tests_json;
-pub use tests_json::tests_json;
+pub use tests_json::{authored_json, tests_json};
 pub mod snapshot;
 pub mod tamber_levels;
 pub mod tamber_params;
@@ -89,7 +91,7 @@ pub fn strings_tables(app_root: &Path) -> Result<Option<std::sync::Arc<Strings>>
             .join("\n")
     })
 }
-use contract_syntax::{File, Span, Step, TestDecl};
+use contract_syntax::{File, Span};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
@@ -904,6 +906,11 @@ fn compile_loaded(
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
+    let _declared = contract_lower::DeclaredViews::set(
+        (views.iter())
+            .map(|v| (v.tag.clone(), v.declared.clone()))
+            .collect(),
+    );
     picker::check(&file, Some(&app_root))
         .and(orientationlock::check(&file, Some(&app_root)))
         .map_err(|all| {
@@ -965,37 +972,6 @@ fn compile_loaded(
     }
     reach::from_manifest(path, &app_root, &file, &mut plan)?;
     Ok((plan, sites.map(|sites| SourceMap::new(sites, sources))))
-}
-
-/// The `test` blocks of a file (LLP 1017 P7) — normally `app.test.contract`
-/// beside the app, holding nothing else. Parsed, never compiled: a test is a
-/// script for the agent driver (`scripts/agent.mjs --test`), and its steps
-/// are the eight operations plus `expect` lines that read their replies.
-/// The file's top-level launch lines lead each test's steps, unless the test
-/// names the same fact itself (habits F7, calendar F13).
-pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
-    let file = contract_syntax::parse(src)?;
-    Ok(file
-        .tests
-        .into_iter()
-        .map(|mut test| {
-            // By fact, among the test's own leading launch lines: a `fail
-            // fetch` line by its prefix (LLP 1103 D3); a later one is a step.
-            let leading = test
-                .steps
-                .iter()
-                .take_while(|s| contract_syntax::is_launch(s));
-            let own = |l: &Step| leading.clone().any(|s| contract_syntax::same_launch(s, l));
-            let inherited = file
-                .launch
-                .iter()
-                .filter(|l| !own(l))
-                .cloned()
-                .collect::<Vec<_>>();
-            test.steps = inherited.into_iter().chain(test.steps).collect();
-            test
-        })
-        .collect())
 }
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {

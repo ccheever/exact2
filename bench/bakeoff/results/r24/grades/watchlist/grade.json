@@ -1,0 +1,54 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and % change since open; green with ↗ when up, red with ↘ when down."},
+      {"n": 2, "status": "pass", "note": "Prices tick about every second in place; the summary card and the rows keep updating, including after scrolling."},
+      {"n": 3, "status": "pass", "note": "Native sort menu (Symbol A–Z, Price high to low, Change high to low) works; live search by symbol or name (\"orchard\" gives 10), with a clear 'No matches' empty state."},
+      {"n": 4, "status": "pass", "note": "Star on each row and in the detail toolbar; the All/My List segmented control filters correctly ('2 SAVED')."},
+      {"n": 5, "status": "pass", "note": "Detail shows big price, change since open, open and volume cards, and a filled line chart with L/H labels and an 'Ns ago … Now' axis that grows live."},
+      {"n": 6, "status": "pass", "note": "Starred tickers and the chosen sort (Change, then Symbol) both survive relaunch."}
+    ],
+    "bugs": [
+      "The list is a short inner scroll pane under a fixed header (title, market card, segment, search, sort row), so only about 5 rows fit on screen. At the largest text size about 1 row fits, which makes the list nearly unusable.",
+      "A fast horizontal swipe across a row opens the ticker's detail screen, as if it were a tap."
+    ],
+    "tells": [
+      "The header never collapses: the large title and a decorative 'Simulated market' card stay pinned while only the lower part scrolls. That isn't how an iPhone list screen behaves.",
+      "Custom cream and dark-green palette with a hand-made 'LIVE' pill in the nav bar; it reads as a branded, web-like design rather than system grouped colours.",
+      "Hand-made rounded search field in the content instead of a system search bar or .searchable; its Return key shows a checkmark.",
+      "Very tall 79 pt rows, with separators that start under the text and stop short of the right edge.",
+      "No swipe actions on rows (for example, swipe to add to or remove from My List).",
+      "At the largest text size the star icon stays small and floats beside a tall stacked row; the search placeholder shrinks to 'Search' and the count to a bare '260'.",
+      "Sort only goes one way (high to low) for Price and Change; there's no ascending option."
+    ],
+    "scroll": "Scrolling feels smooth, with no blank or popping rows, and the position is kept after visiting a detail screen. But everything happens in a pane about 390 pt tall under a fixed header, so flings cover little ground, and seven swipe-downs did not get back to the top.",
+    "scores": {"features": 9, "platform": 5, "polish": 7, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and signed % change, green or red, with disclosure chevrons."},
+      {"n": 2, "status": "pass", "note": "Rows update in place every second, including mid-scroll."},
+      {"n": 3, "status": "pass", "note": "Native pull-down sort menu (Symbol, Price, Change), with the current order summarised ('highest first', 'A to Z'); search by symbol or name works, and 'No Matching Tickers' offers Clear Search."},
+      {"n": 4, "status": "pass", "note": "Star on each row, a star in the detail nav bar and an Add/Remove row; the All/My List segmented control filters correctly."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, change, open, volume and a 'Last 60 Seconds' line chart with low/high that updates live; plain but correct."},
+      {"n": 6, "status": "pass", "note": "My List and sort survive relaunch; so does the All/My List choice."}
+    ],
+    "bugs": [
+      "The search field sits at the bottom and stays hidden behind the keyboard while typing, so you can't see what you're entering.",
+      "The search text is kept across relaunch, so the app can open to a filtered list ('orchard') or even an empty 'No Matching Tickers' screen with no obvious reason."
+    ],
+    "tells": [
+      "Small inline title with no large-title 'Watchlist'.",
+      "'Sort by' label plus a blue text menu button inside the list header, instead of a toolbar or nav-bar menu.",
+      "To VoiceOver, rows are Links and the star toggles are Switches: web-style semantics.",
+      "No swipe actions on rows.",
+      "At the largest text size the title, segmented control and bottom search field don't grow; the % change is oddly indented; the star sits on its own line above each row.",
+      "The search keyboard auto-capitalises (QWERTY in capitals) even though search is case-insensitive.",
+      "Detail chart is a bare line with no fill, axis or time labels; the back button is a chevron only (acceptable in iOS 26 style)."
+    ],
+    "scroll": "The whole page scrolls as one system list: smooth when dragged slowly or flung, rows stay filled and keep ticking, it bounces past the top, and the nav bar picks up the scroll-edge blur. No jumps or stutter seen.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 7}
+  },
+  "better": "B",
+  "why": "Both meet every requirement. A has the richer, more finished detail screen and empty states, but its main list is squeezed into a small pane under a fixed header (about 1 row at the largest text size), which hurts the core use of a watchlist. B scrolls and looks like a standard iOS list, but its search field is hidden by the keyboard while typing and it brings back stale search text on relaunch. Those flaws are smaller day to day than A's cramped list."
+}

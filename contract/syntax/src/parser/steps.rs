@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// The hosts a test's `on` names, as the driver names them.
+const TEST_HOSTS: [&str; 7] = ["web", "macos", "ios", "tvos", "linux", "windows", "android"];
+
 impl Parser {
     /// `font "Name" = "path.ttf"`, or a block of `weight [weight] [italic] =
     /// path`: one weight, or a variable face's range of them.
@@ -104,6 +107,7 @@ impl Parser {
     pub(super) fn test_decl(&mut self) -> R<TestDecl> {
         let span = self.expect_word("test")?;
         let name = self.str_lit("the test's name")?;
+        let hosts = self.test_hosts()?;
         self.newline()?;
         let steps = self.block(|p| p.step())?;
         // The viewport, the date, the zone, the locale and the seed are the
@@ -131,7 +135,129 @@ impl Parser {
                 return duplicate("launch line", launch_word(a), a.span(), first.span());
             }
         }
-        Ok(TestDecl { name, steps, span })
+        if let Some(Step::ExpectPerf { span, .. }) = steps
+            .iter()
+            .take_while(|s| !matches!(s, Step::Perf { .. }))
+            .find(|s| matches!(s, Step::ExpectPerf { .. }))
+        {
+            return Err(SyntaxError {
+                id: "syntax-expected-step",
+                message: "`expect perf` reads the counts of a `perf` block before it, and this test has none yet".into(),
+                span: *span,
+            });
+        }
+        Ok(TestDecl {
+            name,
+            hosts,
+            steps,
+            span,
+        })
+    }
+
+    /// `perf` and its indented steps (LLP 1146 D3). The counts repeat only on
+    /// the agent's clock, so a step that waits on the wall clock is refused.
+    fn perf_block(&mut self, span: Span) -> R<Step> {
+        self.newline()?;
+        let steps = self.required_block(span, "`perf`", |p| p.step())?;
+        for step in &steps {
+            let refused = match step {
+                Step::Perf { .. } | Step::ExpectPerf { .. } => Some("a `perf` block measures steps; its `expect perf` lines follow it, and blocks do not nest".to_string()),
+                Step::Clock { arg, .. } if arg.ends_with(" real") => Some(format!("`clock {arg}` lets the wall clock run, so the counts would depend on the machine's speed; step the agent's clock (`clock +N`, `clock data`, `clock settle`)")),
+                s if !launch_word(s).is_empty() => Some(format!("`{}` is a launch line and leads the test, not a `perf` block", launch_word(s))),
+                _ => None,
+            };
+            if let Some(message) = refused {
+                return Err(SyntaxError {
+                    id: "syntax-expected-step",
+                    message,
+                    span: step.span(),
+                });
+            }
+        }
+        Ok(Step::Perf { steps, span })
+    }
+
+    /// `expect perf query <resource>|built "<name>"|evaluated "<name>" ==|<= n`.
+    fn expect_perf(&mut self, span: Span) -> R<Step> {
+        let subject = match self.peek_kind() {
+            TokenKind::Ident(w) if ["query", "built", "evaluated"].contains(&w.as_str()) => w.clone(),
+            other => {
+                return self.err(
+                    "syntax-expected-step",
+                    format!("`expect perf` counts `query <resource>`, `built \"<testId or component>\"` or `evaluated \"<testId or component>\"`, found {}", describe(other)),
+                )
+            }
+        };
+        self.next();
+        let target = if subject == "query" {
+            self.ident()?.0
+        } else {
+            self.str_lit("a testId or a component's name")?
+        };
+        let at_most = if self.eat_punct("<=") {
+            true
+        } else {
+            self.expect_punct("==")?;
+            false
+        };
+        let value = match *self.peek_kind() {
+            TokenKind::Number(n) if n >= 0.0 && n.fract() == 0.0 && n <= u32::MAX as f64 => {
+                n as u32
+            }
+            ref other => {
+                return self.err(
+                    "syntax-expected-step",
+                    format!(
+                        "`expect perf` compares with a whole count, found {}",
+                        describe(other)
+                    ),
+                )
+            }
+        };
+        self.next();
+        Ok(Step::ExpectPerf {
+            subject,
+            target,
+            at_most,
+            value,
+            span,
+        })
+    }
+
+    /// `on web, macos` after a test's name: the hosts the driver runs it on.
+    fn test_hosts(&mut self) -> R<Vec<String>> {
+        let mut hosts = Vec::new();
+        if !self.at_ident("on") {
+            return Ok(hosts);
+        }
+        self.next();
+        loop {
+            let host = match self.peek_kind() {
+                TokenKind::Ident(w) if TEST_HOSTS.contains(&w.as_str()) => w.clone(),
+                other => {
+                    return self.err(
+                        "syntax-expected",
+                        format!(
+                            "expected a host ({}), found {}",
+                            TEST_HOSTS.join(", "),
+                            describe(other)
+                        ),
+                    )
+                }
+            };
+            let span = self.next().span;
+            if hosts.contains(&host) {
+                return Err(SyntaxError {
+                    id: "syntax-expected",
+                    message: format!("`{host}` is named twice"),
+                    span,
+                });
+            }
+            hosts.push(host);
+            if !self.eat_punct(",") {
+                return Ok(hosts);
+            }
+        }
     }
 
     /// A launch line's quoted value.
@@ -533,7 +659,7 @@ impl Parser {
                     });
                 }
                 let form = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" || w == "pinch" => {
+                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" || w == "pinch" || w == "wheel" => {
                         self.next();
                         match w.as_str() {
                             "hover" => TapForm::Hover,
@@ -558,6 +684,15 @@ impl Parser {
                                     None
                                 };
                                 TapForm::Pinch { scale, at }
+                            }
+                            // `tap "id" wheel <dx> <dy>`: the agent's wheel, so a Mac's scroll can be tested.
+                            "wheel" => {
+                                let dx = self.step_number("the wheel's dx, in points")?;
+                                let dy = self.step_number("the wheel's dy, in points")?;
+                                if !dx.is_finite() || !dy.is_finite() {
+                                    return self.err("syntax-expected-step", "`wheel` takes two finite deltas");
+                                }
+                                TapForm::Wheel { dx, dy }
                             }
                             _ => TapForm::Into(self.str_lit("the row's key")?),
                         }
@@ -870,6 +1005,7 @@ impl Parser {
                 }
                 Step::Back { span }
             }
+            "perf" => return self.perf_block(span),
             "screenshot" => Step::Screenshot {
                 path: self.str_lit("a file name")?,
                 span,
@@ -885,7 +1021,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, `midi`, `wakelock`, or `mediasession`, found {}",
+                                "`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, `midi`, `wakelock`, `mediasession`, `perf`, or `no failures`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -979,6 +1115,11 @@ impl Parser {
                     "sound" => self.expect_sound(span)?,
                     "midi" => self.expect_midi(span)?,
                     "mediasession" => self.expect_media_session(span)?,
+                    "perf" => self.expect_perf(span)?,
+                    "no" => {
+                        self.expect_word("failures")?;
+                        Step::ExpectNoFailures { span }
+                    }
                     "state" => {
                         let name = self.state_path()?;
                         self.expect_punct("==")?;
@@ -1014,7 +1155,7 @@ impl Parser {
                         };
                         return self.err(
                             "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, `midi`, `wakelock`, or `mediasession`, not `{other}`{hint}"),
+                            format!("`expect` reads `tree`, `text`, `state`, `disabled`, `enabled`, `refusal`, `sound`, `midi`, `wakelock`, `mediasession`, `perf`, or `no failures`, not `{other}`{hint}"),
                         );
                     }
                 }

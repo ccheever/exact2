@@ -1,0 +1,115 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "All 320 sorted by last name in inset-grouped letter sections. The section index (with a ★ entry) jumps on tap and scrubs on drag."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Filters live by name, company, formatted or digits-only phone, and email. Shows a 'No Results' state and '1 result' footer; clear and close restore the full list."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Detail shows avatar, name, company, phone, email and birthday (birthday row hidden when unknown). Phone and email are tinted rows with icons and an outward arrow."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Add/Remove from Favorites toggle on details, plus a Favorite badge. Favorites show at the top as a horizontal avatar carousel with a count; it updates at once."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Sheet form with labelled fields. Save is disabled for empty or whitespace-only names, and there is helper text. Return moves to the next field. Cancel on a dirty form asks to discard. Edit uses the same form, and re-sorting works (Aaronson→Young moved to Y)."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Native swipe-to-delete in the list and a Delete Contact button on details, both with a confirmation alert; the count updates."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Deletes, the added and edited contact, and favorite changes all survived relaunch."
+      }
+    ],
+    "bugs": [
+      "Once, right after closing search while the large title re-expanded, tapping a row only highlighted it (stayed selected) and did not open details; a second tap worked."
+    ],
+    "tells": [
+      "Custom teal tint everywhere instead of the system accent, and colourful pastel initial avatars on every row; it looks styled rather than stock.",
+      "Favorites are a horizontal avatar carousel inside the list. The 5th avatar is cut off at the edge, and at the largest text size the avatar sits off-centre from its huge name label.",
+      "The nav bar is inconsistent: at launch it shows a small centred 'Contacts / 320 contacts' title, but after search it turns into a large title.",
+      "Rows are tall (84 pt), larger than system contact rows.",
+      "Section headers scroll away rather than sticking (inset-grouped style); acceptable, but unlike the Contacts app."
+    ],
+    "scroll": "Smooth: no blank rows, pop-in or jumps during slow drags, flings or rubber-banding; the scroll-edge blur under the nav bar behaves natively. Index scrubbing jumps cleanly.",
+    "scores": {
+      "features": 9,
+      "platform": 7,
+      "polish": 8,
+      "overall": 8
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Plain list sorted by last name with sticky letter headers and a blue system-style section index that jumps on tap. The index has no entry for Favorites."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Bottom search bar (iOS 26 style) filters live by name, company, phone (formatted or digits) and email. Shows a '1 Contact' footer and a 'No Contacts Found' state with Clear Search; clearing restores the list."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Contacts-app-style card with initials, name, company, and blue phone/email values; the birthday row shows only when known."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Add/Remove from Favorites row on details. Favorites appear as a full section of rows at the top and update immediately."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Sheet with ✕/✓ buttons and placeholder-only fields. ✓ is disabled for empty or whitespace names, and names are trimmed. Edit uses the same form, and re-sorting works. Return dismisses the keyboard instead of moving to the next field, and closing a dirty form throws away changes without asking."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Native swipe-to-delete (no confirmation, as in iOS lists) and Delete Contact on details with a confirmation alert."
+      },
+      {
+        "n": 7,
+        "status": "pass",
+        "note": "Deletes, the added and edited contact, and favorite toggles all survived relaunch."
+      }
+    ],
+    "bugs": [
+      "Cancelling (✕) an edited form discards the edits silently, with no 'Discard Changes?' prompt."
+    ],
+    "tells": [
+      "Each favorite row has a grey filled star that reads as disabled rather than as a favorite marker.",
+      "The Favorites section repeats 31 full rows before 'A', pushing the alphabetical list a screen and a half down, and the index has no ★ to jump back to it.",
+      "Return does not advance between fields in the form.",
+      "During the swipe-to-delete the row's subtitle (company) disappeared."
+    ],
+    "scroll": "Very native: sticky section headers, scroll-edge blur, large title collapsing to inline, smooth flings with no blank rows or pop-in, and clean rubber-banding at the top.",
+    "scores": {
+      "features": 8,
+      "platform": 9,
+      "polish": 8,
+      "overall": 7
+    }
+  },
+  "better": "A",
+  "why": "Both meet every requirement and persist correctly. B is closer to the stock Contacts app: system blue, sticky plain list, bottom search, large title. A is more complete and careful in behaviour: it confirms before discarding edits and before swipe-deletes, Return moves between fields, there is a ★ index entry and labelled form fields, and a compact favorites strip that doesn't push the list down. A's custom teal styling and inconsistent title are the main costs, but I would rather ship A."
+}

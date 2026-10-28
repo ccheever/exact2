@@ -166,6 +166,13 @@ shape Guest
   email: string
 shape GuestList
   guests: Guest[]
+// The guests' phone numbers, kept beside them (LLP 1133.024 D16).
+shape GuestPhones
+  tels: string[]
+// The invitation's file, written for a mail to attach, or why it was not.
+shape Invitation
+  path: string
+  message: string
 shape GuestsAdded
   added: number
   message: string

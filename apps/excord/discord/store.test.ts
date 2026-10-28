@@ -425,16 +425,16 @@ describe('bounded windows', () => {
     expect(ids(windowBefore(s, cid, '5', 2))).toEqual(['3', '4']);
     expect(ids(windowAfter(s, cid, '5', 2))).toEqual(['6', '7']);
   });
-  test('latest and cursor windows clamp to 200 without returning the rest of history', () => {
+  test('latest and cursor windows clamp to 300 without returning the rest of history', () => {
     const s = createStore();
     applyHistoryPage(s, cid, { limit: 50 }, page(951, 1000));
     for (let end = 950; end >= 50; end -= 50) {
       applyHistoryPage(s, cid, { before: String(end + 1), limit: 50 }, page(end - 49, end));
     }
-    expect(ids(latestWindow(s, cid, 10000))).toEqual(Array.from({ length: 200 }, (_, i) => String(801 + i)));
-    expect(windowAround(s, cid, '500', 10000).rows).toHaveLength(200);
-    expect(windowBefore(s, cid, '500', 10000).rows).toHaveLength(200);
-    expect(windowAfter(s, cid, '500', 10000).rows).toHaveLength(200);
+    expect(ids(latestWindow(s, cid, 10000))).toEqual(Array.from({ length: 300 }, (_, i) => String(701 + i)));
+    expect(windowAround(s, cid, '500', 10000).rows).toHaveLength(300);
+    expect(windowBefore(s, cid, '500', 10000).rows).toHaveLength(300);
+    expect(windowAfter(s, cid, '500', 10000).rows).toHaveLength(300);
     expect(latestWindow(s, cid, 10000)).toMatchObject({ moreBefore: true, moreAfter: false });
     expect(() => latestWindow(s, cid, 0)).toThrow();
   });
@@ -583,9 +583,9 @@ describe('message mutations', () => {
     expect(typingUsers(s, cid, 10499)).toEqual([{ user: other, expiresAtMs: 10500 }]);
     expect(typingUsers(s, cid, 10500)).toEqual([]);
     const version = channelVersion(s, cid);
-    expect(expireTyping(s, 10500)).toEqual({ channels: [cid], sidebar: false });
-    expect(channelVersion(s, cid)).toBe(version + 1);
-    expect(expireTyping(s, 10500)).toEqual({ channels: [], sidebar: false });
+    expect(expireTyping(s, 10500)).toBe(1);
+    expect(channelVersion(s, cid)).toBe(version);
+    expect(expireTyping(s, 10500)).toBe(0);
     event(s, 'TYPING_START', { user_id: '2' });
     expect(typingUsers(s, cid, 100)).toHaveLength(1);
     send(s, '101');
@@ -772,6 +772,26 @@ test('versions invalidate only affected channels and sidebar-visible changes', (
   const a = channelVersion(s, cid);
   event(s, 'MESSAGE_UPDATE', { id: 'missing', content: 'nothing' });
   expect(channelVersion(s, cid)).toBe(a);
+});
+
+test('a known user\'s new name moves the identity revision; a new user or the same name does not', () => {
+  const s = seeded();
+  const before = s.identityRevision;
+  send(s, '101', { author: { id: '3', username: 'newcomer' } });
+  send(s, '102');
+  expect(s.identityRevision).toBe(before);
+  send(s, '103', { author: { ...other, global_name: 'Friendly' } });
+  expect(s.identityRevision).toBe(before + 1);
+});
+
+test('a known user\'s new name moves the version of a DM with them, and of no other channel', () => {
+  const s = seeded();
+  applyDispatch(s, 'CHANNEL_CREATE', { id: '4000', type: 1, recipients: [other], last_message_id: '90' }, 0);
+  const dm = channelVersion(s, '4000'), elsewhere = channelVersion(s, '2000');
+  send(s, '101', { author: { ...other, global_name: 'Friendly' } });
+  expect(channelVersion(s, '4000')).toBe(dm + 1);
+  expect(channelVersion(s, '2000')).toBe(elsewhere);
+  expect(channel(s, '4000')?.recipients?.[0]?.global_name).toBe('Friendly');
 });
 
 test('a thousand real-shaped MESSAGE_CREATEs append within 500 ms', () => {

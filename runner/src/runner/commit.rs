@@ -207,11 +207,18 @@ impl<D: DataSource> Runner<D> {
         self.refused_unsent.clear();
         // What a refused commit's gate step read is let go (LLP 1125 D2).
         self.transport.pending = None;
-        // After any restore: the source hears what is really in flight.
+        self.hear_forgotten();
+        self.sample();
+    }
+
+    /// After any restore, or a request let go outside a commit: the source
+    /// hears what is really in flight (a re-ask's wait is not, `overrun.rs`).
+    pub(super) fn hear_forgotten(&mut self) {
         if std::mem::take(&mut self.forgot) {
             let in_flight: Vec<InFlight<'_>> = self
                 .pending
                 .iter()
+                .filter(|p| p.reask_at.is_none())
                 .map(|p| InFlight {
                     target: p.target,
                     source: &p.source,
@@ -221,7 +228,6 @@ impl<D: DataSource> Runner<D> {
                 .collect();
             self.data.forgotten(&self.store, &in_flight);
         }
-        self.sample();
     }
 
     /// Run an action by name with `args` — what a test or an agent does.
@@ -325,6 +331,11 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
             if !args[i].conforms(&self.plan, param.ty) {
+                if args[i].typed(&self.plan, param.ty) {
+                    return Err(RunnerError::NonFiniteValue {
+                        name: self.plan.str(param.name).to_string(),
+                    });
+                }
                 return Err(RunnerError::ArgumentType {
                     action: self.plan.str(row.name).to_string(),
                     param: self.plan.str(param.name).to_string(),
@@ -456,9 +467,12 @@ impl<D: DataSource> Runner<D> {
         {
             let row = &self.plan.slots[*slot as usize];
             let refusal = if !self.conforms(value, row.ty) {
-                Some(RunnerError::SlotType {
-                    slot: self.plan.str(row.name).to_string(),
-                })
+                Some(RunnerError::slot_type(
+                    &self.plan,
+                    value,
+                    row.ty,
+                    self.plan.str(row.name),
+                ))
             } else if too_long(value) {
                 Some(RunnerError::StringTooLong {
                     name: self.plan.str(row.name).to_string(),
@@ -812,14 +826,22 @@ impl<D: DataSource> Runner<D> {
                     && !p.refused
                     && p.refusal.is_none()
                     && p.args != args
-                    && p.keepable.as_ref() == Some(&request)
+                    // Who asked it is stamped as it goes out (LLP 1133.036
+                    // D6), so it is no part of the same request.
+                    && (p.keepable.as_ref())
+                        .is_some_and(|k| request == Request { reach: request.reach, ..k.clone() })
             }) {
                 p.args = args;
+                // (new arguments: a new streak after a turn over its budget)
+                p.reasks = 0;
                 if let Target::Resource(i) = target {
                     p.inspection_generation =
                         self.ids.work.resources.get(i).map_or(0, |w| w.request);
                 }
                 let ticket = p.ticket;
+                // The newer arguments' causes join the request's (LLP
+                // 1133.035 D16 item 6).
+                self.note_kept(target, ticket);
                 // A source that parks calls hears the kept ticket's newer
                 // arguments and drops the call parked under the old ones.
                 self.forgot = true;
@@ -827,6 +849,8 @@ impl<D: DataSource> Runner<D> {
                 return;
             }
         }
+        // A re-ask after a turn over its budget carries its streak on.
+        let reasks = self.overrun_reasks(target, &args, forced);
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.note_let_go(t, target);
@@ -836,8 +860,11 @@ impl<D: DataSource> Runner<D> {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         let name = self.target_name(target);
+        let mut request = request;
+        self.number_data_call(&mut request);
         self.log(super::lines::enqueued(ticket, &name, &request));
         self.note_asked(target, ticket);
+        request.reach = self.reach_of(self.origin_for(Some(target)));
         self.note_handles(ticket, &source, &request.body);
         self.note_send(ticket, &request.body);
         self.presence_noted(ticket, &request);
@@ -875,6 +902,8 @@ impl<D: DataSource> Runner<D> {
             held: request.is_held(),
             long_poll: request.stream && request.long_poll.is_some(),
             replied: false,
+            reask_at: None,
+            reasks,
         });
         self.requests.push(RequestOut {
             ticket,
@@ -915,7 +944,8 @@ impl<D: DataSource> Runner<D> {
     pub fn take_requests(&mut self) -> Vec<RequestOut> {
         self.take_data_logs();
         self.arm_background();
-        std::mem::take(&mut self.requests)
+        let requests = std::mem::take(&mut self.requests);
+        self.hold_data_timers(requests)
     }
 
     /// The work behind continuation `token` (LLP 1027.002 D3): a host asks
@@ -926,6 +956,7 @@ impl<D: DataSource> Runner<D> {
         if let Some(dispatch) = self.module_dispatch(token) {
             return dispatch;
         }
+        self.store.set_clock_ms(self.now_ms);
         self.data.dispatch(token, &self.store)
     }
 
@@ -967,10 +998,13 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Work the source held at dispatch and the last commit releases, in
-    /// order; a host asks after every commit.
+    /// order, then the waits an answer's timer released (`data_timers.rs`);
+    /// a host asks after every commit and advance.
     pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {
         let mut out = self.data.release(&self.store);
         out.extend(self.module_release());
+        // A wait whose answer's timer came due (`data_timers.rs`).
+        out.extend(self.take_woken());
         out
     }
 
@@ -1010,15 +1044,15 @@ impl<D: DataSource> Runner<D> {
     /// D5): after that it is open, not in flight, or `settle` never ends.
     /// A request held for the agent (LLP 1069.007 D3) is not I/O either: no
     /// clock waits on it, nor on one the server holds (LLP 1016.000 D9,
-    /// [`Runner::held_requests`]). The module's background round is (LLP
-    /// 1097 D9).
+    /// [`Runner::held_requests`]), nor an answer's wait for its own timer
+    /// (`data_timers.rs`). The module's background round is (LLP 1097 D9).
     pub fn has_pending(&self) -> bool {
         self.background_ticket().is_some()
-            || !self.tool_tickets().is_empty()
+            || (self.tool_tickets().iter()).any(|(_, t)| !self.data_timer_held(*t))
             || self
                 .pending
                 .iter()
-                .any(|p| p.waited() && !self.held_for_agent(p))
+                .any(|p| p.waited() && !self.held_for_agent(p) && !self.data_timer_held(p.ticket))
     }
 
     /// Replies landed for held requests, by target, whatever they said (LLP
@@ -1071,14 +1105,14 @@ impl<D: DataSource> Runner<D> {
         let mut out: Vec<(String, u64)> = self
             .pending
             .iter()
-            .filter(|p| p.waited() && !self.held_for_agent(p))
+            .filter(|p| p.waited() && !self.held_for_agent(p) && !self.data_timer_held(p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect();
         out.extend(
             self.background_ticket()
                 .map(|t| (super::background::NAME.to_string(), t)),
         );
-        out.extend(self.tool_tickets());
+        out.extend((self.tool_tickets().into_iter()).filter(|(_, t)| !self.data_timer_held(*t)));
         out
     }
 
@@ -1177,8 +1211,17 @@ impl<D: DataSource> Runner<D> {
                 self.long_poll_replied(pos);
                 return Ok(None);
             }
+            // A listener's word on its address alone (LLP 1133.005 D2).
+            if self.listen_event(pos, m) {
+                return Ok(None);
+            }
             return self.message(pos, outcome, &summary);
         }
+        // A re-ask's wait was never sent (`overrun.rs`): only its invocation's end fails it.
+        if self.pending[pos].reask_at.is_some() {
+            return self.reask_answered(ticket, outcome, &summary);
+        }
+        self.overrun.replied = false;
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
@@ -1188,12 +1231,14 @@ impl<D: DataSource> Runner<D> {
         }
         let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
         let target = p.target;
-        // An answer lands as a commit of its request's origin (LLP 1133.002 D12).
+        // An answer lands as a commit of its request's origin (LLP 1133.002
+        // D12), with every cause the request has (LLP 1133.035 D16 item 6).
         let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
-        let result = self.as_invocation(origin, id, |r| r.fulfill_inner(p, outcome));
+        let causes = self.ticket_causes(ticket);
+        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
         self.conclude(checkpoint, &result, was_poisoned);
-        // Its `then` runs under the same origin and invocation.
-        self.as_invocation(origin, id, |r| r.arm_then(result.is_ok()));
+        // Its `then` is armed under the same origin, invocation and causes.
+        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if let (Some(handles), Err(_)) = (handles, &result) {
@@ -1210,6 +1255,10 @@ impl<D: DataSource> Runner<D> {
             // of `pending`. Admission refusal alone cannot restart a source
             // whose earlier turns may have written.
             if self.holds(ticket) {
+                // Its own turn over its budget: asked again (`overrun.rs`).
+                if self.hold_overrun_reply(ticket, target, e) {
+                    return Ok(None);
+                }
                 return self.release_failed(ticket, target, crate::failure::Failure::of(e));
             }
         }
@@ -1286,6 +1335,20 @@ impl<D: DataSource> Runner<D> {
         };
         self.store.take_topics();
         self.snapshot_sockets();
+        // A live module source's answer may name when it goes stale (LLP
+        // 1133.015 D7), whether Contract or data code reads it.
+        let live = (self.plan.module_named(&p.source))
+            .filter(|row| row.live && !row.send)
+            .map(|row| self.key(row))
+            .or_else(|| (p.keepable.as_ref()).and_then(|r| self.module_topic(&r.body)));
+        let outcome = match (live, outcome) {
+            (Some(key), Outcome::Response(mut response)) => {
+                response.body = self.take_stale(&key, std::mem::take(&mut response.body));
+                Outcome::Response(response)
+            }
+            (_, outcome) => outcome,
+        };
+        self.store.set_clock_ms(self.now_ms);
         let parsed = if Self::activity_send(&p.source) {
             Self::activity_reply(&self.plan, ty, outcome)
         } else if self.plan.module_named(&p.source).is_some() {
@@ -1319,6 +1382,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        self.overrun.replied = matches!(parsed, Err(DataError::Overrun(_)));
         let value = match parsed.map_err(|error| RunnerError::Data {
             resource: name.clone(),
             error,
@@ -1348,6 +1412,7 @@ impl<D: DataSource> Runner<D> {
                     next.origin = p.origin;
                     next.inspection_generation = p.inspection_generation;
                     next.write = p.write;
+                    next.reasks = p.reasks;
                 }
                 return self.update();
             }

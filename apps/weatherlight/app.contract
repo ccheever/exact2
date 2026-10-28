@@ -6,6 +6,17 @@
 // @ref LLP 1133.002 §7 — "Use my location": the device's position, approximate,
 // through @exact/geolocation; from then on the forecast follows the person.
 use getCurrentPosition, geolocationStatus, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
+// The platform's geocoder names the followed position's city (LLP 1133.021
+// §13); where there is none (the web, Linux) it stays "Current location".
+use reverseGeocode, geocodingStatus, Place as GeoPlace, GeocodingStatus from "@exact/geocoding"
+// @ref LLP 1133.031 §10 — the sky rests in Low Power Mode or a serious
+// thermal state, and the refresh waits while the person saves power or data.
+use powerState, connection, PowerState, NetworkInformation from "@exact/device"
+// Weatherlight+ (LLP 1133.015 §10): a subscription shows sixteen days, a tip
+// is a consumable. Contract gates and prices the screen; the data code's
+// delivery loop is the one place a purchase is delivered and finished.
+use getDetails, listPurchases, unfinishedPurchases, purchase, restorePurchases, purchasesStatus, ItemDetails, PurchaseDetails, PurchasesStatus from "@exact/purchases"
+use requestReview, storeReviewStatus, StoreReviewStatus from "@exact/store-review"
 
 routes nav
   tab home "/" render=build
@@ -96,6 +107,14 @@ shape Viewport
   width: number
   height: number
   pointer: string
+// The tips the delivery loop has counted, and the days the person opened the app.
+shape Delivery
+  tips: number
+shape Visit
+  days: number
+  ask: bool
+shape Time
+  epochAtZero: number
 
 component Weatherlight
   state city = "San Francisco"
@@ -109,7 +128,8 @@ component Weatherlight
   state searching = false
   state query = ""
   state submitted = ""
-  state animated = true
+  // "", "play" or "pause": the person's choice, once pressed, over the device's.
+  state skyChoice = ""
   // Following the person's position; `locating` counts asks and choices, so
   // a position that answers after a city was chosen (`asked` behind it) is
   // ignored.
@@ -119,12 +139,39 @@ component Weatherlight
   // Whether hour cards are hidden past the row's left or right edge.
   state hoursLeft = false
   state hoursRight = true
-  resource forecast = forecast(lat, lon, revision, following) as shape Forecast
+  state supporting = false
+  state thanks = ""
+  resource store = purchasesStatus() as shape PurchasesStatus else empty()
+  resource owned = listPurchases() as shape PurchaseDetails[] else empty()
+  resource queue = unfinishedPurchases() as shape PurchaseDetails[] else empty()
+  resource plans = getDetails(itemIds=["plus.yearly", "plus.monthly", "tip.small"]) as shape ItemDetails[] else empty()
+  resource review = storeReviewStatus() as shape StoreReviewStatus else empty()
+  resource time = exactTime() as shape Time
+  resource tipped = tips() as shape Delivery
+  resource visit = visits() with time.epochAtZero as shape Visit
+  mutation bought as shape PurchaseDetails then thanked
+  mutation restored as shape PurchaseDetails[]
+  mutation delivered as shape Delivery refreshes tipped
+  mutation reviewed as shape Visit
+  // A screen gates on what the person holds, never on the queue (D3).
+  derive plus = owned.filter(p => p.itemId.startsWith("plus.")).length > 0
+  // What the store has delivered and the app has not finished, by token.
+  derive due = queue.filter(p => p.purchaseState == "purchased").map(p => p.purchaseToken).join(",")
+  derive purchaseError = match failure(bought) { case some(f) => f.code == "AbortError" ? "" : "The purchase didn’t go through. Try again.", case none => "" }
+  resource forecast = forecast(lat, lon, revision, following, plus) as shape Forecast
   resource outlook = outlook(forecast, units, selected, lat, lon, following) as shape Outlook
   resource location = geolocationStatus() as shape GeolocationStatus else empty()
   mutation located as shape GeolocationPosition then arrived
+  resource geocoding = geocodingStatus() as shape GeocodingStatus else empty()
+  mutation named as shape GeoPlace[] then labelled
   resource places = places(submitted) as shape Places
   resource viewport = exactViewport() as shape Viewport
+  resource power = powerState() as shape PowerState else empty()
+  resource network = connection() as shape NetworkInformation else empty(type="unknown")
+  derive hot = match power.thermalState { case some(t) => t == "serious" or t == "critical", case none => false }
+  derive resting = power.lowPowerMode or hot
+  derive animated = skyChoice == "play" or (skyChoice == "" and not resting)
+  derive saving = power.lowPowerMode or network.saveData
   derive wide = viewport.width >= 1100 and viewport.width > viewport.height
   derive tv = viewport.pointer == "none"
   derive locationError = asked == locating ? match failure(located) { case some(f) => f.code, case none => "" } : ""
@@ -173,9 +220,32 @@ component Weatherlight
           lat = p.coords.latitude
           lon = p.coords.longitude
           selected = "now"
+          if geocoding.available
+            send named = reverseGeocode(latitude=p.coords.latitude, longitude=p.coords.longitude)
         // Never: a `then` runs only after an answer.
         case none
           following = following
+  // The followed position's place: its city and country, else the label stays.
+  action labelled
+    if following
+      match named
+        case some(places)
+          match first(places)
+            case some(place)
+              match place.city
+                case some(c)
+                  city = c
+                  match place.country
+                    case some(k)
+                      region = k
+                    case none
+                      region = ""
+                case none
+                  city = city
+            case none
+              city = city
+        case none
+          city = city
   action openSettings
     openURL("app-settings:")
   action setUnits(value: string)
@@ -189,12 +259,40 @@ component Weatherlight
     hoursLeft = e.scrollLeft > 1
     hoursRight = e.scrollWidth - e.scrollLeft - e.clientWidth > 1
   action toggleMotion
-    animated = not animated
+    skyChoice = animated ? "pause" : "play"
+  action openSupport
+    supporting = true
+  action closeSupport
+    supporting = false
+  action upgrade(itemId: string)
+    thanks = ""
+    send bought = purchase(itemId=itemId)
+  action restore
+    send restored = restorePurchases()
+  // The purchase's answer is for this screen alone; delivery is the queue's.
+  action thanked
+    match bought
+      case some(p)
+        thanks = p.purchaseState == "pending" ? "Waiting for approval." : p.itemId.startsWith("plus.") ? "Welcome to Weatherlight+." : "Thank you for the tip."
+      case none
+        thanks = thanks
+  action deliver
+    send delivered = deliverPurchases()
+  task delivering when due != "" key=due
+    after(1, deliver)
+  // The rating prompt: on the fifth day opened, with a forecast showing,
+  // once per version, never from a button (D12).
+  action askReview
+    requestReview()
+    send reviewed = reviewAsked()
+  task reviewing when review.available and outlook.ready and visit.ask
+    after(2000, askReview)
   // Refresh every ten minutes by the clock, not by counting ticks, which a
-  // suspension skips
+  // suspension skips; every thirty while saving. The first forecast is
+  // fetched at once whatever the device says.
   action tick
     let now = performanceNow()
-    if now - refreshedAt >= 600000
+    if revision == 0 or now - refreshedAt >= (saving ? 1800000 : 600000)
       revision = revision + 1
       refreshedAt = now
   task updates mount
@@ -216,6 +314,9 @@ component Weatherlight
                 text (following ? "◉  Following you" : "◎  Use my location") font-size=(13 * k) color="-exact-label"
             button press=openSearch testId="change-city" aria-label="Search for a city" padding=11 border-radius=22 background-color="-exact-tertiary-fill"
               text "⌕  Find a city" font-size=(13 * k) color="-exact-label"
+            if store.available
+              button press=openSupport testId="support" padding=11 border-radius=22 background-color=(plus ? "-exact-fill" : "-exact-tertiary-fill")
+                text (plus ? "✦  Weatherlight+" : "✧  Support") font-size=(13 * k) color="-exact-label"
             row padding=3 gap=2 border-radius=22 background-color="-exact-tertiary-fill"
               button press=setUnits("C") testId="unit-c" aria-label="Celsius" padding=8 border-radius=18 background-color=(units == "C" ? "AccentColor" : "transparent")
                 text "°C" font-size=(13 * k) color=(units == "C" ? "light-dark(#ffffff, #000000)" : "-exact-label") font-weight=600
@@ -240,6 +341,8 @@ component Weatherlight
         if location.state != "denied" and locationError != ""
           row padding=14 border-radius=14 background-color="-exact-secondary-grouped-background" testId="location-error"
             text (locationError == "PERMISSION_DENIED" ? "Location access was denied. Allow location in your browser or device settings, or choose a city." : "Couldn't get your location. Try again, or choose a city.") font-size=(13 * k) color="-exact-label"
+        if supporting
+          Support(plans=plans, plus=plus, store=store, tips=tipped.tips, thanks=thanks, error=purchaseError, busy=pending(bought), k=k, upgrade=upgrade, restore=restore, close=closeSupport)
         if searching
           column padding=20 gap=14 background-color="-exact-secondary-grouped-background" border-radius=18 border-style="solid" border-width=1 border-color="-exact-separator" testId="search-panel"
             row justify-content="space-between" align-items="center"
@@ -333,7 +436,7 @@ component LookAhead
   view
     column flex=1 min-width=290 gap=16 padding=22 box-sizing="border-box" background-color="-exact-secondary-grouped-background" border-radius=20 testId="seven-day"
       text "A look ahead" font-family="serif" font-size=(25 * k) letter-spacing=-0.5
-      text "7-DAY FORECAST" font-size=(9 * k) letter-spacing=2 color="-exact-secondary-label"
+      text `${outlook.days.length}-DAY FORECAST` testId="forecast-days" font-size=(9 * k) letter-spacing=2 color="-exact-secondary-label"
       for day in outlook.days key=day.id
         row align-items="center" gap=10 height=(41 * k) box-sizing="border-box" padding-top=9 padding-bottom=9
           text day.label width=(48 * k) font-size=(13 * k) font-weight=600
@@ -378,3 +481,48 @@ component Elements
         column gap=5
           text "UV INDEX" font-size=(9 * k) letter-spacing=1 color="-exact-secondary-label"
           text outlook.uv font-size=(17 * k) font-family="serif"
+
+// Weatherlight+: the plans at the store's own prices, a tip, and restoring.
+component Support
+  props
+    plans: ItemDetails[]
+    plus: bool
+    store: PurchasesStatus
+    tips: number
+    thanks: string
+    error: string
+    busy: bool
+    k: number
+    upgrade: action
+    restore: action
+    close: action
+  view
+    column padding=20 gap=14 background-color="-exact-secondary-grouped-background" border-radius=18 border-style="solid" border-width=1 border-color="-exact-separator" testId="support-panel"
+      row justify-content="space-between" align-items="center"
+        text "Weatherlight+" font-family="serif" font-size=(24 * k) role="heading"
+        button appearance="none" press=close testId="close-support" aria-label="Close Weatherlight+" padding=8
+          text "Close ×" font-size=(16 * k) color="-exact-secondary-label"
+      text (plus ? "You have Weatherlight+: sixteen days ahead." : "See sixteen days ahead instead of seven.") testId="plus-state" font-size=(13 * k) color="-exact-label"
+      if not plus
+        for plan in plans.filter(p => p.type == "subscription") key=plan.itemId
+          button press=upgrade(plan.itemId) disabled=busy testId=(plan.itemId == "plus.yearly" ? "plan-yearly" : "plan-monthly") padding=12 border-radius=10 background-color="-exact-grouped-background"
+            row justify-content="space-between" gap=12 flex-wrap="wrap"
+              text plan.title font-size=(15 * k) font-weight=600
+              text `${plan.displayPrice} a ${match plan.subscriptionPeriod { case some(p) => p == "P1Y" ? "year" : "month", case none => "period" }}${match plan.freeTrialPeriod { case some(t) => ", free for a week first", case none => "" }}` font-size=(13 * k) color="-exact-secondary-label"
+      for tip in plans.filter(p => p.itemId == "tip.small") key=tip.itemId
+        button press=upgrade(tip.itemId) disabled=busy testId="tip" padding=12 border-radius=10 background-color="-exact-grouped-background"
+          row justify-content="space-between" gap=12
+            text "Leave a tip" font-size=(15 * k)
+            text tip.displayPrice font-size=(13 * k) color="-exact-secondary-label"
+      if tips > 0
+        text `Tips so far: ${tips}. Thank you.` testId="tip-count" font-size=(12 * k) color="-exact-secondary-label"
+      if thanks != ""
+        text thanks testId="thanks" font-size=(13 * k) color="-exact-label"
+      if error != ""
+        text error testId="purchase-error" font-size=(13 * k) color="-exact-system-red"
+      row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap"
+        link href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/" color="-exact-secondary-label" font-size=(11 * k)
+          text "Terms of Use"
+        if store.store == "app-store"
+          button appearance="none" press=restore testId="restore" padding=8
+            text "Restore Purchases" font-size=(13 * k) color="-exact-label"

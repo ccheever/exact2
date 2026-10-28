@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Pinned section first, then Notes, newest first; title, one-line preview, relative date (time/Yesterday/weekday/short date)."},
+      {"n": 2, "status": "pass", "note": "Bottom search field filters title and body live, keeps sections, shows a system 'No Results' state."},
+      {"n": 3, "status": "pass", "note": "Editing title/body autosaves with no Save button; the edited note moves to the top of Notes with 'now' time. List scroll position kept on return."},
+      {"n": 4, "status": "partial", "note": "New note opens with title focused; an empty one is discarded (count unchanged). But right after discarding an empty note, the next new note scrambles the first keystrokes of the title ('Echo new note' saved as 'Eho new notec'). Reproduced twice. Return in the title also leaves a stray newline in the title value."},
+      {"n": 5, "status": "pass", "note": "Pin/unpin via long-press context menu, delete via trailing swipe (full swipe works) or context menu; also from the editor."},
+      {"n": 6, "status": "pass", "note": "'N Notes' under the large title and as a nav subtitle when scrolled; updates on create/delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins and deletions all survived relaunch."}
+    ],
+    "bugs": [
+      "Creating a new note right after discarding an empty one drops and reorders the first typed characters of the title ('Alpha new note' -> 'Apha new notel', 'Echo new note' -> 'Eho new notec').",
+      "Pressing Return in the title moves to the body but leaves a newline in the stored title."
+    ],
+    "tells": [
+      "No pin swipe action: swiping right on a row opens the note instead of showing a leading Pin action, and the trailing swipe only has Delete. Pinning needs a long press.",
+      "When a swipe action is open, tapping another row opens that note. iOS would only close the swipe.",
+      "The editor's pin button shows the same outline pin whether the note is pinned or not; only its accessibility label changes.",
+      "No Done/keyboard-dismiss button in the editor while typing."
+    ],
+    "scroll": "Smooth, native-feeling inset-grouped list: no blank rows or jumps on slow drag, fling or return to top, the large title collapses into an inline title with a count subtitle, and scroll position is kept after returning from a note.",
+    "scores": {"features": 7, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Pinned section then Notes, newest first; title plus date and one-line preview with relative dates. Long titles truncate to one line."},
+      {"n": 2, "status": "pass", "note": "Search field under the large title filters title and body as you type, keeps sections, shows a system 'No Results' state."},
+      {"n": 3, "status": "pass", "note": "Autosaves with no Save button (there is an Apple-Notes-style Done check to dismiss the keyboard); the edited note moves to the top of Notes."},
+      {"n": 4, "status": "pass", "note": "New note from the bottom toolbar compose button opens with the title focused; an empty note is discarded; typing right after a discard saves correctly."},
+      {"n": 5, "status": "pass", "note": "Leading swipe Pin/Unpin (full swipe works), trailing swipe Unpin+Delete (full swipe deletes); also via the editor's ... menu."},
+      {"n": 6, "status": "pass", "note": "'N Notes' centred in the bottom toolbar like Apple Notes; updates on create/delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins and deletions all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "When scrolled, the always-visible glass search field sits over list text that is only lightly blurred, so 'Search' overlaps readable row titles.",
+      "The Pinned header's top spacing shifts by about 17 pt after coming back from creating a note.",
+      "The accessibility tree exposes many stray off-screen row labels stacked at one point, which VoiceOver users could hit."
+    ],
+    "scroll": "Native table scrolling: smooth slow drags and flings, no blank or popping rows, a clean return to the top with the large title, and scroll position kept after returning from a note.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps look and scroll like real iOS 26 apps and meet nearly every requirement. B follows the Apple Notes model more closely: leading and trailing pin/delete swipes, a toolbar count with a compose button, a Done button and a ... menu. A drops and reorders the first title keystrokes after an empty note is discarded, and it can only pin through a long press."
+}

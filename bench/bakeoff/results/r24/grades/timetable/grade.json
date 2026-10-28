@@ -1,0 +1,109 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Whole day listed in time order with hour section headers that stay pinned while their hour scrolls. Each row shows time, a coloured line-letter badge, destination, platform, and 'Delayed N min' / 'Cancelled' when not on time. The status is plain primary-coloured text, not tinted, and isn't dimmed on past rows."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Station button at the top opens a system sheet with an inset-grouped list, a checkmark on the current station and a bottom search field. 'par' filtered to Elm Park and Glen Park; picking one switched the board."
+      },
+      {
+        "n": 3,
+        "status": "partial",
+        "note": "Now always scrolls to the next departure under the pinned header. Opening position is unreliable: at Harbor (21:07) it opened on 21:11, which is right. At Glen Park (21:18) it opened, consistently across three relaunches, showing past rows 20:10–20:54, with the next departure (21:20) just below the fold."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "'All lines' pull-down menu (system Menu with checkmark) offers All, Red, Blue, Green, Yellow and Orange. Blue showed only B rows with an 'End of today's service, 29 departures' footer."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Past rows have grey time, destination and platform text. Line badges and the status label stay full strength, so the dimming is weaker than it could be."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Star toggles fill; the Saved tab (large title) lists saved rows with station and platform. Saved items and the chosen station survived relaunch."
+      }
+    ],
+    "bugs": [
+      "Opening position at Glen Park was one screen early every relaunch: past departures fill the view and the next departure is off the bottom (Harbor opened correctly).",
+      "Leaving for the Saved tab and coming back loses the board's scroll position: it jumps back to the current time (15:xx → 21:34).",
+      "When a filter leaves an hour with no rows below it, a pinned hour header (e.g. 20:00) sits over an empty strip before the next header."
+    ],
+    "tells": [
+      "No swipe-to-delete or swipe-to-unstar on the Saved list; a full left swipe does nothing.",
+      "Odd pushpin glyph beside the station name, and the station name is centred in a plain row rather than shown as a nav title or list cell.",
+      "Delayed/Cancelled status is untinted primary-colour text; iOS apps would use orange or red.",
+      "Hour headers are grey-on-grey plain-list section headers with large thin text; acceptable but flat.",
+      "At the largest text size the fixed station and filter header grows huge and takes about a third of the screen, while the 'Timetable' nav title doesn't scale."
+    ],
+    "scroll": "Native list feel: smooth drags and flings with momentum, rows never blank or pop in, and the hour headers pin and hand off cleanly. Scroll position is lost on switching tabs.",
+    "scores": {
+      "features": 7,
+      "platform": 7,
+      "polish": 6,
+      "overall": 6
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Whole day in time order with pinned hour headers that show a count ('7 departures', 'THIS HOUR'). Rows show time, coloured badge, destination, platform, and a tinted 'Delayed 7 min' with a clock icon. Cancelled is shown as well."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "'Departing from' card opens a sheet with a grabber, close button, a top search field, a '20 stations' count, an alphabetical inset list and a checkmark. 'par' showed '2 stations': Elm Park and Glen Park. Picking one works."
+      },
+      {
+        "n": 3,
+        "status": "fail",
+        "note": "Now scrolls correctly to the next departure (21:11, then 21:20). But the list does not open there: every launch and every station change landed about 1.5 hours ahead (22:41 or 22:55 at 21:07–21:10), skipping the real next departures without telling the user."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Horizontal chip row (All lines, Red, Blue, Green, …) with coloured dots. Blue filtered to 29 departures, and the filter even persists across relaunch."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Past rows are clearly dimmed: grey time and text, and the badges and status fade too."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Star toggles; the Saved tab groups saved rows by hour with 'FROM GLEN PARK', has its own Now button, and a full swipe unsaves. Saved items, station and filter all survived relaunch."
+      }
+    ],
+    "bugs": [
+      "The board opens about 1.5 hours past the current time (22:41 or 22:55 when it was 21:07–21:10) on every launch and after changing station; only tapping Now goes to the real next departure.",
+      "The large fixed header (station card, Departures title, chips, summary) leaves the list only about 430 pt of the screen. At the largest text size barely one and a half rows are visible."
+    ],
+    "tells": [
+      "Custom branded chrome: an app-icon logo plus a small 'Timetable' label and a date in place of a system navigation bar or large title; it doesn't collapse on scroll.",
+      "Custom pill chip row for the line filter, cut off at the right edge, where iOS would use a Menu or segmented control.",
+      "Custom warm off-white and dark-teal palette with a green accent instead of system grouped backgrounds and tint; feels like a designed or web-like theme.",
+      "Custom 'Now' pill with a pin icon; marketing-style 'YOUR COLLECTION' eyebrow text on Saved.",
+      "At the largest text size the badge drops onto its own line before the destination; it still reads fine."
+    ],
+    "scroll": "Smooth table scrolling with momentum, pinned hour headers that push each other cleanly, and no blank or popping rows. The scrollable area is cramped under the fixed header, and scroll position is roughly kept across tab switches.",
+    "scores": {
+      "features": 7,
+      "platform": 5,
+      "polish": 7,
+      "overall": 5
+    }
+  },
+  "better": "A",
+  "why": "Both meet most of the spec. B is richer (swipe-to-unsave, tinted statuses, a filter that persists, stronger dimming) but it reliably opens about 1.5 hours past now, breaking the core 'opens at the next departure' promise of a departure board. Its custom branded chrome also leaves a cramped list. A looks like a stock iOS app and its Now and opening are mostly right; it is rougher in details (no swipe actions, untinted status, scroll reset on tab switch)."
+}

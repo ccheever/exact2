@@ -740,6 +740,11 @@ pub enum DataError {
     /// validation still refuse it. A Rust source's own error is `Unavailable`.
     /// The third field carries an application reason (`failure(x).reason`).
     Failed(crate::failure::FailureCode, String, String),
+    /// A turn the source ran over its budget (exact-js's own time, or its
+    /// wall backstop): transient, the machine's load as much as the
+    /// source's, so a resource refused by it is asked again, twice at most,
+    /// before it fails (LLP 1027 as amended 2026-10-27). Never a mutation's.
+    Overrun(String),
 }
 
 impl std::fmt::Display for DataError {
@@ -750,6 +755,7 @@ impl std::fmt::Display for DataError {
             | Self::Unavailable(reason)
             | Self::DeferredAtBake(reason)
             | Self::Interface(reason)
+            | Self::Overrun(reason)
             | Self::Failed(_, reason, _) => f.write_str(reason),
         }
     }

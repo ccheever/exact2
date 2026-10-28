@@ -473,3 +473,46 @@ fn each(nodes: &[Node], bound: &[String], f: &mut dyn FnMut(&Node, &[String])) {
         }
     }
 }
+
+/// The string literals `c`'s own view compares prop `prop` with in an `if`
+/// (`if badge == "verified"`, either side, an `else if` too), in the order
+/// written, each once: the values that draw something, which a string's name
+/// never does (VerifiedBadge, stage 15 D4 batch 1 #2). With `ne`, a `!=`
+/// counts too (an enum's `if badge != "none"`: PostCard's, ProfileHeader's,
+/// PersonRow's, stage 15 B batch 2). A `for` or `match` binding of the same
+/// name shadows it.
+pub(super) fn compared_literals(c: &Component, prop: &str, ne: bool) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    each(&c.view, &[], &mut |node, bound| {
+        if bound.iter().any(|b| b == prop) {
+            return;
+        }
+        if let Node::When { cond, .. } = node {
+            compared(cond, prop, ne, &mut found);
+        }
+    });
+    found
+}
+
+/// Each literal `e` compares `prop` with by `==` (and `!=` with `ne`),
+/// through `and`/`or`.
+fn compared(e: &Expr, prop: &str, ne: bool, found: &mut Vec<String>) {
+    use contract_syntax::BinOp;
+    if let Expr::Binary(op, l, r, _) = e {
+        match (op, l.as_ref(), r.as_ref()) {
+            (BinOp::Eq | BinOp::Ne, Expr::Ident(name, _), Expr::Str(lit, _))
+            | (BinOp::Eq | BinOp::Ne, Expr::Str(lit, _), Expr::Ident(name, _))
+                if name == prop && (ne || *op == BinOp::Eq) =>
+            {
+                if !found.contains(lit) {
+                    found.push(lit.clone());
+                }
+            }
+            (BinOp::And | BinOp::Or, l, r) => {
+                compared(l, prop, ne, found);
+                compared(r, prop, ne, found);
+            }
+            _ => {}
+        }
+    }
+}

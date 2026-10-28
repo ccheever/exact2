@@ -1,0 +1,28 @@
+dev.bakeoff.podcasts.b18a827: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 22.87 s of motion
+  ok    hitch ratio (ms/s)                     3.3
+  tell  longest frame (ms)                     42.9
+  ok    main thread p95 (ms/frame)             5.69
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       504
+  ok    momentum hand-off (content/asked)      1.03
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.7
+  ok    rubber band (overscroll/finger)        0.48
+  ok    rubber band settle (s)                 0.54
+  ok    status-bar scroll to top (s)           0.51
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              332.7
+  bad   scrub: longest frame (ms)              230.5
+  bad   scrub: blank samples (share)           0.345
+  ok    scrub: blanks while held (share)       0
+  16 ok, 1 tell, 3 bad
+  where the late frames' main-thread time went (hitch ms/s from timer ticks 0, from scrolling 3.3):
+    slow-drag: 2 late frames (0 on a timer's tick), 33 ms late; Exact host 32 ms (in UIKit 23); in display links and ports 17 ms, the main queue 9 ms, events 3 ms, timers 3 ms
+    find-carousel-1: 1 late frame (0 on a timer's tick), 26 ms late; the main thread was idle (the delay was elsewhere)
+    scrub-reveal: 1 late frame (0 on a timer's tick), 17 ms late; Exact host 14 ms (in UIKit 7); in the main queue 7 ms, display links and ports 7 ms
+  where the scrub's late frames' main-thread time went:
+    scrub: 24 late frames (0 on a timer's tick), 1071 ms late; Exact host 1405 ms (in UIKit 1074) · Exact runtime (main waits on exact.owner) 126 ms · Exact host (main waits on exact.owner) 21 ms (in text & drawing 3); in events 1049 ms, display links and ports 351 ms, the main queue 152 ms

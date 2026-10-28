@@ -51,6 +51,8 @@ mod presence;
 pub(crate) mod press;
 #[path = "scale.rs"]
 mod scale;
+#[path = "store_writer.rs"]
+mod store_writer;
 #[path = "system_support.rs"]
 mod system;
 #[path = "transform_binding.rs"]
@@ -59,7 +61,11 @@ mod transform_binding;
 mod value_watch;
 pub use error::{HostError, LET_GO_AFTER};
 
-use system::{physical_memory, store_snapshot, StoreWrites};
+pub use store_writer::drain as drain_store_writes;
+pub use store_writer::take_warnings as take_store_warnings;
+#[cfg(test)]
+use system::StoreWrites;
+use system::{physical_memory, store_snapshot};
 
 /// Caller-owned plan bytes, or linked bytes whose data pool stays in place.
 #[derive(Clone, Copy)]
@@ -80,7 +86,6 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
-    store_writes: StoreWrites,
     doc_watch: Option<crate::doc_watch::DocWatch>,
     font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
@@ -122,7 +127,7 @@ pub struct Host<D: DataSource> {
     /// A pending activation's executor wake, so the display loop does not poll.
     preload_wake: exact_runner::PreloadWake,
     router_op: Option<exact_runner::RouterChange>,
-    navigation: crate::navigation::Navigation,
+    pub(crate) navigation: crate::navigation::Navigation,
     presence: presence::Presence,
     presses: BTreeMap<NodeKey, press::Feedback>,
     /// The 2D canvases' bitmaps (LLP 1056 D7).
@@ -273,7 +278,6 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
-            store_writes: StoreWrites::default(),
             doc_watch: None,
             font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
@@ -654,6 +658,13 @@ impl<D: DataSource> Host<D> {
         self.runner.timer_due_ms()
     }
 
+    /// Whether a jump to `to` has work to land first: a timer due by then, or
+    /// a data module's timer the last step released whose reply is still out
+    /// (exact-runner's `data_timers.rs`).
+    pub fn timer_due_by(&self, to: f64) -> bool {
+        self.runner.timer_due_ms().is_some_and(|d| d <= to) || self.runner.data_timer_landing()
+    }
+
     /// Whether a frame task wants every display frame (LLP 1073 D5).
     pub fn wants_frames(&self) -> bool {
         self.runner.wants_frames()
@@ -712,7 +723,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, `logs`
-    /// from the runner; `settle` from the engine.
+    /// from the runner; `settle` from the engine, and a resource's re-ask.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
             return match self
@@ -722,6 +733,11 @@ impl<D: DataSource> Host<D> {
                 .into_iter()
                 .chain(self.press_settle())
                 .chain(self.runner.text_axes_settle_ms())
+                // A re-ask after a turn over its budget: no I/O to wait on, so
+                // the clock goes to it (exact-runner's `overrun.rs`).
+                .chain(self.runner.reask_due_ms())
+                // An answer waiting on its own timer (`data_timers.rs`): the clock goes to it too.
+                .chain(self.runner.data_timer_due_ms())
                 .reduce(f64::max)
             {
                 Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
@@ -759,6 +775,7 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(executor.waker());
         self.runner.set_socket_reader(executor.socket_reader());
         self.runner.set_retry_reader(executor.retry_reader());
+        self.runner.set_listen_reader(executor.listen_reader());
         self.doc_watch = Some(crate::doc_watch::DocWatch::new(0, &mut self.runner)); // one session (LLP 1069.010 slice 3)
         executor
     }
@@ -877,7 +894,7 @@ impl<D: DataSource> Host<D> {
         let event = self.document_value(view, event);
         let press = matches!(event, Event::Press | Event::PressWith(_));
         let refused = |host: &Self, dialog| {
-            let refusal = if dialog && host.neutral_dialog_invoker(view) {
+            let refusal = if host.neutral_dialog_invoker(view) {
                 None
             } else {
                 host.navigation.refusal(host.runner.kernel(), view, dialog)
@@ -898,6 +915,19 @@ impl<D: DataSource> Host<D> {
             self.runner.dispatch_at(view, event, self.now_ms)
         });
         self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
+    /// [`Self::dispatch_at`] with nothing the clock owes run first, for a target just
+    /// checked (an image's `load`); the clock then moves to the commit's, as there.
+    pub(crate) fn dispatch_now(&mut self, view: ViewId, event: Event) -> Option<String> {
+        let event = self.document_value(view, event);
+        let dispatched = crate::traced(c"exact dispatch", || self.runner.dispatch(view, event));
+        self.now_ms = self.runner.now_ms().max(self.now_ms);
+        let at_ms = self.now_ms;
+        match dispatched {
+            Ok(receipt) => self.commit(&[Timed { at_ms, receipt }], None),
+            Err(e) => self.commit(&[], Some(format!("{e:?}"))),
+        }
     }
 
     // Current eligibility only DENIES an old picture's target. It never finds
@@ -1094,6 +1124,16 @@ impl<D: DataSource> Host<D> {
         self.told(answer, "place")
     }
 
+    /// A share's files under its token as they stand (LLP 1133.024 D3).
+    pub fn set_shared(
+        &mut self,
+        token: &str,
+        files: exact_runner::share_in::SharedFiles,
+    ) -> Option<String> {
+        let answer = self.runner.set_shared(token, files);
+        self.told(answer, "share")
+    }
+
     /// A told fact's answer: its commit, nothing when the fact is unchanged,
     /// or the refusal named by `what`.
     fn told(
@@ -1195,7 +1235,7 @@ impl<D: DataSource> Host<D> {
         changed
     }
 
-    fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
+    pub(crate) fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
         let error = crate::traced(c"exact commit", || self.commit_effects(receipts, error).0);
         crate::doc_watch::sync(&mut self.doc_watch, &mut self.runner);
         error
@@ -1210,6 +1250,9 @@ impl<D: DataSource> Host<D> {
         let mut paint = error.is_some() || self.content_region.is_some();
         for t in receipts {
             let r = &t.receipt;
+            self.navigation
+                .split
+                .renewed(self.runner.kernel(), &r.renewed);
             self.flow_damage.commit(self.runner.kernel(), r);
             self.row_dirty.commit(r, t.at_ms.min(self.now_ms));
             self.values.fields_committed(self.runner.kernel(), r);
@@ -1260,9 +1303,10 @@ impl<D: DataSource> Host<D> {
         // A nameless drive keeps secrets in the runner only (LLP 1018). A
         // named `--storage` drive writes them into that scratch tree, so a
         // reload reads them back (platformer R10). The log is taken either way.
+        // Written by the store's own thread (`store_writer.rs`), so no frame waits on a file's sync.
         let writes = self.runner.take_store_writes();
         let app_id = self.runner.data().app_id().to_string();
-        for line in self.store_writes.flush(&app_id, &writes) {
+        for line in store_writer::submit(&app_id, writes) {
             self.runner.log(line);
         }
         paint |= self.project_navigation();

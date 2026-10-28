@@ -52,6 +52,8 @@ component MessageRow
     reply: action
     profile: action
     follow: action
+    // A page a link opens: over the app where the platform shows one, else the browser (LLP 1133.024 D13).
+    browse: action
     poll: action
     // Translations kept for the session, and Show Original's action (translate.contract).
     translations: Translated[]
@@ -151,7 +153,7 @@ component MessageRow
                       button appearance="none" press=reveal(`${m.key}:${f.id}`) align-self="flex-start" padding="12px 20px" border-radius=8 background-color="-exact-secondary-label" aria-label="Spoiler file, double tap to reveal" testId=`file-${m.key}-${f.id}`
                         text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background"
                     else
-                      link href=f.url testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
+                      link href=f.url press=browse(f.url) testId=`file-${m.key}-${f.id}` aria-label=`${f.name}, ${f.size}` max-width="26rem"
                         row gap=10 align-items="center" padding="10px 12px" border-radius=8 border="1px solid -exact-separator" background-color="-exact-secondary-background"
                           image "symbol:document" width=28 height=28 color="AccentColor" flex-shrink=0
                           column flex=1 min-width=0
@@ -160,7 +162,7 @@ component MessageRow
                   for s in m.stickers key=s.id
                     image s.src width=160 height=160 object-fit="contain" aria-label=s.name testId=`sticker-${m.key}-${s.id}`
                   for e in m.embeds key=e.id
-                    EmbedView(e=e, mkey=m.key, clock=clock, offset=offset, revealed=revealed, reveal=reveal, show=show, follow=follow)
+                    EmbedView(e=e, mkey=m.key, clock=clock, offset=offset, revealed=revealed, reveal=reveal, show=show, follow=follow, browse=browse)
                   for p in m.poll key=p.question
                     PollView(p=p, mkey=m.key, mid=m.id, clock=clock, picks=picks, results=revealed.includes(`poll:${m.id}`), poll=poll)
                 for t in translations.filter(x => x.id == m.id) key = t.id
@@ -340,7 +342,8 @@ component TimeRun
               time datetime=r.at font=face font-weight=(r.bold ? 700 : weight) color=ink font-style=(r.italic ? "italic" : "normal") text-decoration-line=decoration(r) format="date-full" background-color="-exact-tertiary-fill" border-radius=4
 
 // Spoilers load only after disclosure. Without dimensions, their cover reserves
-// a provisional box; the revealed image takes its natural aspect ratio.
+// a provisional box; the revealed image takes its natural aspect ratio. A
+// picture's `id` is what the viewer zooms out of on iOS (its route's `navigationSource`).
 component MediaView
   props
     i: Media
@@ -356,8 +359,8 @@ component MediaView
         button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-system-gray" aria-label="Reveal spoiler image" testId=`reveal-media-${mkey}-${i.id}`
           text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
       else
-        button appearance="none" press=show(i.full, i.alt, i.width, i.height) width="100%" height=(sized ? "100%" : "auto") aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
-          image i.src width="100%" height=(sized ? "100%" : "auto") aspect-ratio=(sized ? "auto" : "auto 16 / 9") object-fit="cover" aria-label=i.alt testId=`media-image-${mkey}-${i.id}`
+        button appearance="none" press=show(`${mkey}-${i.id}`, i.full, i.src, i.alt, i.width, i.height) width="100%" height=(sized ? "100%" : "auto") aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+          image i.src id=`photo-${mkey}-${i.id}` width="100%" height=(sized ? "100%" : "auto") aspect-ratio=(sized ? "auto" : "auto 16 / 9") object-fit="cover" aria-label=i.alt testId=`media-image-${mkey}-${i.id}`
 
 // A cropped picture in a multi-image message.
 component TileView
@@ -375,8 +378,8 @@ component TileView
         button appearance="none" press=reveal(`${mkey}:${i.id}`) position="absolute" inset=0 background-color="-exact-secondary-label" aria-label="Reveal spoiler image" testId=`reveal-media-${mkey}-${i.id}`
           text "SPOILER" font="-exact-caption1" font-weight=700 color="-exact-background" margin="auto"
       else
-        button appearance="none" press=show(i.full, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
-          image i.src width="100%" height="100%" object-fit="cover"
+        button appearance="none" press=show(`${mkey}-${i.id}`, i.full, i.src, i.alt, i.width, i.height) position="absolute" inset=0 aria-label=(i.alt != "" ? i.alt : "Image") testId=`open-${mkey}-${i.id}`
+          image i.src id=`photo-${mkey}-${i.id}` width="100%" height="100%" object-fit="cover"
 
 component EmbedView
   props
@@ -388,6 +391,7 @@ component EmbedView
     reveal: action
     show: action
     follow: action
+    browse: action
   view
     // The border outside, the spine and fill clipped inside its inner corner (CSS clips a child to the padding edge).
     view max-width="26rem" border-radius=6 border="1px solid -exact-separator" testId=`embed-${mkey}-${e.id}`
@@ -407,7 +411,7 @@ component EmbedView
                 text e.author font="-exact-footnote" font-weight=600 overflow-wrap="break-word"
           if e.title != ""
             if e.url != ""
-              link href=e.url
+              link href=e.url press=browse(e.url) testId=`embed-title-${mkey}-${e.id}`
                 text e.title font-weight=600 overflow-wrap="break-word"
             else
               text e.title font-weight=600 overflow-wrap="break-word"

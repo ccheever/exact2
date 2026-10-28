@@ -28,11 +28,33 @@ final class SmoothCollectionIOSTests: XCTestCase {
             "rows": [["view": 10, "root": 10, "epoch": 1]], "correction": correction]]]
     }
     private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-    /// Runs the loop until `done`, failing with `what` after `timeout` s.
-    private func wait(_ what: String, _ timeout: Double = 2, _ done: () -> Bool) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
-        XCTAssertTrue(done(), what)
+    /// Waits for `done` (EventWaits' `waitFor`), giving up only once the
+    /// app's display link has delivered more than `frames` s of frames since
+    /// it began (a motion is 0.3 s), or at the 30 s cap, never on wall time
+    /// alone: in the full parallel suite a 2 s deadline failed a motion the
+    /// link had starved. What the link did goes in a failure's message and a
+    /// LATE-PASS attachment (theme2's ruling); a found livelock (the link
+    /// running, the port still) fails at the budget.
+    private func wait(_ what: String, frames budget: CFTimeInterval = 0.6, _ done: () -> Bool) {
+        let clock = FrameClock.shared
+        var first: CFTimeInterval?, last: CFTimeInterval = clock.link?.timestamp ?? 0, seen = 0, gap = 0.0, at = CACurrentMediaTime()
+        let delivered = { first.map { last - $0 } ?? 0 }
+        // Each new link timestamp a frame delivered (sampled each turn, under a frame apart, and once more for the facts).
+        let sample = {
+            let now = CACurrentMediaTime()
+            if let t = clock.link?.timestamp, t > last {
+                if first == nil { first = t }
+                last = t; seen += 1; gap = max(gap, now - at); at = now
+            }
+        }
+        waitFor(what, giveUp: {
+            sample()
+            return delivered() > budget
+        }, facts: {
+            sample()
+            let link = clock.link
+            return "frames seen \(seen) over \(String(format: "%.3f", delivered())) s of link time, largest gap \(String(format: "%.3f", max(gap, CACurrentMediaTime() - at))) s, link \(link == nil ? "none" : link!.isPaused ? "paused" : "running"), app \(UIApplication.shared.applicationState.rawValue), scene \(window?.windowScene?.activationState.rawValue ?? -9)"
+        }, done)
     }
     private func moving(_ p: Presenter) -> Bool { p.collections.offsetDrivers[1] != nil }
     private func list(_ p: Presenter, correction: Any) {
@@ -68,6 +90,35 @@ final class SmoothCollectionIOSTests: XCTestCase {
         wait("moving") { self.moving(p) }
         wait("landed") { !p.collections.animating.contains(1) }
         XCTAssertEqual(scroll.contentOffset.y, 1200, accuracy: 0.5)
+    }
+
+    /// From a port UIKit reads back a ULP off the pixel grid (5/3 at scale 3
+    /// comes back 1.6666666666666665), a smooth correction still eases to its
+    /// target: the driver took that ULP for the port moving under it and
+    /// restarted its ease every frame, so it never left its first frame (the
+    /// full suite's flake, its link running at full rate; PixelGrid.same).
+    func testASmoothCorrectionFromAPortReadBackOffTheGridLands() throws {
+        let p = presenter()
+        list(p, correction: NSNull())
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        // At 3x (the grid 5/3 sits on), whatever the simulator's own scale (Astra's round 2).
+        scroll.traitOverrides.displayScale = 3
+        scroll.updateTraitsIfNeeded()
+        // A grid offset UIKit hands back not exactly as given (the precondition, shown here).
+        let scale = max(1, scroll.traitCollection.displayScale)
+        var start: CGFloat?
+        for k in 1...600 {
+            let y = PixelGrid.offset(CGPoint(x: 0, y: CGFloat(k) / scale), in: scroll).y
+            scroll.contentOffset.y = y
+            if scroll.contentOffset.y != PixelGrid.offset(scroll.contentOffset, in: scroll).y { start = y; break }
+        }
+        guard let y0 = start else { throw XCTSkip("this display hands every grid offset back exactly at scale \(scale): nothing to drive") }
+        XCTAssertTrue(PixelGrid.same(scroll.contentOffset.y, y0, in: scroll), "a ULP off, within the read-back slop")
+        let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": seq, "offset": 1700, "smooth": true])]))
+        wait("moving") { self.moving(p) }
+        wait("landed") { !p.collections.animating.contains(1) }
+        XCTAssertEqual(scroll.contentOffset.y, 1700, accuracy: 0.5, "from \(y0), read back \(scroll.contentOffset.y)")
     }
 
     /// Mid-flight, a new target retargets from where the port is (no jump),

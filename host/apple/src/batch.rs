@@ -58,6 +58,9 @@ pub struct Batch {
     images: Vec<String>,
     /// The root font size or the window's modes moved (`Host::facts_moved`).
     pub facts: bool,
+    /// A timer's continuation an advance released is still out
+    /// (`Runner::data_timer_landing`): the agent's jump waits for its reply.
+    pub landing: bool,
     /// Whether a displayed element holds the wake lock, when that changed
     /// (`Host::wakelock_moved`, LLP 1125 D11).
     pub wakelock: Option<bool>,
@@ -450,6 +453,15 @@ impl Batch {
         quote(&session.url, &mut s);
         s.push_str(",\"callback\":");
         quote(&session.callback, &mut s);
+        // A loopback callback's receiver checks `state` itself (LLP 1133.005 D9).
+        if let Some((host, port, path)) = exact_runner::auth::loopback_callback(&session.callback) {
+            s.push_str(&format!(
+                ",\"loopback\":{{\"host\":\"{host}\",\"port\":{port},\"path\":"
+            ));
+            quote(&path, &mut s);
+            s.push_str("},\"state\":");
+            quote(&session.state, &mut s);
+        }
         s.push_str(&format!(",\"ephemeral\":{}}}", session.ephemeral));
         self.ops.push(s);
     }
@@ -867,6 +879,9 @@ impl Batch {
         }
         if self.facts {
             s.push_str(",\"facts\":true");
+        }
+        if self.landing {
+            s.push_str(",\"landing\":true");
         }
         if let Some(held) = self.wakelock {
             let _ = write!(s, ",\"wakelock\":{held}");

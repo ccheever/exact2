@@ -86,12 +86,14 @@ pub fn case(seed: u64, size: &Size) -> Case {
         (source, events, _) = written(false);
     }
     Case {
+        seed: None,
         name: format!("gen-{seed}"),
         source,
         events,
         path: None,
         stored: true,
         prerendered: false,
+        launch: Default::default(),
     }
 }
 
@@ -389,4 +391,13 @@ impl<'s> Gen<'s> {
 
 fn number_text(n: f64) -> String {
     format!("{n}")
+}
+
+/// Text inputs from the same distribution as generated scripts.
+pub(crate) fn input(rng: &mut Rng) -> String {
+    if rng.chance(1, 4) {
+        exact_runner::stdlib::format_number(rng.below(2000) as f64 / 4.0 - 100.0)
+    } else {
+        rng.pick(STRINGS).to_string()
+    }
 }

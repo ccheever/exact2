@@ -286,9 +286,10 @@ extension Agent {
             }
             target = field; barred = true
         }
+        var inBar = false
         if target === v, let item = barItem(v) {
             guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): its bar item is not placed in the navigation bar; `clock settle` first waits out a push or sheet still moving"] }
-            target = bar; region = frame; barred = true
+            target = bar; region = frame; barred = true; inBar = true
         }
         // A tab a tab bar shows, UIKit's or the one its tablist is drawn as: its item there.
         if target === v, let item = tabItem(v) {
@@ -317,7 +318,7 @@ extension Agent {
         if !presenter.reach(of: v).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
-        if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        if let why = obscured(inBar ? barItemTarget(v, bar: target, hit: seen!) : target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
         // Named, it presses what it names, as the activation's tap does.
         var avoided: PressReach?
         if press, target === v, at["at"] == nil, (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {

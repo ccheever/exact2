@@ -1,0 +1,26 @@
+{
+  "spec": "podcasts",
+  "arm": "swiftui",
+  "model": "gpt",
+  "appId": "dev.bakeoff.podcasts.b3bfd97",
+  "assignedId": "dev.bakeoff.podcasts.b3bfd97",
+  "appName": "Podcasts",
+  "sim": "C2188CC6-FBE9-409A-92A8-ABD89AC2C432",
+  "pin": "05b2942866",
+  "minutes": 12.04,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1641617,
+    "fresh": 65856,
+    "input": 1615808,
+    "cached": 1549952,
+    "output": 25809,
+    "cost": null,
+    "calls": 7,
+    "toolCalls": 26
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r33/built/podcasts-swiftui.app",
+  "notes": true,
+  "finished": "2026-10-28T15:09:37.365Z"
+}

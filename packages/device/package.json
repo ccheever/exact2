@@ -1,0 +1,14 @@
+{
+  "name": "@exact/device",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The battery, the network's type and the person's data saving, and the power state, read as live facts with the web's names (LLP 1133.031).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json",
+    "./linux": "./linux/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

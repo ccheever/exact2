@@ -28,6 +28,11 @@ you": an unread dot, the send button, the assistant's caret while it writes.
   and, when you press *Ask Expose* in Reader, the article. Leave the thread
   while it is writing and the answer arrives as a banner; on the lock screen it
   becomes a notification.
+- **The battery** in the status bar and in Settings is the device's, from
+  `@exact/device`: the mark fills to the level, shows a bolt while charging
+  and turns yellow in Low Power Mode. Where the device has no battery it is
+  full and charging, as the web's Battery Status API reports; where it cannot
+  be read (Safari, Firefox) the mark is full and Settings shows no level.
 - **Settings → Intelligence** picks the model and holds the key, kept under
   `secret.keep` on the device. Display & Text Size scales the reading text and
   switches the scheme.

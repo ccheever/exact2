@@ -139,6 +139,15 @@ async function inChrome(test, width = 600, motion = false) {
 }
 const enter = (key) => key('Enter', 'Enter', 13, '\r');
 
+check('a route the app pushes before any press takes the focus with no ring', () => inChrome(async (evaluate, press, key) => {
+  // A channel an app reopens as it starts (Excord's resume): the heading has the focus, as after any push, and the
+  // browser draws no ring, which a script's focus on a page no one has touched would otherwise get.
+  expect(await evaluate(`push('t', '/timer'); focus().slice(0, 2)`)).toEqual(['title-t', false]);
+  // Once a key has gone down, Tab alone included, a route that arrives with no press shows its ring.
+  await key('Tab', 'Tab', 9);
+  expect(await evaluate(`pop(); document.activeElement.blur(); push('t2', '/timer'); focus().slice(0, 2)`)).toEqual(['title-t2', true]);
+}));
+
 check('on a push the focus moves to the new route\'s heading, and on Back to the row that was pressed', () => inChrome(async (evaluate, press, key) => {
   // A pointer's press: the heading takes the focus (so the next Tab starts in the new route, and a screen reader reads
   // its title) with no ring, since the person is not using the keyboard; nothing scrolled.

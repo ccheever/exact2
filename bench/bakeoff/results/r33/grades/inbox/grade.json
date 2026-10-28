@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "320 messages newest first, with sender, subject, a preview of up to two lines and the date ('Oct 24', or a time for today). Unread rows have a green dot."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows Flag/Archive and archive works. A full swipe right toggles read/unread. Archived mail moves to an Archive tab, which can move it back 'To Inbox'."},
+      {"n": 3, "status": "pass", "note": "Flag by swipe or from the message toolbar. Flagged rows show an orange flag. A segmented All/Unread/Flagged filter works in both Inbox and Archive."},
+      {"n": 4, "status": "pass", "note": "Tapping a row pushes a message view (subject, avatar initials, date, body) and marks it read. The count dropped from 110 to 109."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds two made-up unread messages at the top with today's time."},
+      {"n": 6, "status": "pass", "note": "'N unread' under the header, plus a red badge on the Inbox tab."},
+      {"n": 7, "status": "pass", "note": "After relaunch, read, flagged, archived and the refreshed messages are all kept."}
+    ],
+    "bugs": [
+      "At the largest text size the fixed header (title, huge search field, segments, counts) takes more than half the screen and never scrolls away, so only about one message is visible at a time."
+    ],
+    "tells": [
+      "The large title, search field, filter control and counts sit in a fixed header that does not collapse when scrolling. A UIKit/SwiftUI large title collapses to an inline title.",
+      "A custom green segmented control instead of the system UISegmentedControl look.",
+      "A green custom tint and an off-white grey header band above a white list. The look is branded rather than the stock Mail look.",
+      "The message view has a glass circle holding the word 'Read' as a status label, which is not a system control.",
+      "Rows have extra padding (97pt rows) compared with Mail's denser list.",
+      "The search field text grows to giant size at the largest Dynamic Type while the segmented control stays small."
+    ],
+    "scroll": "The list scrolls smoothly, flings well and rows don't pop in, but only in a 480pt window below a fixed header. The header never collapses, so it feels like a scrolling pane inside a page.",
+    "scores": {"features": 9, "platform": 5, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, with sender, subject, a two-line preview and Mail-style dates (time today, weekday this week, then 10/21/26). Unread rows have a blue dot."},
+      {"n": 2, "status": "pass", "note": "Native swipe actions: left shows Flag (orange) and Archive (purple), and a full swipe right toggles read/unread. Archive is a pushed screen reached from the toolbar's archive button."},
+      {"n": 3, "status": "pass", "note": "Flag by swipe or from the detail toolbar. The orange flag appears in the leading gutter, stacked under the unread dot. A filter menu offers All Mail/Unread/Flagged, and the subtitle shows '· Flagged'."},
+      {"n": 4, "status": "pass", "note": "Tapping a row pushes a message view (subject, from, 'To: You', date, body) and marks it read. It has Flag/Mark Unread/Archive buttons."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh (or the refresh button) adds two new unread messages at the top."},
+      {"n": 6, "status": "pass", "note": "'N unread' subtitle under the large title."},
+      {"n": 7, "status": "pass", "note": "After relaunch, read, flagged, archived and the refreshed messages are all kept."}
+    ],
+    "bugs": [
+      "At the largest text size the sender name breaks mid-word ('Jami / e Chen') because the date takes the trailing space and is not moved below the name.",
+      "Vertical drags that start in the bottom ~100pt band just above the search bar barely scroll the list (moved 7pt instead of flinging)."
+    ],
+    "tells": [
+      "The sender name breaks mid-word at the largest text size.",
+      "The filter menu has no checkmark on the current choice, unlike a Picker-style menu.",
+      "The detail view's 'Message' inline title is drawn to the left beside the back button rather than centred.",
+      "Archive is reached through a toolbar icon on the Inbox screen (not a mailbox list), and the Archive screen still shows a Refresh button."
+    ],
+    "scroll": "Feels like Mail: smooth flings, the large title collapses into an inline title under glass, content blurs under the bottom search bar, and rows don't pop in. The only snag is that drags starting just above the search bar don't take.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and keep their state across relaunch. B looks and behaves like iOS Mail: a collapsing large title, a glass toolbar, a bottom search bar, Mail-coloured swipe actions and Mail-style dates. A has a custom green segmented control and a fixed, non-collapsing header that wastes a third of the screen and swallows most of it at large text. B's mid-word name break at the largest size is its main flaw, but it is smaller than A's layout problem."
+}

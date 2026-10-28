@@ -8,12 +8,14 @@
 import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { answering, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
+import { answering, dropTimers, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
-import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
+import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
 // Work an answer awaits that is no held fetch, counted on its answer (ts-fetch.js `answering.ordinary`, LLP 1016.000 D9).
 const ordinary = start => (answering.ordinary ?? (f => f()))(start);
+// What an answer's timers run on (ts-fetch.js `arm`).
+answering.page = { clock, journal, drive };
 __AUTH_IMPORT__
 // Values cross by the plan's types (`named` into the module's objects,
 // `arrays` back into the runtime's arrays), with each type's converters made
@@ -410,7 +412,9 @@ export function install(data, mixed = false, modules = null) {
     for (const name of ['key', 'keepKey']) { const op = seen[name]; seen[name] = (...a) => ordinary(() => op(...a)); }
     asking = target ?? name; watching = name;
     for (const sources of moduleWatched.values()) sources.delete(name);
-    const call = answering.call = { stream: null, mutation, name: target ?? name, turn: true }, target_ = target ?? name;
+    // The origin of the commit that asked it (LLP 1133.002 D12), which a fetch it makes carries (LLP 1133.036 D6).
+    const call = answering.call = { stream: null, mutation, name: target ?? name, turn: true, origin: Origin.now() }, target_ = target ?? name;
+    if (call.origin !== 'app') answering.untraced.add(call);
     // What the source sent goes once the commit that asked it stands: an answer in flight's (a resource's, or a mutation's that
     // answers with a promise) whatever it then answers, a refused commit saying so (LLP 1016.000 D7, amended 2026-10-18).
     const effectsOf = answer => {
@@ -432,10 +436,12 @@ export function install(data, mixed = false, modules = null) {
     if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_), target_), store: seen.read, effects }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
-      const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
+      // Once: an answer let go while its timers were armed never settles, and ends here (ts-fetch.js `dropTimers`).
+      const settle = () => { if (call.settled) return; call.settled = true; dropTimers(call); answering.untraced.delete(call); pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
+      call.abandon = settle;
       return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read, effects, call };
     }
-    call.settled = true;
+    call.settled = true; dropTimers(call); answering.untraced.delete(call);
     return { v: conv(shaped(r), result, target_), store: seen.read, effects };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
@@ -467,7 +473,7 @@ export function install(data, mixed = false, modules = null) {
     let r;
     try { r = handler(args, createSecretFacade(store, tsGrantSet, kept), storage); }
     finally { call.turn = false; asking = ''; answering.call = null; }
-    return Promise.resolve(r).finally(() => { call.settled = true; });
+    return Promise.resolve(r).finally(() => { call.settled = true; dropTimers(call); });
   };
   // A resource's source that sent and then threw: what it sent, which rt.js `ask` queues with the commit.
   data.thrown = () => { const t = thrown ?? []; thrown = null; return t; };

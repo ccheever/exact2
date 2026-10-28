@@ -71,8 +71,10 @@ fn leading(node: &Node) -> bool {
 /// platform's disclosure ink, as a hand-built row draws its accessory
 /// (UIKit's is `tertiaryLabel`: measured `#c5c5c7` on a white cell, iOS 27),
 /// and a `link` that ends in one is a row that pushes, in the label's
-/// colour rather than a link's. Sheet rows, so a colour the author wrote on
-/// the chevron or the link wins.
+/// colour rather than a link's. The chevron's is its `color`, the ink a
+/// symbol is drawn in (LLP 1081 stage 2), so a colour its author wrote on
+/// it wins, and one on the link does not reach it, as UIKit's disclosure
+/// stays grey in a row of any colour. Sheet rows, so the author's win.
 pub(super) fn disclosure(node: &Node) -> Node {
     let chevron = |n: &Node| symbol(n).is_some_and(|s| accessory(s) == Some("disclosure"));
     let result = over(node, &mut |el| {
@@ -86,11 +88,9 @@ pub(super) fn disclosure(node: &Node) -> Node {
         else {
             return Ok(el.clone());
         };
-        let tinted = attrs
-            .iter()
-            .any(|a| a.name == format!("{MARK}-exact-tint-color"));
-        let sheet = if chevron(el) && !tinted {
-            vec![s("-exact-tint-color", TERTIARY, *span)]
+        let inked = attrs.iter().any(|a| a.name == format!("{MARK}color"));
+        let sheet = if chevron(el) && !inked {
+            vec![s("color", TERTIARY, *span)]
         } else if tag == "link" && children.iter().rfind(|c| !hidden(c)).is_some_and(chevron) {
             vec![s("color", LABEL, *span)]
         } else {

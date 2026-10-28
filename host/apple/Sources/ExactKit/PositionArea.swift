@@ -332,6 +332,37 @@ enum PositionArea {
         popover.style["position_type"] == nil ? .fixed : .absolute(page: page())
     }
 
+    /// Where `popover`'s authored `left` and `top` put its border box, from
+    /// the viewport's top-left (`clientX`/`clientY`'s space, LLP 1021 D2):
+    /// past its margin, as CSS places a fixed box by its insets; an axis with
+    /// none at its margin. Nil when it writes neither, and its invoker places
+    /// it; nil too under an authored `position-area`, which CSS lets win (the
+    /// insets then offset the box in its cell, which no host here does). A
+    /// percentage is of the viewport, `viewport` big.
+    static func inset(of popover: NodeView, viewport: CGSize) -> CGPoint? {
+        guard of(popover) == "none" else { return nil }
+        let left = popover.style["left"]?.length(basis: viewport.width)
+        let top = popover.style["top"]?.length(basis: viewport.height)
+        guard left != nil || top != nil else { return nil }
+        let m = margins(of: popover)
+        return CGPoint(x: (left ?? 0) + m.left, y: (top ?? 0) + m.top)
+    }
+
+    /// The top-left of a box `size` big asked for at `point` in `bounds`:
+    /// there, or on an axis where that leaves too little room the other way
+    /// from the point, as the web's sheet opens one (neutral.css's
+    /// `--exact-inset-start` and `-up`, a context menu's too); held in
+    /// `bounds` where neither way fits, as a painted layer is in the window.
+    static func at(_ point: CGPoint, size: CGSize, in bounds: CGRect) -> CGPoint {
+        func axis(_ at: CGFloat, _ length: CGFloat, _ low: CGFloat, _ high: CGFloat) -> CGFloat {
+            if at + length <= high { return max(low, at) }
+            if at - length >= low { return at - length }
+            return max(low, min(at, high - length))
+        }
+        return CGPoint(x: axis(point.x, size.width, bounds.minX, bounds.maxX),
+                       y: axis(point.y, size.height, bounds.minY, bounds.maxY))
+    }
+
 
     // -2/2: outside the anchor; -1/1: span toward that edge; 0: the axis
     // unsaid, spanning the block (`bottom` is `bottom span-all`), and 3 the

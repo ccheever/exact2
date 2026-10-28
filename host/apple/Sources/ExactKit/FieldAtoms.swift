@@ -148,7 +148,9 @@ final class AtomCatcher: NSView {
     required init?(coder: NSCoder) { fatalError("not coded") }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { _ = field?.pressAtom(with: event) }
+    // A press on a pill is the text area's node's `pointerdown` and `pointerup` too.
+    override func mouseDown(with event: NSEvent) { field?.owner?.pointerPressed(event); _ = field?.pressAtom(with: event) }
+    override func mouseUp(with event: NSEvent) { field?.owner?.pointerReleased(event) }
     override func isAccessibilityElement() -> Bool { false }
 }
 

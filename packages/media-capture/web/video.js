@@ -45,7 +45,7 @@ function written(c) {
 }
 
 export function video({ changed, agent, log, tracks, nextId, media, shown }) {
-  const own = new Map();
+  const own = new Map(), origins = new WeakMap();
   let overlay = null, opened = false, devices = null;
   const say = line => log?.(`media-capture: ${line}`);
   const announce = () => changed('media-capture.mediaStreamTrack');
@@ -151,6 +151,7 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
       if (t.readyState === 'ended') { consumer.ended?.(); return () => {}; }
       t.consumers.add(consumer);
       const origin = how.origin ?? 'app';
+      origins.set(consumer, origin);
       if (t.active) {
         consumer.live?.(t.source);
         if (t.muted) consumer.muted?.(t.muteReason);
@@ -188,12 +189,15 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
 
   return {
     owns: id => own.has(id),
-    /** A video track for `getUserMedia(video=…)`, in `stream`: its shape, or `{error}`. */
-    async open(args, stream) {
+    /** What `getUserMedia(video=…)` asks the browser for. */
+    asked: args => { const c = written(args.videoConstraints); return Object.keys(c).length ? c : true; },
+    /** A video track for `getUserMedia(video=…)`, in `stream`, from the browser's track `given` if the caller opened
+     * it: its shape, or `{error}`. */
+    async open(args, stream, given) {
       if (!agent && !media?.getUserMedia) return { error: 'NotSupportedError' };
       const constraints = written(args.videoConstraints);
-      let source = null;
-      if (!agent) {
+      let source = given ?? null;
+      if (!agent && !source) {
         try { source = (await media.getUserMedia({ video: Object.keys(constraints).length ? constraints : true })).getVideoTracks()[0]; }
         catch (e) { return failure(e); }
       }
@@ -269,6 +273,10 @@ export function video({ changed, agent, log, tracks, nextId, media, shown }) {
       return shape(t);
     },
     track: id => shape(own.get(id)),
+    /** Under the agent, each track for `state.extensions` (LLP 1133.008 §9, Disclosure). */
+    disclosed: () => [...own.values()].map(t => ({
+      ...shape(t), consumers: [...t.consumers].map(c => origins.get(c)).sort(), observers: t.observers.size, lease: t.active,
+    })),
     /** The cameras, as `MediaDeviceInfo`s. */
     async devices() {
       if (agent) {

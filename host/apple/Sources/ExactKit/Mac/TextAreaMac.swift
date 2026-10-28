@@ -79,6 +79,15 @@ package final class TextArea: NSTextView {
         NSGraphicsContext.restoreGraphicsState()
     }
     package override var textContainerOrigin: NSPoint { nativeOrigin ?? super.textContainerOrigin }
+    // A press reaches the node and its ancestors as a web textarea's does
+    // (`tracksPointer`); the selection is AppKit's tracking.
+    package override func mouseDown(with event: NSEvent) {
+        guard let owner else { return super.mouseDown(with: event) }
+        if owner.pressesUntracked(self, event) { return }
+        owner.tracksPointer(event) { super.mouseDown(with: event) }
+    }
+    // The agent's window is never key: its every click counts, as at a node (`NodeView.everyClickCounts`).
+    package override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts || super.acceptsFirstMouse(for: event) }
 
     // The ARIA states AppKit has no property for (`NodeView.ariaAttribute`).
     package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
@@ -577,6 +586,7 @@ extension NSTextView {
 /// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
 /// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
 final class Field: NSTextField {
+    override func mouseDown(with event: NSEvent) { pressingField(delegate, event, self) { super.mouseDown(with: event) } }
     /// A `type="number"` input's node: the field is AppKit's stepper (incrementor) to accessibility.
     var numberOwner: NodeView? {
         guard let node = delegate as? NodeView, node.props["type"]?.lowercased() == "number" else { return nil }
@@ -615,6 +625,8 @@ final class Field: NSTextField {
 /// `cut` or `paste` before it happens, for the node or an ancestor that
 /// hears one (#125).
 final class FieldEditor: NSTextView {
+    override func mouseDown(with event: NSEvent) { pressingField(owner, event, self) { super.mouseDown(with: event) } }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts || super.acceptsFirstMouse(for: event) }
     override func doCommand(by selector: Selector) {
         let types = ["deleteBackward:": "deleteContentBackward", "deleteForward:": "deleteContentForward", "deleteWordBackward:": "deleteWordBackward", "deleteWordForward:": "deleteWordForward", "deleteToBeginningOfLine:": "deleteSoftLineBackward", "deleteToEndOfLine:": "deleteSoftLineForward", "deleteToBeginningOfParagraph:": "deleteHardLineBackward", "deleteToEndOfParagraph:": "deleteHardLineForward"]
         if let type = types[NSStringFromSelector(selector)], let fields = owner?.presenter?.fieldSelections {
@@ -687,6 +699,21 @@ final class FieldEditor: NSTextView {
     override func validateMenuItem(_ item: NSMenuItem) -> Bool { owner?.pastesFiles(item) == true ? isEditable : super.validateMenuItem(item) }
 }
 final class SecureField: NSSecureTextField {
+    override func mouseDown(with event: NSEvent) {
+        // AppKit's secure editor is its own, not the session's `FieldEditor`:
+        // a press while editing is taken here and handed to it.
+        if let editor = currentEditor() { return pressingField(delegate, event, editor) { editor.mouseDown(with: event) } }
+        pressingField(delegate, event, self) { super.mouseDown(with: event) }
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        // A Control-click is a menu's: AppKit asks the hit view, the editor.
+        guard let down = NSApp.currentEvent, down.type == .leftMouseDown, !down.modifierFlags.contains(.control),
+              let editor = currentEditor() as? NSView, hit === editor || hit?.isDescendant(of: editor) == true else { return hit }
+        return self
+    }
+    // Editing, it has the focus already: the window's click must not begin it again.
+    override var acceptsFirstResponder: Bool { currentEditor() == nil && super.acceptsFirstResponder }
     override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
@@ -709,6 +736,7 @@ extension NSTextField {
 }
 /// A native search input's field (`SearchFieldCell`, NativeFieldsMac.swift).
 final class SearchField: NSSearchField {
+    override func mouseDown(with event: NSEvent) { pressingField(delegate, event, self) { super.mouseDown(with: event) } }
     override func accessibilityRole() -> NSAccessibility.Role? {
         comboOwner != nil ? .comboBox : cell?.accessibilityRole() ?? super.accessibilityRole()
     }
@@ -731,6 +759,12 @@ private func drawBareFieldMask(_ field: NSTextField) -> Bool {
     owner.roundedPath(in: owner.bounds).fill()
     NSGraphicsContext.restoreGraphicsState()
     return true
+}
+/// An input's press, from its field or its editor (`tracksPointer`).
+private func pressingField(_ owner: Any?, _ event: NSEvent, _ editor: NSView, _ track: () -> Void) {
+    guard let node = owner as? NodeView else { return track() }
+    if node.pressesUntracked(editor, event) { return }
+    node.tracksPointer(event, track)
 }
 /// The field editor selects the whole value as it takes a field, which is
 /// no `select` of the person's; a selection a script set while the field

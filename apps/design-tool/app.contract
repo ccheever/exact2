@@ -2,7 +2,7 @@
 // files, served by the app's Tamber server at its own local URL
 // (`bun exact.mjs tamber tool <app>`). app.ts is the protocol client; this
 // view keeps no design state of its own: the files are the design.
-use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted from "./shapes.contract"
+use Written, Inspected, Uses, Hello, CanvasCheck, Clients, CanvasIn, Canvas, AppAxes, Changes, Grid, Design, Levels, Contrast, Branch, Proposal, Scrub, Changeset, Scope, Lit, History, Typed, Pinned, SelectUp, PairCode, Committed, Imported, Reverted, Choices, ChosenDiffs from "./shapes.contract"
 use Pairing from "./pairing.contract"
 use Inspector from "./inspector.contract"
 use Builds from "./builds.contract"
@@ -171,6 +171,11 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
+  // Each import card's choice, sent to the server as it is ticked (tamber/1.18 `choose`), so a reload or another
+  // client starts from it; and the flips another client's choice since makes stale.
+  resource choices = sendChoices(client, picked.join(";"), changes.answer) as shape Choices else empty(ok=true)
+  // The diff each recomputed or edited import's card shows, as its choice is now (stage 15 D1.1).
+  resource chosenDiffs = loadChosenDiffs(client, picked.join(";"), changes.answer) as shape ChosenDiffs else empty(ok=true)
   resource scope = loadScope(client, changes.committable) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
@@ -306,6 +311,10 @@ component DesignTool
   derive applyReady = applyAnswer and not pending(proposal) and not pending(written)
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
+  task dropChoices when choices.drop.length > 0 key=choices.answer
+    after(1, takeChoices)
+  task choicesAgain when choices.again key=choices.answer
+    after(1, reheld)
   task retry when not pending(changes) and not changes.ok key=changes.answer
     after(3000, advance)
   // A newer design read under a held list on the long poll by cursor: asked once again (at once, from where it is),
@@ -739,10 +748,24 @@ component DesignTool
         scrubTick = scrubTick + 1
         scrubWant = false
         send written = cancelScrub(scrubAsk)
-      editKind = "add-token"
-      editTarget = newName.trim()
+      // A package's or the base's name (its own row, or the app's override of it, `of`): the app's line over theirs is
+      // set-token, which the server writes as one, Set for this app's draft with its value changed included; add-token
+      // of their name is refused. Decided by the rows as they are now, not the name last set.
+      let n = newName.trim()
+      // (Only in the app's design, opened as "" or by its path, where set-token of their name is the app's line; another
+      // open file shows their rows beside its own but holds none of them, so a name added there is add-token, round 2.)
+      let theirs = design.appDesign and design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n and (t.of == "base" or t.of == "package")).length > 0).length > 0
+      editKind = theirs ? "set-token" : "add-token"
+      // (Their read-only cell, if open, is no guard on the form's edit, as setForApp closes it, round 2.)
+      if theirs
+        selToken = ""
+      editTarget = n
       editWhen = ""
       editValue = newValue.trim()
+      // (A form's edit: no branch draft, as setForApp starts one.)
+      draftFor = ""
+      rawFor = ""
+      partFor = ""
   // Stage 11: a base or package value set for this app (its override line: set-token, theme2's 17:09Z
   // ruling, one op for both), or the app's line over one of theirs taken away (remove-token), each
   // reviewed and applied as any edit.
@@ -911,15 +934,19 @@ component DesignTool
   action importPicked(files: Picked[])
     if not pending(imported) and files.length > 0
       send imported = importFiles(client, importKind, files.map(f => f.path).join("\n"), files.map(f => f.name).join("\n"))
-  action acceptImportNow(proposal: string)
+  // (`gen`, the card's `choiceGen` as shown: an accept or edit of a card not yet built again asks for another look)
+  action acceptImportNow(proposal: string, gen: number)
     if not pending(written)
-      send written = acceptImport(client, proposal, picked.join(";"))
-  action editImportValue(proposal: string, index: number, mode: number, v: string)
+      send written = acceptImport(client, proposal, picked.join(";"), gen)
+  action editImportValue(proposal: string, index: number, mode: number, gen: number, v: string)
     if not pending(written)
-      send written = editImport(client, proposal, index, mode, v, picked.join(";"))
-  // A mapped token is in until unticked: its id is picked when left out.
-  action toggleLeaveOut(id: string, checked: bool)
-    picked = checked ? picked.filter(p => p != id) : picked.filter(p => p != id).concat([id])
+      send written = editImport(client, proposal, index, mode, gen, v, picked.join(";"))
+  // A mapped token's id is picked when it differs from where it began (in, unless the server's choice leaves it out).
+  action toggleLeaveOut(id: string, on: bool, checked: bool)
+    picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
+  // Flips on a card another client chose on since: dropped, its choice the card's now (tamber/1.18).
+  action takeChoices
+    picked = picked.filter(p => not choices.drop.includes(p))
   // An offer's id is picked when it differs from where it began.
   action toggleOffer(id: string, on: bool, checked: bool)
     picked = checked != on ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
@@ -1055,7 +1082,7 @@ component DesignTool
               if hello.local and canvasCheck.refused != ""
                 text canvasCheck.refused color="-exact-system-orange" font="-exact-footnote" testId="canvas-refused"
               if galleryOn and hello.local and hello.page != "" and canvasView != "states"
-                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
+                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. Each cell is a column's width, as a caller's column shows it. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
               if not hello.local
                 // (A grant spent, or an entry slower than its 30 s: a new one.)
                 if canvasAt.frame != ""
@@ -1433,7 +1460,7 @@ component DesignTool
                   row gap=12
                     text f.path flex=1 testId=`file-${f.path}`
                     text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
-            Proposals(held=changes.held, picked=picked, client=client, canWrite=canWrite, canPropose=canPropose, writing=pending(written), acceptImportNow=acceptImportNow, editImportValue=editImportValue, toggleLeaveOut=toggleLeaveOut, toggleOffer=toggleOffer, togglePick=togglePick, acceptAll=acceptAll, acceptPicked=acceptPicked, dropProposal=dropProposal)
+            Proposals(held=changes.held, diffs=chosenDiffs.diffs, picked=picked, client=client, canWrite=canWrite, canPropose=canPropose, writing=pending(written), acceptImportNow=acceptImportNow, editImportValue=editImportValue, toggleLeaveOut=toggleLeaveOut, toggleOffer=toggleOffer, togglePick=togglePick, acceptAll=acceptAll, acceptPicked=acceptPicked, dropProposal=dropProposal)
             column gap=8 testId="import"
               text "Import a theme" role="heading" aria-level=2
               text "Its tokens, the role overrides it offers (each off until ticked) and what it could not map are held as a proposal, reviewed above." color="-exact-secondary-label" font="-exact-footnote"

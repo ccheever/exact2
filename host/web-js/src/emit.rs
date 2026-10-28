@@ -1257,6 +1257,18 @@ impl Em<'_> {
         let mut edges = ["0".to_string(), "0".to_string()];
         for h in row.handlers.iter() {
             let h = plan.handler(h);
+            if let Some((name, types)) = crate::events::declared(plan, h) {
+                let (on, ve) = (self.uses.rt("on"), self.uses.rt("viewEvent"));
+                let message = self.uses.rt("onMessage");
+                let name = serde_json::to_string(&name).unwrap_or_default();
+                let types = types.join(",");
+                let a = h.action.0;
+                let _ = write!(
+                    self.out,
+                    "{on}({e},\"message\",{ve}({name},[{types}],a_{a}),{message});"
+                );
+                continue;
+            }
             let mut args = Vec::new();
             for a in h.args.iter() {
                 let f = code::expression(plan, plan.code(plan.arg(a).expr), scope, &mut self.uses)?;

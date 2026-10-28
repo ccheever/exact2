@@ -1,0 +1,84 @@
+// A round icon button, as the composer's + and a bar's × are drawn in Discord's clients and in
+// Messages: the symbol in the secondary colour on a filled circle, the same on every host.
+
+component RoundButton
+  props
+    symbol: string
+    label: string
+    testId: string
+    press: action
+    disabled: bool
+    // The circle's diameter; the symbol is a little over half of it.
+    size: number
+    // Room around the circle that a press also reaches, outside its layout box: on a touch screen
+    // enough for the 44-point target the HIG and Material ask for.
+    reach: number
+  view
+    button appearance="none" press=press disabled=disabled aria-label=label testId=testId flex-shrink=0
+      padding=reach margin=(0 - reach) opacity=(disabled ? 0.45 : 1)
+      view width=size height=size border-radius=(size / 2) display="flex" align-items="center" justify-content="center"
+        background-color="-exact-tertiary-fill" color="-exact-secondary-label"
+        image symbol width=(size * 0.55) height=(size * 0.55)
+
+// A message's menu: a long press's on a touch screen (UIKit's context menu on iOS), a right click's
+// with a pointer. Its rows act on the message `aim` chose.
+component MessageMenu
+  props
+    canTranslate: bool
+    mine: bool
+    forwarded: bool
+    reply: action
+    react: action
+    pickReaction: action
+    copy: action
+    translate: action
+    copyLink: action
+    edit: action
+    remove: action
+  view
+    column id="message-menu" popover="auto" role="menu"
+      button press=reply popovertarget="message-menu" popovertargetaction="hide" testId="menu-reply"
+        image "symbol:reply"
+        text "Reply"
+      button press=react("👍") popovertarget="message-menu" popovertargetaction="hide" testId="menu-thumbs"
+        text "👍 Thumbs Up"
+      button press=react("❤️") popovertarget="message-menu" popovertargetaction="hide" testId="menu-heart"
+        text "❤️ Heart"
+      button press=react("😂") popovertarget="message-menu" popovertargetaction="hide" testId="menu-laugh"
+        text "😂 Laugh"
+      button press=pickReaction popovertarget="message-menu" popovertargetaction="hide" testId="menu-react"
+        image "symbol:add"
+        text "Add Reaction"
+      hr
+      button press=copy popovertarget="message-menu" popovertargetaction="hide" testId="menu-copy"
+        image "symbol:copy"
+        text "Copy Text"
+      if canTranslate
+        button press=translate popovertarget="message-menu" popovertargetaction="hide" testId="menu-translate"
+          image "symbol:translate"
+          text "Translate"
+      button press=copyLink popovertarget="message-menu" popovertargetaction="hide" testId="menu-link"
+        image "symbol:link"
+        text "Copy Message Link"
+      if mine
+        hr
+        if not forwarded
+          button press=edit popovertarget="message-menu" popovertargetaction="hide" testId="menu-edit"
+            image "symbol:pencil"
+            text "Edit Message"
+        button press=remove destructive=true popovertarget="message-menu" popovertargetaction="hide" testId="menu-delete"
+          image "symbol:delete"
+          text "Delete Message"
+
+// Excord's icon in Windows' notification area (LLP 1133.025 §12.2): a click shows the window, and
+// its menu opens Excord above the host's Exit.
+component TrayIcon
+  props
+    unread: bool
+    open: action
+  view
+    button -exact-menu="status" aria-label="Excord" press=open popovertarget="tray-menu" testId="tray"
+      image (unread ? "symbol:notifications" : "symbol:messages")
+    column id="tray-menu" popover="auto" role="menu" aria-label="Excord"
+      button press=open testId="tray-open"
+        text "Open Excord"

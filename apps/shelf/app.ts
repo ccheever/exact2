@@ -2,6 +2,7 @@
 // Open Library's subjects and ISBNs. The view (app.contract) says what it
 // wants; this file answers.
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
+import { ndefRecords, write, type NDEFRecord, type NDEFRecordInit } from '@exact/nfc';
 
 export const appId = 'com.exact.shelf';
 export const grants = [
@@ -9,6 +10,7 @@ export const grants = [
   'fs.write app:/data/shelf',
   'net.fetch https://openlibrary.org',
   'device.camera scanPurpose',
+  'device.nfc nfcPurpose',
   'fs.read app:/tmp/picked',
 ].join('\n');
 
@@ -21,7 +23,7 @@ const FILE = `${DIR}/library.json`;
 const SEED: Book[] = [
   { id: 'seed-1', title: 'The Left Hand of Darkness', author: 'Ursula K. Le Guin', pages: 304, currentPage: 304, status: 'done', rating: 5, notes: 'Re-read every few years.', addedAt: 1700000000000, coverUrl: '', sourceKey: '', quotes: 0 },
   { id: 'seed-2', title: 'Piranesi', author: 'Susanna Clarke', pages: 272, currentPage: 120, status: 'reading', rating: 0, notes: '', addedAt: 1700000100000, coverUrl: '', sourceKey: '', quotes: 0 },
-  { id: 'seed-3', title: 'The Dispossessed', author: 'Ursula K. Le Guin', pages: 387, currentPage: 0, status: 'want', rating: 0, notes: '', addedAt: 1700000200000, coverUrl: '', sourceKey: '', quotes: 0 },
+  { id: 'seed-3', title: 'The Dispossessed', author: 'Ursula K. Le Guin', pages: 387, currentPage: 0, status: 'want', rating: 0, notes: '', addedAt: 1700000200000, coverUrl: '', sourceKey: '/works/OL59863W', quotes: 0 },
 ];
 
 type Saved = { books: Book[]; goal: number };
@@ -124,6 +126,20 @@ function patchBook(storage: Storage, id: string, patch: Partial<Book>) {
   return change(storage, (s) => ({ ...s, books: s.books.map((b) => (b.id === id ? update(b, patch) : b)) }));
 }
 
+// Shelf's own NDEF record: an external type whose data is the book's id.
+const BOOK_RECORD = 'com.exact.shelf:book';
+
+/** A failed write's cause: the module's (D3 puts it after the error's name), else ours. */
+function tagCause(e: unknown): string {
+  const code = (e as { code?: string })?.code ?? '';
+  const said = String((e as Error)?.message ?? '').split(': ').at(-1) ?? '';
+  if (code === 'AbortError') return 'cancelled';
+  if (code === 'NotSupportedError') return 'not-ndef';
+  if (code === 'NotAllowedError') return 'blocked';
+  if (code === 'NetworkError' && ['read-only', 'too-small', 'lost'].includes(said)) return said;
+  return 'failed';
+}
+
 const sources: Sources = {
   widgetLibrary: async ([date], _store, storage) => {
     const { books } = await load(storage);
@@ -205,6 +221,50 @@ const sources: Sources = {
       if ((e as { code?: string }).code === 'bake') throw e;
       return none;
     }
+  },
+
+  // Tag this book (LLP 1133.035 §11): the book's Open Library page first, which
+  // a phone without Shelf opens, then Shelf's own record naming this copy. On
+  // iOS the sheet says how it went; elsewhere the view does, from `cause`.
+  tagBook: async ([id], _store, storage) => {
+    const { books } = await load(storage);
+    const book = books.find((b) => b.id === id);
+    if (!book) return { ok: false, cause: 'gone' };
+    const records: NDEFRecordInit[] = [];
+    if (book.sourceKey) records.push({ recordType: 'url', mediaType: null, id: null, encoding: null, lang: null, data: `https://openlibrary.org${book.sourceKey}` });
+    records.push({ recordType: BOOK_RECORD, mediaType: null, id: null, encoding: null, lang: null, data: new TextEncoder().encode(book.id) });
+    try {
+      await write({
+        message: { records },
+        apple: {
+          alertMessage: 'nfc.holdBook',
+          doneMessage: 'nfc.tagged',
+          errorMessages: { readOnly: 'nfc.locked', tooSmall: 'nfc.tooSmall', lost: 'nfc.holdStill', notNdef: 'nfc.noLink', failed: 'nfc.failed', unreadable: null },
+        },
+      });
+      return { ok: true, cause: '' };
+    } catch (e) {
+      return { ok: false, cause: tagCause(e) };
+    }
+  },
+
+  // The book a reading names: Shelf's own record, else the work key of its
+  // Open Library link; `id` empty and `url` the link for a book not here.
+  bookForTag: async ([reading], _store, storage) => {
+    const { books } = await load(storage);
+    let records: NDEFRecord[] = [];
+    try {
+      records = await ndefRecords({ reading });
+    } catch {
+      return { id: '', url: '' };
+    }
+    const own = records.find((r) => r.recordType === BOOK_RECORD);
+    const ownId = own ? new TextDecoder().decode(own.data) : '';
+    if (ownId && books.some((b) => b.id === ownId)) return { id: ownId, url: '' };
+    const url = records.find((r) => r.recordType === 'url' || r.recordType === 'absolute-url' || r.recordType === 'smart-poster')?.text ?? '';
+    const key = /^https?:\/\/(?:www\.)?openlibrary\.org(\/works\/OL\d+W)/.exec(url)?.[1] ?? '';
+    const match = key ? books.find((b) => b.sourceKey === key) : undefined;
+    return { id: match?.id ?? '', url };
   },
 
   subjectWorks: async ([subject]) => {

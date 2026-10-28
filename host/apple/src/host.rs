@@ -2,13 +2,12 @@
 //!
 //! @ref LLP 1008 §1
 //!
-//! After every commit the host walks the receipt (destroy, create, props,
-//! style, children — the web host's rule: the view tree mirrors the kernel
-//! tree), feeds the motion engine the commit (LLP 1003 §4), and seeks it to
-//! the app's clock before laying out the roots under the viewport. Layout
-//! projects the explicitly registered Height, then emits changed frames and
-//! scroll content sizes; other presentation values follow. The kernel is the single source of
-//! truth; the mirror is a memo of what the presenter has been told.
+//! After every commit the host walks the receipt (destroy, create, props, style, children — the
+//! web host's rule: the view tree mirrors the kernel tree), feeds the motion engine the commit
+//! (LLP 1003 §4), and seeks it to the app's clock before laying out the roots under the viewport.
+//! Layout projects the explicitly registered Height, then emits changed frames and scroll content
+//! sizes; other presentation values follow. The kernel is the single source of truth; the mirror
+//! is a memo of what the presenter has been told.
 
 use crate::{batch::Batch, style};
 use exact_kernel::motion::{motion_node, node_key, targets, MotionSync};
@@ -98,6 +97,8 @@ use layout::{content_size, published_content_box};
 mod resize;
 #[path = "scale.rs"]
 mod scale;
+#[path = "share_in.rs"]
+mod share_in;
 #[path = "snapshot.rs"]
 pub(crate) mod snapshot;
 pub(crate) use scale::LaunchLayout;
@@ -774,6 +775,7 @@ impl<D: DataSource> Host<D> {
         self.listen(io.waker());
         self.runner.set_socket_reader(io.socket_reader());
         self.runner.set_retry_reader(io.retry_reader());
+        self.runner.set_listen_reader(io.listen_reader());
     }
     /// The source's native slot, where the host installs the app module.
     pub fn native_slot(&self) -> exact_runner::Native {
@@ -993,13 +995,6 @@ impl<D: DataSource> Host<D> {
     /// While a node declares a layout transition, in steps (`presence.rs`).
     pub fn advance_until_request(&mut self, now_ms: f64) -> String {
         self.advance_in_layout_steps(now_ms)
-    }
-
-    /// The `then`s an agent's input settled, the clock unmoved
-    /// ([`exact_runner::Runner::land_then`]).
-    pub fn land_then(&mut self) -> String {
-        let a = self.runner.land_then();
-        self.advanced(a)
     }
 
     /// Whether this host's display drives frame tasks (LLP 1073 D4): off when

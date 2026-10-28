@@ -1,0 +1,284 @@
+{
+ "app": "dev.bakeoff.notes.bef3839",
+ "verdict": "probed",
+ "smooth": {
+  "frames": 824,
+  "motionS": 13.75,
+  "fps": 60,
+  "hitchRatio": 1.2,
+  "longestFrameMs": 33.3,
+  "hitches": 1,
+  "hitchAt": [
+   {
+    "gesture": "slow-drag",
+    "ms": 33.3,
+    "mainMs": 15.2,
+    "late": 16.7,
+    "where": {
+     "app code · UIKit": 18.5,
+     "app code · Core Animation": 2.6
+    },
+    "via": {
+     "the main queue": 2.6,
+     "display links and ports": 18.5
+    },
+    "cause": "scroll"
+   }
+  ],
+  "mainMs": 1.32,
+  "mainP95Ms": 3.63,
+  "tickHitchRatio": 0,
+  "scrollHitchRatio": 1.2,
+  "where": [
+   {
+    "gesture": "slow-drag",
+    "frames": 1,
+    "lateMs": 16.7,
+    "ticks": 0,
+    "by": [
+     {
+      "who": "app code",
+      "ms": 21.1,
+      "what": [
+       [
+        "UIKit",
+        18.5
+       ],
+       [
+        "Core Animation",
+        2.6
+       ]
+      ]
+     }
+    ],
+    "via": {
+     "the main queue": 2.6,
+     "display links and ports": 18.5
+    }
+   }
+  ],
+  "verdict": {
+   "hitch": "ok",
+   "stall": "ok",
+   "main": "ok"
+  }
+ },
+ "tracking": {
+  "ratio": 1,
+  "lagFrames": 0,
+  "maxErrorPt": 0,
+  "slopPt": 10,
+  "glidePt": 0,
+  "verdict": {
+   "ratio": "ok",
+   "lag": "ok",
+   "glide": "ok"
+  }
+ },
+ "flings": [
+  {
+   "name": "fling-1500",
+   "asked": 1500,
+   "fingerV": 690,
+   "tauMs": 501,
+   "ratePerMs": 0.99801,
+   "r2": 0.9961,
+   "contentV": 1366,
+   "handoff": 0.91,
+   "frames": 90,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 643,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 5.8,
+   "contentSizeChanges": 5,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-4000",
+   "asked": 4000,
+   "fingerV": 2162,
+   "tauMs": 501,
+   "ratePerMs": 0.99801,
+   "r2": 0.9984,
+   "contentV": 4116,
+   "handoff": 1.03,
+   "frames": 125,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1992,
+   "contentSizeChanges": 35,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-6000",
+   "asked": 6000,
+   "fingerV": 5510,
+   "tauMs": 506,
+   "ratePerMs": 0.99803,
+   "r2": 0.9956,
+   "contentV": 1420,
+   "handoff": 0.24,
+   "frames": 95,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 698,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 6.7,
+   "contentSizeChanges": 13,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-1",
+   "asked": 8000,
+   "fingerV": -4330,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9997,
+   "contentV": -4069,
+   "handoff": 0.51,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1816,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-2",
+   "asked": 8000,
+   "fingerV": -4330,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9997,
+   "contentV": -4090,
+   "handoff": 0.51,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1816,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-3",
+   "asked": 8000,
+   "fingerV": -4330,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-partway",
+   "asked": 3000,
+   "fingerV": 2057,
+   "tauMs": 502,
+   "ratePerMs": 0.99801,
+   "r2": 0.9981,
+   "contentV": 3256,
+   "handoff": 1.09,
+   "frames": 118,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1576,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 2.8,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-for-tap",
+   "asked": 4000,
+   "fingerV": 2160,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9997,
+   "contentV": 4163,
+   "handoff": 1.04,
+   "frames": 22,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1038,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 3.1,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  }
+ ],
+ "momentum": {
+  "tauMs": 502,
+  "handoff": 1.03,
+  "jumps": 0,
+  "contentSizeChanges": 53,
+  "contentShifts": 0,
+  "liftDrops": 0,
+  "lifts": 4,
+  "liftMainMs": 6.7,
+  "verdict": {
+   "lift": "ok",
+   "tau": "ok",
+   "handoff": "ok",
+   "jumps": "ok"
+  }
+ },
+ "edgeBounce": {
+  "name": "fling-up-3",
+  "overshootPt": 112.7,
+  "entryV": -3060,
+  "settleS": 0.78,
+  "verdict": {
+   "settle": "ok"
+  }
+ },
+ "rubberBand": {
+  "overscrollPt": 110.7,
+  "fingerPt": 235,
+  "ratio": 0.47,
+  "settleS": 0.55,
+  "bounces": true,
+  "verdict": {
+   "ratio": "ok",
+   "settle": "ok"
+  }
+ },
+ "scrollToTop": {
+  "fromPt": 1763,
+  "reached": true,
+  "startS": 0.13,
+  "durationS": 0.37,
+  "scrollsToTop": true,
+  "verdict": {
+   "reached": "ok"
+  }
+ },
+ "tapToStop": {
+  "beforeV": 1900,
+  "stopFrames": 1,
+  "travelPt": 0,
+  "activated": false,
+  "verdict": {
+   "stop": "ok"
+  }
+ },
+ "blank": {
+  "samples": 110,
+  "uniformSamples": 0,
+  "checked": 0,
+  "lateChecked": 0,
+  "verified": true,
+  "blankSamples": 0,
+  "share": 0,
+  "maxPt": 0,
+  "sampleMs": 3.86,
+  "verdict": {
+   "blank": "ok"
+  }
+ },
+ "list": {
+  "cls": "UICollectionView",
+  "decelerationRate": 0.998,
+  "bounces": true,
+  "scrollsToTop": true,
+  "delaysContentTouches": true,
+  "contentHeight": 5570.833333333336
+ }
+}

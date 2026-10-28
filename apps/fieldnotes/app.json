@@ -10,6 +10,10 @@
   "file_handlers": [
     { "action": "/", "name": "Fieldnotes backup", "accept": { "application/json": [".json"] } }
   ],
+  "share_target": {
+    "action": "/share", "method": "POST", "enctype": "multipart/form-data",
+    "params": { "title": "title", "text": "text", "files": [{ "name": "files", "accept": ["text/plain", "text/markdown", "image/*"] }] }
+  },
   "app": { "id": "com.exact.fieldnotes", "name": "Fieldnotes" },
   "typescript": { "placement": "worker" },
   "host": {

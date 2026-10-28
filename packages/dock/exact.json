@@ -1,0 +1,17 @@
+{
+  "kind": "interface",
+  "name": "@exact/dock",
+  "version": "1.0.0",
+  "grants": [],
+  "names": [
+    {
+      "send": "requestAttention",
+      "options": { "critical": "option<bool>" },
+      "answers": null,
+      "substitute": {
+        "set": { "state": "attention", "from": "critical", "absent": false },
+        "unsupported": ["web", "linux", "ios", "android", "tvos", "terminal"]
+      }
+    }
+  ]
+}

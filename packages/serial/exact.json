@@ -1,0 +1,222 @@
+{
+  "kind": "interface",
+  "name": "@exact/serial",
+  "version": "1.0.0",
+  "grants": ["device.serial"],
+  "permission": {
+    "name": "serial",
+    "grants": ["device.serial"],
+    "status": "serialStatus",
+    "field": "state",
+    "denied": "SecurityError",
+    "initial": { "android": "prompt", "*": "granted" }
+  },
+  "agent": {
+    "ports": "SerialPortFixture[]"
+  },
+  "devices": {
+    "word": "ports",
+    "kind": "serial",
+    "exclusive": true,
+    "record": ["id", "usbVendorId", "usbProductId", "name", "connected", "granted"],
+    "fill": { "name": "", "connected": true, "granted": true },
+    "absent": ["ios", "tvos", "terminal"]
+  },
+  "shapes": {
+    "SerialStatus": {
+      "available": "bool",
+      "attachedList": "bool",
+      "state": "enum<granted|prompt|denied>"
+    },
+    "SerialPortRecord": {
+      "id": "string",
+      "usbVendorId": "option<number>",
+      "usbProductId": "option<number>",
+      "name": "string",
+      "connected": "bool",
+      "granted": "bool"
+    },
+    "SerialPortFilter": {
+      "usbVendorId": "option<number>",
+      "usbProductId": "option<number>"
+    },
+    "SerialOptions": {
+      "baudRate": "number",
+      "dataBits": "number",
+      "stopBits": "number",
+      "parity": "enum<none|even|odd>",
+      "bufferSize": "number",
+      "flowControl": "enum<none|hardware>"
+    },
+    "SerialOpened": {
+      "connection": "handle<serial>",
+      "port": "SerialPortRecord",
+      "options": "SerialOptions"
+    },
+    "SerialConnection": {
+      "open": "bool",
+      "connected": "bool",
+      "options": "option<SerialOptions>"
+    },
+    "SerialInputSignals": {
+      "dataCarrierDetect": "bool",
+      "clearToSend": "bool",
+      "ringIndicator": "bool",
+      "dataSetReady": "bool"
+    },
+    "SerialReadError": {
+      "at": "number",
+      "code": "string"
+    },
+    "SerialInput": {
+      "data": "string",
+      "errors": "SerialReadError[]",
+      "done": "bool",
+      "position": "number"
+    },
+    "SerialInputEvent": {
+      "at": "number",
+      "data": "option<string>",
+      "error": "option<string>"
+    },
+    "SerialPortFixture": {
+      "id": "string",
+      "name": "option<string>",
+      "usbVendorId": "option<number>",
+      "usbProductId": "option<number>",
+      "connected": "option<bool>",
+      "granted": "option<bool>",
+      "input": "option<SerialInputEvent[]>",
+      "signals": "option<SerialInputSignals>"
+    }
+  },
+  "names": [
+    {
+      "source": "serialStatus",
+      "live": true,
+      "answers": "SerialStatus",
+      "sync": { "name": "serialStatusSync", "from": "read" },
+      "substitute": {
+        "default": { "available": true, "attachedList": true, "state": "granted" },
+        "targets": {
+          "web": { "attachedList": false },
+          "ios": { "available": false, "attachedList": false, "state": "denied" },
+          "tvos": { "available": false, "attachedList": false, "state": "denied" },
+          "terminal": { "available": false, "attachedList": false, "state": "denied" }
+        }
+      }
+    },
+    {
+      "send": "requestPort",
+      "origin": "app",
+      "foreground": true,
+      "gesture": true,
+      "options": {
+        "filters": "option<SerialPortFilter[]>",
+        "allowedBluetoothServiceClassIds": "option<string[]>"
+      },
+      "answers": "SerialPortRecord",
+      "substitute": { "device": { "role": "request", "cancel": { "error": "NotFoundError" } }, "unsupported": ["linux"] }
+    },
+    {
+      "source": "getPorts",
+      "live": true,
+      "answers": "SerialPortRecord[]",
+      "substitute": { "device": { "role": "remembered" } }
+    },
+    {
+      "source": "attachedPorts",
+      "live": true,
+      "options": { "filters": "option<SerialPortFilter[]>" },
+      "answers": "SerialPortRecord[]",
+      "substitute": { "device": { "role": "attached" }, "unsupported": ["web"] }
+    },
+    {
+      "send": "open",
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "port": "string",
+        "baudRate": { "type": "number", "min": 1 },
+        "dataBits": { "type": "option<number>", "min": 7, "max": 8 },
+        "stopBits": { "type": "option<number>", "min": 1, "max": 2 },
+        "parity": "option<enum<none|even|odd>>",
+        "bufferSize": { "type": "option<number>", "min": 1, "max": 16777216 },
+        "flowControl": "option<enum<none|hardware>>"
+      },
+      "answers": "SerialOpened",
+      "handles": { "connection": "serial" },
+      "substitute": {
+        "device": {
+          "role": "open",
+          "by": "port",
+          "options": { "dataBits": 8, "stopBits": 1, "parity": "none", "bufferSize": 255, "flowControl": "none" }
+        }
+      }
+    },
+    {
+      "source": "serialConnection",
+      "live": true,
+      "options": { "connection": "handle<serial>" },
+      "answers": "SerialConnection",
+      "substitute": { "device": { "role": "connection" } }
+    },
+    {
+      "send": "setSignals",
+      "origin": "app",
+      "options": {
+        "connection": "handle<serial>",
+        "dataTerminalReady": "option<bool>",
+        "requestToSend": "option<bool>",
+        "break": "option<bool>"
+      },
+      "answers": null,
+      "substitute": { "device": { "role": "write" } }
+    },
+    {
+      "source": "getSignals",
+      "options": { "connection": "handle<serial>" },
+      "answers": "SerialInputSignals",
+      "substitute": {
+        "device": {
+          "role": "keyed",
+          "at": "signals",
+          "missing": { "dataCarrierDetect": false, "clearToSend": false, "ringIndicator": false, "dataSetReady": false }
+        }
+      }
+    },
+    {
+      "source": "serialInput",
+      "live": true,
+      "contract": false,
+      "poll": { "option": "interval", "default": 100 },
+      "options": {
+        "connection": "handle<serial>",
+        "interval": { "type": "option<number>", "min": 50 }
+      },
+      "answers": "SerialInput",
+      "substitute": { "device": { "role": "stream", "events": "input" } }
+    },
+    {
+      "send": "write",
+      "origin": "app",
+      "contract": false,
+      "options": { "connection": "handle<serial>", "data": "string" },
+      "answers": null,
+      "substitute": { "device": { "role": "write" } }
+    },
+    {
+      "send": "close",
+      "options": { "connection": "handle<serial>" },
+      "answers": null,
+      "substitute": { "device": { "role": "close" } }
+    },
+    {
+      "send": "forget",
+      "origin": "app",
+      "options": { "port": "string" },
+      "answers": null,
+      "substitute": { "device": { "role": "forget" } }
+    }
+  ]
+}

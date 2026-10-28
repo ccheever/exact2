@@ -5,6 +5,8 @@
 
 use super::*;
 
+mod data_timers;
+
 /// How the runner's clock moves: whether the host presents frames, and the
 /// host's live clock when one owns it (D1; none is a seek clock).
 #[derive(Default)]
@@ -15,11 +17,14 @@ pub(super) struct Clock {
     /// The scheduling instant of the callback running, which the `then`s and
     /// queue `next`s it arms inherit (D2)
     instant: Option<f64>,
+    pub(super) trace: Option<Vec<super::trace::Ran>>,
     /// When the commit running started, or the input or reply it serves
     /// arrived
     started: f64,
     /// An input or reply is running: its commits keep its arrival
     arrived: bool,
+    /// Answers waiting on their own timers (`data_timers.rs`)
+    data: data_timers::DataTimers,
 }
 
 impl<D: DataSource> Runner<D> {
@@ -165,7 +170,7 @@ impl<D: DataSource> Runner<D> {
             self.timers[i].next_ms = super::virtual_frame(at, 1);
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
-            match self.scheduled(at, |r| r.run_action(action, Vec::new(), &[])) {
+            match self.scheduled(at, |r| r.traced_action("task", action, Vec::new(), &[])) {
                 Ok(receipt) => a.receipts.push(Timed {
                     at_ms: self.now_ms,
                     receipt,
@@ -205,6 +210,32 @@ impl<D: DataSource> Runner<D> {
     /// trivia F3, kanban F19.
     pub fn land_then(&mut self) -> Advanced {
         self.advance_within(self.now_ms, false, false)
+    }
+
+    /// [`Runner::land_then`] when the earliest work due is an answer's
+    /// `then`, a queue's `next` or a transport or MIDI answer; otherwise
+    /// nothing, so no timer due before it is overtaken. A host that runs
+    /// timer advances without waiting for them runs this while it waits, so
+    /// an answer and what its `then` does show in one frame (LLP 1016.001
+    /// D3, LLP 1072.000 §4 B).
+    pub fn land_then_first(&mut self) -> Advanced {
+        let then = self
+            .then_due
+            .iter()
+            .chain(&self.queues.next_due)
+            .chain([&self.transport.answer_due, &self.midi.answer_due])
+            .copied()
+            .filter(|ms| ms.is_finite())
+            .reduce(f64::min);
+        if then.is_none() || then != self.timer_due_ms() {
+            return Advanced {
+                receipts: Vec::new(),
+                now_ms: self.now_ms,
+                error: None,
+                stopped_on_request: false,
+            };
+        }
+        self.land_then()
     }
 
     /// [`Self::advance_steps`] with the wakes (LLP 1133.017 D6): a wake's
@@ -304,12 +335,39 @@ impl<D: DataSource> Runner<D> {
             // comes after everything due at the same time (D3).
             let wake = Some(self.transport.wake_due()).filter(|at| timers && *at <= now_ms);
             let before_wake = |at: f64| wake.is_none_or(|w| at <= w);
+            // An answer's own timer (`data_timers.rs`): what is due before it
+            // goes first, and so does what is due with it; nothing later does,
+            // so the clock never goes back to it.
+            let data_at = self
+                .data_timer_due_ms()
+                .filter(|at| timers && *at <= now_ms);
+            let before_data = |at: f64| data_at.is_none_or(|data| at <= data);
             let ended = Some(self.transport.ended_due())
-                .filter(|at| timers && *at <= now_ms && before_wake(*at))
+                .filter(|at| timers && *at <= now_ms && before_wake(*at) && before_data(*at))
                 .filter(|at| due.is_none_or(|(_, timer)| *at < timer));
             let due = due.filter(|(_, at)| ended.is_none() && before_wake(*at));
             let timer_at = due.map(|(_, at)| at).or(ended);
-            let ready = |at: f64| timer_at.is_none_or(|timer| at <= timer) && before_wake(at);
+            // A re-ask is a request's, not an authored timer's: it comes due
+            // while timers wait on an unseen wake or call, which owns it.
+            // Nor past a drop's hold deadline, which goes first, or waits
+            // with the timers.
+            // Every candidate is ordered by the earliest re-ask, even one a
+            // hold deadline keeps from going while the hold goes first. With
+            // the timers held the hold waits, and so does that re-ask, but
+            // nothing else waits on it: an unseen wake's `then` would keep
+            // the timers held until its expiry.
+            let hold = self.reorder_deadline().filter(|at| *at <= now_ms);
+            let earliest = self.reask_due(now_ms).filter(|(_, at)| {
+                timer_at.is_none_or(|timer| *at <= timer) && before_wake(*at) && before_data(*at)
+            });
+            let reask = earliest.filter(|(_, at)| hold.is_none_or(|hold| *at < hold));
+            let order = if timers { earliest } else { reask };
+            let ready = |at: f64| {
+                timer_at.is_none_or(|timer| at <= timer)
+                    && before_wake(at)
+                    && order.is_none_or(|(_, reask)| at <= reask)
+                    && before_data(at)
+            };
             // An answer's `then` goes before a timer due at the same time: the
             // answer landed first. A queue's `next` goes after the `then`s and
             // before the timers (LLP 1092 D3). `exactTransport`'s answer is a
@@ -385,7 +443,12 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.now_ms = self.now_ms.max(at);
                 let ticket = self.next_ticket;
-                let result = self.scheduled(at, |r| r.run_next(m));
+                let result = self.scheduled(at, |r| {
+                    let was = r.poisoned;
+                    let result = r.run_next(m);
+                    r.record_ran("queue", r.plan.mutations[m].name, was, &result);
+                    result
+                });
                 match result {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
@@ -424,11 +487,12 @@ impl<D: DataSource> Runner<D> {
                 let action = self.plan.mutations[m].then.expect("armed only with a then");
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
-                // A `then` runs under its answer's origin (LLP 1133.002 D12)
-                // and invocation (LLP 1133.023 D7).
-                let (origin, id) = self.then_origin(m);
-                let result = self.as_invocation(origin, id, |r| {
-                    r.scheduled(at, |r| r.run_action(action, Vec::new(), &[]))
+                // A `then` runs under its answer's origin (LLP 1133.002 D12),
+                // invocation (LLP 1133.023 D7) and causes (LLP 1133.035 D16
+                // item 6).
+                let (origin, id, causes) = self.then_origin(m);
+                let result = self.as_invocation_caused(origin, id, causes, |r| {
+                    r.scheduled(at, |r| r.traced_action("then", action, Vec::new(), &[]))
                 });
                 match result {
                     Ok(receipt) => receipts.push(Timed {
@@ -485,6 +549,42 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
+            // A resource a turn over its budget refused is asked again at its
+            // time (`overrun.rs`), before a timer due then: its ask came first.
+            if let Some((t, at)) = reask {
+                if receipts.len() == TIMER_FIRE_LIMIT {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(RunnerError::TimerFireLimit {
+                            limit: TIMER_FIRE_LIMIT,
+                        }),
+                        stopped_on_request: false,
+                    };
+                }
+                self.now_ms = self.now_ms.max(at);
+                let ticket = self.next_ticket;
+                match self.scheduled(at, |r| r.reask(t)) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: Some(e),
+                            stopped_on_request: false,
+                        }
+                    }
+                }
+                if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    stopped_on_request = true;
+                    break;
+                }
+                continue;
+            }
             if let Some(at) = ended {
                 // An end that runs `ended=` is a timer's commit: past the limit it
                 // stays due, as a task's timer does.
@@ -525,6 +625,18 @@ impl<D: DataSource> Runner<D> {
                     }
                 }
                 if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    stopped_on_request = true;
+                    break;
+                }
+                continue;
+            }
+            if let Some(at) =
+                data_at.filter(|at| before_wake(*at) && due.is_none_or(|(_, timer)| *at < timer))
+            {
+                // No commit: the host settles the continuation it hands out.
+                self.now_ms = if live { self.now_ms.max(at) } else { at };
+                if self.release_data_timers(at) && until_request {
                     landed = self.now_ms;
                     stopped_on_request = true;
                     break;
@@ -589,7 +701,7 @@ impl<D: DataSource> Runner<D> {
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
             let ticket = self.next_ticket;
-            let result = self.scheduled(at, |r| r.run_action(action, Vec::new(), &[]));
+            let result = self.scheduled(at, |r| r.traced_action("task", action, Vec::new(), &[]));
             // D3: its next beat follows its callback's completion, unless the
             // callback cancelled it; one it rekeyed starts from there.
             let done = self.now_ms;

@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "4-across square centre-cropped grid with ~2pt gaps, oldest (Thu, Feb 19) at top, opens scrolled to Today at the bottom; day headings (Today/Yesterday/weekday/date), sticky while scrolling; large 'Library' title with photo count at the top."},
+      {"n": 2, "status": "pass", "note": "Opens full screen at the photo's aspect ratio; swipe left and right both page correctly (next and previous); quick swipe down closes."},
+      {"n": 3, "status": "pass", "note": "Heart button in viewer toggles favorite/unfavorite; white heart badge appears/disappears on the grid cell."},
+      {"n": 4, "status": "pass", "note": "Albums tab: 'My Albums' two-column grid of 8 albums with large rounded cover, name and count; album opens a 4-across grid with count footer; counts update after deletion."},
+      {"n": 5, "status": "pass", "note": "Select → tap several → '3 Selected', bottom bar with heart/trash and 'N Photos Selected'; batch favorite works; batch delete asks via a centred alert and removes photos (library and album counts)."},
+      {"n": 6, "status": "pass", "note": "Favorites, unfavorites and deletions all survived relaunch."}
+    ],
+    "bugs": [
+      "After leaving Select mode (Cancel, batch favorite or batch delete) the grid jumps down ~49pt, leaving a gap at the top and pushing the last row under the tab bar.",
+      "At the largest text size the pinned day heading ('Saturday') draws on top of the inline nav title 'Library / 1,498 Photos' and on top of '1 Selected' in select mode — text over text."
+    ],
+    "tells": [
+      "Select-mode bottom bar is a flat opaque grey panel with tinted heart/trash glyphs and a centred label, replacing the tab bar — not an iOS 26/27 glass toolbar; a white strip remains below it.",
+      "Pinned day heading sits in the nav-bar area beside/under the title instead of below the bar, blurred into the scroll-edge effect.",
+      "Batch-delete confirmation is a centred alert rather than an action sheet / popover anchored to the trash button as Photos does.",
+      "Viewer image is centred in the area between the bars rather than on the screen; viewer bottom buttons slightly small (35pt).",
+      "Small '1,500 Photos' subtitle under the inline title sits over thumbnails with little backing and is hard to read."
+    ],
+    "scroll": "Smooth through slow drags and hard flings with no blank tiles or pop-in; reaches the top with a large title, overscroll springs back, and position is kept after the viewer and tab switches.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "4-across square centre-cropped grid with thin gaps, oldest at top, opens at the newest with a '1,500 Photos' footer like Photos; day headings (Today/Yesterday/weekday/'Thu, February 19')."},
+      {"n": 2, "status": "partial", "note": "Opens full screen at aspect ratio, swipe left pages forward, swipe down closes — but swiping right on the photo you opened closes the viewer (back gesture wins) instead of showing the previous photo; previous only works after first paging forward."},
+      {"n": 3, "status": "pass", "note": "Heart in viewer toggles favorite/unfavorite; white heart badge on grid cell."},
+      {"n": 4, "status": "pass", "note": "Albums tab is an inset-grouped list of 8 albums with cover thumbnail, name, count and chevron; opens a 4-across grid with count footer; counts update after deletion."},
+      {"n": 5, "status": "pass", "note": "Select → '3 Photos Selected', glass heart/red trash toolbar (disabled when nothing selected); batch favorite works; delete confirms with a popover anchored to the trash button and removes photos."},
+      {"n": 6, "status": "pass", "note": "Favorites, unfavorites and deletions all survived relaunch."}
+    ],
+    "bugs": [
+      "In the viewer, swiping right on the initially opened photo dismisses the viewer instead of going to the previous photo (reproduced several times at different speeds), so you cannot browse backward from where you opened."
+    ],
+    "tells": [
+      "At the largest text size the '1,498 Photos' footer sits under the glass select-mode toolbar buttons (text under controls) until scrolled.",
+      "Inline 'Library' title only, no large title at the top of the library (Photos also uses an inline-style header, so minor)."
+    ],
+    "scroll": "Smooth through slow drags and hard flings with thumbnails always present, no jumps; reaches the top cleanly, overscroll springs back, and position is kept after the viewer and tab switches.",
+    "scores": {"features": 7, "platform": 9, "polish": 7, "overall": 6}
+  },
+  "better": "A",
+  "why": "B looks and feels more native: a glass select toolbar, an anchored delete popover, an inset-grouped album list, and no layout glitches. But it breaks a core spec gesture: swiping right on the photo you opened closes the viewer instead of going to the previous photo. A meets every requirement and its flaws are cosmetic (grid jump after select mode, header overlap at the largest text, hand-drawn select bar), so A is the one I would ship."
+}

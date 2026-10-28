@@ -117,6 +117,56 @@ theme
   actions.header-icon: length = 24px
   actions.header-icon-small: length = 20px
   actions.header-lead: length = -3px
+  // A person's Follow button (FollowButton, Bluesky's FollowButtonInner):
+  // each tone's fill and text, not following and following, from Bluesky's
+  // Button.tsx over ALF's palette (dark is ALF's dim, as the package's other
+  // colours are). primary: primary_500 and white; following, secondary's
+  // contrast_50 and contrast_700 (inverted's following too). inverted:
+  // secondary_inverted's contrast_900 and text_inverted (contrast_0).
+  // subtle: primary_subtle's primary_50 and primary_600; following, the
+  // notification author's ghost secondary, the page (contrast_0) and
+  // contrast_600. overlay: secondary_inverted in the video feed's own dark
+  // theme (ALF's dark, black), contrast_900 and contrast_0, in both schemes
+  // and both states.
+  actions.follow-fill = light-dark(#006aff, #0f73ff)
+  actions.follow-ink = #ffffff  scheme=fixed
+  actions.follow-following-fill = light-dark(#eff2f6, #222e3f)
+  actions.follow-following-ink = light-dark(#405168, #abb8c9)
+  actions.follow-inverted-fill = light-dark(#232e3e, #e2e7ee)
+  actions.follow-inverted-ink = light-dark(#ffffff, #151d28)
+  actions.follow-subtle-fill = light-dark(#e5f0ff, #122949)
+  actions.follow-subtle-ink = light-dark(#0059d6, #4d97ff)
+  actions.follow-subtle-following-fill = light-dark(#ffffff, #151d28)
+  actions.follow-subtle-following-ink = light-dark(#526580, #8d9db4)
+  actions.follow-overlay-fill = #dce2ea  scheme=fixed
+  actions.follow-overlay-ink = #000000  scheme=fixed
+  // Bluesky's Button sizes: small (8 by 14, gap 5, text_sm medium on a 17
+  // line, leading_snug, a 16 icon in a 17 box pulled 2 each side; round 33)
+  // and tiny (5 by 10, gap 3, text_xs semi-bold on a 15 line, a 12 icon in a
+  // 15 box pulled 1; round 25), both
+  // rounded_full; held smaller while pressed, a round one more.
+  actions.follow-corner: length = radius.full
+  actions.follow-pad-block: length = 8px
+  actions.follow-pad-inline: length = 14px
+  actions.follow-gap: length = 5px
+  actions.follow-size: length = 0.81875rem
+  actions.follow-line: length = 1.0625rem
+  actions.follow-icon: length = 16px
+  actions.follow-icon-box: length = 17px
+  actions.follow-icon-pull: length = -2px
+  actions.follow-round: length = 33px
+  actions.follow-tiny-pad-block: length = 5px
+  actions.follow-tiny-pad-inline: length = 10px
+  actions.follow-tiny-gap: length = 3px
+  actions.follow-tiny-size: length = 0.70625rem
+  actions.follow-tiny-line: length = 0.9375rem
+  actions.follow-tiny-icon: length = 12px
+  actions.follow-tiny-icon-box: length = 15px
+  actions.follow-tiny-icon-pull: length = -1px
+  actions.follow-tiny-round: length = 25px
+  actions.follow-press: number = 0.97
+  actions.follow-press-tiny: number = 0.97
+  actions.follow-press-round: number = 0.95
 
 // The action row's icons, as templates every host draws from the same path
 // (theme2's path-icons ruling): no `sf`, so Apple draws the path, not an SF
@@ -124,7 +174,9 @@ theme
 // The composer's three were drawn even-odd, but their holes wind against
 // their outlines, so they are written nonzero and fill the same.
 // BarItem's and HeaderButton's icons are their caller's `d`, not the
-// package's, so they stay paths (theme2's Q4).
+// package's, so they stay paths (theme2's Q4). FollowButton's two are the
+// exception: Bluesky's PlusLarge and Check paths, with an `sf` name, so
+// Apple draws SF Symbols' plus and checkmark (LLP 1121 stage 15 B batch 2).
 icons
   actions.reply = icon(svg "reply.svg")
   actions.repost = icon(svg "repost.svg")
@@ -138,3 +190,6 @@ icons
   actions.gallery = icon(svg "gallery.svg")
   actions.camera = icon(svg "camera.svg")
   actions.gif = icon(svg "gif.svg")
+  // FollowButton's: follow (plus) and following (check).
+  actions.follow-add = icon(sf "plus", svg "follow-add.svg")
+  actions.follow-check = icon(sf "checkmark", svg "follow-check.svg")

@@ -62,7 +62,11 @@ struct View {
     requested_for: (f32, f32),
     lease: Option<RasterLease>,
     desired: (f32, f32),
+    /// Asked for: in the viewport, or mounted where a host asks pictures at
+    /// mount (`EXACT_PICTURES_AT_MOUNT`).
     visible: bool,
+    /// In the viewport itself: what a retry and a download's urgency go by.
+    on_screen: bool,
     refusal: Option<Refusal>,
     symbol_size: Option<f32>,
     /// How the box fits the picture, where it clips the picture to itself
@@ -77,7 +81,51 @@ struct View {
     resized: bool,
     /// The request is for a part of the picture.
     part: bool,
+    /// How many times this showing has asked again for a URL whose download
+    /// failed in a way asking again may mend, and when it next does
+    /// ([`RETRY_AFTER`]): from nothing whenever it leaves the screen or its
+    /// source changes.
+    retries: usize,
+    retry_at: Option<Instant>,
+    /// Its source's `load` has been sent: once a source, at its first picture.
+    load_sent: bool,
+    /// Counts its source's assignments: a load waiting is for one of them.
+    assignment: u64,
 }
+
+/// A source's first picture has landed: its view's `load`, waiting for the
+/// presenter, which sends it if the view is still that node (`key`, packed)
+/// with that source, assigned that time.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LoadEvent {
+    pub id: ViewId,
+    pub key: u64,
+    pub source: String,
+    pub assignment: u64,
+}
+
+/// When a picture on screen whose download failed (the network, a timeout, a
+/// 5xx) is asked for again, after each failure: six times a showing, about a
+/// minute in all, then not until it shows again (a dead URL never polls).
+#[cfg(not(test))]
+pub(crate) const RETRY_AFTER: [Duration; 6] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+    Duration::from_secs(30),
+];
+/// (The same steps in milliseconds, for the tests.)
+#[cfg(test)]
+pub(crate) const RETRY_AFTER: [Duration; 6] = [
+    Duration::from_millis(10),
+    Duration::from_millis(20),
+    Duration::from_millis(40),
+    Duration::from_millis(80),
+    Duration::from_millis(160),
+    Duration::from_millis(300),
+];
 
 /// One generation's bounded live demand, sharing its budget with replacements.
 pub struct Images {
@@ -89,6 +137,10 @@ pub struct Images {
     pub bitmaps: BTreeMap<ViewId, Arc<Bitmap>>,
     /// Current loaded views and NATURAL pixel sizes; never traversal history.
     pub loaded: Vec<(String, (u32, u32))>,
+    /// The views whose source's first picture has landed since the presenter
+    /// last took them, with the node (its key, packed) and the source they
+    /// landed for: each hears its `load` (LLP 1011 §4) if it is still that.
+    pub(crate) load_events: Vec<LoadEvent>,
     decode_enabled: bool,
     deferred: usize,
     /// The last [`Images::sync_visible`] met a picture (an image that is not
@@ -113,6 +165,9 @@ pub struct Images {
     pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
     /// Pictures of a package's scheme, which no file holds (`package.rs`).
     package: package::Pictures,
+    /// The screen in device pixels, as the presenter last said: a picture
+    /// that fills it is downloaded first.
+    pub(crate) screen: (f32, f32),
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -134,6 +189,7 @@ impl Images {
             views: BTreeMap::new(),
             bitmaps: BTreeMap::new(),
             loaded: Vec::new(),
+            load_events: Vec::new(),
             decode_enabled: true,
             deferred: 0,
             pictures: false,
@@ -143,6 +199,7 @@ impl Images {
             order: None,
             box_index: None,
             package: package::Pictures::default(),
+            screen: (0., 0.),
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
@@ -209,6 +266,20 @@ impl Images {
         scale: f32,
         visible: impl Fn(ViewId) -> bool,
     ) -> Vec<Report> {
+        self.sync_shown(kernel, live, scale, &visible, &visible)
+    }
+
+    /// [`Images::sync_visible`], with what is asked for (`visible`) apart
+    /// from what is in the viewport (`on_screen`): a host that asks every
+    /// mounted picture still retries and hurries only those on screen.
+    pub(crate) fn sync_shown(
+        &mut self,
+        kernel: &Kernel,
+        live: &[ViewId],
+        scale: f32,
+        visible: &dyn Fn(ViewId) -> bool,
+        on_screen: &dyn Fn(ViewId) -> bool,
+    ) -> Vec<Report> {
         let mut reports = Vec::new();
         let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
         self.deferred = 0;
@@ -247,12 +318,17 @@ impl Images {
                 lease: None,
                 desired: (0., 0.),
                 visible: true,
+                on_screen: true,
                 refusal: None,
                 symbol_size: None,
                 fit: None,
                 object_fit: node.style.object_fit,
                 resized: false,
                 part: false,
+                retries: 0,
+                retry_at: None,
+                load_sent: false,
+                assignment: 0,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
             view.fit = plain_box(node.style).then_some(node.style.object_fit);
@@ -264,6 +340,7 @@ impl Images {
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
                 }
+                (view.retries, view.retry_at) = (0, None);
                 view.source_id = None;
                 view.accepted = None;
                 view.lease = None;
@@ -282,6 +359,10 @@ impl Images {
             // Only a picture loads by whether it shows: a symbol's never asked.
             self.pictures = true;
             view.visible = visible(*id);
+            view.on_screen = view.visible && on_screen(*id);
+            if !view.on_screen {
+                (view.retries, view.retry_at) = (0, None);
+            }
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
             }
@@ -293,6 +374,7 @@ impl Images {
                     self.backend.cancel(request);
                 }
                 (view.source_id, view.lease, view.refusal) = (None, None, None);
+                (view.retries, view.retry_at) = (0, None);
                 self.package
                     .want(*id, source, view.desired, view.object_fit, view.visible);
                 view.source = source.to_owned();
@@ -321,6 +403,7 @@ impl Images {
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
                 }
+                (view.retries, view.retry_at) = (0, None);
                 view.source.clear();
                 view.source_id = None;
                 view.refusal = Some(Refusal::DecodeFailed);
@@ -334,6 +417,10 @@ impl Images {
                 view.source = source.to_owned();
                 view.source_id = None;
                 view.refusal = None;
+                (view.retries, view.retry_at) = (0, None);
+                view.load_sent = false;
+                view.assignment += 1;
+                self.load_events.retain(|e| e.id != *id);
                 // The old lease, bitmap and natural size stay until acceptance.
                 if source.is_empty() {
                     view.lease = None;
@@ -386,6 +473,7 @@ impl Images {
         }
         self.bitmaps.remove(&id);
         self.package.forget(id);
+        self.load_events.retain(|e| e.id != id);
     }
     /// Consume bounded completions and retry metadata/decode admission once.
     pub fn poll(&mut self) -> Vec<Report> {
@@ -402,10 +490,38 @@ impl Images {
             {
                 continue;
             }
+            if let Some(source) = view.source_id.as_ref().map(|s| s.id) {
+                let prepared = self.backend.prepared(source);
+                if prepared.is_none() {
+                    // Another view of the same URL asked again: this one joins
+                    // that download, with no retry of its own counted or due.
+                    view.source_id = None;
+                    view.retry_at = None;
+                } else if view.retry_at.is_some_and(|at| Instant::now() >= at) {
+                    view.retry_at = None;
+                    // Its download failed and its time to ask again has come:
+                    // the failed source is let go of, and asked for anew
+                    // below. (One that is no longer failed is left be.)
+                    if matches!(prepared, Some(Prepared::Failed(_))) {
+                        self.backend.evict(source);
+                        view.source_id = None;
+                        view.retries += 1;
+                    }
+                }
+            }
+            // A picture on screen that fills it (a viewer's) is downloaded first.
+            let urgent = view.on_screen
+                && self.screen.0 > 0.
+                && view.desired.0 >= self.screen.0 * 0.9
+                && view.desired.1 >= self.screen.1 * 0.5;
+            if let Some(source) = view.source_id.as_ref().filter(|_| urgent) {
+                // (One already asked for, grown to fill it: its waiting download moves up.)
+                self.backend.promote(source);
+            }
             if view.source_id.is_none() {
                 match self
                     .backend
-                    .source(self.generation, &view.source, &self.assets)
+                    .source(self.generation, &view.source, &self.assets, urgent)
                 {
                     Ok(source) => {
                         view.source_id = Some(source);
@@ -422,6 +538,25 @@ impl Images {
                 Some(Prepared::Ready(header)) => header,
                 Some(Prepared::Failed(e)) => {
                     view.refusal = Some(e);
+                    // Still on screen, and asking again may mend it: asked
+                    // again after the next of RETRY_AFTER, and never before
+                    // the server's Retry-After (not in this showing, if that
+                    // is further off than a picture waits).
+                    if let Some(after) = (view.on_screen
+                        && view.retry_at.is_none()
+                        && view.retries < RETRY_AFTER.len()
+                        && remote::is_remote(&view.source))
+                    .then(|| self.backend.transient(source))
+                    .flatten()
+                    {
+                        let now = Instant::now();
+                        if after > now + remote::MOST_RETRY_AFTER {
+                            // Further off than a picture waits: no more in this showing.
+                            view.retries = RETRY_AFTER.len();
+                        } else {
+                            view.retry_at = Some(after.max(now + RETRY_AFTER[view.retries]));
+                        }
+                    }
                     continue;
                 }
                 _ => continue,
@@ -460,6 +595,14 @@ impl Images {
                                 view.lease = Some(lease);
                                 view.accepted = Some(request);
                                 view.displayed_source = view.source.clone();
+                                if !std::mem::replace(&mut view.load_sent, true) {
+                                    self.load_events.push(LoadEvent {
+                                        id: *id,
+                                        key: view.key.view,
+                                        source: view.source.clone(),
+                                        assignment: view.assignment,
+                                    });
+                                }
                             }
                         }
                     }
@@ -575,6 +718,14 @@ impl Images {
                                     view.lease = Some(lease);
                                     view.accepted = Some(request);
                                     view.displayed_source = view.source.clone();
+                                    if !std::mem::replace(&mut view.load_sent, true) {
+                                        self.load_events.push(LoadEvent {
+                                            id: *id,
+                                            key: view.key.view,
+                                            source: view.source.clone(),
+                                            assignment: view.assignment,
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -593,6 +744,10 @@ impl Images {
             })
             .collect();
         reports
+    }
+    /// Which assignment of its source view `id` shows ([`LoadEvent`]).
+    pub(crate) fn assignment(&self, id: ViewId) -> Option<u64> {
+        self.views.get(&id).map(|view| view.assignment)
     }
     /// Pending work, including capacity waits; this is not an animation request.
     pub fn pending(&self) -> bool {
@@ -630,6 +785,17 @@ impl Images {
                 }
         })
     }
+    /// How long until a picture on screen asks again for a download that
+    /// failed: a turn is owed then (`turn_due_ms`, `wake_due_ms`).
+    pub fn retry_due_in(&self) -> Option<Duration> {
+        let now = Instant::now();
+        (self.views.values())
+            .filter(|v| v.on_screen && v.source_id.is_some() && remote::is_remote(&v.source))
+            .filter_map(|v| v.retry_at)
+            .min()
+            .map(|at| at.saturating_duration_since(now))
+    }
+
     /// Wait only for metadata/integrity; decode capacity never rejects activation.
     pub(crate) fn prepare_metadata(
         &mut self,
@@ -712,6 +878,7 @@ impl Images {
         self.package = std::mem::take(&mut self.package).reset();
         self.bitmaps.clear();
         self.loaded.clear();
+        self.load_events.clear();
         self.generation = self.backend.generation();
         self.settled = None;
     }

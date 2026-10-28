@@ -120,15 +120,139 @@ fn middle(p: &Presenter<()>, name: &str) -> (f32, f32) {
 const RING: [u8; 4] = [255, 0, 0, 255];
 
 #[test]
-fn a_fingers_press_leaves_no_focus_ring_and_a_mouses_does() {
+fn before_any_key_a_windows_focus_shows_no_ring() {
+    let mut p = boot(BUTTONS);
+    assert_eq!(
+        (p.brush.winui_focus, p.brush.keyless),
+        (cfg!(windows), cfg!(windows) || cfg!(target_os = "android"))
+    );
+    p.brush.winui_focus = true;
+    p.brush.keyless = true;
+    let native = id(&p, "native");
+    assert!(p.set_focus(Some(native), 1.).is_none());
+    assert_ne!(
+        edge(&mut p, "native"),
+        RING,
+        "the app's focus, before a key"
+    );
+    p.key_down("Control", 2.);
+    assert_eq!(
+        edge(&mut p, "native"),
+        RING,
+        "a modifier alone is a key to WinUI"
+    );
+    // To Chrome a modifier alone is none; the next key shows the ring.
+    let mut p = boot(BUTTONS);
+    (p.brush.winui_focus, p.brush.keyless) = (false, false);
+    let (x, y) = middle(&p, "native");
+    tap(&mut p, x, y, 1.);
+    p.key_down("Control", 2.);
+    assert_ne!(edge(&mut p, "native"), RING, "a modifier alone is no key");
+    p.key_down("ArrowDown", 3.);
+    assert_eq!(edge(&mut p, "native"), RING, "a key shows the ring");
+    let bare = id(&p, "bare");
+    assert!(p.set_focus(Some(bare), 4.).is_none());
+    assert_eq!(edge(&mut p, "bare"), RING, "after a key, Chrome's rule");
+
+    // A chord is keyboard input to WinUI, though not to Chrome.
+    for winui in [true, false] {
+        let mut p = boot(BUTTONS);
+        (p.brush.winui_focus, p.brush.keyless) = (winui, winui);
+        let (x, y) = middle(&p, "native");
+        tap(&mut p, x, y, 1.);
+        p.hold_modifier("ControlLeft", true);
+        p.key_down("s", 3.);
+        p.hold_modifier("ControlLeft", false);
+        let bare = id(&p, "bare");
+        assert!(p.set_focus(Some(bare), 4.).is_none());
+        let ring = edge(&mut p, "bare") == RING;
+        assert_eq!(ring, winui, "after Control+S, winui={winui}");
+    }
+
+    // A focus a reload restores, before any key, under a new id: a box
+    // before it gained a child.
+    let reloaded = |inner: &str| {
+        format!(
+            r##"component App
+  view
+    column width=400 height=300 background-color="white" align-items="flex-start"
+      box{inner}
+      button "Native" appearance="auto" width=120 height=40 accent-color="#ff0000" testId="native"
+"##
+        )
+    };
+    let mut p = boot(&reloaded(""));
+    (p.brush.winui_focus, p.brush.keyless) = (true, true);
+    let native = id(&p, "native");
+    assert!(p.set_focus(Some(native), 1.).is_none());
+    p.reload(&crate::test_plan(&reloaded("\n        text \"x\"")), ())
+        .unwrap();
+    p.boxes();
+    assert_eq!(
+        p.focus,
+        Some(id(&p, "native")),
+        "the reload keeps the focus"
+    );
+    assert_ne!(p.focus, Some(native), "under a new id");
+    assert_ne!(
+        edge(&mut p, "native"),
+        RING,
+        "a restored focus, before a key"
+    );
+
+    // After a key, a pressed control restored under a new id stays ringless.
+    for winui in [true, false] {
+        let mut p = boot(&reloaded(""));
+        (p.brush.winui_focus, p.brush.keyless) = (winui, winui);
+        p.key_down("ArrowDown", 1.);
+        let (x, y) = middle(&p, "native");
+        tap(&mut p, x, y, 2.);
+        p.reload(&crate::test_plan(&reloaded("\n        text \"x\"")), ())
+            .unwrap();
+        p.boxes();
+        assert_eq!(p.focus, Some(id(&p, "native")));
+        assert_ne!(
+            edge(&mut p, "native"),
+            RING,
+            "pressed, then reloaded: winui={winui}"
+        );
+    }
+
+    // The Menu key a field's edit menu takes is keyboard input too.
+    let mut p = boot(
+        r##"component App
+  state value = ""
+  action change(v: string)
+    value = v
+  view
+    column width=400 height=300 background-color="white" align-items="flex-start"
+      input value=value change=change width=200 testId="field"
+      button "Native" appearance="auto" width=120 height=40 accent-color="#ff0000" testId="native"
+"##,
+    );
+    (p.brush.winui_focus, p.brush.keyless) = (true, true);
+    assert!(p.set_focus(Some(id(&p, "field")), 1.).is_none());
+    assert!(p.edit_menu_key("ContextMenu", "ContextMenu", false).0);
+    assert!(!p.brush.keyless, "the Menu key counts");
+}
+
+#[test]
+fn a_press_leaves_no_focus_ring_and_a_key_shows_it() {
     for name in ["native", "bare"] {
         let other = if name == "native" { "bare" } else { "native" };
-        // A mouse: the pressed button holds the focus and shows its ring.
+        // A mouse: the pressed button holds the focus without its ring, as
+        // Chrome's `:focus-visible` has it, until a key.
         let mut p = boot(BUTTONS);
         let (x, y) = middle(&p, name);
         tap(&mut p, x, y, 1.);
         assert_eq!(p.focus, Some(id(&p, name)));
-        assert_eq!(edge(&mut p, name), RING, "{name}: a mouse's press rings");
+        assert_ne!(
+            edge(&mut p, name),
+            RING,
+            "{name}: a mouse's press rings nothing"
+        );
+        p.key_down("ArrowDown", 2.);
+        assert_eq!(edge(&mut p, name), RING, "{name}: a key shows the ring");
         // A finger: the focus, and no ring.
         let mut p = boot(BUTTONS);
         p.set_pointer_kind(PointerKind::Touch);
@@ -142,6 +266,7 @@ fn a_fingers_press_leaves_no_focus_ring_and_a_mouses_does() {
         );
         // A focus a key moves shows its ring, in touch mode too.
         let next = id(&p, other);
+        p.key_down("ArrowDown", 3.);
         assert!(p.set_focus(Some(next), 3.).is_none());
         assert_eq!(edge(&mut p, other), RING, "{other}: a key's focus rings");
         assert_ne!(edge(&mut p, name), RING);
@@ -409,7 +534,7 @@ fn a_pan_does_not_focus_its_inner_button_even_with_the_default_mouse_kind() {
 }
 
 #[test]
-fn agent_contacts_use_the_mouse_flag_for_focus_timing_and_the_ring() {
+fn agent_contacts_use_the_mouse_flag_for_focus_timing() {
     for mouse in [false, true] {
         let mut p = boot(PRESS_FOCUS);
         let scale = id(&p, "scale");
@@ -425,7 +550,7 @@ fn agent_contacts_use_the_mouse_flag_for_focus_timing_and_the_ring() {
         );
         assert!(!up.contains("error"), "{up}");
         assert_eq!(p.focus, Some(scale));
-        assert_eq!(p.brush.ringless, (!mouse).then_some(scale));
+        assert_eq!(p.brush.ringless, Some(scale));
         assert_eq!(log(&p), "1 0");
     }
 }
@@ -647,4 +772,69 @@ fn direct_control_contacts_keep_their_original_activation_policy() {
         }
     }
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn a_pressed_field_keeps_its_ring_and_script_focus_follows_the_one_it_leaves() {
+    let source = r##"component App
+  action next
+    focus("other")
+  view
+    column width=400 height=300
+      input testId="field" width=200 height=30
+      button "Next" press=next width=120 height=40 testId="next"
+      button "Other" id="other" width=120 height=40 testId="other"
+"##;
+    for kind in [PointerKind::Mouse, PointerKind::Touch] {
+        let mut p = boot(source);
+        p.set_pointer_kind(kind);
+        let (x, y) = middle(&p, "field");
+        tap(&mut p, x, y, 1.);
+        assert_eq!(p.focus, Some(id(&p, "field")), "{kind:?}");
+        assert_eq!(
+            p.brush.ringless, None,
+            "{kind:?}: a field stays focus-visible"
+        );
+        // A press whose action moves the focus: the button it leaves showed
+        // no ring, so neither does the one it reaches.
+        let (x, y) = middle(&p, "next");
+        tap(&mut p, x, y, 2.);
+        p.run_commands(<()>::default);
+        let other = id(&p, "other");
+        assert_eq!(p.focus, Some(other), "{kind:?}");
+        assert_eq!(p.brush.ringless, Some(other), "{kind:?}");
+        // Shift alone is keyboard input, as Chrome counts it.
+        p.key_down("Shift", 3.);
+        assert_eq!(p.brush.ringless, None, "{kind:?}: Shift shows the ring");
+    }
+}
+
+#[test]
+fn androids_touch_mode_shows_no_ring_until_a_key_and_a_touch_ends_it() {
+    let source = r##"component App
+  view
+    column width=400 height=300
+      input testId="field" width=200 height=30
+      button "Native" accent-color="#ff0000" width=120 height=40 testId="native"
+      button "Other" accent-color="#ff0000" width=120 height=40 testId="other"
+"##;
+    let mut p = boot(source);
+    (p.brush.touch_mode, p.brush.keyless) = (true, true);
+    p.set_pointer_kind(PointerKind::Touch);
+    let (x, y) = middle(&p, "field");
+    tap(&mut p, x, y, 1.);
+    assert_eq!(p.brush.ringless, None, "a field keeps its ring");
+    // A route popped back restores the row's focus from a field's: by
+    // Chrome's rule it would show a ring, but no key has been pressed.
+    let native = id(&p, "native");
+    assert!(p.set_focus(Some(native), 2.).is_none());
+    assert_ne!(edge(&mut p, "native"), RING, "touch mode, after a field");
+    p.key_down("ArrowDown", 3.);
+    assert_eq!(edge(&mut p, "native"), RING, "a key leaves touch mode");
+    // A touch anywhere goes back to it, and takes the ring off with it.
+    tap(&mut p, 390., 290., 4.);
+    assert!(p.brush.keyless);
+    let other = id(&p, "other");
+    assert!(p.set_focus(Some(other), 5.).is_none());
+    assert_ne!(edge(&mut p, "other"), RING, "a touch re-enters touch mode");
 }

@@ -4,7 +4,7 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 export const here = import.meta.dir, pkg = resolve(here, '..'), root = resolve(pkg, '../..');
 
@@ -37,4 +37,17 @@ export function checker() {
     console.log(`${ok ? 'PASS' : 'FAIL'} ${where} ${name}${ok ? '' : `: ${detail}`}`);
   };
   return { check, failed: () => failures };
+}
+
+/** Excord's fixture server, started on the port a development build of this checkout's Excord bakes
+ * (`fixtureBackendSelection`, js/bake/src/typescript.mjs): its origin, its port, and `stop()`. */
+export async function excordFixture() {
+  const { backendOrigin } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const origin = backendOrigin(resolve(root, 'apps/excord')), port = new URL(origin).port;
+  const server = spawn('bun', [resolve(root, 'apps/excord/fixture/server.ts'), '--world', 'transcript', '--reset-on-identify', '--port', port], { stdio: ['ignore', 'pipe', 'inherit'] });
+  await new Promise((ok, fail) => {
+    server.stdout.once('data', ok);
+    server.once('exit', (code) => fail(new Error(`the fixture server exited (${code}); is ${port} taken?`)));
+  });
+  return { origin, port, stop: () => server.kill() };
 }

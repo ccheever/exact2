@@ -336,6 +336,17 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// A finger or a pen on Android puts the focus back in touch mode
+    /// (`touch_mode`): the focus it finds shows no ring until a key.
+    pub(crate) fn touched(&mut self) {
+        if self.brush.touch_mode && self.contact_is_direct() {
+            self.brush.keyless = true;
+            let ringless = self.focus.and_then(|id| self.unringed(id));
+            self.dirty |= self.brush.ringless != ringless;
+            self.brush.ringless = ringless;
+        }
+    }
+
     /// Whether the web host prevents pointerdown's default focus for this hit.
     /// Swipe and reorder prevent moves, not the down.
     pub(crate) fn pointerdown_prevents_focus(&self, hit: ViewId) -> bool {
@@ -423,6 +434,7 @@ impl<D: DataSource> Presenter<D> {
     /// synthesis; then the node's `pointerdown` (LLP 1005 §3), which the
     /// contact never waits for.
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        self.touched();
         if self.overlay_pointer(0, x, y, now_ms) || self.scrollbar_pointer(0, x, y) {
             return Ok(true);
         }
@@ -1118,6 +1130,7 @@ impl<D: DataSource> Presenter<D> {
                     {
                         self.focus_for_press(hit, (x, y), now_ms, self.contact_is_direct());
                     }
+                    self.press_point = Some((x, y));
                     self.activate(id, now_ms);
                 }
             }

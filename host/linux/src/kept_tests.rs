@@ -60,6 +60,8 @@ fn scratch(name: &str) -> PathBuf {
 /// The store keeps every other app's entries as written: a new document is
 /// a new entry, one another app already lists gains this app's mark, and
 /// removing it takes off this app's mark alone, or the entry it alone marks.
+/// Unix only: an entry's identity is its device and inode.
+#[cfg(unix)]
 #[test]
 fn the_store_is_marked_and_unmarked_for_the_app() {
     let root = scratch("store");
@@ -67,7 +69,8 @@ fn the_store_is_marked_and_unmarked_for_the_app() {
     std::fs::write(&shared, "s").unwrap();
     std::fs::write(&mine, "m").unwrap();
     let file = root.join(STORE);
-    let gtk = GTK.replace("/SHARED", shared.to_str().unwrap());
+    let href = url::Url::from_file_path(&shared).unwrap();
+    let gtk = GTK.replace("file:///SHARED", href.as_str());
     std::fs::write(&file, &gtk).unwrap();
     let recents = Recents::at(file.clone(), "com.exact.test", Path::new("/opt/exact/app"));
     assert!(recents.held().is_empty());

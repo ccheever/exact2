@@ -1,0 +1,58 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Sorted by last name, with letter sections and a right-hand index plus a 'Jump to Letter' menu. But index jumps land in the wrong place: M went to J/K, S to P, Z to T, and B landed mid-section. Choosing M from the jump menu while at P did not move the list at all."},
+      {"n": 2, "status": "pass", "note": "Filters live by name, company, formatted or digits-only phone, and email. Has a 'No Results' state, and clearing restores the full list. The search text also comes back after a relaunch."},
+      {"n": 3, "status": "pass", "note": "Grouped details screen with name, company, phone, email and birthday. Phone and email are blue and look tappable."},
+      {"n": 4, "status": "pass", "note": "'Add to / Remove from Favorites' row on the details screen. A Favorites section of full rows sits at the top of the list and updates right away."},
+      {"n": 5, "status": "pass", "note": "Add sheet with all five fields. Done stays disabled for empty or whitespace-only names, with a hint. Edit uses the same form, and changes show at once. The phone field accepted letters."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete on list rows (deletes at once), and Delete Contact on the details screen with a confirmation alert."},
+      {"n": 7, "status": "pass", "note": "Added, edited, deleted and unfavorited contacts all survived relaunch."}
+    ],
+    "bugs": [
+      "Section index and jump menu scroll to the wrong letter, usually short of the target (M→K, S→P, Z→T)",
+      "Jump menu choice 'M' while at P did nothing",
+      "While searching, two section indexes are drawn side by side (the app's own and a second, smaller one)",
+      "Sticky section header overlaps the text of the row scrolling beneath it (e.g. 'J' drawn over 'Priya Johnson')",
+      "Search text is restored after relaunch, so the app can open on a filtered or 'No Results' list"
+    ],
+    "tells": [
+      "Large title never collapses on scroll. The list sits in a fixed frame under the header and is hard-clipped above the bottom search bar instead of scrolling under translucent bars.",
+      "Hand-drawn swipe action: a grey rounded row with a red pill 'Delete' button, not the system trailing swipe action",
+      "Custom section index scales with Dynamic Type until it overflows and is cut off at the largest size; the system index stays compact",
+      "Duplicate index while searching",
+      "Generic grey person glyph instead of an initials avatar on the details screen",
+      "At the largest text size, email breaks mid-word ('elena.alvarez@e / xample.com')",
+      "Pull past the top stretches only the list region; the title does not move with it"
+    ],
+    "scroll": "Smooth, with no blank rows or pop-in, and scroll position is kept when returning from a contact. But the list scrolls in a clipped box under a large title that never collapses, and index jumps undershoot, so it feels less like a system list.",
+    "scores": {"features": 7, "platform": 5, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Sorted by last name, with letter sections and a compact right-hand index (★ A–Z) that jumps exactly to the tapped letter."},
+      {"n": 2, "status": "pass", "note": "Filters live by name, company, formatted or digits-only phone, and email. Shows 'No Results for …', and clearing restores the full list."},
+      {"n": 3, "status": "pass", "note": "Initials avatar, name, company, Call/Email buttons, Phone and Email rows in the accent colour with arrow affordances, and Birthday when known."},
+      {"n": 4, "status": "partial", "note": "Add/Remove from Favorites on the details screen works, and favorites get their own section at the top. But it is a horizontal avatar carousel showing about 4 of 31, so most favorites need a sideways scroll."},
+      {"n": 5, "status": "pass", "note": "Add/Edit form with labelled fields. Save is disabled until a non-blank first or last name exists, with a hint. Cancel with changes asks 'Discard changes?'. Edits show at once."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete on rows, and Delete Contact on the details screen with a confirmation."},
+      {"n": 7, "status": "pass", "note": "Added, edited, favorited and deleted contacts all survived relaunch; the contact count updates."}
+    ],
+    "bugs": [
+      "After dismissing search, the first tap on a contact row only highlights it and does not open the details screen; a second tap is needed (reproduced twice)",
+      "Delete confirmation on the details screen pops up pointing at the avatar at the top of the screen, not at the Delete button"
+    ],
+    "tells": [
+      "Swipe Delete button is purple (the accent colour), not destructive red, and overlaps the section index",
+      "Purple accent and pastel gradient initials avatars everywhere give it a custom-themed look",
+      "An extra '320 contacts · All Contacts' row at the top of the list",
+      "Favorites as a horizontal avatar carousel instead of list rows",
+      "At the largest text size the section index overlaps the favorites carousel names, and the search field grows into a giant pill",
+      "Title starts inline on launch and turns large only after interaction (inconsistent large-title state)"
+    ],
+    "scroll": "Feels native: content scrolls under translucent bars with the edge blur, the large title collapses, flings and pulls behave normally, index jumps are exact, and scroll position is kept on returning from a contact.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "B's list behaves like a real iOS list: exact index jumps, a collapsing large title, and content scrolling under translucent bars. Its details screen is richer (avatar, Call/Email, birthday). A has a more literal Favorites section, but its index jumps are unreliable, it shows a duplicate index while searching, its section headers overlap rows, and its large title is frozen in a clipped list. B's flaws (first tap ignored after closing search, a purple swipe-delete button, the favorites carousel) are smaller."
+}

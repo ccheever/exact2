@@ -1,0 +1,18 @@
+always "paused_bool"
+  expect state paused in true false
+
+after "toggle" "toggle_flips"
+  expect state paused == not old
+
+after "done" "done_focuses"
+  writes none
+  command focus "done"
+
+test "pause and finish a note"
+  tap "toggle"
+  type "note" "A note about the video"
+  expect state note == "A note about the video"
+  tap "done"
+  clock data
+  clock +100
+  tap "toggle"
