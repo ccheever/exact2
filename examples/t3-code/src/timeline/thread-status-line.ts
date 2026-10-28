@@ -56,7 +56,10 @@ type Endpoint = { instanceId: string; model: string };
  * the same native thread.
  */
 export function pendingHandoff(projection: Obj, selection: Endpoint | null, providers: Obj[]): { from: Endpoint; to: Endpoint } | null {
-  const run = [...arr(projection.runs)].reverse().find(entry => entry.startedAt != null && entry.status !== 'rolled_back');
+  // The handoff row is committed before the provider starts: a starting handoff run is the source, so the
+  // footer does not repeat the committed handoff.
+  const run = [...arr(projection.runs)].reverse().find(entry => entry.status !== 'rolled_back'
+    && (entry.startedAt != null || entry.status === 'starting' && entry.contextHandoffId != null));
   const from = run ? obj(run.modelSelection) : null;
   if (!from || !str(from.instanceId) || !selection?.instanceId) return null;
   const source = providers.find(provider => provider.instanceId === from.instanceId);

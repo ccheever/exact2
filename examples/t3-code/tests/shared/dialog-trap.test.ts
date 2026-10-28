@@ -106,6 +106,8 @@ const NOT_MODAL: Record<string, string> = {
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',
   'markdown.contract `Quoted assistant text: ${chip.label}`': 'Popover (AssistantCitationChip)',
   'markdown.contract "context-chip-details"': 'Popover',
+  'skill-chip.contract `Skill ${label}`': 'Popover (SkillChipPopover)',
+  'timeline-worktree.contract "Worktree setup"': 'Popover (BackgroundWorktreeSetupChip)',
   'model-picker.contract "model-dialog"': 'ProviderModelPicker PopoverPopup',
   'pages-pr-actions.contract testId': 'Popover (the freshness card)',
   'pages-pr-compose.contract "pull-request-composer"': 'PullRequestComposer PopoverPopup',
