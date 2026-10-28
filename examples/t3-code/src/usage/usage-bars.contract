@@ -98,7 +98,7 @@ component WindowBar
   derive at = barPaceAt(width, window.timeLeft)
   view
     // focus-visible:ring-2 ring-ring ring-offset-2 ring-offset-background; the tooltip opens on focus as on hover.
-    box position="relative" height="1.5rem" min-width=0 border-radius="9999px" tabindex=0 role="img" aria-label=window.summary hover=hover focus=focusChanged(true) blur=focusChanged(false) resize=sized cursor="default" box-shadow=(focused ? "0 0 0 2px light-dark(#ffffff, #121212), 0 0 0 4px light-dark(#1b4ed8, #346bf1)" : "none") testId=`usage-bar-${slot}-${window.id}`
+    box id=`usage-bar-${slot}-${window.id}` position="relative" height="1.5rem" min-width=0 border-radius="9999px" tabindex=0 data-focus-stop="enabled page" role="img" aria-label=window.summary hover=hover focus=focusChanged(true) blur=focusChanged(false) resize=sized cursor="default" box-shadow=(focused ? "0 0 0 2px light-dark(#ffffff, #121212), 0 0 0 4px light-dark(#1b4ed8, #346bf1)" : "none") testId=`usage-bar-${slot}-${window.id}`
       box position="absolute" left=0 top=0 right=0 bottom=0 clip-path=(mark ? barGapClip(width, height, at) : "none") aria-hidden=true testId=`usage-bar-layers-${slot}-${window.id}`
         box position="absolute" left=0 right=0 top="0.375rem" bottom="0.375rem" border-radius="9999px" background-color="light-dark(#fafafa, #ffffff08)"
         if window.remaining > 0
@@ -148,7 +148,7 @@ component UsageRedacted
     over = inside
   view
     box position="relative" min-width=0 max-width="100%" hover=hover
-      button press=toggle aria-label="Toggle account label visibility" testId=testId cursor="pointer" min-width=0 max-width="100%" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="baseline"
+      button id=testId press=toggle aria-label="Toggle account label visibility" data-focus-stop="enabled page" testId=testId cursor="pointer" min-width=0 max-width="100%" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="baseline"
         text (revealed ? value : placeholder) font-size="0.75rem" line-height="normal" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 user-select=(revealed ? "auto" : "none") filter=(revealed ? "none" : "blur(4px)") color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") testId=`${testId}-text`
       if over
         CnTooltip(tip=(revealed ? "Click to hide account" : "Click to reveal account"), tipId=`${testId}-tip`, above=20)
@@ -182,7 +182,7 @@ component ResetCreditsRow
     row width="100%" flex-wrap="wrap" align-items="center" column-gap="0.75rem" row-gap="0.25rem" testId=`usage-credits-${account.slot}`
       text account.credits font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
       if account.canRedeem
-        button id=`usage-reset-${account.slot}` press=command("cclocal:usage-reset-ask", account.key, "", 0) disabled=(busy or account.busy) testId=`usage-reset-${account.slot}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(busy or account.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        button id=`usage-reset-${account.slot}` press=command("cclocal:usage-reset-ask", account.key, "", 0) disabled=(busy or account.busy) data-focus-stop=(busy or account.busy ? "" : "enabled page") testId=`usage-reset-${account.slot}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(busy or account.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
           text (account.busy ? "Using…" : "Use reset") font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
       if account.status != ""
         text account.status font-size="0.75rem" line-height="1rem" role="status" color="light-dark(#18181b, #f5f5f5)" testId=`usage-reset-status-${account.slot}`
@@ -206,7 +206,7 @@ component UsageAccountBlock
       else
         LimitWindows(account=account)
       if account.manage
-        button press=command("cclocal:usage-manage", account.key, "", 0) hover=hover disabled=busy testId=`usage-manage-${account.slot}` align-self="flex-start" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+        button id=`usage-manage-${account.slot}` press=command("cclocal:usage-manage", account.key, "", 0) hover=hover disabled=busy data-focus-stop=(busy ? "" : "enabled page") testId=`usage-manage-${account.slot}` align-self="flex-start" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           text "Manage usage" font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" text-decoration=(over ? "underline" : "none") color="light-dark(#18181b, #f5f5f5)"
       if account.showCredits
         ResetCreditsRow(account=account, busy=busy, command=command)

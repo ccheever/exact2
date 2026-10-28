@@ -12,6 +12,8 @@ import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
+import { announce } from '../shell/announce'; // "Opened in <editor>"
+import { editorLabel } from '../shared/editors';
 import { fileIconToken } from '../shared/timeline-files';
 import { lineTokens } from '../highlight/timeline-diff-syntax';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from '../details/shell-details';
@@ -33,8 +35,6 @@ import { openInlineDocumentImage } from '../timeline/timeline-attachments'; // t
 import { openFileInPreview } from '../browser/browser-links'; // "Open file in preview browser"
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
-import { announce } from '../shell/announce'; // "Opened in <editor>"
-import { editorLabel } from '../shared/editors';
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './files-crumbs-mount'; // a mounting preview settles at the end
 import { loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from '../connections/remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from '../diff/diff-file-comments'; // diff-review: line comments on the preview
@@ -452,8 +452,9 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     if (choices.editorUnavailable) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: choices.editorUnavailable }); return ''; }
     const editor = value || choices.editorId;
     if (!editor || !choices.editors.some(choice => choice.id === editor)) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: `No available editor can open ${id}.` }); return ''; }
-    // OpenInPicker: an editor that opened is announced ("Opened in <editor>"), the shortcut's as the button's.
-    if (await openInEditorHere(client, native, id, editor, openTarget(client, state))) { rememberEditor(client, editor); announce(client, `Opened in ${editorLabel(editor)}`); } // remote Open as the details card does (remote-open.ts)
+    // Remote Open as the details card does (remote-open.ts). OpenInPicker announces the primary press's open
+    // ("Opened in <editor>"), as the ⌘O shortcut's, which names no editor either; a choice from its menu (`value`) says nothing.
+    if (await openInEditorHere(client, native, id, editor, openTarget(client, state))) { rememberEditor(client, editor); if (!value) announce(client, `Opened in ${editorLabel(editor)}`); }
     return '';
   }
   return '';
@@ -771,10 +772,10 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const source = frame && minted.url ? (pdf ? { src: minted.url, error: '' } : await mediaFrameSource('html', minted.url)) : null;
   const page = { url: source?.src ?? '', error: minted.error || source?.error || '' };
   // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo). An image's
-  // URL carries the workspace revision, so a change loads it again (WorkspaceImagePreview's revisionSuffix). A video's
-  // carries none: the reference's follows the file's own revision (MediaVideoPlayer, `fileRevision`), which the shell
-  // task's media-views.ts would pass; the workspace's would reload it after every command.
-  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, isWorkspaceImagePreviewPath(previewPath) ? revision : '', now) : NO_MEDIA;
+  // URL carries the workspace revision, so a change loads it again (WorkspaceImagePreview's revisionSuffix); a video is
+  // signed again after a change and loads again only for a new revision of its file, when the server reports one
+  // (WorkspaceVideoPreview's fileRevision, media-views.ts), since the workspace's would reload it after every command.
+  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, revision, now) : NO_MEDIA;
   // WorkspaceAudioPreview: an audio file plays from its `media-file` URL; a refused URL or the player's error is a failure.
   const audio = !!previewPath && !media.kind && !isWorkspaceVideoPreviewPath(previewPath) && isWorkspaceAudioPreviewPath(previewPath);
   const sound = audio ? await audioPage(client, native, cwd, absolute, revision, now) : null;

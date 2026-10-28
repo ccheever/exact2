@@ -7,7 +7,8 @@ import { obj, type Obj } from '../../src/client/domain';
 import { ClientError, reply, type Native } from '../../src/client/protocol';
 import { failure } from '../../src/transport/transport-wire';
 import { toasts } from '../../src/shell/toast';
-import { announcements } from '../../src/shell/announce';
+import { announcements, announcing } from '../../src/shell/announce';
+import { contractComponent } from '../support/contract-action-fixture';
 import { editFile, filesLocal, filesState, filesView, mediaUnavailableDescription } from '../../src/panel/files-surface';
 import { markdownFileMenuRows } from '../../src/timeline/file-link-menu';
 import { loadSshAliases } from '../../src/connections/remote-open';
@@ -125,7 +126,11 @@ describe('a failed refresh', () => {
     expect(view).toMatchObject({ preview: 'code', text: 'kept', previewError: '' });
     await filesLocal(client, native, 'open-editor', view.absolutePath, 'vscode');
     expect(externalOpensForTests().at(-1)).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
-    // OpenInPicker announces what opened, the ⌘O shortcut's open as the button's.
+    // OpenInPicker announces the primary press's open, as the ⌘O shortcut's (neither names an editor); a choice from its
+    // menu says nothing.
+    expect(announcing(client)).toBe(false);
+    await filesLocal(client, native, 'open-editor', view.absolutePath, '');
+    expect(externalOpensForTests().at(-1)).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
     announcements(client, 1_000);
     expect(announcements(client, 1_500).first).toBe('Opened in VS Code');
     fail = 'path_not_file';
@@ -270,5 +275,20 @@ describe('PDFs in a server browser tab', () => {
     expect(previewPdfAssetUrl('https://example.com/paper.pdf', 'https://env.example')).toBeNull();
     expect(previewPdfAssetUrl('https://env.example/api/assets/token/index.html', 'https://env.example')).toBeNull();
     expect(previewPdfAssetUrl('https://env.example/api/assets/token/guide.pdf', null)).toBeNull();
+  });
+});
+
+describe('the Files Open in presses (FileHeader, FileEditorsMenu)', () => {
+  // OpenInPicker: the primary button names no editor (the preferred one opens, and is announced, as ⌘O's); a menu row
+  // names its editor (no announcement).
+  test('the primary press names no editor; a menu row names its own', () => {
+    const files = { absolutePath: '/repo/README.md', editorId: 'vscode', editorUnavailable: '', editors: [{ id: 'zed', label: 'Zed', selected: false }] };
+    const local = (...args: unknown[]) => args;
+    const header = contractComponent('files-surface.contract', 'FileHeader');
+    expect(header.attribute('testId="file-open-editor"', 'press', header.state(), { files, local, KmItem: (item: unknown) => item }))
+      .toEqual(['surface-files-open-editor', '/repo/README.md', '']);
+    const menu = contractComponent('files-surface.contract', 'FileEditorsMenu');
+    expect(menu.attribute('id=`file-editor-${editor.id}`', 'press', menu.state(), { files, local, editor: files.editors[0] }))
+      .toEqual(['surface-files-open-editor', '/repo/README.md', 'zed']);
   });
 });
