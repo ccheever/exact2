@@ -51,21 +51,26 @@ const [cmd, argv] = model === 'gpt'
 const log = createWriteStream(resolve(round, 'logs', `${name}.jsonl`));
 const started = Date.now();
 const usage = { input: 0, cached: 0, output: 0, cost: null, calls: 0, toolCalls: 0 };
-let timedOut = false, atCapacity = false;
-// A model at capacity refuses the run before any work; that is the service's, not the build's, so the run is
-// tried again (four times, waiting longer each time) and its wall clock counts from the try that ran.
-let code, runStarted = started;
+let timedOut = false, atCapacity = false, worked = false, thread = null, workMs = 0;
+// A model at capacity is the service's failure, not the build's. Refused before any work, the run starts
+// again; cut off mid-run, a Codex session resumes where it stopped. Up to six tries, waiting longer each
+// time; the wall clock is the tries' own time, not the waits between them.
+const RESUME = 'The service interrupted your run (the model was at capacity). Continue from where you left off and finish the app as the original instructions say, including NOTES.md.';
+let code;
 for (let attempt = 0; ; attempt++) {
-  atCapacity = false; runStarted = Date.now();
-  code = await runOnce();
-  if (!atCapacity || usage.output > 0 || attempt >= 4) break;
-  log.write(JSON.stringify({ retry: attempt + 1, reason: 'model at capacity' }) + '\n');
+  atCapacity = false;
+  const resume = worked && thread && model === 'gpt';
+  const t0 = Date.now();
+  code = await runOnce(resume ? [...argv.slice(0, -1), 'resume', thread, '-'] : argv, resume ? RESUME : prompt);
+  workMs += Date.now() - t0;
+  if (!atCapacity || attempt >= 5 || (worked && !thread)) break;
+  log.write(JSON.stringify({ retry: attempt + 1, reason: 'model at capacity', resume: worked && !!thread }) + '\n');
   await new Promise((r) => setTimeout(r, 90000 * (attempt + 1)));
 }
 
-function runOnce() {
-const child = spawn(cmd, argv, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
-child.stdin.end(prompt);
+function runOnce(args, input) {
+const child = spawn(cmd, args, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
+child.stdin.end(input);
 let buf = '';
 child.stdout.on('data', (d) => {
   log.write(d);
@@ -75,6 +80,8 @@ child.stdout.on('data', (d) => {
   while ((i = buf.indexOf('\n')) >= 0) {
     const line = buf.slice(0, i); buf = buf.slice(i + 1);
     let e; try { e = JSON.parse(line); } catch { continue; }
+    if (e.type === 'thread.started' && e.thread_id) thread = e.thread_id;
+    if (e.type === 'item.completed' || e.type === 'assistant') worked = true;
     if (e.type === 'turn.completed' && e.usage) { // Codex: one per turn
       usage.input += e.usage.input_tokens ?? 0; usage.cached += e.usage.cached_input_tokens ?? 0;
       usage.output += e.usage.output_tokens ?? 0;
@@ -96,7 +103,7 @@ child.stderr.on('data', (d) => log.write(JSON.stringify({ stderr: String(d) }) +
 const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); setTimeout(() => child.kill('SIGKILL'), 10000); }, LIMIT_MIN * 60000);
 return new Promise((r) => child.on('exit', (c) => { clearTimeout(timer); r(c); }));
 }
-const minutes = (Date.now() - runStarted) / 60000;
+const minutes = workMs / 60000;
 
 // The id the builder actually set (it may have kept another).
 let finalId = appId;
