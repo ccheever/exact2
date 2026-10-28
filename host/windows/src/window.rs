@@ -746,10 +746,11 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         if self.window.is_some() {
             return;
         }
-        let deferred = direct_device(
+        let composition = direct_device(
             self.config.painter(),
             std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
         );
+        let deferred = composition && std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("warp");
         let warp = if deferred {
             let wake = self.proxy.clone();
             if std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("warp") {
@@ -774,7 +775,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         };
         let window = match events.create_window(
             Window::default_attributes()
-                .with_no_redirection_bitmap(deferred)
+                .with_no_redirection_bitmap(composition)
                 .with_visible(false)
                 .with_title(&self.name)
                 .with_fullscreen(
