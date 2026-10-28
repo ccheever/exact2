@@ -20,6 +20,8 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realp
 import { homedir, release, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
+import { bindingsCheck, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
+import { s15b2Stage } from './stage12-s15b2.mjs';
 import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
 import { webDist } from './app.mjs';
 import { jsTargetBuild } from '../host/web/serve.mjs';
@@ -198,7 +200,7 @@ function driveScreens(copy, host, dir, env) {
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
       const allow = r.ok ? allowOf(screen, r.out) : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], named: r.ok ? namedOf(NAMED, screen, r.out) : [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -265,27 +267,7 @@ export function baseline(copy, out, hosts = CLONE_HOSTS, env = process.env) {
  * change of one level there still fails. An edge pixel is one a 4-neighbour
  * differs from by more than `edge` in some channel, in the before shot. */
 export const WEB_NOISE = { floor: 2, edge: 32 };
-
-/** Pixels differing between two screenshots outside `allow` (rectangles
- * [x, y, w, h], each with a reason): any channel apart, or more than
- * `noise.floor` apart on a before-shot edge pixel (`noise.edge`):
- * {differ, total, size}. A size change is every pixel. */
-export function pixelDiff(a, b, allow = [], noise = null) {
-  const A = decodePng(a), B = decodePng(b);
-  if (A.width !== B.width || A.height !== B.height) return { differ: A.width * A.height, total: A.width * A.height, size: [A.width, A.height, B.width, B.height] };
-  const inside = (x, y) => allow.some(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh);
-  let differ = 0;
-  for (let y = 0; y < A.height; y++) {
-    for (let x = 0; x < A.width; x++) {
-      const i = (y * A.width + x) * 4;
-      const d = apart(A.data, i, B.data, i);
-      if (d === 0 || inside(x, y)) continue;
-      if (noise && d <= noise.floor && edgeAt(A, x, y, noise.edge)) continue;
-      differ++;
-    }
-  }
-  return { differ, total: A.width * A.height };
-}
+export { pixelDiff };
 
 /** Two baseline records shot for shot (each host, scheme and screen):
  * differing pixels outside both sides' allowlisted rectangles, strict zero
@@ -297,20 +279,9 @@ export function comparePixels(before, after) {
     const a = later.get(key(b));
     if (!b.ok || !a?.ok) return { shot: key(b), ok: false, said: !a ? 'no after shot' : `not shot: ${(b.ok ? a : b).said}` };
     const allow = [...b.allow ?? [], ...a.allow ?? []];
-    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null);
-    return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow };
-  });
-}
-
-/** The largest channel difference between pixel `i` of `p` and `j` of `q`. */
-const apart = (p, i, q, j) => Math.max(Math.abs(p[i] - q[j]), Math.abs(p[i + 1] - q[j + 1]), Math.abs(p[i + 2] - q[j + 2]), Math.abs(p[i + 3] - q[j + 3]));
-
-/** Whether (x, y) is an anti-aliased edge: a 4-neighbour more than `edge` apart. */
-function edgeAt(img, x, y, edge) {
-  const i = (y * img.width + x) * 4;
-  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
-    const nx = x + dx, ny = y + dy;
-    return nx >= 0 && ny >= 0 && nx < img.width && ny < img.height && apart(img.data, i, img.data, (ny * img.width + nx) * 4) > edge;
+    const named = unionNamed(b.named, a.named);
+    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null, named);
+    return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow, ...(d.names ? { names: d.names, png: [b.png, a.png] } : {}) };
   });
 }
 
@@ -321,6 +292,8 @@ export const RETIRED = [];
 /** The exports a stage's adoption instantiates from the copy's own files (stage 15 B's Avatar and VerifiedBadge, which
  * the packages placed inside PostCard and ProfileHeader already): after's files place each, before's none. */
 export const APP_PLACED = [];
+/** A stage's NAMED pixel changes (stage 15 B batch 2, scripts/stage12-named.mjs) and its bindings (theme2's option B). */
+export const NAMED = [], BINDINGS = [];
 
 /** The library components a source map's view nodes instantiate from a file no package's: the innermost call site
  * (`chain[0]`, the instantiation's span) in the copy's own sources, not inside another package component. */
@@ -511,6 +484,9 @@ export function consumerPixels(opts) {
   if (broken.length) return fail(broken.map(x => x.error).join('; '));
   if (kept.length) return fail(`--copy still declares ${kept.map(x => x.line).join(', ')}: not the adoption`);
   if (unborn.length) return fail(`--before never declared ${unborn.map(x => x.line).join(', ')}: not the baseline`);
+  // Theme2's option B: each binding draws nothing of its own and places only what it binds to (after's source map).
+  const bound = bindingsCheck(maps.after, BINDINGS);
+  if (bound.some(b => !b.ok)) return fail(...bound.map(b => `binding ${b.binding}: ${b.said}`));
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
   // failure the baseline doesn't have.
@@ -524,6 +500,10 @@ export function consumerPixels(opts) {
   }
   const r = comparePixels(shots.before, shots.after);
   const bad = r.filter(x => !x.ok);
+  // Named changes: each name's pixels and box, and both sides' crops of every named box that differs, for theme2.
+  const crops = join(ROOT, 'target', 'stage12-gate', 'named-crops');
+  const report = namedReport(NAMED, r), cropped = r.flatMap(x => (x.names ? namedCrops(x.png[0], x.png[1], x.names, crops, x.shot) : []));
+  const missingNames = report.filter(n => n.status === 'MISSING');
   // Rendered: each library component shown on the screens shot (a testId
   // only its package's view writes, which the copy's own sources don't),
   // and none of PostCard's, ActionRow's or AtCard's before.
@@ -554,8 +534,11 @@ export function consumerPixels(opts) {
     `shown on the screens shot, by each node's source map, every host: ${byComponent.length - new Set(notShown.map(x => x.split(' on ')[0])).size} of ${byComponent.length}${notShown.length ? `; NOT shown: ${notShown.join(', ')}` : ''}${shownBefore.length ? `; before already shows ${shownBefore.join(', ')}` : ''}`,
     ...(APP_PLACED.length ? [`shown where the copy's own files instantiate them, every host: ${APP_PLACED.map(id => id.split('#')[1]).join(', ')}${appNotShown.length ? `; NOT shown: ${appNotShown.join(', ')}` : ''}`] : []),
     ...byComponent.map(c => { const all = [...new Set(Object.values(c.per).flat())]; const same = hosts.every(h => c.per[h].length === all.length); return `  ${c.name}: ${same ? all.join(', ') : hosts.map(h => `${h} ${c.per[h].join(', ') || 'none'}`).join('; ')}`; }),
+    ...bound.map(b => `binding ${b.binding}: ${b.said}`),
+    ...(NAMED.length ? [`named changes (theme2 23:16: inside each named box allowed and reported, strict outside; crops of every differing box in ${crops}, ${cropped.length} files):`,
+      ...report.map(n => `  ${n.status} ${n.screen} ${n.target}: ${n.change}; ${n.differ} px over ${n.shots.length} of ${n.seen} shots${n.shots.length ? `, boxes ${n.shots.map(h => `${h.shot.split(' ').slice(0, 2).join('-')} ${h.box.join(',')}`).join('; ')}` : ''}`)] : []),
     ...conformEvidence(conform)];
-  return bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);
+  return missingNames.length || bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);
 }
 
 /** The library lines' required hosts (LLP 1139 §5): the web's JS target
@@ -1382,6 +1365,9 @@ export const STAGES = {
   },
 };
 
+// Stage 15 B batch 2's: batch 1's and its own (scripts/stage12-s15b2.mjs).
+STAGES.s15b2 = s15b2Stage(STAGES.s15b, SIGN_IN);
+
 /** Run the gate as `stage`'s (`--stage`): its tag, adoption, screens, rendered testIds and restyle cases. */
 export function useStage(stage) {
   const p = STAGES[stage];
@@ -1389,7 +1375,7 @@ export function useStage(stage) {
   EXACT = !!p.exact;
   RELEASE = p.release ?? null;
   TITLES = p.titles ?? {};
-  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle], [RETIRED, p.retired ?? []], [APP_PLACED, p.appPlaced ?? []]]) list.splice(0, list.length, ...items);
+  for (const [list, items] of [[ADOPTED, p.adopted], [BEFORE_USES, p.before], [SCREENS, p.screens], [RENDERED, p.rendered], [RESTYLE, p.restyle], [RETIRED, p.retired ?? []], [APP_PLACED, p.appPlaced ?? []], [NAMED, p.named ?? []], [BINDINGS, p.bindings ?? []]]) list.splice(0, list.length, ...items);
   return p;
 }
 
@@ -1468,7 +1454,7 @@ export function parse(argv) {
 
 if (import.meta.main) {
   const opts = parse(process.argv.slice(2));
-  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b] [--only <line> …] [--screen <name> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
+  if (typeof opts === 'string') { console.error(`${opts}\nusage: bun scripts/stage12-gate.mjs [--stage s12|s13c|s15b|s15b2] [--only <line> …] [--screen <name> …] [--out <file>] [--copy <dir>] [--baseline <dir>] [--release <json>] | baseline [--stage s12|s13c|s15b|s15b2] --copy <dir> --out <dir> [--host <h> …]`); process.exit(2); }
   const stage = useStage(opts.stage);
   if (opts.screens.length) SCREENS.splice(0, SCREENS.length, ...SCREENS.filter(([n]) => opts.screens.includes(n)));
   RERUN_SCREENS.push(...opts.screens);
