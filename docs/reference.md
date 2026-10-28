@@ -1548,8 +1548,11 @@ implement it; iOS, tvOS, Android, Windows and the web reject every name with
 
 A child starts in a process group of its own with the default signal
 dispositions and only its three pipes; releasing its resource, a `kill`, the
-app's quit and the next launch after a crash end the whole group, so a
-grandchild that holds the pipes after its parent exits ends too. `storage.fs`
+app's quit and its exit end the whole group, so a grandchild that holds the
+pipes after its parent exits ends too. After a crash, the next launch ends a
+group whose leader is still running; with the leader gone it ends the group
+only when the app led its own session, so a Mac app launched from the Finder
+(session 1) or from a terminal leaves that group's survivors running. `storage.fs`
 reads and writes `home:/…` (the user's home, under a grant narrower than
 `home:/`) and reads `bundle:/…` (the app bundle, read-only), and gains
 `lstat`, `readlink`, `access`, `chmod`, `symlink`, `digest(path, "SHA-256")`

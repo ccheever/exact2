@@ -21,6 +21,7 @@ use ibex2::process as os;
 use serde_json::{json, Value as Json};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -39,6 +40,23 @@ static LIVE: Mutex<Vec<(i32, String, f64)>> = Mutex::new(Vec::new());
 /// Where this app records its children's groups: its cache directory.
 fn records(shared: &Shared) -> Option<PathBuf> {
     Some(shared.root_paths.get()?[1].join("exact-children.json"))
+}
+
+/// An exclusive lock beside record file `path`, held while it is read and
+/// written: every instance of the app shares the file, and two writers
+/// would each drop the other's entries. `None` where it cannot be had.
+fn lock_records(path: &Path) -> Option<std::fs::File> {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let file = (std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true))
+    .open(path.with_extension("lock"))
+    .ok()?;
+    file.lock().ok()?;
+    Some(file)
 }
 
 fn read_records(path: &Path) -> Vec<Json> {
@@ -85,12 +103,14 @@ pub(super) fn remember(shared: &Shared, pgid: i32, signal: &str, grace: f64) {
     reap_once(shared);
     (shared.processes.groups.lock().unwrap()).insert(pgid, (signal.to_string(), grace));
     LIVE.lock().unwrap().push((pgid, signal.to_string(), grace));
+    INSTALLED.store(std::process::id(), Ordering::Relaxed);
     os::wait_at_exit(end_at_exit);
     let Some(path) = records(shared) else {
         return;
     };
     let (recorder, recorder_start) = me();
     let _guard = RECORDS.lock().unwrap();
+    let _file = lock_records(&path);
     let mut entries = read_records(&path);
     entries.retain(|e| {
         !mine(e)
@@ -116,15 +136,24 @@ pub(super) fn forget(shared: &Shared, pgid: i32) {
     LIVE.lock().unwrap().retain(|(g, ..)| *g != pgid);
 }
 
+/// The process that installed [`end_at_exit`]: a child another library
+/// forked inherits the `atexit` list, and its `exit` signals nothing.
+static INSTALLED: AtomicU32 = AtomicU32::new(0);
+
 /// At the process's exit: every live group gets its kill signal, then
 /// `SIGKILL` after its grace (at most 5 s). A quit already drained its own.
 fn end_at_exit() {
-    let live: Vec<(i32, String, f64)> =
-        std::mem::take(&mut *LIVE.lock().unwrap_or_else(|e| e.into_inner()))
-            .into_iter()
-            .filter(|(pid, ..)| os::group_alive(*pid))
-            .map(|(pid, signal, grace)| (pid, signal, grace.min(QUIT_LIMIT_MS)))
-            .collect();
+    if INSTALLED.load(Ordering::Relaxed) != std::process::id() {
+        return;
+    }
+    let Ok(mut live) = LIVE.try_lock() else {
+        return;
+    };
+    let live: Vec<(i32, String, f64)> = std::mem::take(&mut *live)
+        .into_iter()
+        .filter(|(pid, ..)| os::group_alive(*pid))
+        .map(|(pid, signal, grace)| (pid, signal, grace.min(QUIT_LIMIT_MS)))
+        .collect();
     for (pid, signal, _) in &live {
         let _ = os::signal_group(*pid, os::signal_number(signal).unwrap_or(os::SIGTERM));
     }
@@ -151,6 +180,7 @@ pub(super) fn reap(shared: &Shared) {
         return;
     };
     let _guard = RECORDS.lock().unwrap();
+    let _file = lock_records(&path);
     let entries = read_records(&path);
     if entries.is_empty() {
         return;
@@ -249,6 +279,7 @@ fn prune(path: Option<&Path>) {
         return;
     };
     let _guard = RECORDS.lock().unwrap();
+    let _file = lock_records(path);
     let entries = read_records(path);
     let ended = |e: &Json| {
         mine(e)

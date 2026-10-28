@@ -448,9 +448,18 @@ fn answer(
         let why = format!("outside the app's grants (process.spawn {})", spec.program);
         return failed(FailureKind::Refused, why);
     }
-    // A `path:` name with no `env.PATH` reads the login shell's, which only
-    // the app's origin captures first (D5, D13); once captured, it answers
-    // any origin. The runner admitted the start itself.
+    // The runner refuses a start from any origin but the app's (D13); the
+    // host holds it too. A `path:` name with no `env.PATH` reads the login
+    // shell's, which only the app's origin captures first (D5, D13); once
+    // captured, it answers any origin.
+    if spec.kind != "execPath" && origin != CallOrigin::App {
+        let why = format!(
+            "person-required: {} from a {} origin starts no program (LLP 1133.007 D13)",
+            spec.kind,
+            origin.word()
+        );
+        return failed(FailureKind::Refused, why);
+    }
     let login_path = spec.program.starts_with("path:")
         && !(spec.env.iter().flatten()).any(|(k, _)| k == "PATH")
         && shared.processes.agent.is_none();

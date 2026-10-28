@@ -369,16 +369,23 @@ fn passwd() -> Option<(PathBuf, PathBuf)> {
 
 /// Run `wait` when the process exits (`atexit`), once however often it is
 /// asked: a host whose quit ends its children off the main thread has
-/// `exit` wait for them.
+/// `exit` wait for them. Only in the process that asked: a child forked
+/// later inherits the `atexit` list, and its `exit` runs none of them, nor
+/// waits on a lock another thread held at the fork.
 pub fn wait_at_exit(wait: fn()) {
     static WAITS: std::sync::Mutex<Vec<fn()>> = std::sync::Mutex::new(Vec::new());
     static REGISTER: std::sync::Once = std::sync::Once::new();
+    static OWNER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     extern "C" fn run() {
-        let waits = WAITS.lock().map(|w| w.clone()).unwrap_or_default();
+        if OWNER.load(std::sync::atomic::Ordering::Relaxed) != std::process::id() {
+            return;
+        }
+        let waits = WAITS.try_lock().map(|w| w.clone()).unwrap_or_default();
         for wait in waits {
             wait();
         }
     }
+    OWNER.store(std::process::id(), std::sync::atomic::Ordering::Relaxed);
     let mut waits = WAITS.lock().unwrap_or_else(|e| e.into_inner());
     if !waits.contains(&wait) {
         waits.push(wait);
