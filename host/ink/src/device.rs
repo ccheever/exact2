@@ -183,3 +183,47 @@ impl From<windows::core::Error> for Error {
         Self::Device(error.to_string())
     }
 }
+
+/// Windows process CPU and working set, in the same units as the S0 Mac probe.
+#[cfg(windows)]
+pub fn process_usage() -> std::io::Result<[f64; 5]> {
+    use windows::Win32::{
+        Foundation::FILETIME,
+        System::{
+            ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
+            Threading::{GetCurrentProcess, GetProcessTimes},
+        },
+    };
+    unsafe {
+        let process = GetCurrentProcess();
+        let (mut created, mut exited, mut kernel, mut user) = (
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+        );
+        GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user)
+            .map_err(std::io::Error::other)?;
+        let mut memory = PROCESS_MEMORY_COUNTERS {
+            cb: size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+            ..Default::default()
+        };
+        if !K32GetProcessMemoryInfo(
+            process,
+            &mut memory,
+            size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        )
+        .as_bool()
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        let ticks = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+        Ok([
+            (ticks(kernel) + ticks(user)) as f64 / 10_000.,
+            memory.WorkingSetSize as f64,
+            memory.PeakWorkingSetSize as f64,
+            memory.PagefileUsage as f64,
+            memory.PeakPagefileUsage as f64,
+        ])
+    }
+}

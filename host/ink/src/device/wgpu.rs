@@ -76,7 +76,7 @@ impl Wgpu {
     pub async fn open() -> Result<Self> {
         let started = Instant::now();
         let instance = ::wgpu::Instance::new(::wgpu::InstanceDescriptor {
-            backends: ::wgpu::Backends::PRIMARY,
+            backends: ::wgpu::Backends::PRIMARY.with_env(),
             ..::wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = instance

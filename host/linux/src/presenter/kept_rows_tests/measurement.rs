@@ -54,7 +54,15 @@ fn ink_arm(arm: &str) -> bool {
 fn select_device(arm: &str) {
     std::env::set_var(
         "EXACT_INK_DEVICE",
-        if arm == "D" { "metal" } else { "wgpu" },
+        if arm == "D" {
+            if cfg!(windows) {
+                "d3d11"
+            } else {
+                "metal"
+            }
+        } else {
+            "wgpu"
+        },
     );
 }
 
@@ -313,14 +321,14 @@ fn ps(field: &str) -> String {
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
 }
 fn rss_kib() -> f64 {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     if std::env::var_os("INK_SAMPLE_PS").is_none() {
         return exact_ink::device::process_usage().unwrap()[1] / 1024.;
     }
     ps("rss=").parse().unwrap()
 }
 fn cpu_ms() -> f64 {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     if std::env::var_os("INK_SAMPLE_PS").is_none() {
         return exact_ink::device::process_usage().unwrap()[0];
     }
