@@ -17,15 +17,19 @@
 //   POST /passkey/…                  the passkey relying party (relying-party.mjs)
 //   POST /attest/challenge           a single-use challenge for @exact/attestation (LLP 1133.028 §8.1)
 //   POST /attest/verify              {format, token, keyId, clientData} → {ok, message, error}
+//   /sign-in/…                       nonce, the web's return route, identity (sign-in.mjs, LLP 1133.014 §10)
 //
 // `--substitute` accepts the agent's attestation tokens, which its drives
 // start it with; `--team <id>` is the team an App Attest key's RP ID names
 // (`EXACT_APPLE_TEAM`); `EXACT_PLAY_INTEGRITY_KEY` names the service
 // account's key file Play's tokens are decoded with, kept outside the repo.
+// `--idp-keys <file>` is the fixture identity provider's key file (with
+// `--substitute`, the only keys an ID token is checked against).
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { said, verifier } from '../../packages/attestation/test/verify.mjs';
 import { androidOrigin, LOOPBACK, relyingParty } from './relying-party.mjs';
+import { signIn } from './sign-in.mjs';
 
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf('--port') + 1] || 4331) || 4331;
@@ -48,6 +52,7 @@ const passkeys = relyingParty(log, { rps: {
   'auth-fixture.exact.test': [ORIGIN, ...certificates.map(androidOrigin)],
   localhost: LOOPBACK,
 } });
+const identities = signIn(log, { substitute: args.includes('--substitute'), idpKeys: args.includes('--idp-keys') ? args[args.indexOf('--idp-keys') + 1] : null });
 const team = args.includes('--team') ? args[args.indexOf('--team') + 1] : process.env.EXACT_APPLE_TEAM ?? 'TEAMID';
 const attestations = verifier({ appId: `${team}.com.exact.authfixture`, packageName: 'com.exact.authfixture', substitute: args.includes('--substitute') });
 log.attestation = attestations.log;
@@ -172,6 +177,17 @@ export const server = createServer(async (req, res) => {
       log.resource++;
       return send(res, 200, { did: held.sub, handle: HANDLE });
     }
+    if (url.pathname === '/sign-in/return') {
+      const back = await identities.back(req.method, Object.fromEntries(url.searchParams), req.method === 'POST' ? await readForm(req) : {});
+      if (back.status === 303) { res.writeHead(303, { location: back.location, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); res.end(); return; }
+      return refuse(res, back.status, 'invalid_request', back.body);
+    }
+    if (req.method === 'POST' && (url.pathname.startsWith('/sign-in/') || url.pathname === '/fixture/sign-in')) {
+      let text = '';
+      for await (const chunk of req) text += chunk;
+      const answer = await identities.route(url.pathname, JSON.parse(text || '{}'));
+      if (answer) return send(res, 200, answer);
+    }
     const passkey = req.method === 'POST' && passkeys.route(url.pathname);
     if (passkey) {
       let text = '';
@@ -201,6 +217,7 @@ export const server = createServer(async (req, res) => {
       requests.clear(); codes.clear(); tokens.clear(); jtis.clear(); authNonce = nonce(); resourceNonce = nonce(); coop = false; auto = false;
       Object.assign(log, { par: 0, authorize: 0, token: 0, resource: 0, dpopVerified: 0, nonceRetries: 0, pkce: 0, refused: [] });
       passkeys.reset();
+      identities.reset();
       attestations.reset(); challenges.clear();
       return send(res, 200, { ok: true });
     }

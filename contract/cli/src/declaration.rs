@@ -74,6 +74,13 @@ pub(crate) fn read(path: &Path, text: &str, source_id: u32) -> Result<File, Refu
                 }
                 file.modules.push(decl);
             }
+            for (owner, members) in object(&json["members"]) {
+                for (member, spec) in object(members) {
+                    let decl = member_decl(owner, member, spec, package, &json, span)
+                        .map_err(refuse)?;
+                    file.modules.push(decl);
+                }
+            }
             groups(&json, &file).map_err(refuse)?;
         }
         "implementation" => {
@@ -334,6 +341,17 @@ fn module(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut substitute = substitute(entry, interface)?;
+    // A ceremony's own options, beside which a call may carry only a
+    // platform's words and another package's members (LLP 1133.014 D10).
+    if entry["substitute"]["ceremony"].is_object() {
+        let mut json: Value = serde_json::from_str(&substitute).unwrap_or_default();
+        let takes: Vec<Value> = object(&entry["options"])
+            .keys()
+            .map(|k| Value::from(k.as_str()))
+            .collect();
+        json["takes"] = Value::Array(takes);
+        substitute = json.to_string();
+    }
     let effect = kind == ModuleKind::Send && answers.is_none();
     if admission.is_some() || effect || bytes {
         let mut json: Value = serde_json::from_str(&substitute).unwrap_or_default();
@@ -369,6 +387,101 @@ fn module(
         sync: entry["sync"]["name"].as_str().map(str::to_owned),
         data_only,
         substitute,
+        span,
+    })
+}
+
+/// A member an interface declares on another interface's name (LLP
+/// 1133.014 D10 item 1), as FedCM's WebIDL adds `identity` to
+/// `CredentialRequestOptions`: `"members": {"@exact/passkeys#get":
+/// {"identity": {"type", "answers", "origin", "foreground", "handles",
+/// "substitute"}}}`. It is a row of the plan for data code alone, which the
+/// runner reads when the owner's call carries the member's option
+/// (`memberOf`, `member`); data code calls the owner, never the row.
+fn member_decl(
+    owner: &str,
+    member: &str,
+    spec: &Value,
+    package: &str,
+    interface: &Value,
+    span: Span,
+) -> Result<ModuleDecl, String> {
+    let Some((owner_package, owner_name)) = owner.split_once('#') else {
+        return Err(format!(
+            "a member's owner is `<package>#<name>` (`@exact/passkeys#get`), not `{owner}`"
+        ));
+    };
+    if owner_package == package {
+        return Err(format!(
+            "`{member}` is a member of the interface's own `{owner_name}`: declare it among its options"
+        ));
+    }
+    let uses = interface["uses"].as_str().unwrap_or_default();
+    let pinned = uses
+        .strip_prefix(owner_package)
+        .and_then(|v| v.strip_prefix('@'));
+    if pinned.is_none_or(|v| v.is_empty() || v.starts_with(['^', '~', '>', '<', '*'])) {
+        return Err(format!(
+            "a member of `{owner}` needs `\"uses\": \"{owner_package}@<version>\"`, pinned exactly (LLP 1133.009 D3)"
+        ));
+    }
+    let shape = |key: &str| -> Result<String, String> {
+        let t = spec[key].as_str().unwrap_or_default();
+        match interface["shapes"][t].is_object() {
+            true => Ok(t.to_owned()),
+            false => Err(format!(
+                "member `{member}`'s `{key}` names one of the interface's shapes, not `{t}`"
+            )),
+        }
+    };
+    let options = shape("type")?;
+    let answers = shape("answers")?;
+    let mut sub = match &spec["substitute"] {
+        Value::Null => Map::new(),
+        Value::Object(map) => map.clone(),
+        other => {
+            return Err(format!(
+                "member `{member}`'s `substitute` is an object, not `{other}`"
+            ))
+        }
+    };
+    let owner_extension = owner_package.rsplit('/').next().unwrap_or(owner_package);
+    sub.insert(
+        "memberOf".into(),
+        format!("{owner_extension}.{owner_name}").into(),
+    );
+    sub.insert("member".into(), member.into());
+    for field in ["origin", "foreground", "handles", "grants"] {
+        if !spec[field].is_null() {
+            sub.insert(field.into(), spec[field].clone());
+        }
+    }
+    if !interface["grants"].is_null() && !sub.contains_key("grants") {
+        sub.insert("grants".into(), interface["grants"].clone());
+    }
+    Ok(ModuleDecl {
+        name: member.to_owned(),
+        declared: member.to_owned(),
+        package: package.to_owned(),
+        extension: package.rsplit('/').next().unwrap_or(package).to_owned(),
+        kind: ModuleKind::Send,
+        options: vec![Field {
+            name: member.to_owned(),
+            ty: type_expr(&options, span)?,
+            span,
+        }],
+        words: Vec::new(),
+        answers: Some(type_expr(&answers, span)?),
+        args: Vec::new(),
+        raised: String::new(),
+        hold: 0,
+        budget: 0,
+        handler: None,
+        live: false,
+        request: "always".to_owned(),
+        sync: None,
+        data_only: true,
+        substitute: Value::Object(sub).to_string(),
         span,
     })
 }

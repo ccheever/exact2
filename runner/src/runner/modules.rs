@@ -49,6 +49,7 @@ mod handles;
 mod invoke;
 mod keyed;
 mod letgo;
+mod members;
 mod network;
 mod permits;
 mod pictures;
@@ -860,7 +861,7 @@ impl<D: DataSource> Runner<D> {
         let sub = self.substitute(row);
         let declared = self.plan.str(row.declared).to_owned();
         let checks = check_choices(&sub);
-        let taps = self.ceremony_choices(&sub);
+        let taps = self.ceremony_choices(row, &sub);
         let taps: Vec<&str> = taps.iter().map(String::as_str).collect();
         // A permission's further answers (`choices`), after allow and deny.
         let mut asked = vec!["allow".to_owned(), "deny".to_owned()];
@@ -1244,7 +1245,7 @@ impl<D: DataSource> Runner<D> {
         let h = self.extensions.held.iter().find(|h| h.hold == ticket)?;
         if h.waits == Waits::Ceremony {
             let row = self.module_row(&h.source);
-            let typed = self.ceremony_typed(&row, text);
+            let typed = self.ceremony_typed(&row, &h.args, text);
             return Some(typed.map(|_| ()).map_err(|e| format!("@{ticket}: {e}")));
         }
         if h.waits == Waits::Choose {

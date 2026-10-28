@@ -64,6 +64,7 @@ pub const RECIPES: &[(&str, &str)] = &[
     recipe!("responsive-columns"),
     recipe!("rest-backend"),
     recipe!("sequencer"),
+    recipe!("sign-in"),
     recipe!("snapback"),
     recipe!("snapback-auth"),
     recipe!("snapback-tests"),

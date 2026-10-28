@@ -559,15 +559,23 @@ fn auth(ceiling: &str, platform: &str, compat: &Compat) -> Result<Value, String>
     let sessions = ceiling
         .lines()
         .any(|l| l.trim().starts_with("auth.session "));
+    // `@exact/sign-in`'s lines open the same popup (LLP 1133.014 D5).
     let typescript = compat.inputs["javascriptGrants"]
         .as_str()
         .or(compat.inputs["grantCeiling"].as_str())
-        .is_some_and(|g| g.lines().any(|l| l.trim().starts_with("auth.session ")));
+        .is_some_and(|g| {
+            g.lines().any(|l| {
+                let l = l.trim();
+                ["auth.session ", "auth.apple ", "auth.google "]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+            })
+        });
     if platform == "web"
         && typescript
         && compat.inputs["typescriptPlacement"].as_str() == Some("worker")
     {
-        return Err("grant-auth: `auth.session` in a worker-placed TypeScript source: on the web `openAuthSession` opens its popup in the press's call stack, which a worker is not in (LLP 1069.006); place the source on main (`typescript.placement`)".into());
+        return Err("grant-auth: `auth.session`, `auth.apple` or `auth.google` in a worker-placed TypeScript source: on the web the sign-in popup opens in the press's call stack, which a worker is not in (LLP 1069.006, LLP 1133.014 D5); place the source on main (`typescript.placement`)".into());
     }
     let webcredentials: Vec<String> = callbacks
         .iter()
@@ -593,8 +601,48 @@ fn auth(ceiling: &str, platform: &str, compat: &Compat) -> Result<Value, String>
         "sessions": sessions,
         "callbacks": callbacks,
         "passkeys": passkeys,
+        "signIn": sign_in(ceiling, platform)?,
         "associatedDomains": if matches!(platform, "ios" | "macos") { webcredentials } else { Vec::new() },
     }))
+}
+
+/// What `auth.apple <client id>` and `auth.google <client id>` derive (LLP
+/// 1133.014 D8): the clients, the audiences a token from this target
+/// carries, which the app's server must accept, and the build's notes: on
+/// the web each provider's web client registers the server's return route;
+/// on Apple a build with Google and no Apple prints App Review 4.8, never a
+/// refusal. Apple's native audience is the bundle ID, which the Apple build
+/// prints beside these.
+fn sign_in(ceiling: &str, platform: &str) -> Result<Value, String> {
+    let mut apple: Vec<String> = Vec::new();
+    let mut google: Vec<String> = Vec::new();
+    for line in ceiling.lines().map(str::trim) {
+        let mut words = line.split_whitespace();
+        let into = match words.next() {
+            Some("auth.apple") => &mut apple,
+            Some("auth.google") => &mut google,
+            _ => continue,
+        };
+        let (Some(id), None) = (words.next(), words.next()) else {
+            return Err(format!("grant-auth: `{line}`: `auth.apple` and `auth.google` take one client id each (LLP 1133.014 D8)"));
+        };
+        if !into.iter().any(|i| i == id) {
+            into.push(id.to_owned());
+        }
+    }
+    let mut notes: Vec<String> = Vec::new();
+    if platform == "web" && !(apple.is_empty() && google.is_empty()) {
+        notes.push("sign-in: each provider's web client registers the app server's return route (`web.redirectURI`) as its redirect URI, never the page (LLP 1133.014 D3)".into());
+    }
+    if matches!(platform, "ios" | "macos") && apple.is_empty() && !google.is_empty() {
+        notes.push("sign-in: App Review 4.8: an app whose primary account is a third-party login also offers an equivalent that limits data to name and email, keeps the email private if the person asks, and does not track; Sign in with Apple meets it. Exceptions: the company's own accounts, education and enterprise apps, a client for a specific third-party service".into());
+    }
+    let audiences = match platform {
+        "web" => json!({ "apple": apple, "google": google }),
+        "android" => json!({ "google": google }),
+        _ => json!({ "apple": ["<the bundle ID>"], "google": google }),
+    };
+    Ok(json!({ "apple": apple, "google": google, "audiences": audiences, "notes": notes }))
 }
 
 /// The RP IDs `auth.passkey <rp id>` grants (LLP 1133.011 D6): each a

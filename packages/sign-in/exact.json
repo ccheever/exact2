@@ -1,0 +1,228 @@
+{
+  "kind": "interface",
+  "name": "@exact/sign-in",
+  "version": "1.0.0",
+  "uses": "@exact/passkeys@1.0.0",
+  "grants": [
+    "auth.apple",
+    "auth.google"
+  ],
+  "shapes": {
+    "IdentityCapabilities": {
+      "available": "bool",
+      "providers": "IdentityProviderList"
+    },
+    "IdentityProviderList": {
+      "apple": "IdentityProviderCapabilities",
+      "google": "IdentityProviderCapabilities"
+    },
+    "IdentityProviderCapabilities": {
+      "active": "bool",
+      "passive": "bool",
+      "withPublicKey": "bool"
+    },
+    "IdentityCredentialRequestOptions": {
+      "providers": "IdentityProviderRequestOptions[]",
+      "mode": "option<enum<passive|active>>",
+      "context": "option<enum<signin|signup|use|continue>>"
+    },
+    "IdentityProviderRequestOptions": {
+      "configURL": "string",
+      "clientId": "string",
+      "loginHint": "option<string>",
+      "domainHint": "option<string>",
+      "fields": "option<string[]>",
+      "params": "option<IdentityProviderParams>",
+      "apple": "option<IdentityProviderAppleWords>",
+      "android": "option<IdentityProviderAndroidWords>",
+      "web": "option<IdentityProviderWebWords>"
+    },
+    "IdentityProviderParams": {
+      "nonce": "option<string>",
+      "code_challenge": "option<string>"
+    },
+    "IdentityProviderAppleWords": {
+      "clientId": "option<string>"
+    },
+    "IdentityProviderAndroidWords": {
+      "filterByAuthorizedAccounts": "option<bool>",
+      "autoSelectEnabled": "option<bool>",
+      "requestVerifiedPhoneNumber": "option<bool>"
+    },
+    "IdentityProviderWebWords": {
+      "redirectURI": "option<string>"
+    },
+    "IdentityCredentialJSON": {
+      "type": "string",
+      "id": "string",
+      "configURL": "string",
+      "isAutoSelected": "bool",
+      "token": "json<any>",
+      "handle": "string",
+      "apple": "option<IdentityCredentialAppleWords>"
+    },
+    "IdentityCredentialAppleWords": {
+      "user": "string",
+      "realUserStatus": "option<enum<likelyReal|unknown|unsupported>>",
+      "authorizedScopes": "option<string[]>"
+    }
+  },
+  "members": {
+    "@exact/passkeys#get": {
+      "identity": {
+        "type": "IdentityCredentialRequestOptions",
+        "answers": "IdentityCredentialJSON",
+        "origin": "app",
+        "foreground": true,
+        "handles": {
+          "handle": "identity"
+        },
+        "substitute": {
+          "status": "getIdentityCapabilities",
+          "providers": {
+            "https://appleid.apple.com": {
+              "name": "apple",
+              "line": "auth.apple",
+              "audience": {
+                "web": "clientId",
+                "ios": "app",
+                "macos": "app"
+              }
+            },
+            "https://accounts.google.com/gsi/fedcm.json": {
+              "name": "google",
+              "line": "auth.google",
+              "audience": {
+                "web": "clientId",
+                "ios": "apple.clientId",
+                "macos": "apple.clientId",
+                "android": "clientId"
+              }
+            }
+          },
+          "relay": [
+            "web"
+          ],
+          "answer": {
+            "type": "identity"
+          },
+          "cancel": {
+            "error": "NetworkError",
+            "apple": {
+              "code": "canceled"
+            },
+            "android": {
+              "type": "androidx.credentials.TYPE_GET_CREDENTIAL_CANCELLATION_EXCEPTION"
+            }
+          },
+          "choices": {
+            "none": {
+              "error": "NetworkError",
+              "apple": {
+                "code": "canceled"
+              },
+              "android": {
+                "type": "androidx.credentials.TYPE_NO_CREDENTIAL"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "names": [
+    {
+      "source": "getIdentityCapabilities",
+      "live": true,
+      "answers": "IdentityCapabilities",
+      "sync": {
+        "name": "getIdentityCapabilitiesSync",
+        "from": "read"
+      },
+      "substitute": {
+        "partial": true,
+        "default": {
+          "available": false,
+          "providers": {
+            "apple": {
+              "active": false,
+              "passive": false,
+              "withPublicKey": false
+            },
+            "google": {
+              "active": false,
+              "passive": false,
+              "withPublicKey": false
+            }
+          }
+        },
+        "targets": {
+          "web": {
+            "available": true,
+            "providers": {
+              "apple": {
+                "active": true
+              },
+              "google": {
+                "active": true
+              }
+            }
+          },
+          "ios": {
+            "available": true,
+            "providers": {
+              "apple": {
+                "active": true,
+                "passive": true,
+                "withPublicKey": true
+              },
+              "google": {
+                "active": true
+              }
+            }
+          },
+          "macos": {
+            "available": true,
+            "providers": {
+              "google": {
+                "active": true
+              }
+            }
+          },
+          "android": {
+            "available": true,
+            "providers": {
+              "google": {
+                "active": true,
+                "passive": true,
+                "withPublicKey": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": "preventSilentAccess",
+      "contract": false,
+      "answers": "unit",
+      "substitute": {
+        "records": true
+      }
+    }
+  ],
+  "views": {
+    "exact-sign-in-button": {
+      "props": {
+        "provider": "string",
+        "context": "option<string>",
+        "theme": "option<string>",
+        "shape": "option<string>",
+        "cornerRadius": "option<number>"
+      },
+      "events": [
+        "press"
+      ]
+    }
+  }
+}

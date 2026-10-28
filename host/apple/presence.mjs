@@ -57,6 +57,12 @@ export function associatedDomains(auth, debuggable) {
   return (auth?.associatedDomains ?? []).map((d) => debuggable && passkeys.has(d) ? `${d}?mode=developer` : d);
 }
 
+/** Sign in with Apple's entitlement, which follows the signing, not the grant (LLP 1133.014 D7): a simulator takes it;
+ * a device's profile must authorize it, and reading that from the profile is not built, so a device build signs none. */
+export function signInEntitlement(auth, simulator) {
+  return (auth?.signIn?.apple ?? []).length && simulator ? { 'com.apple.developer.applesignin': ['Default'] } : {};
+}
+
 /** A grant's entitlement's value (`reach.entitlements`): `true`, or the string the build chooses (LLP 1133.028 D15
  * item 1). App Attest's environment is `development` for a debuggable build and `production` for a release; Apple
  * uses production for TestFlight and App Store builds whatever it says. */

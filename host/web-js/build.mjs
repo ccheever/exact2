@@ -469,7 +469,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   // After the first render, which a font wait may defer (`containers()` reads the runtime's `globalThis.exact`).
   ...(containerHatches ? ["go(() => requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers()))));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'samples.js', 'wakes.js', 'reach.js', 'devices.js', 'arrival.js', 'calls.js', 'update.js', 'spans.js', 'views.js', 'pictures.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'samples.js', 'wakes.js', 'reach.js', 'devices.js', 'members.js', 'arrival.js', 'calls.js', 'update.js', 'spans.js', 'views.js', 'pictures.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 writeFileSync(resolve(gen, 'modules.js'), localImports(readFileSync(resolve(here, 'modules.js'), 'utf8')));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
@@ -492,8 +492,9 @@ const grantSection = (() => {
 cpSync(resolve(root, 'host/web/frame-messages.js'), resolve(gen, 'frame-messages.js'));
 for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
 writeFileSync(resolve(gen, 'agent.js'), localImports(readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'")));
-// A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
-const auth = /^\s*auth\.session\s/m.test(grants);
+// A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006), as
+// `@exact/sign-in` does for one granted `auth.apple` or `auth.google` (LLP 1133.014 D8).
+const auth = /^\s*auth\.(session|apple|google)\s/m.test(grants);
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(pageAppTs))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));

@@ -50,6 +50,27 @@ impl Loader<'_> {
             let file = crate::declaration::read(&key, &used_src, used as u32).map_err(
                 |(id, message)| vec![name_error(id, format!("{described}: {message}"), span)],
             )?;
+            // One package declares a member of a name (LLP 1133.014 D10 item 1).
+            let member = |m: &contract_syntax::ModuleDecl| {
+                let sub: serde_json::Value =
+                    serde_json::from_str(&m.substitute).unwrap_or_default();
+                Some((sub["memberOf"].as_str()?.to_owned(), m.declared.clone()))
+            };
+            for m in &file.modules {
+                let Some(ours) = member(m) else { continue };
+                let twice = (self.units.iter().flat_map(|u| &u.file.modules))
+                    .find(|o| o.package != m.package && member(o).as_ref() == Some(&ours));
+                if let Some(other) = twice {
+                    return Err(vec![name_error(
+                        "module-member-twice",
+                        format!(
+                            "{described}: `{}` on `{}` is declared by both {} and {}; an app binds one",
+                            ours.1, ours.0, other.package, m.package
+                        ),
+                        span,
+                    )]);
+                }
+            }
             self.units.push(Unit {
                 file,
                 targets: Vec::new(),

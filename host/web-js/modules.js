@@ -39,6 +39,7 @@ import { spans, fillAll } from "./spans.js";
 import { arrivals } from "./arrival.js";
 import { devices } from "./devices.js";
 import { setSpaceState } from "../web/address-space.js";
+import { members } from "./members.js";
 
 // `rows`: source → [extension.name, send, substitute, type, request, options' type, live];
 // `bound`: extension → a loader of its web implementation, where the app binds one
@@ -59,6 +60,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   };
   for (const [source, [key, send, sub, type, request, options, live]] of Object.entries(rows)) byKey.set(key, { source, key, send, sub: here(sub), type, request, options, live });
   const sampled = samples(t => now() - clock.now + t);
+  // Another package's members of a ceremony's name (LLP 1133.014 D10 item 1, `members.js`).
+  const mb = members(() => [...byKey.values()], row => valueOf(row), () => data.grants);
   // The origin of the commit running now (LLP 1133.002 D12): the device's while an emitted event's handler runs, and,
   // since data code and an answer's commit cannot say which request they follow, while any request such a handler
   // made is still in flight (`deviceBase`, the in-flight count before it): the least privileged origin.
@@ -208,7 +211,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // `sheet`: a sheet's answer, which reaches the implementation as the call's `preferred` (`{tap}`, `{typed}`).
   const releaseForward = (h, sheet) => { retire(h); h.forward(sheet).then(json => release(h, json), e => h.reject(e)); };
   // Ceremonies (LLP 1133.011 §9), as the runner's `modules/ceremony.rs`: a grant matched by an argument's value, the
-  // status rules (`unless`), one sheet at a time, the `passkey` ticket's args and answers, the withheld paths, a
+  // status rules (`unless`), one sheet at a time, the `credential` ticket's args and answers, the withheld paths, a
   // dropped registration disposed of (D11), and the list `state.extensions` shows.
   const at = (v, path) => path.split(".").reduce((x, k) => x?.[k], v);
   const listed = [];
@@ -219,6 +222,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       const lines = (data.grants ?? "").split("\n").map(l => l.trim().split(/\s+/));
       for (const [path, spec] of Object.entries(row.sub.nameGrants ?? {})) {
         if (!spec?.line) continue;
+        // A call without the argument the path is in asks nothing of it (a sign-in alone, LLP 1133.014 D3).
+        if (path.includes(".") && args?.[path.split(".")[0]] == null) continue;
         const code = spec.refuse ?? "NotAllowedError";
         // An omitted RP ID is the page's effective domain, which must be granted too (D6).
         const value = at(args, path) ?? (spec.omitted === "page" && typeof location === "object" ? location.hostname : undefined);
@@ -233,7 +238,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     },
     decide(row, args) {
       const c = row.sub.ceremony, status = valueOf(sibling(row, c.status)) ?? {};
-      for (const rule of c.unless ?? []) {
+      // The owner's status speaks for its own ceremony alone (LLP 1133.014 D3).
+      for (const rule of mb.ownsCeremony(row, args) ? c.unless ?? [] : []) {
         const applies = !rule.when || Object.entries(rule.when).every(([k, v]) => args?.[k] === v);
         if (applies && status[rule.field] === rule.is) return { now: { error: rule.error, message: `\`${rule.field}\` is ${rule.is} on web` } };
       }
@@ -242,14 +248,17 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     args(h) {
       const c = h.row.sub.ceremony, declared = h.row.key.slice(h.row.key.indexOf(".") + 1);
       const client = c.clientOrigin?.web === "page" && typeof location === "object" ? location.origin : null;
-      return { request: declared, ceremony: declared, mediation: h.args?.mediation ?? "optional", rpId: ceremonies.rpId(h.row, h.args), clientOrigin: client, options: c.options ? h.args?.[c.options] ?? null : null, origin: "app" };
+      const owned = mb.ownsCeremony(h.row, h.args);
+      return { request: declared, ceremony: declared, mediation: h.args?.mediation ?? "optional", rpId: owned ? ceremonies.rpId(h.row, h.args) : null, clientOrigin: owned ? client : null, options: c.options ? h.args?.[c.options] ?? null : null, origin: "app", ...mb.args(h.row, h.args) };
     },
-    // A held conditional ceremony ends with `AbortError` before another is held; `true` while a modal one is held (D9).
+    // A held conditional ceremony or passive sign-in ends with `AbortError` before another is held; `true` while a modal
+    // one is held (D9).
     begins(row) {
       const ext = extensionOf(row), ours = h => h.waits === "ceremony" && !h.queued && extensionOf(h.row) === ext;
-      for (const h of held.filter(h => ours(h) && h.args?.mediation === "conditional")) {
+      // A passive sign-in (LLP 1133.014 D5) ends as a conditional get does.
+      for (const h of held.filter(h => ours(h) && (h.args?.mediation === "conditional" || (h.args?.identity != null && h.args.identity.mode !== "active")))) {
         say(`device ${capability(h)} ${h.ticket} retired`);
-        release(h, { error: "AbortError", message: "a newer ceremony replaced this conditional one" });
+        release(h, { error: "AbortError", message: "a newer ceremony replaced this conditional or passive one" });
       }
       return held.some(ours);
     },
@@ -261,7 +270,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       say(`device ${capability(next)} ${next.ticket} held (agent)`);
     },
     record(h, outcome) {
-      const entry = { name: h.row.key.slice(h.row.key.indexOf(".") + 1), mediation: h.args?.mediation ?? null, rpId: ceremonies.rpId(h.row, h.args), origin: h.row.sub.ceremony ? ceremonies.args(h).clientOrigin : null, outcome };
+      const entry = { name: h.row.key.slice(h.row.key.indexOf(".") + 1), mediation: h.args?.mediation ?? null, rpId: h.row.sub.ceremony ? ceremonies.args(h).rpId : ceremonies.rpId(h.row, h.args), origin: h.row.sub.ceremony ? ceremonies.args(h).clientOrigin : null, outcome, ...(h.row.sub.ceremony ? mb.summary(h.row, h.args) : {}) };
       const i = listed.findIndex(([x]) => x === h);
       if (i >= 0) listed[i][1] = entry; else listed.push([h, entry]);
       if (listed.length > 16) listed.shift();
@@ -284,10 +293,12 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     // A reply its call no longer wants: its registration disposed of, and the call ended with `AbortError`, so its
     // data code, which runs on, never has the response (D11).
     dropped(row, json) {
-      const ids = row.sub.handles && !errorCode(json) ? Object.keys(row.sub.handles).flatMap(path => handlesAt(json, path)) : [];
+      // A member's answer carries the member's handles, its package's to dispose of (LLP 1133.014 D12).
+      const by = (!errorCode(json) && mb.answering(row, json)) || row;
+      const ids = by.sub.handles && !errorCode(json) ? Object.keys(by.sub.handles).flatMap(path => handlesAt(json, path)) : [];
       if (ids.length) {
-        say(`dispose ${extensionOf(row)} ${ids.join(", ")}: its reply was dropped`);
-        implementation(row)?.then(impl => impl?.dispose?.(ids));
+        say(`dispose ${extensionOf(by)} ${ids.join(", ")}: its reply was dropped`);
+        implementation(by)?.then(impl => impl?.dispose?.(ids));
       }
       return row.sub.ceremony ? { error: "AbortError", message: "the call was let go" } : json;
     },
@@ -397,6 +408,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (!bound[extension]) return null;
     if (!loaded.has(extension)) loaded.set(extension, chunk(extension).then(m => {
       const context = { changed: key => byKey.has(key) && reask([key]), agent: clock.agent, config: m.config ?? {}, now: () => { time(); return clock.now; }, foreground: shown, log: say, tracks, files, audioSession,
+        // The app's grant lines, and the host's auth session for an implementation (LLP 1133.014 D10 item 3).
+        grants: data.grants ?? "", get authSession() { return globalThis.exact?.authSession; },
         revokePicture: source => pictures?.revokePicture(source), pictureChanged: source => pictures?.pictureChanged(source), invoke: invoker(extension),
         // A package's own raising has the device's origin; a person's is the host's to give (LLP 1133.004 D6).
         emit: (name, args) => raise(`${extension}.${name}`, args, "device"),
@@ -508,8 +521,13 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
   // `how`: the call's origin, the reader or mutation that asked (`name`), whose newer call cancels this one, and a held
   // sheet's answer (`sheet`, LLP 1133.018 D13 item 4). The implementation is told the origin and the request's number,
   // which its `cancel(request)` is given, and under the agent the sheet's answer or else the preferred value.
-  const viaImplementation = (row, args, reader, how = {}) => implementation(row)?.then(async impl => {
-    const name = row.key.slice(row.key.indexOf(".") + 1);
+  // A call carrying a member the web cannot put in the owner's request is the member's, whole (LLP 1133.014 D10 item 2).
+  const viaImplementation = (row, args, reader, how = {}) => {
+    const [option, member] = row.sub.takes ? [...byKey.values()].map(r => [r.sub?.member, r]).find(([o, r]) => r.sub?.memberOf === row.key && args?.[o] != null) ?? [] : [];
+    return member ? viaOwn(member, args, reader, how, option) : viaOwn(row, args, reader, how);
+  };
+  const viaOwn = (row, args, reader, how = {}, as = null) => implementation(row)?.then(async impl => {
+    const name = as ?? row.key.slice(row.key.indexOf(".") + 1);
     // An extension with no web implementation reads its declared default, as the runner answers a target with none
     // (LLP 1133.028 D17); its sends refuse.
     if (impl === null && !row.send) return valueOf(row) ?? { error: "NotSupportedError" };
@@ -770,8 +788,12 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     // A grant matched by the argument's value fails with its own code (`SecurityError` for an RP ID, LLP 1133.011 D6).
     const byValue = ceremonies.grants(row, args);
     if (byValue) { say(`${row.key}: refused, ${byValue.message}`); return { now: byValue }; }
+    // A member is an option of its owner's call, never a call of its own (LLP 1133.014 D10 item 1).
+    if (row.sub.memberOf) return { now: { error: "NotSupportedError", message: `${row.key} is a member of ${row.sub.memberOf}: pass it to that call` } };
     const why = admit(row, args, origin);
     if (why) { say(`${row.key}: refused, ${why}`); return { now: why.startsWith("person-required") ? { error: "NotAllowedError", message: "person-required" } : { error: "NotAllowedError" } }; }
+    const member = mb.refused(row, args);
+    if (member) { say(`${row.key}: refused, ${member.message}`); return { now: member }; }
     const r = route(row);
     if (r === "real") return { forward: true };
     const p = permissionOf(row, args);
@@ -1039,15 +1061,17 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
       if (h.waits === "ceremony") {
         const c = h.row.sub.ceremony;
         if (req.op === "tap") {
-          const choices = Object.keys(c.choices ?? {});
+          const choices = [...new Set([...Object.keys(c.choices ?? {}), ...mb.choices(h.row)])];
           if (req.choice !== "cancel" && !choices.includes(req.choice)) return { error: `@${h.ticket} (${cap}): tap takes ${["cancel", ...choices].join(" | ")}, not ${req.choice}` };
           say(`device ${cap} ${h.ticket} ${req.choice === "cancel" ? "cancelled" : `answered: ${req.choice}`}`);
-          release(h, (req.choice === "cancel" ? c.cancel : c.choices[req.choice]) ?? { error: "NotAllowedError" });
+          release(h, mb.tapped(h.row, h.args, req.choice) ?? (req.choice === "cancel" ? c.cancel : c.choices?.[req.choice]) ?? { error: "NotAllowedError" });
           return { ticket: req.ticket, capability: cap, answered: req.choice, delivery: "substituted" };
         }
         let v;
         try { v = JSON.parse(req.text); } catch {}
-        if (!v || typeof v !== "object" || Array.isArray(v) || Object.entries(c.answer ?? {}).some(([k, x]) => v[k] !== x)) {
+        const member = mb.typed(h.row, h.args, v);
+        if (member) return { error: `@${h.ticket}: ${member}` };
+        if (member === null && (!v || typeof v !== "object" || Array.isArray(v) || !mb.ownsCeremony(h.row, h.args) || Object.entries(c.answer ?? {}).some(([k, x]) => v[k] !== x))) {
           return { error: `@${h.ticket}: ${h.row.key}: type the response's JSON, an object with ${JSON.stringify(c.answer ?? {})} (packages/passkeys/test/authenticator.mjs makes one from the ticket's args)` };
         }
         say(`device ${cap} ${h.ticket} answered: a value`);

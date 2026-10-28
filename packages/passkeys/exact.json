@@ -75,7 +75,7 @@
       ],
       "substitute": {
         "ceremony": {
-          "ticket": "passkey",
+          "ticket": "credential",
           "status": "getClientCapabilities",
           "options": "publicKey",
           "answer": {
@@ -140,7 +140,7 @@
       },
       "options": {
         "publicKey": "json<PublicKeyCredentialRequestOptionsJSON>",
-        "mediation": "option<enum<optional|conditional>>",
+        "mediation": "option<enum<optional|required|conditional|silent>>",
         "preferImmediatelyAvailableCredentials": "option<bool>"
       },
       "answers": "json<AuthenticationResponseJSON>",
@@ -149,7 +149,7 @@
       ],
       "substitute": {
         "ceremony": {
-          "ticket": "passkey",
+          "ticket": "credential",
           "status": "getClientCapabilities",
           "options": "publicKey",
           "answer": {

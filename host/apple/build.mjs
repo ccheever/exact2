@@ -52,7 +52,7 @@ import { startSweep } from '../../scripts/sweep.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { appleImplementations } from '../../js/bake/src/typescript.mjs';
 import { composedModule, moduleSeam, systemFrameworks } from './compose.mjs';
-import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows } from './presence.mjs';
+import { associatedDomains, entitlementValue, macPresence, macPasskeys, macProfileRows, signInEntitlement } from './presence.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { backgroundKeys, localNetworking, nfcKeys, transportSecurity } from './plist.mjs';
 import { compileFixtures, iosTestRuns, macTests } from './xctest.mjs';
@@ -369,7 +369,7 @@ export const entitlements = (app, team = null, debuggable = true, reach = null, 
   const all = [...new Set([...(app.clipParent ? linked.filter((d) => !d.startsWith('applinks:')) : linked), ...clips])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
   for (const name of reach?.entitlements ?? []) dict[name] = reach.entitlementValues?.[name] ?? entitlementValue(name, debuggable);
-  return plistFile(dict);
+  return plistFile({ ...dict, ...signInEntitlement(reach?.auth, simulator && !team) });
 };
 
 /** `reach` as a tvOS build uses it: tvOS bakes the iOS plan, so the keys

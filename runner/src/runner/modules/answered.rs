@@ -105,11 +105,11 @@ impl<D: DataSource> Runner<D> {
                 self.release(token, answer);
             }
             (Waits::Ceremony, HoldAnswer::Choice(c)) => {
-                let answer = self.ceremony_tapped(&sub, c);
+                let answer = self.ceremony_tapped(&row, &held_args, &sub, c);
                 self.release(token, answer);
             }
             (Waits::Ceremony, HoldAnswer::Value(text)) => {
-                if let Ok(response) = self.ceremony_typed(&row, text) {
+                if let Ok(response) = self.ceremony_typed(&row, &held_args, text) {
                     self.release(token, response);
                 }
             }

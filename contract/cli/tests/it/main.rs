@@ -177,6 +177,7 @@ mod shape_cycles;
 mod share;
 mod share_target;
 mod sheet_page;
+mod sign_in;
 mod sound;
 mod source_locations;
 mod source_map;

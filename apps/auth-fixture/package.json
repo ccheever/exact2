@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@exact/attestation": "file:../../packages/attestation",
-    "@exact/passkeys": "file:../../packages/passkeys"
+    "@exact/passkeys": "file:../../packages/passkeys",
+    "@exact/sign-in": "file:../../packages/sign-in"
   }
 }

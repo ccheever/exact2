@@ -61,7 +61,7 @@ pub(in crate::runner) fn target() -> &'static str {
 }
 
 /// The value at `path` (`publicKey.rp.id`) in `value`.
-fn at<'a>(value: &'a Json, path: &str) -> Option<&'a Json> {
+pub(super) fn at<'a>(value: &'a Json, path: &str) -> Option<&'a Json> {
     path.split('.')
         .try_fold(value, |v, part| v.get(part))
         .filter(|v| !v.is_null())
@@ -102,6 +102,12 @@ impl<D: DataSource> Runner<D> {
                 continue;
             };
             let code = json!(spec["refuse"].as_str().unwrap_or("NotAllowedError"));
+            // A call without the argument the path is in asks nothing of it
+            // (a sign-in alone, with no `publicKey`, LLP 1133.014 D3).
+            let root = path.split('.').next().unwrap_or(path);
+            if path.contains('.') && args.get(root).is_none_or(Json::is_null) {
+                continue;
+            }
             let Some(value) = at(args, path).and_then(Json::as_str) else {
                 if spec["omitted"] == "page" && target() == "web" {
                     continue;
@@ -154,7 +160,10 @@ impl<D: DataSource> Runner<D> {
             .and_then(|s| self.sibling(row, s))
             .and_then(|s| self.value_of(&s))
             .unwrap_or_default();
-        for rule in ceremony["unless"].as_array().into_iter().flatten() {
+        // The owner's status speaks for its own ceremony alone: a sign-in
+        // with no passkey asks nothing of passkeys' (LLP 1133.014 D3).
+        let owned = self.owns_ceremony(sub, args);
+        for rule in (ceremony["unless"].as_array().into_iter().flatten()).filter(|_| owned) {
             let applies = (rule["when"].as_object())
                 .is_none_or(|when| when.iter().all(|(k, v)| args.get(k) == Some(v)));
             let field = rule["field"].as_str().unwrap_or_default();
@@ -176,7 +185,7 @@ impl<D: DataSource> Runner<D> {
             (Some(template), Some(rp)) => json!(template.replace("{rpId}", rp)),
         };
         let options = (ceremony["options"].as_str()).map_or(Json::Null, |o| args[o].clone());
-        json!({
+        let mut out = json!({
             "request": self.plan.str(row.declared),
             "ceremony": self.plan.str(row.declared),
             "mediation": args["mediation"].as_str().unwrap_or("optional"),
@@ -184,26 +193,48 @@ impl<D: DataSource> Runner<D> {
             "clientOrigin": client,
             "options": options,
             "origin": origin.word(),
-        })
+        });
+        for (option, described) in self.members_args(row, args) {
+            out[option] = described;
+        }
+        out
     }
 
     /// The choices a ceremony's ticket takes by tap besides `cancel`.
-    pub(super) fn ceremony_choices(&self, sub: &Json) -> Vec<String> {
-        (sub["ceremony"]["choices"].as_object().into_iter().flatten())
+    pub(super) fn ceremony_choices(&self, row: &ModulesRow, sub: &Json) -> Vec<String> {
+        let mut out: Vec<String> = (sub["ceremony"]["choices"].as_object().into_iter().flatten())
             .map(|(c, _)| c.clone())
-            .collect()
+            .collect();
+        if sub["ceremony"].is_object() {
+            for c in self.members_choices(row) {
+                if !out.contains(&c) {
+                    out.push(c);
+                }
+            }
+        }
+        out
     }
 
     /// A typed response to a ceremony of `row`: a JSON object with the
     /// declared `answer` fields.
-    pub(super) fn ceremony_typed(&self, row: &ModulesRow, text: &str) -> Result<Json, String> {
+    pub(super) fn ceremony_typed(
+        &self,
+        row: &ModulesRow,
+        args: &Json,
+        text: &str,
+    ) -> Result<Json, String> {
         let sub = self.substitute(row);
         let wants = sub["ceremony"]["answer"]
             .as_object()
             .cloned()
             .unwrap_or_default();
         let value: Json = serde_json::from_str(text.trim()).unwrap_or_default();
-        if !value.is_object() || wants.iter().any(|(k, v)| value.get(k) != Some(v)) {
+        // A member's answer (a sign-in's credential) answers a call that carries the member.
+        if let Some(checked) = self.member_typed(row, args, &value) {
+            return checked.map(|_| value);
+        }
+        let owned = self.owns_ceremony(&sub, args);
+        if !value.is_object() || !owned || wants.iter().any(|(k, v)| value.get(k) != Some(v)) {
             return Err(format!(
                 "{}: type the response's JSON, an object with {} (packages/passkeys/test/authenticator.mjs makes one from the ticket's args)",
                 self.key(row),
@@ -214,7 +245,16 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The answer a ceremony's tap gives: its `cancel`, or a choice's error.
-    pub(super) fn ceremony_tapped(&self, sub: &Json, choice: &str) -> Json {
+    pub(super) fn ceremony_tapped(
+        &self,
+        row: &ModulesRow,
+        args: &Json,
+        sub: &Json,
+        choice: &str,
+    ) -> Json {
+        if let Some(answer) = self.member_tapped(row, args, choice) {
+            return answer;
+        }
         let ceremony = &sub["ceremony"];
         let answer = match choice {
             "cancel" => &ceremony["cancel"],
@@ -227,8 +267,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// A ceremony of `row` is about to be held (D9): a held
-    /// conditional one ends with `AbortError` when this one is modal or
-    /// conditional; `true` when a modal one is held, behind which it waits.
+    /// conditional one, or a passive sign-in, ends with `AbortError`; `true`
+    /// when a modal one is held, behind which it waits.
     pub(super) fn ceremony_begins(&mut self, row: &ModulesRow) -> bool {
         let extension = self.plan.str(row.extension).to_owned();
         let ours = |r: &Self, h: &Held| {
@@ -236,13 +276,20 @@ impl<D: DataSource> Runner<D> {
                 && !h.queued
                 && r.plan.str(r.module_row(&h.source).extension) == extension
         };
+        // A passive sign-in (LLP 1133.014 D5) ends as a conditional get does.
+        let yields = |h: &Held| {
+            h.args["mediation"] == "conditional"
+                || h.args
+                    .get("identity")
+                    .is_some_and(|i| !i.is_null() && i["mode"] != "active")
+        };
         let conditional: Vec<(u64, u64)> = (self.extensions.held.iter())
-            .filter(|h| ours(self, h) && h.args["mediation"] == "conditional")
+            .filter(|h| ours(self, h) && yields(h))
             .map(|h| (h.token, h.hold))
             .collect();
         for (token, hold) in conditional {
             self.retire_hold(hold);
-            let ended = json!({ "error": "AbortError", "message": "a newer ceremony replaced this conditional one" });
+            let ended = json!({ "error": "AbortError", "message": "a newer ceremony replaced this conditional or passive one" });
             self.release(token, ended);
         }
         (self.extensions.held.iter()).any(|h| ours(self, h))
@@ -277,13 +324,20 @@ impl<D: DataSource> Runner<D> {
         args: &Json,
         outcome: &str,
     ) {
-        let entry = json!({
+        let mut entry = json!({
             "name": self.plan.str(row.declared),
             "mediation": args["mediation"],
             "rpId": self.rp_id(row, args),
             "origin": self.ceremony_args(row, args, CallOrigin::App)["clientOrigin"],
             "outcome": outcome,
         });
+        // A member's request by its provider and mode, never its client or nonce.
+        for (option, described) in self.members_args(row, args) {
+            let providers: Vec<Json> = (described["providers"].as_array().into_iter().flatten())
+                .map(|p| p["provider"].clone())
+                .collect();
+            entry[option] = json!({ "mode": described["mode"], "providers": providers });
+        }
         let extension = self.plan.str(row.extension).to_owned();
         let list = &mut self.extensions.ceremonies;
         match list.iter_mut().find(|(t, _, _)| *t == token) {
@@ -318,11 +372,18 @@ impl<D: DataSource> Runner<D> {
         if held.waits != Waits::Ceremony {
             return answer;
         }
-        let ids: Vec<String> = (sub["handles"].as_object().into_iter().flatten())
+        // A member's answer carries the member's handles, its package's to dispose of.
+        let (extension, handles) = match self.member_answering(&row, &answer) {
+            Some((extension, member)) => (extension, member["handles"].clone()),
+            None => (
+                self.plan.str(row.extension).to_owned(),
+                sub["handles"].clone(),
+            ),
+        };
+        let ids: Vec<String> = (handles.as_object().into_iter().flatten())
             .filter_map(|(path, _)| at(&answer, path)?.as_str().map(str::to_owned))
             .collect();
         if let (Some(ticket), false) = (held.request, ids.is_empty()) {
-            let extension = self.plan.str(row.extension).to_owned();
             match self.pending.iter().any(|p| p.ticket == ticket) {
                 true => self.arrive(ticket, extension, ids),
                 // The call ends: whatever still awaits it never has the response.

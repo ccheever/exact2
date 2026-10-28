@@ -11,11 +11,17 @@
 // suggestions. Each ceremony is data code's (`app.ts`); the view reads only
 // what the server answered.
 //
+// Sign-in (LLP 1133.014 §10): the providers' own buttons, each an action
+// whose data code asks `get` with a nonce fetched when the screen showed,
+// and, where the target offers it, one passive request beside a passkey
+// when the sign-in screen shows. The view reads the server's account only.
+//
 // "Check this build" (LLP 1133.028 §8.1) proves to the server that this is
 // a genuine build on a genuine device; the row shows the server's verdict.
 
 use getClientCapabilities, ClientCapabilities from "@exact/passkeys"
 use attestationStatus, AttestationStatus from "@exact/attestation"
+use getIdentityCapabilities, IdentityCapabilities from "@exact/sign-in"
 
 shape Time
   epochAtZero: number
@@ -37,6 +43,11 @@ component AuthFixture
   mutation passkey as shape Result refreshes session
   mutation suggested as shape Result refreshes session
   resource attestation = attestationStatus() as shape AttestationStatus
+  resource identities = getIdentityCapabilities() as shape IdentityCapabilities
+  mutation nonce as shape Result
+  mutation identity as shape Result refreshes session
+  mutation offered as shape Result refreshes session
+  state identityOffer = true
   mutation checked as shape Result
   state username = ""
   derive busy = pending(prepared) or pending(signed)
@@ -47,15 +58,33 @@ component AuthFixture
   derive offering = match suggested { case some(r) => r.ok or r.message == "", case none => true }
   task suggesting when caps.available and conditional and offering and not session.signedIn and not pending(passkey) and not pending(suggested)
     after(1, suggest)
+  // A nonce for the next press, fetched when the screen shows; each sign-in fetches the next.
+  task prepareIdentity mount
+    after(1, getNonce)
+  action getNonce
+    send nonce = identityNonce()
+  // One passive request beside a passkey per sign-out, where the target offers one.
+  task offerIdentity when identities.available and identityOffer and not session.signedIn and not pending(identity) and not pending(passkey) and not pending(nonce)
+    after(1, offer)
+  action offer
+    identityOffer = false
+    send offered = offerSignIn()
+  action appleSignIn
+    send identity = signInWith("apple")
+  action googleSignIn
+    send identity = signInWith("google")
   action prepare
     send prepared = prepareSignIn(time.epochAtZero + performanceNow())
   action signIn
     send signed = signIn(time.epochAtZero + performanceNow())
   action signOut
     send left = signOut()
+    identityOffer = true
     // A ceremony or a check in flight is for the session that is ending.
     send passkey = passkeyIdle()
     send checked = passkeyIdle()
+    // So is a sign-in whose sheet is still up, whose answer is then dropped (LLP 1133.014 D12).
+    send identity = passkeyIdle()
   action setUsername(value)
     username = value
   // A press asks for suggestions again once its sheet is done, even after the
@@ -84,6 +113,20 @@ component AuthFixture
         text "Sign out"
       if not session.signedIn
         input value=username input=setUsername placeholder="Username" autocomplete="username webauthn" aria-label="Username" testId="username"
+      if not session.signedIn and identities.providers.apple.active
+        exact-sign-in-button provider="apple" press=appleSignIn testId="apple-sign-in" width="100%" height=44
+      if not session.signedIn and identities.providers.google.active
+        exact-sign-in-button provider="google" press=googleSignIn testId="google-sign-in" width="100%" height=44
+      match identity
+        case some(i)
+          text i.message testId="identity" font-size=14
+        case none
+          text "" font-size=14
+      match offered
+        case some(i)
+          text i.message testId="offered" font-size=14
+        case none
+          text "" font-size=14
       if caps.available
         button press=createPasskey disabled=pending(passkey) testId="create-passkey"
           text "Create a passkey"

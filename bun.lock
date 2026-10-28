@@ -43,6 +43,7 @@
         "@exact/scale-fixture-cards": "workspace:*",
         "@exact/scale-fixture-notes": "workspace:*",
         "@exact/search-index": "workspace:*",
+        "@exact/sign-in": "workspace:*",
         "@exact/speech-recognition": "workspace:*",
         "@exact/speech-synthesis": "workspace:*",
         "@exact/text-detection": "workspace:*",
@@ -248,6 +249,10 @@
       "name": "@exact/serial",
       "version": "1.0.0",
     },
+    "packages/sign-in": {
+      "name": "@exact/sign-in",
+      "version": "1.0.0",
+    },
     "packages/speech-recognition": {
       "name": "@exact/speech-recognition",
       "version": "1.0.0",
@@ -365,6 +370,8 @@
     "@exact/search-index": ["@exact/search-index@workspace:packages/search-index"],
 
     "@exact/serial": ["@exact/serial@workspace:packages/serial"],
+
+    "@exact/sign-in": ["@exact/sign-in@workspace:packages/sign-in"],
 
     "@exact/speech-recognition": ["@exact/speech-recognition@workspace:packages/speech-recognition"],
 

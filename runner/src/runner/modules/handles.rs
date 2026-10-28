@@ -54,7 +54,10 @@ impl<D: DataSource> Runner<D> {
                 None => return,
             },
         };
-        if self.substitute(&row)["handles"].is_object() {
+        // A member's answer carries handles too (LLP 1133.014 D12).
+        let members =
+            (self.members_of(&row).iter()).any(|(_, m)| self.substitute(m)["handles"].is_object());
+        if self.substitute(&row)["handles"].is_object() || members {
             let source = self.plan.str(self.plan.sources[row.source.0 as usize].name);
             let provisional = Provisional {
                 source: source.to_owned(),

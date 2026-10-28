@@ -558,6 +558,14 @@ impl<D: DataSource> Runner<D> {
         send: bool,
         timeout: Option<f64>,
     ) -> Decision {
+        // A member is an option of its owner's call, never a call of its own.
+        if let Some(owner) = self.substitute(row)["memberOf"].as_str() {
+            let why = format!(
+                "{} is a member of {owner}: pass it to that call",
+                self.key(row)
+            );
+            return Decision::Now(json!({ "error": "NotSupportedError", "message": why }));
+        }
         // Presence is not delegable (LLP 1133.010 D12): a person's check
         // fails for a tool or a wake before anything is asked, in every state.
         if self.substitute(row)["origin"] == "person" && origin != CallOrigin::App {
@@ -586,6 +594,12 @@ impl<D: DataSource> Runner<D> {
                 );
             }
             return Decision::Now(json!({ "error": "NotAllowedError" }));
+        }
+        // A member's option on the call, by the member's rules (LLP 1133.014 D10 item 1).
+        if let Some(refused) = self.members_refused(row, args) {
+            let why = refused["message"].as_str().unwrap_or_default();
+            self.log(format!("{}: refused, {why}", self.key(row)));
+            return Decision::Now(refused);
         }
         let decision = match self.route(row) {
             Route::Real => return Decision::Forward,

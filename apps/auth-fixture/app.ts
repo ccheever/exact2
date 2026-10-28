@@ -13,12 +13,19 @@
 // single-use, D9), and posts the response back; the plan sees `{ok,
 // message}` only, never a response, a challenge or a signature.
 //
+// Sign-in (LLP 1133.014 §10): a single-use nonce from the server when the
+// screen shows, kept here; at a press `get` is called with nothing awaited
+// before it (on the web the provider's button holds the popup's window for
+// it), the credential posted to the server without its handle, and a fresh
+// nonce fetched whatever the outcome. The plan sees the account's name only.
+//
 // "Check this build" (LLP 1133.028 §8.1): a challenge from the server,
 // `attest` over it, and the server's verdict, which is all the plan sees;
 // the token never leaves this file (D2).
 import type { Answer, Store } from './app.contract.d.ts';
 import { attest, resetAttestation } from '@exact/attestation';
 import { credentials, PublicKeyCredential } from '@exact/passkeys';
+import { preventSilentAccess } from '@exact/sign-in';
 
 export const appId = 'com.exact.authfixture';
 const ISSUER = 'http://127.0.0.1:4331';
@@ -33,12 +40,15 @@ export const grants = {
     'auth.callback test.exact.auth-fixture:/oauth', 'auth.callback https://auth-fixture.exact.test/.exact/auth/callback',
     'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
     // The fixture's relying party, and the web drive's (the page is a loopback one).
-    'auth.passkey auth-fixture.exact.test', 'auth.passkey localhost', 'device.attestation'],
+    'auth.passkey auth-fixture.exact.test', 'auth.passkey localhost', 'device.attestation',
+    // The fixture's sign-in clients (LLP 1133.014 §13 question 6 names the real ones).
+    'auth.apple com.exact.authfixture.web', 'auth.google fixture-web.apps.googleusercontent.com', 'auth.google fixture-ios.apps.googleusercontent.com'],
   'https://exact-auth-fixture.expo.app': ['net.fetch http://127.0.0.1:4331', 'auth.session http://127.0.0.1:4331',
     'net.fetch https://exact-auth-fixture.expo.app',
     'auth.callback test.exact.auth-fixture:/oauth', 'auth.callback https://auth-fixture.exact.test/.exact/auth/callback',
     'secret.keep fixture.session', 'secret.keep fixture.pending', 'secret.keep fixture.dpop', 'secret.keep fixture.passkeys',
-    'auth.passkey exact-auth-fixture.expo.app', 'auth.passkey localhost', 'device.attestation'],
+    'auth.passkey exact-auth-fixture.expo.app', 'auth.passkey localhost', 'device.attestation',
+    'auth.apple com.exact.authfixture.web', 'auth.google fixture-web.apps.googleusercontent.com', 'auth.google fixture-ios.apps.googleusercontent.com'],
 };
 // The Google Cloud project Play Integrity bills (LLP 1133.020 §3.2);
 // unused on Apple.
@@ -297,6 +307,73 @@ async function checkBuild(store: Store) {
   return { ok: again.ok, message: `Unknown key; reset. ${again.message}` };
 }
 
+const PROVIDERS = {
+  apple: { configURL: 'https://appleid.apple.com', clientId: 'com.exact.authfixture.web' },
+  google: { configURL: 'https://accounts.google.com/gsi/fedcm.json', clientId: 'fixture-web.apps.googleusercontent.com',
+    apple: { clientId: 'fixture-ios.apps.googleusercontent.com' } },
+} as const;
+const onWeb = () => /^https?:\/\//.test(authCallback());
+// The nonce for the next request, and the client it was issued to.
+let ready: { nonce: string; client: string } | null = null;
+
+async function identityNonce() {
+  ready = await post(ISSUER, '/sign-in/nonce', { client: ready?.client });
+  return { ok: true, message: '' };
+}
+
+const provider = (name: 'apple' | 'google', nonce: string) => ({
+  ...PROVIDERS[name], params: { nonce }, ...(onWeb() ? { web: { redirectURI: `${ISSUER}/sign-in/return` } } : {}),
+});
+
+// What a hand-built app shows for a sign-in's failure: nothing for a cancel or
+// a request a newer one replaced, else the reason.
+const signInFailed = (e: unknown) => {
+  const code = errorName(e);
+  return ['NetworkError', 'NotAllowedError', 'AbortError'].includes(code) ? { ok: false, message: '' } : { ok: false, message: `Sign-in failed (${code})` };
+};
+
+/** The server's account for a credential: the handle stays here. */
+async function signedInWith(store: Store, credential: any, asked: { nonce: string; client: string }) {
+  const { handle: _handle, ...posted } = credential;
+  const done = await post(ISSUER, '/sign-in/identity', { credential: posted, client: asked.client, nonce: asked.nonce });
+  if (!done.ok) return { ok: false, message: `The server refused the sign-in (${done.error})` };
+  const name = done.name || done.email;
+  store.set('fixture.session', JSON.stringify({ handle: name, provider: done.provider, sub: done.sub }));
+  return { ok: true, message: `Signed in as ${name}` };
+}
+
+async function signInWith(store: Store, name: 'apple' | 'google') {
+  const asked = ready;
+  if (!asked) return { ok: false, message: 'Not ready: try again' };
+  ready = null;
+  try {
+    let credential;
+    try { credential = await credentials.get({ identity: { mode: 'active', providers: [provider(name, asked.nonce)] } }); }
+    catch (e) { return signInFailed(e); }
+    return await signedInWith(store, credential, asked);
+  } finally { await identityNonce(); }
+}
+
+// A passkey or the target's passive provider, in one sheet where it offers one.
+// Its nonce is its own, so a press while it is up still has the one kept for it.
+async function offerSignIn(store: Store) {
+  const asked: { nonce: string; client: string } = await post(ISSUER, '/sign-in/nonce', { client: ready?.client });
+  const { publicKey } = await relyingParty('/passkey/sign-in/options', { rpId: rpId() });
+  let credential: any;
+  try {
+    credential = await credentials.get({ publicKey, identity: { providers: [provider('apple', asked.nonce), provider('google', asked.nonce)] } });
+  } catch (e) {
+    const code = errorName(e);
+    return code === 'NotSupportedError' ? { ok: false, message: 'No sign-in sheet here' } : signInFailed(e);
+  }
+  if (credential.type === 'identity') return await signedInWith(store, credential, asked);
+  const list = kept(store), at = list.findIndex(k => k.id === credential.id);
+  const done = await relyingParty('/passkey/sign-in', { response: credential, record: at < 0 ? null : list[at].record });
+  if (!done.ok) return { ok: false, message: `The server refused the sign-in (${done.error})` };
+  keep(store, list.map((k, i) => (i === at ? { id: k.id, record: done.record } : k)));
+  return signedInAs(store, done, credential.id);
+}
+
 export const answer: Answer = (source, args, store) => {
   switch (source) {
     case 'currentSession': return session(store) as never;
@@ -308,9 +385,15 @@ export const answer: Answer = (source, args, store) => {
     case 'forgetPasskey': return forgetPasskey(store) as never;
     case 'passkeyIdle': return { ok: true, message: '' } as never;
     case 'checkBuild': return checkBuild(store) as never;
-    case 'signOut':
+    case 'identityNonce': return identityNonce() as never;
+    case 'signInWith': return signInWith(store, args[0] as 'apple' | 'google') as never;
+    case 'offerSignIn': return offerSignIn(store) as never;
+    case 'signOut': return (async () => {
+      // The next sign-in may not happen without UI (LLP 1133.014 D1).
+      await preventSilentAccess();
       store.forget('fixture.session'); store.forget('fixture.pending'); store.forget('fixture.dpop');
-      return { ok: true, message: 'Signed out' } as never;
+      return { ok: true, message: 'Signed out' };
+    })() as never;
     default: throw new Error(`unknown source ${source}`);
   }
 };
