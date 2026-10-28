@@ -15,9 +15,8 @@
 //! viewport points and the clip it was painted under — which is what the
 //! agent's `layout` reports and what hit-testing reads: no second geometry.
 //!
-//! Two backends draw what the walk emits: [`crate::gpu`] (vello over wgpu,
-//! the main one) and [`crate::raster`] (tiny-skia on the CPU — the fallback
-//! where there is no adapter, and the deterministic oracle for pixels).
+//! Backends: [`crate::gpu`] (vello), [`crate::ink`] (instanced geometry),
+//! and [`crate::raster`] (the CPU fallback and pixel oracle).
 
 use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
@@ -927,10 +926,7 @@ impl Painter {
             self.field_text = walk.fields;
             self.inline_text = walk.inline;
         } else {
-            for id in self.rows.kept_ids() {
-                self.backend.row_free(id);
-            }
-            self.forget_rows();
+            self.discard_rows();
             drop(walk.text);
         }
         // Pending measurements end with every paint attempt, including failure.

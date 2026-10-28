@@ -127,9 +127,6 @@ pub(super) struct Rows {
 }
 
 impl Rows {
-    pub(super) fn kept_ids(&self) -> Vec<u32> {
-        self.kept.values().map(|r| r.id).collect()
-    }
     /// Whether the last walk kept rows.
     pub(super) fn active(&self) -> bool {
         self.active
@@ -167,6 +164,11 @@ fn within(a: Option<Rect4>, outer: Option<Rect4>) -> Option<Rect4> {
 }
 
 impl Painter {
+    pub(super) fn discard_rows(&mut self) {
+        for row in self.rows.kept.values() { self.backend.row_free(row.id); }
+        self.forget_rows();
+    }
+
     /// Before a frame: drop the rows the host's changes reach.
     pub(crate) fn rows_dirty(&mut self, kernel: &Kernel, dirty: Dirty) {
         self.numerals.committed = dirty.committed;

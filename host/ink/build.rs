@@ -251,15 +251,36 @@ fn fixed_sampler_hlsl(source: &str) -> String {
 // @ref LLP 1149 D6.1.
 fn build_dxbc(out: &Path, entries: &[String]) {
     println!("cargo:rerun-if-env-changed=PATH");
-    let available = std::env::var("TARGET").unwrap().contains("windows")
-        && Command::new("fxc").arg("/?").output().is_ok();
+    let windows = std::env::var("TARGET").unwrap().contains("windows");
+    let mut fxc = None;
+    if windows {
+        for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+            // Installation into an existing PATH directory must invalidate the stub.
+            if dir.is_dir() {
+                println!("cargo:rerun-if-changed={}", dir.display());
+            }
+            for name in ["fxc.exe", "fxc"] {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    println!("cargo:rerun-if-changed={}", candidate.display());
+                    if fxc.is_none() {
+                        fxc = Some(candidate);
+                    }
+                }
+            }
+            if fxc.is_some() {
+                break;
+            }
+        }
+    }
+    let available = fxc.is_some();
     for (entry, profile, file) in [(0, "vs_5_0", "ink.vs.dxbc"), (1, "ps_5_0", "ink.ps.dxbc")] {
         let path = out.join(file);
         if !available {
             fs::write(path, []).unwrap();
             continue;
         }
-        let result = Command::new("fxc")
+        let result = Command::new(fxc.as_ref().unwrap())
             .args([
                 "/nologo",
                 "/O3",

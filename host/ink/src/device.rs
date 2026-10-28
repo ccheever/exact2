@@ -27,6 +27,7 @@ pub struct Info {
 pub enum Error {
     NoAdapter(String),
     Device(String),
+    DeviceLost(String),
     Invalid(String),
     Unsupported(&'static str),
 }
@@ -36,6 +37,7 @@ impl fmt::Display for Error {
         match self {
             Self::NoAdapter(e) => write!(f, "no adapter: {e}"),
             Self::Device(e) => write!(f, "device: {e}"),
+            Self::DeviceLost(e) => write!(f, "device lost: {e}"),
             Self::Invalid(e) => write!(f, "ink: {e}"),
             Self::Unsupported(e) => write!(f, "unsupported: {e}"),
         }
@@ -99,6 +101,9 @@ pub struct Submission(pub u64);
 pub trait Device {
     type Buffer;
     fn info(&self) -> &Info;
+    fn max_texture_dimension(&self) -> u32 {
+        16384
+    }
     fn create_buffer(&self, bytes: u64) -> Result<Self::Buffer>;
     fn upload_buffer(
         &mut self,
@@ -180,7 +185,22 @@ pub fn process_usage() -> std::io::Result<[f64; 5]> {
 #[cfg(windows)]
 impl From<windows::core::Error> for Error {
     fn from(error: windows::core::Error) -> Self {
-        Self::Device(error.to_string())
+        use windows::Win32::Graphics::Dxgi::{
+            DXGI_ERROR_DEVICE_HUNG, DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET,
+            DXGI_ERROR_DRIVER_INTERNAL_ERROR,
+        };
+        if [
+            DXGI_ERROR_DEVICE_HUNG,
+            DXGI_ERROR_DEVICE_REMOVED,
+            DXGI_ERROR_DEVICE_RESET,
+            DXGI_ERROR_DRIVER_INTERNAL_ERROR,
+        ]
+        .contains(&error.code())
+        {
+            Self::DeviceLost(error.to_string())
+        } else {
+            Self::Device(error.to_string())
+        }
     }
 }
 
@@ -258,5 +278,51 @@ pub fn process_usage() -> std::io::Result<[f64; 5]> {
             memory.PagefileUsage as f64,
             memory.PeakPagefileUsage as f64,
         ])
+    }
+}
+
+pub(crate) fn check_region(desc: TextureDesc, origin: [u32; 2], size: [u32; 2]) -> Result<()> {
+    if size.contains(&0)
+        || origin[0]
+            .checked_add(size[0])
+            .is_none_or(|x| x > desc.width)
+        || origin[1]
+            .checked_add(size[1])
+            .is_none_or(|y| y > desc.height)
+    {
+        Err(Error::Invalid("texture region bounds".into()))
+    } else {
+        Ok(())
+    }
+}
+pub(crate) fn texture_ids(b: crate::instance::Bindings) -> [TextureId; 7] {
+    [
+        b.glyph,
+        b.color,
+        b.path,
+        b.ramp,
+        b.image,
+        b.mask,
+        b.destination,
+    ]
+}
+
+/// Device-loss retries are scheduled independently of frame rate.
+#[derive(Default)]
+pub struct Retry {
+    due: Option<std::time::Instant>,
+    failures: u32,
+}
+impl Retry {
+    pub fn ready(&self, now: std::time::Instant) -> bool {
+        self.due.is_none_or(|due| now >= due)
+    }
+    pub fn deadline(&self) -> Option<std::time::Instant> {
+        self.due
+    }
+    pub fn failed(&mut self, now: std::time::Instant) {
+        let ms = (250u64 << self.failures.min(7)).min(30_000);
+        self.failures = self.failures.saturating_add(1);
+        self.due = Some(now + std::time::Duration::from_millis(ms));
     }
 }

@@ -1,5 +1,7 @@
 //! Direct3D 11 over the core's instances and build-compiled DXBC.
 //! @ref LLP 1149 D5.2, D6.1, D11.
+use super::check_region;
+use super::texture_ids;
 use super::{Device, Error, Format, Info, Result, Submission, TextureDesc};
 use crate::instance::{flags, Bindings, Frame, Instance, Kind, TextureId};
 use std::{
@@ -20,10 +22,12 @@ use windows::{
     },
 };
 mod composition;
-pub mod rich_edit;
+#[cfg(test)]
+mod rich_edit;
 mod setup;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
 mod text_host;
 pub use composition::Window;
 
@@ -57,7 +61,6 @@ pub struct D3d11 {
     owner: Rc<()>,
     info: Info,
     composition: Option<composition::Composition>,
-    editor: Option<rich_edit::RichEdit>,
 }
 
 impl D3d11 {
@@ -68,11 +71,7 @@ impl D3d11 {
     /// Force WARP for the software-device qualification (LLP 1149 S0 C6).
     pub fn open(force_warp: bool) -> Result<Self> {
         let start = Instant::now();
-        let (device, context, adapter) = if force_warp {
-            setup::open(true)?
-        } else {
-            setup::open(false).or_else(|_| setup::open(true))?
-        };
+        let (device, context, adapter) = setup::open(force_warp)?;
         let device_ms = start.elapsed().as_secs_f64() * 1000.;
         let start = Instant::now();
         let pipeline = setup::pipeline(&device)?;
@@ -113,7 +112,6 @@ impl D3d11 {
             retired: Vec::new(),
             owner,
             composition: None,
-            editor: None,
             info: Info {
                 adapter,
                 api: "direct D3D11".into(),
@@ -668,20 +666,6 @@ impl D3d11 {
         Ok(())
     }
 }
-fn check_region(desc: TextureDesc, origin: [u32; 2], size: [u32; 2]) -> Result<()> {
-    if size.contains(&0)
-        || origin[0]
-            .checked_add(size[0])
-            .is_none_or(|x| x > desc.width)
-        || origin[1]
-            .checked_add(size[1])
-            .is_none_or(|y| y > desc.height)
-    {
-        Err(Error::Invalid("texture region bounds".into()))
-    } else {
-        Ok(())
-    }
-}
 fn region(origin: [u32; 2], size: [u32; 2]) -> D3D11_BOX {
     D3D11_BOX {
         left: origin[0],
@@ -691,15 +675,4 @@ fn region(origin: [u32; 2], size: [u32; 2]) -> D3D11_BOX {
         bottom: origin[1] + size[1],
         back: 1,
     }
-}
-fn texture_ids(b: Bindings) -> [TextureId; 7] {
-    [
-        b.glyph,
-        b.color,
-        b.path,
-        b.ramp,
-        b.image,
-        b.mask,
-        b.destination,
-    ]
 }

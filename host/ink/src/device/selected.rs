@@ -20,22 +20,19 @@ pub enum Buffer {
 impl Selected {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn from_env() -> Result<Self> {
-        match std::env::var("EXACT_INK_DEVICE").as_deref() {
-            Err(std::env::VarError::NotPresent) => {
-                #[cfg(windows)]
-                {
-                    d3d11::D3d11::new().map(|d| Self::D3d11(Box::new(d)))
-                }
-                #[cfg(not(windows))]
-                {
-                    wgpu::Wgpu::new().map(Into::into)
-                }
-            }
-            Ok("wgpu") => wgpu::Wgpu::new().map(Into::into),
+        let value = std::env::var("EXACT_INK_DEVICE").ok();
+        Self::open(value.as_deref())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open(value: Option<&str>) -> Result<Self> {
+        match value {
+            None | Some("wgpu") => wgpu::Wgpu::new().map(Into::into),
             #[cfg(windows)]
-            Ok("d3d11") => d3d11::D3d11::open(std::env::var_os("EXACT_INK_WARP").is_some())
-                .map(|d| Self::D3d11(Box::new(d))),
-            Ok("metal") => {
+            Some("d3d11") => d3d11::D3d11::new().map(|d| Self::D3d11(Box::new(d))),
+            #[cfg(windows)]
+            Some("warp") => d3d11::D3d11::open(true).map(|d| Self::D3d11(Box::new(d))),
+            Some("metal") => {
                 #[cfg(exact_ink_metal)]
                 {
                     metal::Metal::new().map(|d| Self::Metal(Box::new(d)))
@@ -48,7 +45,7 @@ impl Selected {
                 }
             }
             _ => Err(Error::Invalid(
-                "EXACT_INK_DEVICE must be wgpu, metal or d3d11".into(),
+                "EXACT_INK_DEVICE must be wgpu, metal, d3d11 or warp".into(),
             )),
         }
     }
@@ -91,6 +88,15 @@ impl Device for Selected {
             Self::Metal(d) => d.info(),
             #[cfg(windows)]
             Self::D3d11(d) => d.info(),
+        }
+    }
+    fn max_texture_dimension(&self) -> u32 {
+        match self {
+            Self::Wgpu(d) => d.max_texture_dimension(),
+            #[cfg(exact_ink_metal)]
+            Self::Metal(d) => d.max_texture_dimension(),
+            #[cfg(windows)]
+            Self::D3d11(d) => d.max_texture_dimension(),
         }
     }
     fn create_texture(&mut self, desc: TextureDesc) -> Result<TextureId> {
@@ -219,4 +225,10 @@ impl Device for Selected {
             Self::D3d11(d) => d.trim(),
         }
     }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[test]
+fn unspecified_device_uses_the_portable_layer() {
+    assert!(matches!(Selected::open(None).unwrap(), Selected::Wgpu(_)));
 }

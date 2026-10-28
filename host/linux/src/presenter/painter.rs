@@ -207,7 +207,11 @@ impl<D: DataSource> Presenter<D> {
         window: exact_ink::device::d3d11::Window,
         size: [u32; 2],
     ) -> Result<bool, String> {
-        self.brush.attach_window(window, size)
+        let attached = self.brush.attach_window(window.clone(), size)?;
+        if attached {
+            self.surfaces.direct_window = Some(crate::surfaces::window::DirectWindow::new(window));
+        }
+        Ok(attached)
     }
 
     /// A bounded measurement may wait for the last frame's displayed timestamp.

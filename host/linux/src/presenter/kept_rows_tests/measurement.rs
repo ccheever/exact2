@@ -9,66 +9,20 @@ fn root() -> PathBuf {
 }
 
 #[cfg(windows)]
-#[allow(unsafe_code)]
 mod desktop {
     use super::*;
-    use std::rc::Rc;
-    use windows::{
-        core::w,
-        Win32::{Foundation::HWND, System::Com::*, UI::WindowsAndMessaging::*},
-    };
-    struct Owner(HWND);
-    impl Drop for Owner {
-        fn drop(&mut self) {
-            unsafe { DestroyWindow(self.0).unwrap() };
-        }
-    }
-    pub(super) struct Window(Rc<Owner>);
+    pub(super) struct Window(exact_ink::device::d3d11::Window);
     impl Window {
-        pub(super) fn new(width: u32, height: u32) -> Self {
-            unsafe {
-                CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap();
-                Self(Rc::new(Owner(
-                    CreateWindowExW(
-                        WS_EX_NOREDIRECTIONBITMAP,
-                        w!("STATIC"),
-                        w!("Ink C6 frame measurement"),
-                        WS_POPUP | WS_VISIBLE,
-                        0,
-                        0,
-                        width as i32,
-                        height as i32,
-                        None,
-                        None,
-                        None,
-                        None,
-                    )
-                    .unwrap(),
-                )))
-            }
+        pub(super) fn new(w: u32, h: u32) -> Self {
+            Self(exact_ink::device::d3d11::Window::fixture([w, h]).unwrap())
         }
         pub(super) fn attach<D: DataSource>(&self, p: &mut Presenter<D>, w: u32, h: u32) {
-            // The retained owner keeps the HWND live through the presenter's drop.
-            let window = unsafe {
-                exact_ink::device::d3d11::Window::new(self.0 .0 .0 as isize, self.0.clone())
-            };
-            assert!(p.attach_painter_window(window, [w, h]).unwrap());
+            assert!(p.attach_painter_window(self.0.clone(), [w, h]).unwrap());
         }
         pub(super) fn frame<D: DataSource>(&self, p: &mut Presenter<D>) {
-            unsafe {
-                let mut message = MSG::default();
-                while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
-                    let _ = TranslateMessage(&message);
-                    DispatchMessageW(&message);
-                }
-                assert!(p.window_frame(self.0 .0 .0 as usize, 0).unwrap().is_none());
-            }
+            self.0.dispatch_pending();
+            assert!(p.window_frame(self.0.clone()).unwrap().is_none());
             assert!(p.last_frame_succeeded());
-        }
-    }
-    impl Drop for Window {
-        fn drop(&mut self) {
-            unsafe { CoUninitialize() };
         }
     }
 }
@@ -294,7 +248,7 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
         if mode == "scroll" && scroll.is_none_or(|s| s.max.1 < 20.) {
             println!(
                 "INK_RESULT {}",
-                serde_json::json!({"app":app,"arm":arm,"size":[width,height],"mode":mode,"unavailable":"first screen has no 20 pt scroll range"})
+                serde_json::json!({"sampler":sampler(),"app":app,"arm":arm,"size":[width,height],"mode":mode,"unavailable":"first screen has no 20 pt scroll range"})
             );
             continue;
         }
@@ -306,7 +260,7 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
         if mode == "text" && text.is_none() {
             println!(
                 "INK_RESULT {}",
-                serde_json::json!({"app":app,"arm":arm,"size":[width,height],"mode":mode,"unavailable":"first screen has no visible row text"})
+                serde_json::json!({"sampler":sampler(),"app":app,"arm":arm,"size":[width,height],"mode":mode,"unavailable":"first screen has no visible row text"})
             );
             continue;
         }
@@ -399,7 +353,7 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
         let cpu = (cpu_ms() - cpu_start) / 300.;
         println!(
             "INK_RESULT {}",
-            serde_json::json!({"app":app,"arm":arm,"size":[width,height],"window":std::env::var_os("INK_WINDOW").is_some(),"mode":mode,"frames":values,"cpu_ms":cpu,"peak_rss_kib":max_rss,"counters":stats.as_ref().map(|_| counters),"scroll_max":scroll.map(|s| s.max.1),"text_node":text.as_ref().map(|t| t.0),"text_initial":text.as_ref().map(|t| &t.1),"row_groups":p.brush.row_groups().len()})
+            serde_json::json!({"sampler":sampler(),"app":app,"arm":arm,"size":[width,height],"window":std::env::var_os("INK_WINDOW").is_some(),"mode":mode,"frames":values,"cpu_ms":cpu,"peak_rss_kib":max_rss,"counters":stats.as_ref().map(|_| counters),"scroll_max":scroll.map(|s| s.max.1),"text_node":text.as_ref().map(|t| t.0),"text_initial":text.as_ref().map(|t| &t.1),"row_groups":p.brush.row_groups().len()})
         );
     }
 }
@@ -478,6 +432,7 @@ fn worker() {
         measure(&plan, caltrain_data::Caltrain, &app, width, height, &arm);
     } else {
         let out = baked(&app);
+        verify_fixture(&app, &out);
         measure(
             &std::fs::read(out.join("app.plan")).unwrap(),
             source(&app, &out),
@@ -500,11 +455,11 @@ fn boot_worker() {
         let ink = crate::ink::Ink::new().unwrap();
         let boot_ms = started.elapsed().as_secs_f64() * 1000.;
         let i = ink.info();
-        serde_json::json!({"arm":arm,"boot_ms":boot_ms,"device_ms":i.device_ms,"shaders_ms":i.shaders_ms,"cached":i.cached,"adapter":i.adapter,"api":i.api})
+        serde_json::json!({"sampler":sampler(),"arm":arm,"boot_ms":boot_ms,"device_ms":i.device_ms,"shaders_ms":i.shaders_ms,"cached":i.cached,"adapter":i.adapter,"api":i.api})
     } else {
         let gpu = crate::gpu::Gpu::new().unwrap();
         let boot_ms = started.elapsed().as_secs_f64() * 1000.;
-        serde_json::json!({"arm":arm,"boot_ms":boot_ms,"device_ms":gpu.device_ms,"shaders_ms":gpu.shaders_ms,"cached":gpu.cached,"adapter":gpu.adapter,"api":gpu.api})
+        serde_json::json!({"sampler":sampler(),"arm":arm,"boot_ms":boot_ms,"device_ms":gpu.device_ms,"shaders_ms":gpu.shaders_ms,"cached":gpu.cached,"adapter":gpu.adapter,"api":gpu.api})
     };
     println!("INK_BOOT {result}");
 }
@@ -518,6 +473,8 @@ fn series() {
     let exe = std::env::current_exe().unwrap();
     let shelf = baked("shelf");
     let excord = baked("excord");
+    verify_fixture("shelf", &shelf);
+    verify_fixture("excord", &excord);
     let direct = std::env::var("INK_ARM").as_deref() == Ok("D");
     let chunk = if direct { "c5" } else { "c4" };
     let arms: &[&str] = if direct {
@@ -536,7 +493,7 @@ fn series() {
     for round in 0..5 {
         for app in ["messages-stress", "shelf", "excord"] {
             for width in [390, 1920] {
-                for arm in arms {
+                for arm in rotated(arms, round) {
                     let output = Command::new("/usr/bin/time")
                         .arg("-l")
                         .arg(&exe)
@@ -589,7 +546,7 @@ fn series() {
     }
     for round in 0..10 {
         for cached in [false, true] {
-            for arm in boot_arms {
+            for arm in rotated(boot_arms, round) {
                 let arm_cache = cache.join(arm);
                 if !cached && arm_cache.exists() {
                     std::fs::remove_dir_all(&arm_cache).unwrap();
@@ -623,4 +580,58 @@ fn series() {
             }
         }
     }
+}
+
+fn sampler() -> &'static str {
+    if cfg!(any(target_os = "macos", windows)) && std::env::var_os("INK_SAMPLE_PS").is_none() {
+        "native process counters"
+    } else {
+        "ps time/rss (10 ms CPU quantum)"
+    }
+}
+
+fn rotated<'a>(arms: &'a [&'a str], round: usize) -> Vec<&'a str> {
+    (0..arms.len())
+        .map(|n| arms[(n + round) % arms.len()])
+        .collect()
+}
+
+fn verify_fixture(app: &str, out: &Path) {
+    let hashes = match app {
+        "shelf" => [
+            "65b682425c6c28bca40968917f7f9c3dc1885cf80b19fee4f949ca0bdf1b2847",
+            "4931b6ca5f3ca72c4f8426687ae40608c399d515a085bc614f977669f3396775",
+        ],
+        "excord" => [
+            "179036d9fb16dc2fca1ece8d571edeca2366274a0e458a3d605eae20eb04a2b6",
+            "8370918824a4376654f2d74627ead3213a06b83b625c13dd378c394ace6376ba",
+        ],
+        _ => panic!("unqualified measurement fixture {app}"),
+    };
+    for (file, expected) in ["app.plan", "app.hbc"].into_iter().zip(hashes) {
+        assert_hash(&std::fs::read(out.join(file)).unwrap(), expected);
+    }
+}
+
+fn assert_hash(bytes: &[u8], expected: &str) {
+    use sha2::{Digest, Sha256};
+    assert_eq!(
+        format!("{:x}", Sha256::digest(bytes)),
+        expected,
+        "measurement fixture changed"
+    );
+}
+
+#[test]
+fn series_rotates_each_arm_and_rejects_changed_fixture_bytes() {
+    let arms = ["A", "B", "C", "D"];
+    assert_eq!(
+        (0..4).map(|n| rotated(&arms, n)[0]).collect::<Vec<_>>(),
+        arms
+    );
+    assert_eq!(rotated(&arms, 5), ["B", "C", "D", "A"]);
+    let empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    assert_hash(b"", empty);
+    assert!(std::panic::catch_unwind(|| assert_hash(b"changed", empty)).is_err());
+    assert!(!sampler().is_empty());
 }

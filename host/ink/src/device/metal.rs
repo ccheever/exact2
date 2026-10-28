@@ -1,4 +1,6 @@
 //! Direct Metal over the same instances and shader as wgpu. @ref LLP 1149 D5.2.
+use super::check_region;
+use super::texture_ids;
 use super::{Device, Error, Format, Info, Result, Submission, TextureDesc};
 use crate::instance::{flags, Bindings, Frame, Instance, Kind, TextureId};
 use objc2::{
@@ -614,10 +616,6 @@ fn texture(device: &ProtocolObject<dyn MTLDevice>, desc: TextureDesc) -> Result<
         descriptor.setMipmapLevelCount(desc.levels() as usize);
     }
     descriptor.setStorageMode(MTLStorageMode::Shared);
-    #[cfg(target_os = "macos")]
-    if !device.hasUnifiedMemory() {
-        descriptor.setStorageMode(MTLStorageMode::Managed);
-    }
     descriptor.setUsage(MTLTextureUsage::ShaderRead | MTLTextureUsage::RenderTarget);
     let raw = device
         .newTextureWithDescriptor(&descriptor)
@@ -655,29 +653,4 @@ fn region(origin: [u32; 2], [width, height]: [u32; 2]) -> MTLRegion {
             depth: 1,
         },
     }
-}
-fn check_region(desc: TextureDesc, origin: [u32; 2], size: [u32; 2]) -> Result<()> {
-    if size.contains(&0)
-        || origin[0]
-            .checked_add(size[0])
-            .is_none_or(|x| x > desc.width)
-        || origin[1]
-            .checked_add(size[1])
-            .is_none_or(|y| y > desc.height)
-    {
-        Err(Error::Invalid("texture region bounds".into()))
-    } else {
-        Ok(())
-    }
-}
-fn texture_ids(b: Bindings) -> [TextureId; 7] {
-    [
-        b.glyph,
-        b.color,
-        b.path,
-        b.ramp,
-        b.image,
-        b.mask,
-        b.destination,
-    ]
 }

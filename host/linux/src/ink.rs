@@ -137,7 +137,7 @@ impl Ink {
         shape: &Shape,
         ts: Transform,
     ) -> Result<Option<rows::GeometryInstance>> {
-        if shape.rect.2 <= 0. || shape.rect.3 <= 0. {
+        if self.error.is_some() || shape.rect.2 <= 0. || shape.rect.3 <= 0. {
             return Ok(None);
         }
         let dev = self.device_transform(ts);
@@ -165,7 +165,16 @@ impl Ink {
         ts: Transform,
     ) -> Result<Option<rows::GeometryInstance>> {
         let dev = self.device_transform(ts);
-        if !self.rows.capture.is_empty() {
+        if self.error.is_some() {
+            return Ok(None);
+        }
+        let oversized = path.clone().transform(dev).is_some_and(|p| {
+            let b = p.bounds();
+            let limit = self.device.max_texture_dimension() as f32;
+            b.right().ceil() - b.left().floor() > limit
+                || b.bottom().ceil() - b.top().floor() > limit
+        });
+        if !self.rows.capture.is_empty() && oversized {
             let mut instance = Instance::new(Kind::Coverage, Brush::Solid, [0.; 4]);
             instance.xform = affine(dev);
             return Ok(Some((
@@ -186,7 +195,7 @@ impl Ink {
             rule,
             clips,
             dev,
-            Some(self.size),
+            self.rows.capture.is_empty().then_some(self.size),
         )?;
         Ok(coverage.map(|c| {
             let mut instance = Instance::new(Kind::Coverage, Brush::Solid, c.rect);
@@ -319,7 +328,13 @@ impl Backend for Ink {
         self.clips.clear();
         self.clear = color(self.page).map(f64::from);
         let result = (|| {
-            if !scale.is_finite() || scale <= 0. || self.size.iter().any(|s| *s > 16384) {
+            if !scale.is_finite()
+                || scale <= 0.
+                || self
+                    .size
+                    .iter()
+                    .any(|s| *s > self.device.max_texture_dimension())
+            {
                 return Err(Error::Invalid("frame dimensions or scale".into()));
             }
             self.paths.begin(&mut self.device)?;

@@ -3,7 +3,7 @@
 use super::*;
 use std::any::Any;
 use windows::Win32::{
-    Foundation::{CloseHandle, HANDLE, HWND, WAIT_OBJECT_0},
+    Foundation::{CloseHandle, DXGI_STATUS_OCCLUDED, HANDLE, HWND, WAIT_OBJECT_0},
     Graphics::{DirectComposition::*, Dwm::*},
     System::Threading::WaitForSingleObject,
     UI::Controls::MARGINS,
@@ -16,13 +16,86 @@ pub struct Window {
     _owner: Rc<dyn Any>,
 }
 impl Window {
-    /// # Safety
-    /// `hwnd` must belong to `owner`, and remain live until its last Rc is dropped.
-    /// Creation and all later presentation must run on the window's thread.
-    pub unsafe fn new(hwnd: isize, owner: Rc<dyn Any>) -> Self {
-        Self {
-            hwnd: HWND(hwnd as *mut _),
+    /// Retain the window for every swap-chain use on its owning thread.
+    pub fn from_owner<T: raw_window_handle::HasWindowHandle + 'static>(
+        owner: Rc<T>,
+    ) -> Result<Self> {
+        let raw_window_handle::RawWindowHandle::Win32(handle) = owner
+            .window_handle()
+            .map_err(|e| Error::Invalid(e.to_string()))?
+            .as_raw()
+        else {
+            return Err(Error::Unsupported("not a Windows window"));
+        };
+        Ok(Self {
+            hwnd: HWND(handle.hwnd.get() as *mut _),
             _owner: owner,
+        })
+    }
+
+    /// An owned native fixture for the renderer's explicit measurements.
+    pub fn fixture(size: [u32; 2]) -> Result<Self> {
+        use windows::{
+            core::w,
+            Win32::{System::Com::*, UI::WindowsAndMessaging::*},
+        };
+        struct Owner(HWND);
+        impl Drop for Owner {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DestroyWindow(self.0);
+                    CoUninitialize();
+                }
+            }
+        }
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+            match CreateWindowExW(
+                WS_EX_NOREDIRECTIONBITMAP,
+                w!("STATIC"),
+                w!("Ink measurement"),
+                WS_POPUP | WS_VISIBLE,
+                0,
+                0,
+                size[0] as i32,
+                size[1] as i32,
+                None,
+                None,
+                None,
+                None,
+            ) {
+                Ok(hwnd) => Ok(Self {
+                    hwnd,
+                    _owner: Rc::new(Owner(hwnd)),
+                }),
+                Err(e) => {
+                    CoUninitialize();
+                    Err(e.into())
+                }
+            }
+        }
+    }
+
+    pub fn dispatch_pending(&self) {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        unsafe {
+            let mut message = MSG::default();
+            while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+    }
+
+    pub fn hwnd(&self) -> usize {
+        self.hwnd.0 as usize
+    }
+    pub fn hinstance(&self) -> usize {
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(
+                self.hwnd,
+                windows::Win32::UI::WindowsAndMessaging::GWLP_HINSTANCE,
+            ) as usize
         }
     }
 }
@@ -131,6 +204,15 @@ impl Composition {
                 DXGI_FORMAT_B8G8R8A8_UNORM,
                 DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
             )?;
+            let old = std::mem::replace(&mut self.latency, HANDLE::default());
+            let _ = CloseHandle(old);
+            self.swap.SetMaximumFrameLatency(1)?;
+            self.latency = self.swap.GetFrameLatencyWaitableObject();
+            if self.latency.is_invalid() {
+                return Err(Error::Device(
+                    "DXGI frame latency handle after resize".into(),
+                ));
+            }
         }
         self.size = size;
         Ok(())
@@ -143,24 +225,12 @@ impl D3d11 {
             return Err(Error::Invalid("composition size".into()));
         }
         let composition = Composition::new(&self.device, window.clone(), size)?;
-        if let Ok(initial) = std::env::var("EXACT_INK_RICHEDIT") {
-            let editor = super::rich_edit::RichEdit::new(self, window, [320, 48])?;
-            editor.type_text(&initial)?;
-            self.editor = Some(editor);
-        }
         eprintln!(
             "exact-ink: composition swap chain {:.3} ms",
             composition.creation_ms
         );
         self.composition = Some(composition);
         Ok(())
-    }
-    pub fn type_text(&self, text: &str) -> Result<bool> {
-        if let Some(editor) = &self.editor {
-            editor.type_text(text)?;
-            return Ok(true);
-        }
-        Ok(false)
     }
     pub fn has_window(&self) -> bool {
         self.composition.is_some()
@@ -169,44 +239,17 @@ impl D3d11 {
         let start = Instant::now();
         let desc = self.texture(id)?.desc;
         let size = [desc.width, desc.height];
-        if let Some(editor) = self.editor.take() {
-            let result = (|| {
-                let texture = editor.draw(self)?;
-                let mut encoder = crate::Encoder::new(size[0], size[1]);
-                let y = size[1].saturating_sub(80) as f32;
-                encoder
-                    .push(
-                        Instance::rounded([12., y, 344., 64.], [8.; 4], [0.9, 0.9, 0.9, 0.92]),
-                        Bindings::default(),
-                    )
-                    .map_err(|_| Error::Invalid("editor background".into()))?;
-                let mut image = Instance::new(
-                    Kind::RoundedRect,
-                    crate::Brush::Image,
-                    [24., y + 8., 320., 48.],
-                );
-                image.uv = [0., 0., 1., 1.];
-                encoder
-                    .push(
-                        image,
-                        Bindings {
-                            image: texture,
-                            ..Default::default()
-                        },
-                    )
-                    .map_err(|_| Error::Invalid("editor image".into()))?;
-                self.render(&encoder.finish(), id, None)
-            })();
-            self.editor = Some(editor);
-            result?;
-        }
         let composition = self
             .composition
             .as_mut()
             .ok_or(Error::Unsupported("no composition window"))?;
         composition.resize(size)?;
         let swap = composition.swap.clone();
+        let did_present;
         unsafe {
+            if !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
+                return Ok(0.);
+            }
             if WaitForSingleObject(composition.latency, 1000) != WAIT_OBJECT_0 {
                 return Err(Error::Device("DXGI frame latency wait failed".into()));
             }
@@ -233,11 +276,16 @@ impl D3d11 {
             let mut frame = encoder.finish();
             frame.batches[0].replace = true;
             self.draw(&frame, &view.unwrap(), size, Some([0.; 4]), None)?;
-            swap.Present(1, DXGI_PRESENT(0)).ok()?;
+            let status = swap.Present(1, DXGI_PRESENT(0));
+            did_present = presented(status)?;
         }
         let s = self.submit()?;
         self.textures.get_mut(&id).unwrap().last = s;
-        Ok(start.elapsed().as_secs_f64() * 1000.)
+        Ok(if did_present {
+            start.elapsed().as_secs_f64() * 1000.
+        } else {
+            0.
+        })
     }
 }
 
@@ -298,6 +346,47 @@ impl D3d11 {
                     / f64::from(rate.Numerator);
             Ok((ticks(now) - ticks(created)) as f64 / 10_000.
                 - (now_qpc as f64 - displayed_qpc) * 1000. / frequency as f64)
+        }
+    }
+}
+
+fn presented(status: windows::core::HRESULT) -> Result<bool> {
+    if status == DXGI_STATUS_OCCLUDED {
+        return Ok(false);
+    }
+    status.ok()?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn occluded_present_is_skipped_and_device_removal_is_an_error() {
+        use windows::Win32::Foundation::S_OK;
+        assert!(presented(S_OK).unwrap());
+        assert!(!presented(DXGI_STATUS_OCCLUDED).unwrap());
+        assert!(matches!(
+            presented(DXGI_ERROR_DEVICE_REMOVED),
+            Err(Error::DeviceLost(_))
+        ));
+    }
+
+    #[test]
+    #[ignore = "native Windows composition requires fxc and a desktop session"]
+    fn resize_reacquires_latency_control_and_presents_again() {
+        let window = Window::fixture([120, 80]).unwrap();
+        let mut d = D3d11::new().unwrap();
+        d.attach_window(window, [120, 80]).unwrap();
+        for size in [[120, 80], [160, 100], [90, 60]] {
+            let t = d.create_target(size[0], size[1]).unwrap();
+            d.render(&Frame::default(), t, Some([0.2, 0.4, 0.6, 1.]))
+                .unwrap();
+            d.present(t).unwrap();
+            let c = d.composition.as_ref().unwrap();
+            assert!(!c.latency.is_invalid());
+            assert_eq!(unsafe { c.swap.GetMaximumFrameLatency().unwrap() }, 1);
+            d.retire_texture(t).unwrap();
         }
     }
 }

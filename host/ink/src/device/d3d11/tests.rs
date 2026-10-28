@@ -110,40 +110,7 @@ fn odd_mips_include_every_source_pixel() {
 #[test]
 #[ignore = "native Windows composition and RichEdit; requires fxc and a desktop session"]
 fn composition_and_windowless_text() {
-    use windows::{
-        core::w,
-        Win32::{Foundation::HWND, System::Com::*, UI::WindowsAndMessaging::*},
-    };
-    struct Owner(HWND);
-    impl Drop for Owner {
-        fn drop(&mut self) {
-            unsafe {
-                let _ = DestroyWindow(self.0);
-            }
-        }
-    }
-    unsafe {
-        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap();
-    }
-    let hwnd = unsafe {
-        CreateWindowExW(
-            WS_EX_NOREDIRECTIONBITMAP,
-            w!("STATIC"),
-            w!("Ink C6"),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            80,
-            80,
-            400,
-            240,
-            None,
-            None,
-            None,
-            None,
-        )
-        .unwrap()
-    };
-    let owner = Rc::new(Owner(hwnd));
-    let window = unsafe { Window::new(hwnd.0 as isize, owner) };
+    let window = Window::fixture([384, 200]).unwrap();
     let mut device = D3d11::new().unwrap();
     device.attach_window(window.clone(), [384, 200]).unwrap();
     let editor = rich_edit::RichEdit::new(&mut device, window, [320, 48]).unwrap();
@@ -190,9 +157,6 @@ fn composition_and_windowless_text() {
         .unwrap();
     drop(editor);
     drop(device);
-    unsafe {
-        CoUninitialize();
-    }
 }
 
 #[test]

@@ -1,5 +1,6 @@
 //! The portable device and S0 control. @ref LLP 1149 D5.1, D6.3, D11.
 
+use super::{check_region, texture_ids};
 use super::{Device, Error, Format, Info, Result, Submission, TextureDesc};
 use crate::instance::{flags, Batch, Bindings, Brush, Frame, Instance, Kind, Scissor, TextureId};
 use ::wgpu::util::DeviceExt;
@@ -561,6 +562,9 @@ impl Device for Wgpu {
         Ok(submission)
     }
 
+    fn max_texture_dimension(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
+    }
     fn create_texture(&mut self, desc: TextureDesc) -> Result<TextureId> {
         let limit = self.device.limits().max_texture_dimension_2d;
         if desc.width == 0 || desc.height == 0 || desc.width > limit || desc.height > limit {
@@ -757,17 +761,7 @@ impl Device for Wgpu {
                 )?;
             }
             let b = batch.bindings;
-            if [
-                b.glyph,
-                b.color,
-                b.path,
-                b.ramp,
-                b.image,
-                b.mask,
-                b.destination,
-            ]
-            .contains(&target)
-            {
+            if texture_ids(b).contains(&target) {
                 return Err(Error::Invalid(
                     "a render target cannot sample itself".into(),
                 ));
@@ -817,15 +811,7 @@ impl Device for Wgpu {
         self.textures.get_mut(&target).unwrap().last = submission;
         for batch in &frame.batches {
             let b = batch.bindings;
-            for id in [
-                b.glyph,
-                b.color,
-                b.path,
-                b.ramp,
-                b.image,
-                b.mask,
-                b.destination,
-            ] {
+            for id in texture_ids(b) {
                 if id.0 != 0 {
                     self.textures.get_mut(&id).unwrap().last = submission;
                 }
@@ -966,21 +952,6 @@ fn allocate_texture(
         desc,
         last: Submission(0),
     })
-}
-
-fn check_region(desc: TextureDesc, origin: [u32; 2], size: [u32; 2]) -> Result<()> {
-    if size.contains(&0)
-        || origin[0]
-            .checked_add(size[0])
-            .is_none_or(|v| v > desc.width)
-        || origin[1]
-            .checked_add(size[1])
-            .is_none_or(|v| v > desc.height)
-    {
-        Err(Error::Invalid("texture region bounds".into()))
-    } else {
-        Ok(())
-    }
 }
 
 fn extent([width, height]: [u32; 2]) -> ::wgpu::Extent3d {

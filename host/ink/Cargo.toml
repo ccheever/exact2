@@ -30,6 +30,7 @@ web-time = "1"
 wasm-bindgen-futures = "0.4"
 
 [target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
 windows-core = "0.62"
 windows = { version = "0.62", features = [
     "Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",

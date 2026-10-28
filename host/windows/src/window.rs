@@ -329,7 +329,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
         let frame_started = Instant::now();
-        if self.minimized {
+        if self.minimized || self.occluded {
             return Ok(());
         }
         // A frame task can wake the loop from its own commit. Those wakes
@@ -414,14 +414,9 @@ impl<D: DataSource + Default + 'static> App<D> {
         else {
             return Err("not a Windows window".into());
         };
-        // SAFETY: App drops the presenter (and module swapchain) before the HWND.
-        #[allow(unsafe_code)]
-        let mut frame = unsafe {
-            p.window_frame(
-                handle.hwnd.get() as usize,
-                handle.hinstance.map_or(0, |h| h.get() as usize),
-            )
-        }?;
+        let owned = exact_ink::device::d3d11::Window::from_owner(window.clone())
+            .map_err(|e| e.to_string())?;
+        let mut frame = p.window_frame(owned.clone())?;
         let caret_rect = (self.focused && p.last_frame_succeeded())
             .then(|| p.caret_frame())
             .flatten();
@@ -434,16 +429,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         ) {
             p.set_caret_visible(true);
             // A programmatic move while hidden starts a fresh visible phase.
-            // SAFETY: the presenter is still owned by this live window.
-            #[allow(unsafe_code)]
-            {
-                frame = unsafe {
-                    p.window_frame(
-                        handle.hwnd.get() as usize,
-                        handle.hinstance.map_or(0, |h| h.get() as usize),
-                    )
-                }?;
-            }
+            frame = p.window_frame(owned)?;
             self.caret.presented(
                 handle.hwnd.get(),
                 caret_rect,
@@ -634,7 +620,12 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
             self.caret.compare(other);
         }
-        let mut buffer = self.surface.as_mut().expect("patch surface").buffer_mut().map_err(|e| e.to_string())?;
+        let mut buffer = self
+            .surface
+            .as_mut()
+            .expect("patch surface")
+            .buffer_mut()
+            .map_err(|e| e.to_string())?;
         if let Some(damage) = self.caret.paint(&mut buffer, window.inner_size().width) {
             buffer
                 .present_with_damage(&[damage])
@@ -730,12 +721,15 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         match app::boot_presenter::<D>(&mut self.config, viewport) {
             Ok((mut p, warning)) => {
                 if let Ok(handle) = window.window_handle() {
-                    if let RawWindowHandle::Win32(handle) = handle.as_raw() {
-                        // SAFETY: the retained Rc owns this HWND on the event-loop thread.
-                        #[allow(unsafe_code)]
-                        let owned = unsafe {
-                            exact_ink::device::d3d11::Window::new(handle.hwnd.get(), window.clone())
-                        };
+                    if let RawWindowHandle::Win32(_) = handle.as_raw() {
+                        let owned =
+                            match exact_ink::device::d3d11::Window::from_owner(window.clone()) {
+                                Ok(owned) => owned,
+                                Err(e) => {
+                                    self.fail(events, e.to_string());
+                                    return;
+                                }
+                            };
                         match p.attach_painter_window(owned, [size.width, size.height]) {
                             Ok(attached) => direct = attached,
                             Err(e) => {
@@ -1087,6 +1081,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             events.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             events.set_control_flow(ControlFlow::Wait);
+        }
+        if let Some(due) = p.painter_retry_deadline() {
+            if Instant::now() >= due {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= due) {
+                events.set_control_flow(ControlFlow::WaitUntil(due));
+            }
         }
         // Only an app with an input canvas needs controller discovery wakes.
         if pads_active {

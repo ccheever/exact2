@@ -398,6 +398,11 @@ mod tests {
         assert_eq!(caret.deadline(), Some(now + Duration::from_millis(500)));
         assert!(caret.advance(now + Duration::from_millis(500)));
         assert!(!caret.visible());
+        assert_eq!(caret.deadline(), Some(now + Duration::from_millis(1000)));
+        assert!(
+            !caret.advance(now + Duration::from_millis(500)),
+            "expired deadline must be consumed"
+        );
         assert!(!caret.presented(
             0,
             Some((4., 6., 1., 16.)),

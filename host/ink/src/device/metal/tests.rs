@@ -106,3 +106,12 @@ fn odd_mips_include_every_source_pixel() {
         "{p:?}"
     );
 }
+
+#[test]
+fn cpu_written_textures_use_shared_storage() {
+    let mut d = Metal::new().unwrap();
+    let id = d.create_texture(TextureDesc::rgba(2, 2)).unwrap();
+    assert_eq!(d.textures[&id].raw.storageMode(), MTLStorageMode::Shared);
+    d.upload_texture(id, [0, 0], [2, 2], &[41; 16]).unwrap();
+    assert_eq!(d.readback(id).unwrap(), [41; 16]);
+}

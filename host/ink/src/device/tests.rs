@@ -139,3 +139,81 @@ fn a_delayed_device_keeps_pool_targets_and_atlas_uploads_separate() {
     d.completed().unwrap();
     assert!(!d.textures.contains_key(&first));
 }
+
+#[test]
+fn device_loss_retry_deadlines_advance_and_back_off() {
+    let mut retry = Retry::default();
+    let mut now = std::time::Instant::now();
+    for ms in [250, 500, 1000, 2000, 4000, 8000, 16000, 30000, 30000] {
+        assert!(retry.ready(now));
+        retry.failed(now);
+        let due = retry.deadline().unwrap();
+        assert_eq!(due.duration_since(now).as_millis(), ms);
+        assert!(!retry.ready(now));
+        now = due;
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn in_flight_storage(d: &mut impl Device) {
+    let mut atlas = Atlas::new([16, 16], Format::Alpha, 0, 1);
+    let mut pool = Pool::default();
+    let outputs = [
+        d.create_target(64, 64).unwrap(),
+        d.create_target(64, 64).unwrap(),
+    ];
+    for (frame, alpha) in [73u8, 211].into_iter().enumerate() {
+        atlas.begin(d).unwrap();
+        pool.begin(d, [64, 64]).unwrap();
+        let entry = atlas
+            .insert(d, vec![frame as u32], [16, 16], &[alpha; 256])
+            .unwrap();
+        let layer = pool.take(d).unwrap();
+        let mut encoder = Encoder::new(64, 64);
+        let mut i = Instance::new(Kind::Coverage, Brush::Solid, [0., 0., 64., 64.]);
+        i.uv = entry.uv;
+        encoder
+            .push(
+                i,
+                Bindings {
+                    path: entry.texture,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        d.render(&encoder.finish(), layer, Some([0.; 4])).unwrap();
+        d.copy_region(layer, [0, 0], outputs[frame], [0, 0], [64, 64])
+            .unwrap();
+        // Retire pool storage and force atlas eviction before either readback.
+        pool.begin(d, [32, 32]).unwrap();
+        let spare = pool.take(d).unwrap();
+        d.render(&Frame::default(), spare, Some([1., 0., 0., 1.]))
+            .unwrap();
+        atlas.begin(d).unwrap();
+        atlas
+            .insert(d, vec![100 + frame as u32], [16, 16], &[19; 256])
+            .unwrap();
+    }
+    for (output, alpha) in outputs.into_iter().zip([73u8, 211]) {
+        let pixels = d.readback(output).unwrap();
+        assert!(pixels
+            .chunks_exact(4)
+            .all(|p| p.iter().all(|c| c.abs_diff(alpha) <= 1)));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn wgpu_preserves_submitted_frames_during_atlas_and_pool_eviction() {
+    in_flight_storage(&mut super::wgpu::Wgpu::new().unwrap());
+}
+#[cfg(exact_ink_metal)]
+#[test]
+fn metal_preserves_submitted_frames_during_atlas_and_pool_eviction() {
+    in_flight_storage(&mut super::metal::Metal::new().unwrap());
+}
+#[cfg(windows)]
+#[test]
+fn d3d11_preserves_submitted_frames_during_atlas_and_pool_eviction() {
+    in_flight_storage(&mut super::d3d11::D3d11::new().unwrap());
+}

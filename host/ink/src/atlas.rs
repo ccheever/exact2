@@ -81,7 +81,7 @@ impl Atlas {
         Self::new([256, 64], Format::Rgba, 0, 16)
     }
 
-    fn new(size: [u32; 2], format: Format, padding: u32, ceiling: usize) -> Self {
+    pub(crate) fn new(size: [u32; 2], format: Format, padding: u32, ceiling: usize) -> Self {
         Self {
             size,
             format,
