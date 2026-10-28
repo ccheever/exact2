@@ -888,10 +888,11 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         && !node.is_inline_run())
     .then_some(crate::link::linked().markup)
     .flatten();
+    // LLP 1045.000 D2: the faces with their paint as the CSS a pill takes.
+    let faces = crate::css::atom_faces(node.props.str(PropId::AtomFaces).unwrap_or(""));
     if let (Some(pieces), Some(source)) = (markup, node.props.str(PropId::Text)) {
         let atoms = node.props.str(PropId::Atoms).unwrap_or("");
-        let faces = node.props.str(PropId::AtomFaces).unwrap_or("");
-        out.insert("markupPieces".into(), pieces(source, atoms, faces));
+        out.insert("markupPieces".into(), pieces(source, atoms, &faces));
     }
     for (id, value) in node.props.iter() {
         if markup.is_some() && id == PropId::Text {
@@ -920,6 +921,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             continue;
         }
         let text = match value {
+            PropValue::Str(_) if id == PropId::AtomFaces => faces.clone(),
             PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),

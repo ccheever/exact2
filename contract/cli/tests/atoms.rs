@@ -46,7 +46,7 @@ component App
   state draft = "[q](t3-citation:1) @a "
   state pressed = ""
   state selected = ""
-  derive faces = [AtomFace(source="@a", label="A", icon="", title="Alice")]
+  derive faces = [AtomFace(source="@a", label="A", icon="", title="Alice", color="light-dark(#d52c36, #ff6762)", backgroundColor="")]
   action press(e: AtomEvent)
     pressed = e.kind + " " + e.source + " " + e.href + " " + e.start.toString() + "-" + e.end.toString() + (e.metaKey ? " meta" : "")
   action select(s: MarkdownSelection)
@@ -79,15 +79,55 @@ fn a_markdown_field_carries_its_kinds_paint_and_faces() {
             "light-dark(#efe7ff, #2c2340)"
         ]])
     );
+    // The colours as the wire's text (`bridge::atom_face_paint`).
     assert_eq!(
         json_prop(&runner, "editor", PropId::AtomFaces),
-        json!([{"source": "@a", "label": "A", "icon": "", "title": "Alice"}])
+        json!([{"source": "@a", "label": "A", "icon": "", "title": "Alice",
+                "color": "light-dark(#d52c36ff, #ff6762ff)", "backgroundColor": ""}])
     );
     assert_eq!(
         json_prop(&runner, "reader", PropId::Atoms),
         json!([{"name": "citation", "link": "t3-citation:"}])
     );
     assert_eq!(prop(&runner, "reader", PropId::AtomFaces), None);
+}
+
+/// A face's colours are read as a bound colour row's (LLP 1045.000 D2): a
+/// theme entry's name as its colour, a platform colour only as one of the
+/// plan's literals (LLP 1095 D3, D4), and anything else that is no colour
+/// as nothing, so its kind's paint stands, with a journal line. A host gets
+/// the wire's text.
+#[test]
+fn a_faces_colours_are_read_as_a_bound_colours_are() {
+    let runner = boot(
+        r##"theme
+  brandRed="light-dark(#d52c36, #ff6762)"
+atom mention prefix="@"
+component App
+  state draft = "@a @b @c "
+  state name = "systemRedColor"
+  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brandRed", backgroundColor="-exact-platform-color(macos systemBlueColor, #0000ff)"), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(macos ${name}, #ff0000)`, backgroundColor="light-dark(#d52c36 #ff6762)"), AtomFace(source="@c", label="", icon="", title="", color="", backgroundColor="")]
+  view
+    textarea value=draft markup="markdown" atoms="mention" atomFaces=faces testId="editor"
+"##,
+    );
+    let faces = json_prop(&runner, "editor", PropId::AtomFaces);
+    let paint = |i: usize, key: &str| faces[i][key].as_str().unwrap().to_string();
+    assert_eq!(paint(0, "color"), "light-dark(#d52c36ff, #ff6762ff)");
+    assert_eq!(
+        paint(0, "backgroundColor"),
+        "-exact-platform-color(macos systemBlueColor, #0000ffff)"
+    );
+    for (i, key) in [(1, "color"), (1, "backgroundColor"), (2, "color")] {
+        assert_eq!(paint(i, key), "", "{i} {key}");
+    }
+    let refused: Vec<&str> = runner
+        .journal()
+        .filter(|l| l.contains("invalid atomFaces colour"))
+        .collect();
+    assert_eq!(refused.len(), 2, "{refused:?}");
+    assert!(refused[0].contains(r#""-exact-platform-color(macos systemRedColor, #ff0000)""#));
+    assert!(refused[1].contains(r#""light-dark(#d52c36 #ff6762)""#));
 }
 
 #[test]
@@ -162,6 +202,15 @@ fn the_compiler_refuses_what_an_atom_cannot_be() {
         let error = refused(&source);
         assert!(error.contains(code), "{code} for\n{source}\n{error}");
     }
+    // A face names its paint, empty for its kind's: a field is never defaulted.
+    let unpainted = APP.replace(
+        ", color=\"light-dark(#d52c36, #ff6762)\", backgroundColor=\"\"",
+        "",
+    );
+    assert!(
+        refused(&unpainted).contains("type-record-missing"),
+        "{unpainted}"
+    );
     // Two kinds of different forms in one list are fine.
     contract::compile(&field(
         "atom a link=\"x:\"\natom b link=\"relative\"\natom c prefix=\"@\"",

@@ -25,7 +25,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
     override func setUp() { super.setUp(); ExactMarkdown.install() }
     override func tearDown() { session?.destroy(); session = nil; super.tearDown() }
 
-    private func editor(_ text: String = source, selection: NSRange = NSRange(location: 0, length: 0)) -> (NodeView, TextArea, NSWindow) {
+    private func editor(_ text: String = source, selection: NSRange = NSRange(location: 0, length: 0), faces face: String = faces) -> (NodeView, TextArea, NSWindow) {
         _ = NSApplication.shared
         presenter = Presenter()
         session = ExactApp.shared.makeSession(label: "inline-atoms")
@@ -36,7 +36,7 @@ final class InlineAtomEditorMacTests: XCTestCase {
         node.props["markup"] = "markdown"
         node.props["value"] = text
         node.props["atoms"] = kinds
-        node.props["atomFaces"] = faces
+        node.props["atomFaces"] = face
         node.handlers = ["input", "atompress"]
         node.applyTextArea()
         node.layoutTextArea()
@@ -180,6 +180,22 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertTrue(attachments(f).first?.atom.dark == false)
     }
 
+    /// A face's paint is its pill's, over the platform's token, for the appearance it draws in (D2, D4).
+    func testAFacesPaintIsItsPillsInEachAppearance() throws {
+        let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"#1a85d4"}]"##
+        let (_, f, window) = editor(faces: painted)
+        defer { window.close() }
+        window.appearance = NSAppearance(named: .aqua)
+        drain()
+        XCTAssertEqual(drawnAtom(f)?.ink, [213, 44, 54, 255])
+        XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
+        XCTAssertEqual(attachments(f).first?.atom.ink, [213, 44, 54, 255], "the picture draws it")
+        window.appearance = NSAppearance(named: .darkAqua)
+        drain()
+        XCTAssertEqual(drawnAtom(f)?.ink, [255, 103, 98, 255], "dark, its dark half")
+        XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
+    }
+
     func testASelectedPillIsEmphasizedOnlyInTheKeyWindowAndKeyChangesRestyle() throws {
         let (_, f, window) = editor(selection: NSRange(location: a, length: b - a))
         defer { window.close() }
@@ -277,7 +293,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
     override func setUp() { super.setUp(); ExactMarkdown.install() }
     override func tearDown() { session?.destroy(); session = nil; super.tearDown() }
 
-    private func field(_ text: String = source) -> (Presenter, NodeView, TextArea) {
+    private func field(_ text: String = source, faces face: String = faces) -> (Presenter, NodeView, TextArea) {
         let made = ExactApp.shared.makeSession(label: "inline-atoms")
         session = made
         let p = made.presenter
@@ -287,7 +303,7 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         window.makeKeyAndVisible()
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": text, "markup": "markdown", "atoms": kinds, "atomFaces": faces], "handlers": ["input", "atompress"]],
+            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": text, "markup": "markdown", "atoms": kinds, "atomFaces": face], "handlers": ["input", "atompress"]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 600.0, "h": 300.0],
@@ -326,6 +342,21 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertTrue(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first === element, "a restyle keeps the element VoiceOver may be on")
     }
 
+    /// A face's paint is its pill's, over the platform's token, for the trait collection it draws in (D2, D4).
+    func testAFacesPaintIsItsPillsInEachAppearance() throws {
+        let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36ff, #ff6762ff)","backgroundColor":"#1a85d4ff"}]"##
+        let (_, _, f) = field(faces: painted)
+        let drawn = { f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom }
+        let settle = { self.window.layoutIfNeeded(); RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+        window.overrideUserInterfaceStyle = .light
+        settle()
+        XCTAssertEqual(drawn()?.ink, [213, 44, 54, 255])
+        XCTAssertEqual(drawn()?.background, [26, 133, 212, 255])
+        window.overrideUserInterfaceStyle = .dark
+        settle()
+        XCTAssertEqual(drawn()?.ink, [255, 103, 98, 255], "dark, its dark half")
+    }
+
     func testACaretInsideGoesToTheEndAndBackspaceRemovesItWhole() {
         let (_, _, f) = field()
         f.selectedRange = NSRange(location: b, length: 0)
@@ -358,6 +389,23 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}A\u{00A0}quote\u{202F} now")
         // Without atoms the same source is its link text, as before.
         XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
+    }
+
+    /// A face's paint is drawn over its kind's, for the appearance drawn in;
+    /// an empty one keeps the kind's (D2, D4).
+    func testAFacesPaintWinsOverItsKinds() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        // The kind's `color` and `background-color` rows, by the kernel's style bits (75 and 47).
+        let styles = ##"{"citation":[[75,"#010203"],[47,"#040506"]]}"##
+        let painted = #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":""}]"#
+        let atom = { (dark: Bool) in
+            MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: painted, styles: styles, dark: dark))
+                .first { $0.href.hasPrefix(MarkupRuns.atomScheme) }
+        }
+        let light = try XCTUnwrap(atom(false)), dark = try XCTUnwrap(atom(true))
+        XCTAssertEqual(light.color, [213, 44, 54, 255])
+        XCTAssertEqual(dark.color, [255, 103, 98, 255])
+        XCTAssertEqual(light.background, [4, 5, 6, 255], "an empty face colour keeps the kind's")
     }
 }
 

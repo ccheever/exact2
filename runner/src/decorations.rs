@@ -154,8 +154,10 @@ pub fn from_value(value: &Value) -> Result<String, String> {
     Ok(encode(&decorations))
 }
 
-/// Convert the compiler's positional `AtomFace(source, label, icon, title)`
-/// list to the named JSON of the `atomFaces` prop (LLP 1045.000 D2).
+/// Convert the compiler's positional `AtomFace(source, label, icon, title,
+/// color, backgroundColor)` list to the named JSON of the `atomFaces` prop
+/// (LLP 1045.000 D2), the colours as written; the plan reads them next
+/// (`bridge::atom_face_paint`).
 pub fn atom_faces(value: &Value) -> Result<String, String> {
     let Value::List(faces) = value else {
         return Err("atomFaces: expected a list".into());
@@ -163,14 +165,30 @@ pub fn atom_faces(value: &Value) -> Result<String, String> {
     let rows = faces
         .iter()
         .map(|face| match face {
-            Value::Record(f) if f.len() == 4 => {
+            Value::Record(f) if f.len() == 6 => {
                 let text = |i: usize| f[i].as_str().ok_or("atomFaces: expected text");
-                Ok(json!({"source": text(0)?, "label": text(1)?, "icon": text(2)?, "title": text(3)?}))
+                Ok(json!({
+                    "source": text(0)?, "label": text(1)?, "icon": text(2)?, "title": text(3)?,
+                    "color": text(4)?, "backgroundColor": text(5)?,
+                }))
             }
             _ => Err("atomFaces: invalid record shape".to_string()),
         })
         .collect::<Result<Vec<_>, String>>()?;
     Ok(serde_json::Value::Array(rows).to_string())
+}
+
+/// A face's `color` or `backgroundColor` (LLP 1045.000 D2) as a colour row
+/// reads a text, with whatever theme is bound: `None` when empty, so its
+/// kind's paint stands, or when it is no colour. A host reads the wire's
+/// text the runner wrote (`bridge::atom_face_paint`).
+pub fn face_color(text: &str) -> Option<exact_kernel::ColorValue> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    exact_kernel::ColorValue::parse_light_dark(text)
+        .or_else(|| exact_kernel::Color::parse(text).map(exact_kernel::ColorValue::Fixed))
 }
 
 #[cfg(test)]
@@ -194,6 +212,25 @@ mod tests {
         assert!(table.get("unknown").is_none());
         assert_eq!(table.names().collect::<Vec<_>>(), ["mention"]);
         assert!(StyleTable::decode(r#"{"bad":[[65535,1]]}"#).is_err());
+    }
+
+    #[test]
+    fn a_faces_paint_is_a_colour_or_none() {
+        use exact_kernel::{Color, ColorValue};
+        assert_eq!(
+            face_color(" light-dark(#d52c36, #ff6762) "),
+            Some(ColorValue::LightDark(
+                Color::parse("#d52c36").unwrap(),
+                Color::parse("#ff6762").unwrap()
+            ))
+        );
+        assert_eq!(
+            face_color("#1a85d4"),
+            Some(ColorValue::Fixed(Color::parse("#1a85d4").unwrap()))
+        );
+        for none in ["", "  ", "not a colour", "light-dark(#d52c36 #ff6762)"] {
+            assert_eq!(face_color(none), None, "{none:?}");
+        }
     }
 
     #[test]

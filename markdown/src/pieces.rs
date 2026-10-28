@@ -85,6 +85,10 @@ pub struct AtomPiece {
     pub href: String,
     /// The atom's whole source text.
     pub source: String,
+    /// The face's `color`; empty for its kind's.
+    pub color: String,
+    /// The face's `backgroundColor`; empty for its kind's.
+    pub background_color: String,
 }
 
 /// One list level's indent, CSS px: the browser's `padding-inline-start` on
@@ -461,6 +465,8 @@ fn atom_piece(
             title: face.map(|f| f.title.clone()).unwrap_or_default(),
             href: a.href.clone(),
             source: text.to_string(),
+            color: face.map(|f| f.color.clone()).unwrap_or_default(),
+            background_color: face.map(|f| f.background_color.clone()).unwrap_or_default(),
         })),
     }
 }

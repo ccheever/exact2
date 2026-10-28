@@ -147,6 +147,53 @@ pub fn icon_of<'a>(
     )
 }
 
+/// @ref LLP 1045.000 D2 — a Markdown node's `atomFaces` with each face's
+/// `color` and `backgroundColor` read as a bound colour row of `plan` reads
+/// one (a theme entry's name as the colour it stands for, LLP 1095 D4; a
+/// `-exact-platform-color()` only as one of the plan's literals, D3) and
+/// written as the wire's text, which a host reads with no theme bound. One
+/// that is no colour is empty, so its kind's paint stands, and is added to
+/// `refused`. Any other prop as it is.
+pub fn atom_face_paint(
+    plan: &exact_plan::Plan,
+    prop: PropId,
+    value: PropValue,
+    refused: &mut Vec<String>,
+) -> PropValue {
+    use exact_kernel::gradient::{color_text, ColorText};
+    let (PropId::AtomFaces, PropValue::Str(json)) = (prop, &value) else {
+        return value;
+    };
+    let Ok(serde_json::Value::Array(mut faces)) = serde_json::from_str(json.as_str()) else {
+        return value;
+    };
+    let _theme =
+        (!plan.theme.is_empty()).then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
+    for face in faces
+        .iter_mut()
+        .filter_map(serde_json::Value::as_object_mut)
+    {
+        for key in ["color", "backgroundColor"] {
+            let Some(serde_json::Value::String(text)) = face.get_mut(key) else {
+                continue;
+            };
+            let admitted = !text.contains("-exact-platform-color(")
+                || plan.strings.iter().any(|s| s == text.as_str());
+            let mut wire = String::new();
+            match admitted
+                .then(|| crate::decorations::face_color(text))
+                .flatten()
+            {
+                Some(color) => color_text(&mut wire, color, ColorText::Wire),
+                None if !text.trim().is_empty() => refused.push(std::mem::take(text)),
+                None => {}
+            }
+            *text = wire;
+        }
+    }
+    PropValue::Str(serde_json::Value::Array(faces).to_string().into())
+}
+
 /// @ref LLP 1121 D10 — a computed `symbol:` source naming an icon token, by
 /// its name or (`sf/<name>`) by its SF Symbol, written as the source form a
 /// host reads, as the compiler writes a literal one; any other value as it is.

@@ -17,7 +17,7 @@ const wasm = engines.some(e => !missing[e]) ? readFileSync(await buildEditor()) 
 
 const KINDS = JSON.stringify([{ name: 'citation', link: 'cite:' }, { name: 'mention', prefix: '@' }]);
 const CITE = '[Quote](cite:1)';
-const faces = list => JSON.stringify(list.map(([source, label, title = '']) => ({ source, label, icon: '', title })));
+const faces = list => JSON.stringify(list.map(([source, label, title = '', color = '', backgroundColor = '']) => ({ source, label, icon: '', title, color, backgroundColor })));
 const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 async function editor(engine, source, drive, { width = 500, faceList = [], styles = '{}' } = {}) {
@@ -141,11 +141,30 @@ for (const engine of engines) {
       expect(await island(field).textContent()).toBe('main.rs');
       await field.evaluate(el => { el.setAttribute('data-atom-faces', JSON.stringify([{ source: '@src/main.rs', label: 'lib/main.rs', icon: '', title: '' }])); el.exactMarkup.sync(); });
       expect(await island(field).textContent()).toBe('lib/main.rs');
+      // A face whose paint alone changes draws its pill again.
+      await field.evaluate(el => { el.setAttribute('data-atom-faces', JSON.stringify([{ source: '@src/main.rs', label: 'lib/main.rs', icon: '', title: '', color: 'rgb(7, 8, 9)', backgroundColor: '' }])); el.exactMarkup.sync(); });
+      expect(await island(field).evaluate(b => getComputedStyle(b).color)).toBe('rgb(7, 8, 9)');
       expect(await field.evaluate(el => el.value)).toBe(source);
       // rangeFrame over the atom is its pill.
       const [frame, pill] = await field.evaluate(el => [el.exactMarkup.rangeFrame(3, 15), el.querySelector('.exact-atom').getBoundingClientRect()].map(r => [r.x, r.y, r.width, r.height].map(Math.round)));
       expect(frame).toEqual(pill);
     });
+  }, 60000);
+
+  engineTest[engine](`${engine}: a face's paint is its pill's, over its kind's; one the browser does not take leaves the kind's`, async () => {
+    const styles = JSON.stringify({ mention: 'color:rgb(1, 2, 3);background-color:rgb(4, 5, 6)' });
+    const faceList = [['@x', 'X', '', 'light-dark(#d52c36, #ff6762)'], ['@y', 'Y', '', '', '#1a85d433'], ['@z', 'Z', '', 'no colour', 'red;display:none']];
+    await editor(engine, 'a @x @y @z b', async (page, field) => {
+      const paint = () => field.evaluate(el => [...el.querySelectorAll('.exact-atom')].map(b => [getComputedStyle(b).color, getComputedStyle(b).backgroundColor, getComputedStyle(b).display]));
+      expect(await paint()).toEqual([
+        ['rgb(213, 44, 54)', 'rgb(4, 5, 6)', 'inline-block'],
+        ['rgb(1, 2, 3)', 'rgba(26, 133, 212, 0.2)', 'inline-block'],
+        ['rgb(1, 2, 3)', 'rgb(4, 5, 6)', 'inline-block'],
+      ]);
+      // `light-dark()` takes the page's scheme, as the kind's does.
+      await page.evaluate(() => { document.documentElement.style.colorScheme = 'dark'; });
+      expect((await paint())[0][0]).toBe('rgb(255, 103, 98)');
+    }, { faceList, styles });
   }, 60000);
 
   engineTest[engine](`${engine}: an island an edit removed without beforeinput removes its atom's source`, async () => {
@@ -193,7 +212,7 @@ for (const engine of engines) {
         globalThis.exact = {};
         const { renderMarkup } = await import('./navigation.js');
         const text = document.getElementById('text');
-        const json = JSON.stringify([['see ', 1, 0, 0, ''], ['A quote', 1, 700, 72, '', 0, ['citation', 'button', '', 'The quote', 'cite:1', '${CITE}', 4, 19]], [' and ', 1, 0, 0, ''], ['L', 1, 0, 72, '', 0, ['ref', 'link', '', '', 'cite:2', '[L](cite:2)', 24, 35]]]);
+        const json = JSON.stringify([['see ', 1, 0, 0, ''], ['A quote', 1, 700, 72, '', 0, ['citation', 'button', '', 'The quote', 'cite:1', '${CITE}', 4, 19, '', '']], [' and ', 1, 0, 0, ''], ['L', 1, 0, 72, '', 0, ['ref', 'link', '', '', 'cite:2', '[L](cite:2)', 24, 35, '#1a85d4', '']]]);
         renderMarkup(text, json);
         window.before = text.querySelectorAll('.exact-atom').length; // until atoms.js is here: the labels alone
         await import('./atoms.js'); renderMarkup(text, json);
@@ -217,6 +236,7 @@ for (const engine of engines) {
       expect(await box.getAttribute('tabindex')).toBe('0');
       expect(await box.getAttribute('aria-description')).toBe('The quote');
       expect(await box.evaluate(b => [getComputedStyle(b).fontWeight, getComputedStyle(b).color])).toEqual(['700', 'rgb(1, 2, 3)']);
+      expect(await link.evaluate(b => getComputedStyle(b).color)).toBe('rgb(26, 133, 212)'); // its face's paint
       await box.click();
       await box.focus(); await page.keyboard.press('Enter'); await page.keyboard.down(' ');
       const detail = ['citation', CITE, 'cite:1', 4, 19, false, false, false, false];

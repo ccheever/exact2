@@ -1004,11 +1004,18 @@ impl NodeInst {
             // view would then depend on history, not state. Unknown rows are plan defects.
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
-                    Ok((prop, pv)) => u.ops.push(Op::SetProp {
-                        value: bridge::icon_source(plan, prop, pv),
-                        id: self.view,
-                        prop,
-                    }),
+                    Ok((prop, pv)) => {
+                        let (id, mut refused) = (self.view, Vec::new());
+                        let pv = bridge::icon_source(plan, prop, pv);
+                        let value = bridge::atom_face_paint(plan, prop, pv, &mut refused);
+                        for text in refused {
+                            let shown = serde_json::Value::String(text);
+                            u.notes.push(format!(
+                                "view {id}: invalid atomFaces colour {shown}; its kind's paint stands"
+                            ));
+                        }
+                        u.ops.push(Op::SetProp { value, id, prop })
+                    }
                     Err(
                         e @ (bridge::BridgeError::PropKind { prop, .. }
                         | bridge::BridgeError::Unset(prop)),

@@ -853,7 +853,7 @@ fn prop_type(p: PropId) -> String {
         return "a literal list of `atom` names: `atoms=\"citation mention\"`".into();
     }
     if p == PropId::AtomFaces {
-        return "AtomFace[]: AtomFace(source, label, icon, title), keyed by each atom's whole source text".into();
+        return "AtomFace[]: AtomFace(source, label, icon, title, color, backgroundColor), keyed by each atom's whole source text; `color` and `backgroundColor` paint that one atom over its kind's paint: each a colour as a bound `color` takes one, or empty to keep the kind's".into();
     }
     if p == PropId::Decorations {
         return "TextDecorations(value, spans): the text the spans were computed for, and TextDecorationSpan(name, start, end) in UTF-16 offsets".into();
@@ -900,7 +900,7 @@ const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the au
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
     if name == "atoms" || name == "atomFaces" {
-        return Some("a `text` or `textarea` with `markup=\"markdown\"`: `atoms` lists the `atom` kinds it recognizes, `atomFaces` the app's `AtomFace(source, label, icon, title)` records by each atom's source; web, macOS and iOS draw pills, Linux, Windows and Android the source (LLP 1045.000)");
+        return Some("a `text` or `textarea` with `markup=\"markdown\"`: `atoms` lists the `atom` kinds it recognizes, `atomFaces` the app's `AtomFace(source, label, icon, title, color, backgroundColor)` records by each atom's source, a face's colours over its kind's; web, macOS and iOS draw pills, Linux, Windows and Android the source (LLP 1045.000)");
     }
     if name == "decorations" {
         return Some("plain `textarea`: paint only, each span's name a `decoration` declaration (color, background-color, text-decoration, text-shadow); the web paints it where `createValueRange` exists, Apple, Linux and Windows all but its text-shadow, Android and the terminal not yet (LLP 1114.007)");

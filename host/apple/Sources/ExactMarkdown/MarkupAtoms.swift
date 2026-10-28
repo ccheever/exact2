@@ -5,7 +5,7 @@
 // lives, §5.1), and the rest as word joiners; the reader draws an atom's
 // piece as its label on an inline box's background. The pill looks like the
 // platform's token: NSTokenField's on macOS, UISearchTextField's on iOS (D4),
-// unless the kind declares `color` or `background-color`.
+// unless its face or its kind gives a colour, the face's first (D4).
 #if canImport(UIKit)
 import UIKit
 typealias AtomImage = UIImage
@@ -43,8 +43,15 @@ enum AtomHandle {
     }
 }
 
-/// The paint each kind declares (`atomStyles`), as RGBA channels for one appearance.
+/// The paint each kind declares (`atomStyles`), and a face's own over it,
+/// as RGBA channels for one appearance.
 enum AtomPaint {
+    /// A face's `color` or `backgroundColor` in the colour wire form the
+    /// archive wrote (`face_paint`); nil where the kind's paint stands.
+    static func face(_ value: Any?, _ atoms: MarkdownAtoms) -> [Double]? {
+        batch(value)?.channels(dark: atoms.dark, contrast: atoms.contrast)
+    }
+
     /// `(ink, background)` by kind name.
     static func resolve(_ atoms: MarkdownAtoms) -> [String: (ink: [Double]?, background: [Double]?)] {
         guard !atoms.styles.isEmpty, atoms.styles != "{}" else { return [:] }
@@ -184,14 +191,16 @@ final class AtomAttachment: NSTextAttachment {
 }
 
 extension MarkupAtom {
-    /// The atom of a styling row `[start, end, kind, label, icon, title, role, href]`.
+    /// The atom of a styling row `[start, end, kind, label, icon, title, role, href, ink, background]`,
+    /// its face's paint over its kind's.
     static func of(_ row: [Any], paint: [String: (ink: [Double]?, background: [Double]?)], selection: NSRange, atoms: MarkdownAtoms) -> (NSRange, MarkupAtom)? {
         guard row.count >= 8, let start = row[0] as? Int, let end = row[1] as? Int, end > start else { return nil }
         let text = { (i: Int) in row[i] as? String ?? "" }
+        let face = { (i: Int) in i < row.count ? AtomPaint.face(row[i], atoms) : nil }
         let range = NSRange(location: start, length: end - start), kind = text(2)
         let selected = selection.length > 0 && selection.location <= start && end <= NSMaxRange(selection)
         return (range, MarkupAtom(kind: kind, label: text(3), icon: text(4), title: text(5), role: text(6), href: text(7),
-                                  ink: paint[kind]?.ink, background: paint[kind]?.background, selected: selected,
+                                  ink: face(8) ?? paint[kind]?.ink, background: face(9) ?? paint[kind]?.background, selected: selected,
                                   emphasized: atoms.emphasized, dark: atoms.dark, contrast: atoms.contrast))
     }
 }

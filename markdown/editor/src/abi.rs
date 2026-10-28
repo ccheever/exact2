@@ -388,10 +388,10 @@ pub extern "C" fn mde_atoms(h: u32, kinds_len: u32, faces_len: u32) -> u32 {
 }
 
 /// Each atom's kind name, label, icon, title, role (`button` or `link`),
-/// destination and source, a field per line and a blank line after each
-/// atom's, in source order, into [`mde_text`]; returns its length. No field
-/// holds a line break: an atom's source never does, and a label's white
-/// space draws as one space.
+/// destination, source, and its face's `color` and `backgroundColor`, a
+/// field per line and a blank line after each atom's, in source order, into
+/// [`mde_text`]; returns its length. No field holds a line break: an atom's
+/// source never does, and a label's white space draws as one space.
 #[no_mangle]
 pub extern "C" fn mde_atom_faces(h: u32) -> u32 {
     let text = with(h, 0, |e, _| {
@@ -412,6 +412,8 @@ pub extern "C" fn mde_atom_faces(h: u32) -> u32 {
                 role,
                 &a.href,
                 &a.source,
+                &flat(face.map_or("", |f| f.color.as_str())),
+                &flat(face.map_or("", |f| f.background_color.as_str())),
             ] {
                 out.push_str(field);
                 out.push('\n');

@@ -266,7 +266,7 @@ impl Lowerer<'_> {
         if ty != Ty::List(Box::new(Ty::Record("AtomFace".into()))) {
             return err(
                 "lower-attr-type",
-                "`atomFaces` takes a list of `AtomFace` records: `AtomFace(source, label, icon, title)`",
+                "`atomFaces` takes a list of `AtomFace` records: `AtomFace(source, label, icon, title, color, backgroundColor)`",
                 attr.span,
             );
         }

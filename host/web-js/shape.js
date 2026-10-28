@@ -62,11 +62,25 @@ export function failureCode(e) {
  * else empty; as js/src/prelude.js `fail` reads it (the author's ruling of 2026-10-12). */
 export const failureReason = e => e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";
 
-/** The compiler's positional `TextDecorations(value, spans)` as the named JSON the web host reads (LLP 1114.007). */
-/** `atomFaces`' `AtomFace` records as the named JSON the runner's bridge writes (LLP 1045.000 D2). */
-export function atomFacesRecord(v) {
-  return v == null ? null : JSON.stringify(v.map(([source, label, icon, title]) => ({ source, label, icon, title })));
+/** `atomFaces`' `AtomFace` records as the named JSON the runner's bridge writes (LLP 1045.000 D2), each face's colours
+ * read as a bound colour row's are: through the build's colour map `cm`, which takes a theme entry's name and admits a
+ * `-exact-platform-color()` only as one of the plan's literals (LLP 1095 D3, D4), then the browser. A keyword that
+ * defers to the cascade, a `var()` and anything the browser refuses are no colour: empty, so the kind's paint stands,
+ * and the journal says so, as the runner's does (`bridge::atom_face_paint`). */
+const DEFERS = /^\s*(initial|inherit|unset|revert|revert-layer|currentcolor)\s*$/i;
+export function atomFacesRecord(v, cm = c => c) {
+  const paint = c => {
+    if (typeof c !== "string" || !c.trim()) return "";
+    const m = /\bvar\(/i.test(c) ? "" : cm(c) ?? "";
+    if (m && !DEFERS.test(m) && (typeof CSS === "undefined" || CSS.supports("color", m))) return m;
+    const x = globalThis.exact;
+    x?.journal?.push(`t=${x.now?.() ?? 0} invalid atomFaces colour ${JSON.stringify(c)}; its kind's paint stands`);
+    return "";
+  };
+  return v == null ? null : JSON.stringify(v.map(([source, label, icon, title, color, backgroundColor]) =>
+    ({ source, label, icon, title, color: paint(color), backgroundColor: paint(backgroundColor) })));
 }
+/** The compiler's positional `TextDecorations(value, spans)` as the named JSON the web host reads (LLP 1114.007). */
 export function decorationRecord(v) {
   return v == null ? null : JSON.stringify({ value: v[0], spans: v[1].map(([name, start, end]) => ({ name, start, end })) });
 }
