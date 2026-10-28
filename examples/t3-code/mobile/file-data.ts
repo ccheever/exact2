@@ -9,14 +9,16 @@ import { workspaceOf } from './shared/r4-surfaces-panel';
 import { fileIconToken } from './shared/timeline-files';
 import { assertReviewOwner, reviewFileAccess, reviewNative, reviewOwner } from './review-owner';
 import { buildFileTree, flattenFileTree, type ProjectEntry } from './file-tree-model';
-import { reviewLineTokens, type ReviewRow, reviewRow } from './review-model';
+import { reviewLineTokens } from './review-model';
+import type { ThreadCodeToken } from './thread-highlight';
 
 export interface FileTreeItem { id: string; path: string; name: string; directory: boolean; expanded: boolean; selected: boolean;
   ignored: boolean; depth: number; loaded: boolean; count: string; token: string }
 export interface FileTreeSnapshot { owner: string; revision: number; title: string; query: string; selectedPath: string;
   rows: FileTreeItem[]; loading: boolean; error: string; truncated: boolean; emptyTitle: string; emptyDetail: string }
+export interface FileSourceRow { id: string; text: string; newNumber: string; selected: boolean; tokens: ThreadCodeToken[] }
 export interface FileSnapshot { owner: string; revision: number; path: string; title: string; subtitle: string;
-  loading: boolean; error: string; contents: string; copyContents: string; rows: ReviewRow[]; truncated: boolean; notice: string;
+  loading: boolean; error: string; contents: string; copyContents: string; rows: FileSourceRow[]; truncated: boolean; notice: string;
   markdown: boolean; initialRowId: string; svg: boolean; svgSource: string; svgRetry: string; svgFailure: string;
   svgSharing: boolean; svgCanRead: boolean; svgShareAction: string; svgShareMessage: string; svgShareReceipt: string; fullPath: string; relativePath: string; svgPhase: string; svgTitle: string;
   svgDetail: string; svgTrace: string; svgTraceCopy: string; svgRetrying: boolean; svgRetryAllowed: boolean; svgSymbol: string }
@@ -147,22 +149,36 @@ export function mobileFileSnapshot(path: string, dark = false, initialLine = 0, 
   return mobileFilePresentation({ owner: access.owner, revision: client.revision, projectName: workspaceOf(client).projectName,
     loading: access.file.checking || state.loading > 0, error: access.permissionError || access.file.error, read }, path, dark, initialLine);
 }
-/** Thread and draft workspaces share source rendering, not read/cache ownership. */
-export function mobileFilePresentation(input: { owner: string; revision: number; projectName: string; loading: boolean; error: string;
-  read?: { contents: string; error?: string; truncated?: boolean } }, path: string, dark = false, initialLine = 0): FileSnapshot {
-  const read = input.read;
+type SourceRead = { contents: string; error?: string; truncated?: boolean };
+type SourceProjection = Pick<FileSnapshot, 'contents' | 'rows' | 'initialRowId'>;
+const sourceProjections = new WeakMap<SourceRead, { raw: string; error: string | undefined; path: string;
+  dark: boolean; initialLine: number; value: SourceProjection }>();
+function sourceProjection(read: SourceRead | undefined, path: string, dark: boolean, initialLine: number): SourceProjection {
+  const previous = read ? sourceProjections.get(read) : undefined;
+  if (previous && previous.raw === read?.contents && previous.error === read?.error && previous.path === path
+    && previous.dark === dark && previous.initialLine === initialLine) return previous.value;
   const contents = (read?.contents ?? '').replace(/\r\n?/g, '\n'), lines = contents.split('\n');
   const target = initialLine > 0 ? Math.min(Math.floor(initialLine) - 1, Math.max(0, lines.length - 1)) : -1;
   const tokens = read && !read.error ? reviewLineTokens(lines.map((content, at) => ({ change: 'context', content, oldLineNumber: null, newLineNumber: at + 1 })), path, dark) : [];
+  const rows: FileSourceRow[] = read && !read.error ? lines.map((text, at) => ({ id: `source-line:${at}`, text: text.replace(/\t/g, '    '),
+    newNumber: String(at + 1), selected: at === target, tokens: (tokens[at] ?? []).map(token => ({ id: token.id, text: token.text.replace(/\t/g, '    '),
+      color: token.color, weight: token.weight, slant: token.slant })) })) : [];
+  const value = { contents, rows, initialRowId: target >= 0 ? `source-line:${target}` : '' };
+  if (read) sourceProjections.set(read, { raw: read.contents, error: read.error, path, dark, initialLine, value });
+  return value;
+}
+/** Thread and draft workspaces share source rendering, not read/cache ownership. */
+export function mobileFilePresentation(input: { owner: string; revision: number; projectName: string; loading: boolean; error: string;
+  read?: SourceRead }, path: string, dark = false, initialLine = 0): FileSnapshot {
+  const read = input.read, { contents, rows, initialRowId } = sourceProjection(read, path, dark, initialLine);
   const parent = path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'), 0));
   const absolute = path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
   return { owner: input.owner, revision: input.revision, path, title: path.split(/[\\/]/).at(-1) || 'File',
     subtitle: absolute ? parent : [input.projectName, parent].filter(Boolean).join(' · '),
     loading: input.loading, error: input.error || read?.error || '', contents, copyContents: read?.error || input.error ? '' : read?.contents ?? '',
-    rows: read && !read.error ? lines.map((text, at) => ({ ...reviewRow(`source-line:${at}`, 'line'), path, text: text.replace(/\t/g, '    '),
-      oldNumber: '', newNumber: String(at + 1), lineIndex: at, change: 'context', selected: at === target, tokens: tokens[at] ?? [] })) : [],
+    rows,
     truncated: read?.truncated === true, notice: read?.truncated ? 'Preview limited to the first 1 MB of a truncated file.' : '',
-    markdown: /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? ''), initialRowId: target >= 0 ? `source-line:${target}` : '',
+    markdown: /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? ''), initialRowId,
     svg: false, svgSource: '', svgRetry: '', svgFailure: '', svgSharing: false, svgCanRead: false, svgShareAction: '', svgShareMessage: '', svgShareReceipt: '', fullPath: '', relativePath: '',
     svgPhase: '', svgTitle: '', svgDetail: '', svgTrace: '', svgTraceCopy: '', svgRetrying: false, svgRetryAllowed: false, svgSymbol: '' };
 }

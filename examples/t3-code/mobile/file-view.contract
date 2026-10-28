@@ -1,6 +1,14 @@
 // SourceFileSurface365aa87982, over shared reads and mobile syntax colors.
 // @ref examples/t3-code/mobile/docs/1130.006-review-and-files.decision.md#mobile-presentation
-use ReviewColors, ReviewRow from "./review-shapes.contract"
+use ReviewColors from "./review-shapes.contract"
+use ThreadCodeToken from "./thread-shapes.contract"
+
+shape FileSourceRow
+  id: string
+  text: string
+  newNumber: string
+  selected: bool
+  tokens: ThreadCodeToken[]
 
 shape FileUi
   query: string
@@ -16,7 +24,7 @@ shape FileSnapshot
   error: string
   contents: string
   copyContents: string
-  rows: ReviewRow[]
+  rows: FileSourceRow[]
   truncated: bool
   notice: string
   markdown: bool

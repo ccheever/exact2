@@ -248,6 +248,41 @@ test('Markdown file actions keep source default and omit wrapping only for the s
   expect(actions(true)[0].selected).toBe(true); expect(actions(true)[1].selected).toBe(false);
 });
 
+test('source presentation keeps current visit metadata when the same read is reused', () => {
+  const read = { contents: 'const count = 1;\r\n', truncated: false };
+  const first = mobileFilePresentation({ owner: 'first', revision: 1, projectName: 'First', loading: false, error: '', read }, 'src/count.ts');
+  read.truncated = true;
+  const next = mobileFilePresentation({ owner: 'next', revision: 2, projectName: 'Next', loading: true, error: 'Reconnecting', read }, 'src/count.ts');
+  expect(next).toMatchObject({ owner: 'next', revision: 2, subtitle: 'Next · src', loading: true, error: 'Reconnecting',
+    truncated: true, copyContents: '', contents: 'const count = 1;\n', rows: first.rows });
+  expect(next.notice).toContain('truncated');
+});
+
+test('source rows follow changed bytes, read failures, language, theme and selected line', () => {
+  const read = { contents: '\tconst count = 1;\nreturn count;', error: '' };
+  const present = (path = 'count.ts', dark = false, line = 0) =>
+    mobileFilePresentation({ owner: 'owner', revision: 1, projectName: 'Project', loading: false, error: '', read }, path, dark, line);
+  const light = present(), dark = present('count.ts', true, 2), plain = present('count.txt');
+  expect(light.rows[0]?.tokens.map(token => token.text).join('')).toBe(light.rows[0]?.text);
+  expect(dark.rows[1]?.selected).toBe(true); expect(dark.initialRowId).toBe('source-line:1');
+  expect(dark.rows[0]?.tokens.map(token => token.color)).not.toEqual(light.rows[0]?.tokens.map(token => token.color));
+  expect(plain.rows[0]?.tokens).not.toEqual(light.rows[0]?.tokens);
+  expect(present().rows.some(row => row.selected)).toBe(false);
+  read.contents = 'updated\n';
+  expect(present().rows.map(row => row.text)).toEqual(['updated', '']);
+  read.error = 'File removed';
+  expect(present()).toMatchObject({ error: 'File removed', rows: [], copyContents: '' });
+  read.error = '';
+  expect(present().rows.map(row => row.text)).toEqual(['updated', '']);
+});
+
+test('source presentation preserves every line and trailing newline of a large read', () => {
+  const lines = Array.from({ length: 6175 }, (_, index) => `line ${index + 1}`), contents = `${lines.join('\n')}\n`;
+  const data = mobileFilePresentation({ owner: 'owner', revision: 1, projectName: 'Project', loading: false, error: '', read: { contents } }, 'large.txt', false, 6175);
+  expect(data.rows).toHaveLength(6176); expect(data.rows[6174]).toMatchObject({ text: 'line 6175', newNumber: '6175', selected: true });
+  expect(data.rows[6175]?.text).toBe(''); expect(data.copyContents).toBe(contents);
+});
+
 test.each([
   ['docs/guide.md#draft', true],
   ['docs/guide.mdx?raw=1', true],

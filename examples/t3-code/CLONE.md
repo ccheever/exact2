@@ -96,10 +96,11 @@ separators. File title, subtitle and actions now share the native navigation bar
 with the reference editor style. Unwrapped source uses the regular platform
 monospace font and reference gutter geometry. Wrapped typography, the header
 hairline, shared horizontal scrolling and Markdown code styling still differ
-from the reference. A 6,175-line file reaches the cache, but its
-display projection exceeds the 100 ms turn budget. A failed file request now
-shows an error and Try again instead of an empty body. Reducing that projection
-is the current source-view blocker. These phone fixes are not in the POC build.
+from the reference. Source rows now carry only source fields and reuse their
+highlighted projection while the read is unchanged. The normal iPhone app opens
+the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
+Read failures show an error and Try again instead of an empty body. All 3,705
+mobile tests and strict app TypeScript pass. These phone fixes are not in the POC build.
 A paired learned route still retains its learned marker.
 T3 Connect relay login remains unconfigured in the clone; direct pairing is the
 verified connection path.
