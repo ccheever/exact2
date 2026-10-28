@@ -23,6 +23,7 @@ import { obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { parsePullRequestReference } from '../palette/palette-linkpr';
 import { providerMark, terminology } from '../details/git-logic';
+import { offHeadCheckoutToast } from '../details/pr-row-logic';
 import { pushToast } from '../shell/toast';
 import { ensureDraftThreadId } from './draft-thread-id';
 import { settle, wakeShell } from '../client/command-waits'; // the 450 ms debounce
@@ -57,9 +58,6 @@ function presentation(provider: Obj | null) {
   return { name: str(provider?.name) || NAMES[str(provider?.kind) || 'github'] || 'source control', singular: words.singular, short: words.shortLabel, mark: providerMark(status) };
 }
 const capitalize = (text: string) => text.replace(/\b\w/g, letter => letter.toUpperCase()); // CSS text-transform: capitalize
-/** offHeadPullRequestCheckoutToast: a checkout that local work kept off the head, in the dialog host's words. */
-const offHeadToast = (singular: string) => ({ kind: 'warning' as const, title: 'Checked out, but not confirmed on the latest commit',
-  description: `This checkout could not be confirmed at the ${singular}'s latest commit, so its code may differ. Local commits or uncommitted work keep a checkout where it is.` });
 
 /** canCheckoutPullRequestIntoThread: the active thread is a local draft. */
 const canCheckout = (client: T3Client) => !client.threadId && !!client.projectId;
@@ -185,7 +183,7 @@ export async function checkoutConfirm(client: T3Client, native: Native, mode: st
     // onPrepared: the draft takes the checkout (envMode follows the worktree), then the dialog closes.
     (client.local.composerControls.contexts ??= {})[state.draftKey] = { envMode: worktreePath ? 'worktree' : 'local', branch, worktreePath };
     // A checkout that local work kept off the pull request's head says so.
-    if (prepared.isOnPullRequestHead === false) pushToast(client, offHeadToast(presentation(state.provider).singular));
+    if (prepared.isOnPullRequestHead === false) pushToast(client, offHeadCheckoutToast(terminology(state.provider ? { sourceControlProvider: state.provider } : null)));
     state.open = false;
   } catch (error) {
     // A server failure is a tagged error, not an Error, in the reference: the dialog shows its generic line.
