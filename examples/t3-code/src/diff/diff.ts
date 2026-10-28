@@ -261,9 +261,11 @@ function diffLineTokens(lines: readonly string[], path: string): Token[][] {
   const tokens = lineTokens(lines, path);
   if (!/\.(md|mdx|markdown)$/i.test(path)) return tokens;
   return tokens.map((line, index) => {
-    if (HEADING_LINE.test(lines[index] ?? '')) return line.map(token => ({ ...token, cls: `${token.cls}+b` as unknown as Token['cls'] }));
+    // Both rules read the first token's class, the heading ink: a `#` comment in a fenced block is that language's comment.
     const first = line.findIndex(token => token.text.trim() !== '');
-    if (first < 0 || (line[first]!.cls !== 'tag' && line[first]!.cls !== 'heading') || !LIST_MARKER.test(line[first]!.text)) return line;
+    if (first < 0 || (line[first]!.cls !== 'tag' && line[first]!.cls !== 'heading')) return line;
+    if (HEADING_LINE.test(lines[index] ?? '')) return line.map(token => ({ ...token, cls: `${token.cls}+b` as unknown as Token['cls'] }));
+    if (!LIST_MARKER.test(line[first]!.text)) return line;
     return line.map((token, at) => at === first ? { ...token, cls: 'punct' } : token);
   });
 }

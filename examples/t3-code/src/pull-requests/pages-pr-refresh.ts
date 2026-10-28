@@ -107,6 +107,8 @@ export function noteInteraction(client: object, at: number, resumed: boolean): v
   if (resumed) entry.resumes += 1;
   interactions.set(client, entry);
 }
+/** Whether the reader has been idle for six minutes, when useLiveRefresh's intervals stop. */
+export function readerIdle(client: object, now: number): boolean { return now - lastInteraction(client, now) >= LIVE_REFRESH_IDLE_AFTER_MS; }
 /** How many times the reader came back from six idle minutes: a view that sees it change has an arrival. */
 export function interactionResumes(client: object): number { return interactions.get(client)?.resumes ?? 0; }
 /** When the reader last pointed, typed or scrolled; before any, the first view's ask, as the hook's first watcher notes it. */
@@ -188,9 +190,9 @@ const listScopeKey = (input: Obj) => { const { projectIds: _projectIds, ...scope
  * shown that way, so only first-page reads are kept. Failures and cursors are dropped: they describe the moment of the
  * read, and a restored list must not continue from it.
  */
-export function rememberListAnswer(owner: { local: object }, target: { environmentId: string; input: Obj }, answer: Obj): void {
+export function rememberListAnswer(owner: { local: object }, target: { environmentId: string; input: Obj }, answer: Obj): boolean {
   const { input } = target;
-  if (input.query !== undefined || input.cursors !== undefined || num(input.limit, LIST_ANSWER_MAX_ENTRIES) > LIST_ANSWER_MAX_ENTRIES || !Array.isArray(answer.entries)) return;
+  if (input.query !== undefined || input.cursors !== undefined || num(input.limit, LIST_ANSWER_MAX_ENTRIES) > LIST_ANSWER_MAX_ENTRIES || !Array.isArray(answer.entries)) return false;
   const local = owner.local as LocalAnswers, held = local.prListAnswers ?? { index: [], scopes: {} };
   const key = listScopeKey(input), scope = held.scopes[key] ?? {};
   // An answer for some projects replaces only their rows. A repository this server no longer owns stays covered until
@@ -202,6 +204,7 @@ export function rememberListAnswer(owner: { local: object }, target: { environme
   const index = [key, ...held.index.filter(other => other !== key)];
   const scopes = Object.fromEntries(index.slice(0, LIST_SCOPE_MAX_KEPT).map(other => [other, other === key ? { ...scope, [target.environmentId]: { ...answer, entries, errors: [], nextCursors: {} } } : held.scopes[other] ?? {}]));
   local.prListAnswers = { index: index.slice(0, LIST_SCOPE_MAX_KEPT), scopes };
+  return true;
 }
 /**
  * The kept answers for these reads, by server. A server without a kept answer is left out rather than failing the

@@ -199,7 +199,7 @@ component PrdThreadComment
       column margin-top="0.25rem" min-width=0
         PrdWords(bodyId=comment.bodyId, emptyText="", collapse=false, canEdit=comment.canEdit, pencil=true, hovered=(over or focused), open=open, previewing=previewing, draft=draft, saving=comment.saving, allowEmpty=false, label="Edit comment", placeholder="", previewId=`pr-preview:comment:${comment.id}`, pencilLabel="Edit comment", frameId=`pr-code-comment-body-${comment.id}`, testId=`pr-code-comment-${comment.id}`, still=still, documents=documents, code=code, env=env, local=local, begin=begin, edit=edit, preview=preview, save=save, cancel=cancel)
 
-// PendingReviewCommentCard: dashed, "Pending — sent when you submit the review", a trash to discard it.
+// PendingReviewCommentCard: dashed, "Pending. Sent when you submit the review", a trash to discard it.
 component PrdPendingCard
   props
     id: string

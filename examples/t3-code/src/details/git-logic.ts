@@ -1,5 +1,4 @@
 import { sourceControlHosts } from '../shared/source-control-hosts';
-import { parseChangeRequestUrl } from '../palette/palette-linkpr';
 // Git action rules for the workspace card, adapted from T3 Code (MIT;
 // see LICENSE-T3): apps/web/src/components/GitActionsControl.logic.ts (quick action,
 // menu items, default-branch copy, progress), GitActionsControl.tsx
@@ -32,16 +31,33 @@ export const terminologyOf = (kind: string | null | undefined): Terminology => (
 /** changeRequestTerminologyFor: the status's host, GitHub's "PR" without one. */
 export const terminology = (status: Obj | null): Terminology => terminologyOf(str(providerOf(status)?.kind));
 const GITCAFE_HOSTS = new Set(['git.cafe', 'staging.git.cafe']);
+/** source-control-bitbucket isBitbucketHost: bitbucket.org and a host one of whose labels is "bitbucket". */
+const isBitbucketHost = (host: string) => host === 'bitbucket.org' || host.endsWith('.bitbucket.org') || host.split('.').includes('bitbucket');
+/**
+ * Each host definition's change request route (`parseChangeRequestUrl`), in the registry's claim order
+ * (source-control-definitions registry.ts): GitCafe claims its own two hosts first, because GitHub and Forgejo accept
+ * the same routes on any hostname; Bitbucket claims only its own hosts.
+ */
+const CHANGE_REQUEST_ROUTES: readonly { kind: string; path: RegExp; host?: (host: string) => boolean }[] = [
+  { kind: 'gitcafe', path: /^\/[^/]+\/[^/]+\/pulls?\/(\d+)(?:\/|$)/u, host: host => GITCAFE_HOSTS.has(host) },
+  { kind: 'github', path: /^\/[^/]+\/[^/]+\/pull\/(\d+)(?:\/|$)/u },
+  { kind: 'gitlab', path: /^\/[^/]+(?:\/[^/]+)+\/-\/merge_requests\/(\d+)(?:\/|$)/u },
+  { kind: 'forgejo', path: /^\/[^/]+(?:\/[^/]+)+\/pulls\/(\d+)(?:\/|$)/u },
+  { kind: 'bitbucket', path: /^\/[^/]+\/[^/]+\/pull-requests\/(\d+)(?:\/|$)/u, host: isBitbucketHost },
+  { kind: 'azure-devops', path: /^\/(?:[^/]+\/)*_git\/[^/]+\/pullrequest\/(\d+)(?:\/|$)/u },
+];
 /** findByChangeRequestUrl(url)?.kind: the host whose change request URL this is, '' where none claims it. */
 export function changeRequestHostKind(url: string): string {
-  const link = parseChangeRequestUrl(url);
-  if (!link) return '';
-  const path = new URL(url).pathname;
-  if (/\/-\/merge_requests\/\d+(?:\/|$)/u.test(path)) return 'gitlab';
-  if (/\/pull-requests\/\d+(?:\/|$)/u.test(path)) return 'bitbucket';
-  if (/\/pullrequest\/\d+(?:\/|$)/u.test(path)) return 'azure-devops';
-  if (/\/pulls\/\d+(?:\/|$)/u.test(path)) return GITCAFE_HOSTS.has(link.host) ? 'gitcafe' : 'forgejo';
-  return 'github';
+  let parsed: URL;
+  try { parsed = new URL(url.trim()); } catch { return ''; }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return '';
+  const host = parsed.hostname.toLowerCase();
+  for (const route of CHANGE_REQUEST_ROUTES) {
+    if (route.host && !route.host(host)) continue;
+    const number = Number(route.path.exec(parsed.pathname)?.[1]);
+    if (Number.isSafeInteger(number) && number > 0) return route.kind;
+  }
+  return '';
 }
 /** findByChangeRequestUrl(url) ?? get(undefined): where only a change request's URL is known, the URL names its host. */
 export const terminologyForUrl = (url: string): Terminology => terminologyOf(changeRequestHostKind(url) || undefined);

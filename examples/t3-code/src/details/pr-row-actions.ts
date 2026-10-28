@@ -23,7 +23,8 @@ import { actionFailureHints, actionFailureLabels, actionPayload, actionSuccessLa
 import { terminologyForUrl, terminologyOf, type Terminology } from './git-logic';
 import { letGo } from '../client/let-go';
 
-type Entry = { at: number; checksAt: number; detail: Obj | null; error: string; reading: boolean };
+/** `checksNone`: the host answered the checks with null, which is settled: polling cannot find checks. */
+type Entry = { at: number; checksAt: number; detail: Obj | null; error: string; reading: boolean; checksNone?: boolean };
 type State = {
   details: Map<string, Entry>;
   /** usePullRequestActionRunner.actionPending, per reference. */
@@ -73,11 +74,13 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
     const fresh = cached.error ? !now || now - cached.at < RETRY_MS : !open || !now || now - cached.at < REFRESH_MS;
     // usePullRequestChecksRefresh: the checks alone, every 45 s while runs are pending (or none reported), else 60 s;
     // the answer, newer than the detail it lands on, takes over only the state and the checks.
-    if (fresh && open && now && cached.detail && caps(client).pullRequestChecks === true) {
+    if (fresh && open && now && cached.detail && !cached.checksNone && caps(client).pullRequestChecks === true) {
       if (now - cached.checksAt >= checksRefreshIntervalMs(arr(cached.detail.checks))) {
         cached.checksAt = now;
-        const update = await client.rpc(native, 'pullRequests.checks', normalRef(reference)).catch(() => null);
-        if (update && cached.detail) cached.detail = resolvePullRequestDetailChecks(cached.detail, obj(update), true);
+        // A failed read is tried again at the next interval; a null answer ends the polling.
+        const update = await client.rpc(native, 'pullRequests.checks', normalRef(reference)).catch((error: unknown) => { if (letGo(error)) throw error; return undefined; });
+        if (update === null) cached.checksNone = true;
+        else if (update && cached.detail) cached.detail = resolvePullRequestDetailChecks(cached.detail, obj(update), true);
         return cached.detail;
       }
     }
@@ -89,8 +92,9 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
     const ref = normalRef(reference);
     let merged = obj(await client.rpc(native, 'pullRequests.detail', { ...ref, allowStale: false }));
     if (caps(client).pullRequestChecks === true && num(merged.number) > 0) {
-      const checks = await client.rpc(native, 'pullRequests.checks', ref).catch((error: unknown) => { if (letGo(error)) throw error; return null; });
-      if (checks && typeof checks === 'object') merged = resolvePullRequestDetailChecks(merged, obj(checks), true) ?? merged;
+      const checks = await client.rpc(native, 'pullRequests.checks', ref).catch((error: unknown) => { if (letGo(error)) throw error; return undefined; });
+      if (checks === null) entry.checksNone = true;
+      else if (checks && typeof checks === 'object') merged = resolvePullRequestDetailChecks(merged, obj(checks), true) ?? merged;
     }
     entry.detail = num(merged.number) > 0 ? merged : null;
   } catch (error) {

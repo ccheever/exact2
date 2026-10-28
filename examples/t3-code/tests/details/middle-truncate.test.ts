@@ -29,7 +29,7 @@ test('the branch row draws a split label as its head and tail, and a short one w
   const git = (branch: { label: string; labelHead: string; labelTail: string }) => ({ KmItem: (item: unknown) => item, details: { git: { menu: [], branch: { show: true, ...branch } } } });
   const split = git({ label: 'feature/ui-polish', labelHead: 'feature/', labelTail: 'ui-polish' });
   expect(rows.drawn('text details.git.branch.labelTail', rows.state(), split)).toBe(true);
-  expect(rows.drawn('text details.git.branch.label flex=1', rows.state(), split)).toBe(false);
+  expect(rows.drawn('text details.git.branch.label title=', rows.state(), split)).toBe(false);
   expect(splitForMiddleTruncate('main')).toBeNull();
-  expect(rows.drawn('text details.git.branch.label flex=1', rows.state(), git({ label: 'main', labelHead: '', labelTail: '' }))).toBe(true);
+  expect(rows.drawn('text details.git.branch.label title=', rows.state(), git({ label: 'main', labelHead: '', labelTail: '' }))).toBe(true);
 });

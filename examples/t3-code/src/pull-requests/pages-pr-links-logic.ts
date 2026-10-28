@@ -1,7 +1,7 @@
 // Pull request links in pull request text and between threads:
 // `#N` and commit autolinks, the hover card's target, the linked-thread palette results, whether a
 // thread already links a pull request, the link/unlink dispatch and the thread picker's rows.
-// Sources: T3 Code (MIT, see LICENSE-T3) at 1e2ecbd975 — apps/web/src/components/pullRequest/
+// Sources: T3 Code (MIT, see LICENSE-T3) at 7c3b3b3605ef — apps/web/src/components/pullRequest/
 // pullRequestMarkdown.logic.ts (remarkPullRequestAutolinks), packages/shared/src/changeRequestUrl.ts
 // (changeRequestRepositoryUrl, pullRequestCandidateUrlFromReferenceAutolink,
 // matchesLinkedPullRequestUrl), packages/shared/src/threadPullRequests.ts (threadPullRequestKeysEqual),

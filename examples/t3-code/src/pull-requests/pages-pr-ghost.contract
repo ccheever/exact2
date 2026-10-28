@@ -1,5 +1,5 @@
 // PullRequestDetailGhost, measured against T3 Code
-// 9c161462c9 (MIT, see LICENSE-T3) components/pullRequest/{PullRequestGhosts,PullRequestDetailLayout}.tsx: the detail
+// 7c3b3b3605ef (MIT, see LICENSE-T3) components/pullRequest/{PullRequestGhosts,PullRequestDetailLayout}.tsx: the detail
 // panel's loaded shape while the detail is out — the list row's identity and summary where the
 // list has the pull request (`ghost.seeded`), bars for the rest, the tab bar inert with the
 // panel's tab, the Reviewers and Labels rows and the Description's opening — so the loaded

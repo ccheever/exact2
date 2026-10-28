@@ -303,6 +303,15 @@ describe('a file\'s Copy path shows while the pointer is over any of its rows (d
     body.call('listHover', state, {}, [false]);
     expect(state.hoveredFile).toBe('');
   });
+  test('the header\'s Copy path is drawn opaque while its file is hovered, the header itself or not', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const row = contractComponent('diff-rows.contract', 'DiffRow'), header = contractComponent('diff-rows.contract', 'DiffFileHeader');
+    const item = { kind: 'file', path: 'src/a.ts' }, scope = { item, command: () => {}, scheme: 'red-green' };
+    const handed = (hoveredPath: string) => row.callArguments('DiffFileHeader(item=item', {}, { ...scope, hoveredPath }).fileHovered;
+    expect([handed('src/a.ts'), handed('src/b.ts'), handed('')]).toEqual([true, false, false]);
+    const opacity = (fileHovered: boolean, hovering = false) => header.attribute('testId=`diff-copy-${item.path}`', 'opacity', { hovering, copyFocused: false }, { ...scope, fileHovered });
+    expect([opacity(true), opacity(false), opacity(false, true)]).toEqual([1, 0, 1]);
+  });
 });
 
 describe('⌘↩ in a line comment draft', () => {

@@ -31,6 +31,12 @@ describe('ChangeRequestTerminology', () => {
       changeRequestHostKind('https://bitbucket.org/a/b/pull-requests/3'), changeRequestHostKind('https://example.com/nothing')]).toEqual(['gitlab', 'github', 'gitcafe', 'forgejo', 'bitbucket', '']);
     expect([terminologyForUrl(MR).singular, terminologyForUrl('https://example.com/x').singular]).toEqual(['merge request', 'pull request']);
     expect([hostLabelForUrl(MR), hostLabelForUrl('https://example.com/x')]).toEqual(['GitLab', 'the host']);
+    // GitCafe claims its hosts' `/pull/` and `/pulls/` first; GitHub's route holds on any host (Enterprise Server),
+    // Forgejo's `/pulls/` too; Bitbucket's only on its own hosts.
+    expect(['https://git.cafe/a/b/pull/2', 'https://staging.git.cafe/a/b/pulls/3', 'https://git.corp.example/acme/app/pull/7', 'https://forge.example/acme/app/pulls/7',
+      'https://bitbucket.example.org/acme/app/pull-requests/4', 'https://example.com/acme/app/pull-requests/4', 'https://dev.azure.com/acme/web/_git/app/pullrequest/9']
+      .map(hostLabelForUrl)).toEqual(['GitCafe', 'GitCafe', 'GitHub', 'Forgejo', 'Bitbucket', 'the host', 'Azure DevOps']);
+    expect(hostLabelForUrl('https://code.bitbucket.example/acme/app/pull-requests/4')).toBe('Bitbucket');
   });
   test('the runner\'s toasts take the term; a merge is "requested", since a host may queue it', () => {
     expect([actionSuccessLabels('merge request').merge, actionSuccessLabels('merge request').close, actionSuccessLabels('merge request').revert]).toEqual(['Merge requested', 'Merge request closed', 'Revert merge request opened']);

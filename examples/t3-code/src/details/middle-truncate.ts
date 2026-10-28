@@ -1,7 +1,7 @@
 // splitForMiddleTruncate (T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3: apps/web/src/components/ui/middle-truncate.tsx):
 // where a label keeps its tail when it is cut. A path or branch keeps its last segment (up to 16 characters, else the
 // last 10), started on a word where one is near. The row draws the head with an ellipsis and the tail whole; Contract's
-// `text-overflow` cuts only at the end, so the ellipsis is the head's, not the tail's (proposal F7).
+// `text-overflow` cuts only at the end, so the ellipsis is the head's, not the tail's.
 const DEFAULT_TAIL = 10;
 const MAX_SEGMENT_TAIL = 16;
 const MIN_WORD_TAIL = 4;

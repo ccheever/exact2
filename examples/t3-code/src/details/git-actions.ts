@@ -339,8 +339,8 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
     writable, repo: status?.isRepo !== false,
     // quietEmptyDraft: a draft or a run-less thread with nothing to commit, push or diff shows neither the Git action nor Changes.
     quiet: unstarted && !progress && !error && quick.disabled && !insertions && !deletions,
-    // formatDiffCount: the counts grouped as the locale writes them ("+1,234").
-    changesAdd: `+${insertions.toLocaleString('en-US')}`, changesDel: `-${deletions.toLocaleString('en-US')}`,
+    // formatDiffCount: the counts grouped as the system's locale writes them ("+1,234" in English).
+    changesAdd: `+${insertions.toLocaleString()}`, changesDel: `-${deletions.toLocaleString()}`,
     initLabel: state.initPending ? 'Initializing...' : 'Initialize Git', initPending: state.initPending,
     quickLabel: quick.label, quickIcon: quickActionIcon(quick, status), quickDisabled: !writable || quick.disabled, quickHint: quick.disabled ? (quick.hint ?? 'This action is currently unavailable.') : '',
     progress: !!progress, progressStatus: progress?.status ?? '', progressOutput: progress?.output ?? '', progressElapsed: progress ? (progress.startedAt > 0 ? formatElapsed(progress.startedAt, now) : '0s') : '',

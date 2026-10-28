@@ -63,8 +63,9 @@ export function observePullRequestSummary(client: object, environmentId: string,
   if (checksState !== undefined) observeChecks(entry, { checksState: checksState === null ? null : str(checksState) || null, readAt: readTime(summary.observedAt), arrival });
 }
 /** A `pullRequests.checks` answer: the pull request's checks alone, ordered by their own read. */
-export function observePullRequestChecks(client: object, environmentId: string, reference: Obj, answer: Obj): void {
-  if (!Array.isArray(answer.checks)) return;
+export function observePullRequestChecks(client: object, environmentId: string, reference: Obj, answer: Obj | null): void {
+  // A host that reports no checks answers null.
+  if (!answer || !Array.isArray(answer.checks)) return;
   observeChecks(observationOf(client, environmentId, reference), { checksState: checksRollup(arr(answer.checks)) || null, readAt: readTime(answer.observedAt), arrival: ++arrivals });
 }
 /** observedPullRequestSummary: the metadata, wearing the newest checks. */

@@ -1,6 +1,5 @@
-// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
 // The pure half of the details card's pull request row (MIT
-// reference, see LICENSE-T3, upstream f90b77d809):
+// reference, see LICENSE-T3, upstream 7c3b3b3605ef):
 // - components/pullRequest/pullRequestDetail.logic.ts: allowedPullRequestMergeMethods,
 //   classifyPullRequestChecks, describePullRequestChecks,
 //   groupPullRequestChecks, buildResolveConflictsPrompt, buildFixFindingsHandoff,

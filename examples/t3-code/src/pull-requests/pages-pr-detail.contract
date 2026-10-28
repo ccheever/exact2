@@ -112,6 +112,8 @@ shape PrDetailView
   breakdown: PrBreakdown
   checksSummary: string
   checksTone: string
+  // usePullRequestChecksRefresh's timer: "pending" (45 s), "settled" (60 s) or "" (off).
+  checksPoll: string
   reviewers: PrPerson[]
   labels: PrChip[]
   bodies: PrBody[]

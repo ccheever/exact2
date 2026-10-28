@@ -8,7 +8,7 @@ import { sharedPullRequestSummary } from './pages-pr-shared';
 // pullRequestIcons,PullRequestDetailPanel,PullRequestListEmptyState}.tsx.
 import { diffSchemeOf } from '../timeline/message-chips';
 import { arr, num, obj, str, type Obj } from '../client/domain';
-import { ClientError, type Native } from '../client/protocol';
+import { ClientError, type Files, type Native } from '../client/protocol';
 import { pagesPrefs } from '../pages/pages-prefs';
 import { projectIdentity } from '../client/presentation';
 import type { T3Client } from '../client/client';
@@ -316,7 +316,8 @@ const failure = (error: unknown) => (error instanceof Error ? error.message : 'P
  * scroll with it, rather than blanking to an error; a server that fails beside others that answer leaves their rows
  * and the error ("… Showing the last pull requests loaded.").
  */
-async function readList(client: T3Client, native: Native, input: PrInput, round: { key: string; targets: ListTarget[]; cursors: boolean }, key: string, previous: ListCache | undefined, live: ListLive): Promise<ListCache> {
+async function readList(client: T3Client, native: Native, input: PrInput, round: { key: string; targets: ListTarget[]; cursors: boolean }, key: string, previous: ListCache | undefined, live: ListLive,
+  storage: Files | undefined): Promise<ListCache> {
   const order = ++listReads, scope = round.key;
   const cached: ListCache = { key, scope, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: null, error: '', stats: previous?.stats ?? new Map<string, Obj>() };
   try {
@@ -328,14 +329,17 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
       for (const environmentId of new Set(round.targets.map(target => target.environmentId))) await client.rpc(native, 'pullRequests.invalidate', environmentId === client.environmentId ? {} : { environmentId }).catch(() => ({}));
     }
     const answers: [string, Obj][] = [];
+    let kept = false;
     for (const target of round.targets) {
       try {
         const answer = await client.rpc(native, 'pullRequests.list', target.environmentId === client.environmentId ? target.input : { ...target.input, environmentId: target.environmentId });
         answers.push([target.environmentId, answer]);
-        // Each server's first-page answer is kept for the next start (written with the preferences).
-        rememberListAnswer(client, target, answer);
+        // Each server's first-page answer is kept for the next start.
+        kept = rememberListAnswer(client, target, answer) || kept;
       } catch (error) { if (letGo(error)) throw error; cached.error ||= failure(error); }
     }
+    // Written as each answer lands (rememberPullRequestListAnswer), as the detail panel writes its snapshot.
+    if (kept && storage) await client.savePreferences(storage);
     const merged = foldAnswers(client, answers);
     if (!merged) throw new Error(cached.error || 'Pull requests could not be read.');
     const held = previous?.result && previous.scope === scope ? arr(previous.result.entries) : null;
@@ -393,7 +397,7 @@ export function sortProjectsByGroupOrder<P extends Obj>(projects: readonly P[], 
  * and brought it back at its top on every refocus.
  */
 const lastDrawn = new WeakMap<object, { environmentId: string; view: PrListView }>();
-export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; returns?: number }) {
+export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; returns?: number }, storage?: Files) {
   const prefs = prPrefs(client);
   const query = input.typed ? input.query : prefs.q;
   // usePullRequestScope: the servers that read pull requests, by id; a saved server none of them is scopes nothing.
@@ -468,7 +472,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     const out = inflight.get(client);
     if (out && out.key === key && out.relist === listRelist(client) && out.native === native) cached = await out.read;
     else {
-      const read = readList(client, native, input, round, key, cached, live);
+      const read = readList(client, native, input, round, key, cached, live, storage);
       inflight.set(client, { key, relist: listRelist(client), read, native });
       try { cached = await read; } finally { if (inflight.get(client)?.read === read) inflight.delete(client); }
     }

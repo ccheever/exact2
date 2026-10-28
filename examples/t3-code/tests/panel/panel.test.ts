@@ -319,6 +319,20 @@ describe('Linked pull requests', () => {
     const cyclic = [make(5, 'a', 'b'), make(6, 'b', 'a')];
     expect(listLines(resolveChains(cyclic)).map(row => row.depth)).toEqual([0, 0]);
   });
+  test('a stack\'s first row names its host from the URL, or its term for a chain by base branch (ThreadPullRequestsPanel)', () => {
+    const { client } = fakeClient();
+    const native = (url: (number: number) => string) => [1, 2].map(number => link(number, { state: 'open', headBranch: `l${number}`, baseBranch: 'main' },
+      { url: url(number), stack: nativeStack('9', [1, 2]) }));
+    const labels = (links: unknown[]) => { (client.shell.threads[0] as { pullRequests: unknown[] }).pullRequests = links; return prsView(client, 0).rows.map(row => row.stackLabel); };
+    expect(labels(native(number => `https://github.com/o/r/pull/${number}`))[0]).toBe('GitHub stack of 2: merging a layer lands the ones below it.');
+    // GitHub Enterprise Server: GitHub's route on another hostname; GitCafe's own hosts are GitCafe's.
+    expect(labels(native(number => `https://git.corp.example/o/r/pull/${number}`))[0]).toBe('GitHub stack of 2: merging a layer lands the ones below it.');
+    expect(labels(native(number => `https://git.cafe/o/r/pull/${number}`))[0]).toBe('GitCafe stack of 2: merging a layer lands the ones below it.');
+    expect(labels(native(number => `https://example.com/o/r/changes/${number}`))[0]).toBe('the host stack of 2: merging a layer lands the ones below it.');
+    const chained = (url: (number: number) => string) => [link(1, { state: 'open', headBranch: 'a', baseBranch: 'main' }, { url: url(1) }), link(2, { state: 'open', headBranch: 'b', baseBranch: 'a' }, { url: url(2) })];
+    expect(labels(chained(number => `https://gitlab.com/o/r/-/merge_requests/${number}`))).toEqual(['2 merge requests chained by base branch.', '']);
+    expect(labels(chained(number => `https://example.com/o/r/changes/${number}`))[0]).toBe('2 change requests chained by base branch.');
+  });
   test('rows carry watch state, waiting links and the footer; watch and unlink are orchestration commands', async () => {
     const watched = link(4, { title: 'Watched', state: 'open', isDraft: false, headBranch: 'h', baseBranch: 'main', updatedAt: '2026-10-04T00:00:00.000Z', syncedAt: '2026-10-04T00:00:00.000Z', additions: 3, deletions: 1, author: { login: 'octo' } }, { watch: { since: 'x' } });
     const { client, calls } = fakeClient();

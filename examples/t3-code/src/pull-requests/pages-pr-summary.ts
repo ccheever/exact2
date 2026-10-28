@@ -1,6 +1,6 @@
 // The pull request Summary tab's model (MIT reference, see LICENSE-T3, T3 Code
-// 74541bab17 apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
-// verdict each last gave (a ring, the sr-only words and the "<name> — <outcome>" tooltip), the
+// 7c3b3b3605ef apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx): reviewers with the
+// verdict each last gave (a ring, the sr-only words and the "<name>: <outcome>" tooltip), the
 // checks with "Check details are out of date." when a newer rollup disagrees, and the
 // conversation through the comment filter — bot comments and finished work (a resolved thread,
 // a dismissed review, drawn collapsed) shown only when the filter asks for them — as loose comments

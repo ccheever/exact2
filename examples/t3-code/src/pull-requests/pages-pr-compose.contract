@@ -1,5 +1,5 @@
 // The floating composer over a pull request, measured
-// against T3 Code 9c161462c9 (MIT, see LICENSE-T3) components/pullRequest/PullRequestComposer.tsx,
+// against T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3) components/pullRequest/PullRequestComposer.tsx,
 // PullRequestCommentForm.tsx and PullRequestReviewForm.tsx: one round button at the panel's
 // bottom right (its label carries the pending line-comment count, the badge beside the icon is
 // decorative) opening a popover above it, end-aligned, with two modes — a comment on the pull

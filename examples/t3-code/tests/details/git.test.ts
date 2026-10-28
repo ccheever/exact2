@@ -215,21 +215,35 @@ describe('the card\'s Git rows (GitActionsControl panel)', () => {
     expect([rows.drawn('testId="details-git-group"', rows.state(), scope(true)), rows.drawn('GitChanges(details=details', rows.state(), scope(true))]).toEqual([false, false]);
     expect([rows.drawn('testId="details-git-group"', rows.state(), scope(false)), rows.drawn('GitChanges(details=details', rows.state(), scope(false))]).toEqual([true, true]);
   });
-  test('Changes counts the branch\'s lines where the server reports them, grouped as the locale writes them (formatDiffCount)', () => {
-    expect(gitCardView(client, status({ workingTree: { files: [], insertions: 1234, deletions: 0 } }), '', '/repo', 100)).toMatchObject({ changesAdd: '+1,234', changesDel: '-0' });
+  test('Changes counts the branch\'s lines where the server reports them, grouped as the system\'s locale writes them (formatDiffCount)', () => {
+    const grouped = (count: number) => new Intl.NumberFormat().format(count);
+    expect(gitCardView(client, status({ workingTree: { files: [], insertions: 1234, deletions: 0 } }), '', '/repo', 100)).toMatchObject({ changesAdd: `+${grouped(1234)}`, changesDel: '-0' });
     expect(gitCardView(client, status({ workingTree: { files: [], insertions: 9, deletions: 9 }, branchChanges: { insertions: 12_500, deletions: 3 } }), '', '/repo', 100))
-      .toMatchObject({ changesAdd: '+12,500', changesDel: '-3' });
+      .toMatchObject({ changesAdd: `+${grouped(12_500)}`, changesDel: '-3' });
   });
   test('a split pair keeps its fill while its menu is open (data-popup-open): the branch picker, the options and Run on', () => {
-    const rows = contractComponent('git.contract', 'GitRows'), state = rows.state();
+    const rows = contractComponent('git.contract', 'GitRows'), state = rows.state(), fill = 'light-dark(#0000000e, #ffffff13)', clear = '#00000000';
+    const scope = { compact: false, inline: true, rem: 16, KmItem: (item: Obj) => item, details: { cwd: '/repo', git: { repo: true, quiet: false, progress: false, success: false, menu: [], branch: { show: true, label: 'main', labelHead: '', labelTail: '' } } } };
+    const branchFill = () => rows.attribute('testId="details-branch" ', 'background-color', state, scope);
+    const groupFill = () => rows.attribute('testId="details-git-group"', 'background-color', state, scope);
+    expect([branchFill(), groupFill()]).toEqual([clear, clear]);
     rows.call('branchToggled', state, {}, [{ newState: 'open' }]);
     rows.call('gitMenuToggled', state, {}, [{ newState: 'open' }]);
-    expect([state.branchOpen, state.gitMenuOpen]).toEqual([true, true]);
+    expect([state.branchOpen, state.gitMenuOpen, branchFill(), groupFill()]).toEqual([true, true, fill, fill]);
     rows.call('branchToggled', state, {}, [{ newState: 'closed' }]);
-    expect([state.branchOpen, state.gitMenuOpen]).toEqual([false, true]);
+    expect([branchFill(), groupFill()]).toEqual([clear, fill]);
     const runOn = contractComponent('git.contract', 'RunOnRow'), on = runOn.state();
+    const runOnFill = () => runOn.attribute('testId="details-environment"', 'background-color', on, { inline: true, details: { git: { envPick: true } } });
+    expect(runOnFill()).toBe(clear);
     runOn.call('toggled', on, {}, [{ newState: 'open' }]);
-    expect(on.open).toBe(true);
+    expect([on.open, runOnFill()]).toEqual([true, fill]);
+  });
+  test('the branch label\'s title is its whole name, cut or not (MiddleTruncate showTitle)', () => {
+    const rows = contractComponent('git.contract', 'GitRows'), state = rows.state();
+    const scope = (branch: Obj) => ({ compact: false, inline: true, rem: 16, KmItem: (item: Obj) => item, details: { cwd: '/repo', git: { repo: true, quiet: false, menu: [], branch: { show: true, ...branch } } } });
+    const long = { label: 't3/clone-repo-to-other-machine', labelHead: 't3/clone-repo-to-other-', labelTail: 'machine' };
+    expect(rows.attribute('row flex=1 min-width=0 align-items="center" title=', 'title', state, scope(long))).toBe('t3/clone-repo-to-other-machine');
+    expect(rows.attribute('text details.git.branch.label title=', 'title', state, scope({ label: 'main', labelHead: '', labelTail: '' }))).toBe('main');
   });
 });
 
