@@ -281,8 +281,9 @@ open class ExactModule {
     /// PDF back to HTML; a hatched frame's first web view waits for the
     /// module to connect, so none is made without it. `element(_:)` then
     /// hands the web view at `built`; if `built` has no `platform` (the view
-    /// is made after the batch, as on macOS or in an iOS list row), the
-    /// `changed` after this call hands it. `isNew` is true at `built`.
+    /// is made after the batch, as macOS and an iOS list row usually make
+    /// it), the `changed` after this call hands it. `isNew` is true at
+    /// `built`.
     open func elementConfiguration(_ element: ExactElement, _ configuration: AnyObject) {}
     #if os(macOS)
     /// The window toolbar Exact installed for the Contract's commands (LLP
