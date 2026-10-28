@@ -49,20 +49,15 @@ describe('workspace strip details', () => {
     await composerBranches(client, native, true, '');
     expect(asked()).toEqual(['/repo', '/repo', '/repo']);
   });
-  test('opening the workspace card\'s picker asks on the card\'s next read; the options menu does not', async () => {
+  test("the workspace card's reads never ask: its picker asks as its popover opens (git-branch.ts `opened`)", async () => {
     const { client, native } = await connected();
     const asked = refreshes(native);
     await cardBranchView(client, native, '/repo', '/repo', true);
+    await cardBranchView(client, native, '/repo', '/repo', true);
     expect(asked()).toEqual([]);
-    branchLocal(client, 'open', 'branch', '');
-    await cardBranchView(client, native, '/repo', '/repo', true);
-    await cardBranchView(client, native, '/repo', '/repo', true);
+    branchLocal(client, 'opened', '', '', native);
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(asked()).toEqual(['/repo']);
-    branchLocal(client, 'open', 'menu', '');
-    await cardBranchView(client, native, '/repo', '/repo', true);
-    branchLocal(client, 'open', 'branch', '');
-    await cardBranchView(client, native, '/repo', '/repo', true);
-    expect(asked()).toEqual(['/repo', '/repo']);
   });
   test('a typed name is offered as a sanitized new ref, and Return picks the highlighted first item', async () => {
     const { client, native } = await connected();

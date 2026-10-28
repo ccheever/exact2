@@ -206,26 +206,17 @@ export async function composerBranches(client: T3Client, native: Native | null |
   if (!card) noteStripLayout(client, view);
   return { ...view, balanceFetch: card ? '' : autoBalanceState(client).fetch };
 }
-/**
- * Each branch picker's opening, for BranchToolbarBranchSelector's handleOpenChange: the strip's picker was open at its
- * last read (`stripOpen`), and the workspace card's picker opened since its last read (`cardOpened`, git-branch.ts).
- */
-const pickers = new WeakMap<T3Client, { stripOpen: boolean; cardOpened: boolean }>();
-function pickerState(client: T3Client): { stripOpen: boolean; cardOpened: boolean } {
-  let state = pickers.get(client);
-  if (!state) { state = { stripOpen: false, cardOpened: false }; pickers.set(client, state); }
-  return state;
-}
-/** The workspace card's branch picker opened (git-branch.ts `git-open`); the card's next read asks for the branch. */
-export function cardBranchPickerOpened(client: T3Client): void { pickerState(client).cardOpened = true; }
+/** The strip's branch picker was open at its last read (BranchToolbarBranchSelector's isBranchMenuOpen). */
+const stripPickerOpen = new WeakMap<T3Client, boolean>();
 
 /** shouldShowComposerContextStrip with Git controls. */
 async function stripView(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card: boolean) {
-  // handleOpenChange: a picker that opens asks the server to read the checkout's current branch again, without a remote
-  // fetch; the answer reaches it through the status stream, and a failure is not reported. Each picker keeps its own
-  // open state, as the reference's isBranchMenuOpen, whatever folder or thread its reads find.
-  const picker = pickerState(client), opened = card ? picker.cardOpened : open && !picker.stripOpen;
-  if (card) picker.cardOpened = false; else picker.stripOpen = open;
+  // handleOpenChange: the strip's picker that opens asks the server to read the checkout's current branch again, without
+  // a remote fetch; the answer reaches it through the status stream, and a failure is not reported. The picker keeps
+  // its own open state, whatever folder or thread its reads find. The workspace card's picker asks as its popover
+  // opens (git-branch.ts `opened`).
+  const opened = !card && open && !stripPickerOpen.get(client);
+  if (!card) stripPickerOpen.set(client, open);
   const hidden = { show: false, envMode: 'local', forceWorktree: false, envLabel: 'Current checkout', envIcon: 'folder', envLocked: false, previous: false, previousBranch: '',
     branchLabel: '', branch: '', loading: false, refs: [] as Array<{ name: string; badge: string; selected: boolean; index: number }>, status: '', creatable: '', enterOp: '', enterValue: '', checkout: [] as CheckoutItem[], ...NO_RUN_ON, ...NO_STRIP_PR, gitless: false,
     // BranchToolbarEnvModeSelector and BranchToolbarEnvironmentSelector add these to their tooltips (shortcutLabelForCommand).
