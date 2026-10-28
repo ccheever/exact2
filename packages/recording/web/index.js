@@ -113,7 +113,7 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
   function media(r, source) {
     if (agent || r.media || r.state === 'inactive') return;
     try {
-      r.media = new MediaRecorder(new MediaStream([source]), { mimeType: r.mimeType, audioBitsPerSecond: r.audioBitsPerSecond ?? undefined });
+      r.media = new MediaRecorder(new MediaStream([source]), { mimeType: r.mimeType, audioBitsPerSecond: r.audioBitsPerSecond ?? undefined, audioBitrateMode: r.audioBitrateMode ?? undefined });
     } catch (e) {
       return finish(r, 'error', e.message);
     }
@@ -209,7 +209,7 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
   }
 
   return {
-    async startMediaRecorder({ stream, mimeType, audioBitsPerSecond, path }) {
+    async startMediaRecorder({ stream, mimeType, audioBitsPerSecond, audioBitrateMode, path }) {
       const entry = tracks.lookup(stream);
       if (entry?.kind !== 'stream') return { error: 'NotFoundError' };
       const live = entry.tracks.filter(id => tracks.lookup(id)?.kind === 'audio');
@@ -219,7 +219,7 @@ export function implementation({ changed, agent, now, log, tracks, files }) {
       const full = pathFor(path, type.type);
       if (!full) return { error: 'NotSupportedError' };
       const r = {
-        id: `recorder-${++next}`, state: 'recording', mimeType: type.type, audioBitsPerSecond: audioBitsPerSecond ?? null,
+        id: `recorder-${++next}`, state: 'recording', mimeType: type.type, audioBitsPerSecond: audioBitsPerSecond ?? null, audioBitrateMode,
         path: full, recorded: 0, since: now(), reason: null, error: null, result: null, size: 0,
         writing: Promise.resolve(), spans: [[now(), null]],
       };
