@@ -1,0 +1,560 @@
+{
+  "aims": {
+    "conversation-demo": {
+      "box": {
+        "x": 0,
+        "y": 152,
+        "w": 382,
+        "h": 86.67
+      },
+      "aim": {
+        "seq": 0,
+        "avoided": null,
+        "screen": {
+          "y": 0,
+          "h": 678,
+          "x": 0,
+          "w": 466
+        },
+        "node": 19,
+        "session": "main",
+        "point": [
+          191,
+          195.33
+        ],
+        "orientation": "portrait",
+        "window": [
+          191,
+          195.33
+        ],
+        "hit": 27,
+        "display": [
+          466,
+          678
+        ],
+        "at": [
+          191,
+          195.33
+        ],
+        "projected": null,
+        "fixedAxes": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "generation": 1,
+        "fixed": [
+          191,
+          195.33
+        ],
+        "viewport": [
+          466,
+          678
+        ]
+      }
+    },
+    "add": {
+      "box": {
+        "x": 16,
+        "y": 610,
+        "w": 40,
+        "h": 40
+      },
+      "aim": {
+        "session": "main",
+        "seq": 10,
+        "fixedAxes": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "display": [
+          466,
+          678
+        ],
+        "avoided": null,
+        "at": [
+          36,
+          630
+        ],
+        "hit": 211,
+        "point": [
+          36,
+          630
+        ],
+        "viewport": [
+          466,
+          678
+        ],
+        "orientation": "portrait",
+        "generation": 1,
+        "node": 208,
+        "window": [
+          36,
+          630
+        ],
+        "projected": null,
+        "screen": {
+          "x": 0,
+          "y": 0,
+          "w": 466,
+          "h": 678
+        },
+        "fixed": [
+          36,
+          630
+        ]
+      }
+    },
+    "add-fifty": {
+      "box": {
+        "x": 11,
+        "y": 389,
+        "w": 360,
+        "h": 66
+      },
+      "aim": {
+        "fixedAxes": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "seq": 12,
+        "session": "main",
+        "display": [
+          466,
+          678
+        ],
+        "fixed": [
+          191,
+          422
+        ],
+        "window": [
+          191,
+          422
+        ],
+        "orientation": "portrait",
+        "point": [
+          191,
+          422
+        ],
+        "viewport": [
+          466,
+          678
+        ],
+        "generation": 1,
+        "at": [
+          191,
+          422
+        ],
+        "hit": 1760,
+        "node": 1757,
+        "projected": null,
+        "avoided": null,
+        "screen": {
+          "w": 466,
+          "x": 0,
+          "y": 0,
+          "h": 678
+        }
+      }
+    },
+    "transcript-top": {
+      "box": {
+        "x": 0,
+        "y": 44,
+        "w": 382,
+        "h": 532
+      },
+      "aim": {
+        "point": [
+          191,
+          123.8
+        ],
+        "avoided": null,
+        "fixed": [
+          191,
+          123.8
+        ],
+        "seq": 14,
+        "session": "main",
+        "at": [
+          191,
+          123.8
+        ],
+        "display": [
+          466,
+          678
+        ],
+        "hit": 2403,
+        "node": 157,
+        "generation": 1,
+        "fixedAxes": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "screen": {
+          "y": 0,
+          "h": 678,
+          "x": 0,
+          "w": 466
+        },
+        "viewport": [
+          466,
+          678
+        ],
+        "projected": null,
+        "orientation": "portrait",
+        "window": [
+          191,
+          123.8
+        ]
+      }
+    },
+    "transcript-bottom": {
+      "box": {
+        "x": 0,
+        "y": 44,
+        "w": 382,
+        "h": 532
+      },
+      "aim": {
+        "point": [
+          191,
+          496.2
+        ],
+        "avoided": null,
+        "fixed": [
+          191,
+          496.2
+        ],
+        "seq": 14,
+        "session": "main",
+        "at": [
+          191,
+          496.2
+        ],
+        "display": [
+          466,
+          678
+        ],
+        "hit": 2479,
+        "node": 157,
+        "generation": 1,
+        "fixedAxes": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "screen": {
+          "y": 0,
+          "h": 678,
+          "x": 0,
+          "w": 466
+        },
+        "viewport": [
+          466,
+          678
+        ],
+        "projected": null,
+        "orientation": "portrait",
+        "window": [
+          191,
+          496.2
+        ]
+      }
+    }
+  },
+  "states": [
+    {
+      "label": "inbox",
+      "wall": 1793126912868,
+      "tasks": {
+        "network": 2209.6917500020936,
+        "motion": 2184.7080833433815
+      },
+      "time": {
+        "epochAtZero": 1767225600000,
+        "utcOffset": 0,
+        "locale": "en-US",
+        "timeZone": "UTC",
+        "seed": 1
+      },
+      "clock": 2193.131083273329,
+      "keys": [
+        "epoch",
+        "incarnation",
+        "clock",
+        "slots",
+        "language",
+        "time",
+        "device",
+        "derives",
+        "resources",
+        "mutationRequests",
+        "planDigest",
+        "resourcesMeasuredFrom",
+        "resourceStatus",
+        "pending",
+        "streams",
+        "watches",
+        "background",
+        "tasks",
+        "queued",
+        "notifications",
+        "wakelock",
+        "orientationlock",
+        "store",
+        "head",
+        "delivery",
+        "logic",
+        "collections",
+        "reorder",
+        "scrollIntoView",
+        "kept",
+        "canvas",
+        "surfaceRefusals",
+        "kernelLayout",
+        "decorations",
+        "layout",
+        "raster",
+        "pool",
+        "media",
+        "keyboard",
+        "atoms",
+        "sessionDevelopmentEdits",
+        "presence",
+        "mediaSession",
+        "storage",
+        "hatches",
+        "window",
+        "focus",
+        "navigation"
+      ]
+    },
+    {
+      "label": "before fling",
+      "wall": 1793126923549,
+      "tasks": {
+        "network": 12959.691750002094,
+        "motion": 12727.310249993267
+      },
+      "time": {
+        "epochAtZero": 1767225600000,
+        "utcOffset": 0,
+        "locale": "en-US",
+        "timeZone": "UTC",
+        "seed": 1
+      },
+      "clock": 12719.073541578837,
+      "keys": [
+        "epoch",
+        "incarnation",
+        "clock",
+        "slots",
+        "language",
+        "time",
+        "device",
+        "derives",
+        "resources",
+        "mutationRequests",
+        "planDigest",
+        "resourcesMeasuredFrom",
+        "resourceStatus",
+        "pending",
+        "streams",
+        "watches",
+        "background",
+        "tasks",
+        "queued",
+        "notifications",
+        "wakelock",
+        "orientationlock",
+        "store",
+        "head",
+        "delivery",
+        "logic",
+        "collections",
+        "reorder",
+        "scrollIntoView",
+        "kept",
+        "canvas",
+        "surfaceRefusals",
+        "kernelLayout",
+        "keyboard",
+        "mediaSession",
+        "storage",
+        "sessionDevelopmentEdits",
+        "presence",
+        "navigation",
+        "atoms",
+        "decorations",
+        "raster",
+        "hatches",
+        "media",
+        "focus",
+        "pool",
+        "window",
+        "layout"
+      ]
+    },
+    {
+      "label": "after 2 s at rest",
+      "wall": 1793126925589,
+      "tasks": {
+        "network": 12959.691750002094,
+        "motion": 12727.310249993267
+      },
+      "time": {
+        "epochAtZero": 1767225600000,
+        "utcOffset": 0,
+        "locale": "en-US",
+        "timeZone": "UTC",
+        "seed": 1
+      },
+      "clock": 12719.073541578837,
+      "keys": [
+        "epoch",
+        "incarnation",
+        "clock",
+        "slots",
+        "language",
+        "time",
+        "device",
+        "derives",
+        "resources",
+        "mutationRequests",
+        "planDigest",
+        "resourcesMeasuredFrom",
+        "resourceStatus",
+        "pending",
+        "streams",
+        "watches",
+        "background",
+        "tasks",
+        "queued",
+        "notifications",
+        "wakelock",
+        "orientationlock",
+        "store",
+        "head",
+        "delivery",
+        "logic",
+        "collections",
+        "reorder",
+        "scrollIntoView",
+        "kept",
+        "canvas",
+        "surfaceRefusals",
+        "kernelLayout",
+        "navigation",
+        "storage",
+        "raster",
+        "presence",
+        "mediaSession",
+        "sessionDevelopmentEdits",
+        "media",
+        "hatches",
+        "pool",
+        "keyboard",
+        "layout",
+        "focus",
+        "atoms",
+        "window",
+        "decorations"
+      ]
+    },
+    {
+      "label": "after one fling and 2 s",
+      "wall": 1793126928190,
+      "tasks": {
+        "network": 12959.691750002094,
+        "motion": 12727.310249993267
+      },
+      "time": {
+        "epochAtZero": 1767225600000,
+        "utcOffset": 0,
+        "locale": "en-US",
+        "timeZone": "UTC",
+        "seed": 1
+      },
+      "clock": 12719.073541578837,
+      "keys": [
+        "epoch",
+        "incarnation",
+        "clock",
+        "slots",
+        "language",
+        "time",
+        "device",
+        "derives",
+        "resources",
+        "mutationRequests",
+        "planDigest",
+        "resourcesMeasuredFrom",
+        "resourceStatus",
+        "pending",
+        "streams",
+        "watches",
+        "background",
+        "tasks",
+        "queued",
+        "notifications",
+        "wakelock",
+        "orientationlock",
+        "store",
+        "head",
+        "delivery",
+        "logic",
+        "collections",
+        "reorder",
+        "scrollIntoView",
+        "kept",
+        "canvas",
+        "surfaceRefusals",
+        "kernelLayout",
+        "presence",
+        "layout",
+        "storage",
+        "keyboard",
+        "focus",
+        "window",
+        "hatches",
+        "raster",
+        "pool",
+        "navigation",
+        "atoms",
+        "decorations",
+        "mediaSession",
+        "sessionDevelopmentEdits",
+        "media"
+      ]
+    }
+  ]
+}

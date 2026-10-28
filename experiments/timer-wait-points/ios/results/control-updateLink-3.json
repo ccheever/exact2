@@ -1,0 +1,388 @@
+{
+  "environment" : {
+    "deviceName" : "Timer Waits Probe",
+    "driver" : "control",
+    "maximumFramesPerSecond" : "60",
+    "model" : "iPhone19,4",
+    "simulator" : "true",
+    "systemVersion" : "27.1"
+  },
+  "repetition" : 3,
+  "scenario" : "updateLink",
+  "summary" : {
+    "ordering" : {
+
+    },
+    "phases" : [
+      {
+        "counts" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 2.09645891666878,
+        "medianIntervalMs" : {
+
+        },
+        "modes" : {
+
+        },
+        "name" : "still",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 3.792423583334312
+      },
+      {
+        "counts" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 2,
+          "link.afterUpdateComplete" : 2,
+          "link.afterUpdateScheduled" : 2,
+          "link.beforeEventDispatch" : 2,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0030837915837765,
+        "medianIntervalMs" : {
+
+        },
+        "modes" : {
+          "link.afterEventDispatch" : {
+            "kCFRunLoopDefaultMode" : 2
+          },
+          "link.afterUpdateComplete" : {
+            "kCFRunLoopDefaultMode" : 2
+          },
+          "link.afterUpdateScheduled" : {
+            "kCFRunLoopDefaultMode" : 2
+          },
+          "link.beforeEventDispatch" : {
+            "kCFRunLoopDefaultMode" : 2
+          }
+        },
+        "name" : "animate",
+        "offsetsMs" : {
+          "link.afterEventDispatch" : [
+            0.3,
+            1003
+          ],
+          "link.afterUpdateComplete" : [
+            0.4,
+            1003.1
+          ],
+          "link.afterUpdateScheduled" : [
+            0.3,
+            1003
+          ],
+          "link.beforeEventDispatch" : [
+            0.3,
+            1003
+          ]
+        },
+        "ratesHz" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 2,
+          "link.afterUpdateComplete" : 2,
+          "link.afterUpdateScheduled" : 2,
+          "link.beforeEventDispatch" : 2,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 5.888890625094064
+      },
+      {
+        "counts" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0485515833133832,
+        "medianIntervalMs" : {
+
+        },
+        "modes" : {
+
+        },
+        "name" : "animate.tail",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 6.89197441667784
+      },
+      {
+        "counts" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 2,
+          "link.afterUpdateComplete" : 2,
+          "link.afterUpdateScheduled" : 2,
+          "link.beforeEventDispatch" : 2,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.002090166672133,
+        "medianIntervalMs" : {
+
+        },
+        "modes" : {
+          "link.afterEventDispatch" : {
+            "kCFRunLoopDefaultMode" : 2
+          },
+          "link.afterUpdateComplete" : {
+            "kCFRunLoopDefaultMode" : 2
+          },
+          "link.afterUpdateScheduled" : {
+            "kCFRunLoopDefaultMode" : 2
+          },
+          "link.beforeEventDispatch" : {
+            "kCFRunLoopDefaultMode" : 2
+          }
+        },
+        "name" : "animator",
+        "offsetsMs" : {
+          "link.afterEventDispatch" : [
+            0.3,
+            1002
+          ],
+          "link.afterUpdateComplete" : [
+            0.4,
+            1002.1
+          ],
+          "link.afterUpdateScheduled" : [
+            0.3,
+            1002
+          ],
+          "link.beforeEventDispatch" : [
+            0.3,
+            1002
+          ]
+        },
+        "ratesHz" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 2,
+          "link.afterUpdateComplete" : 2,
+          "link.afterUpdateScheduled" : 2,
+          "link.beforeEventDispatch" : 2,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 7.940525999991223
+      },
+      {
+        "counts" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 1,
+          "link.afterUpdateComplete" : 1,
+          "link.afterUpdateScheduled" : 1,
+          "link.beforeEventDispatch" : 1,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0458431250881404,
+        "medianIntervalMs" : {
+
+        },
+        "modes" : {
+          "link.afterEventDispatch" : {
+            "kCFRunLoopDefaultMode" : 1
+          },
+          "link.afterUpdateComplete" : {
+            "kCFRunLoopDefaultMode" : 1
+          },
+          "link.afterUpdateScheduled" : {
+            "kCFRunLoopDefaultMode" : 1
+          },
+          "link.beforeEventDispatch" : {
+            "kCFRunLoopDefaultMode" : 1
+          }
+        },
+        "name" : "animator.tail",
+        "offsetsMs" : {
+          "link.afterEventDispatch" : [
+            12.9
+          ],
+          "link.afterUpdateComplete" : [
+            12.9
+          ],
+          "link.afterUpdateScheduled" : [
+            0
+          ],
+          "link.beforeEventDispatch" : [
+            12.8
+          ]
+        },
+        "ratesHz" : {
+          "fire" : 0,
+          "link.afterEventDispatch" : 1,
+          "link.afterUpdateComplete" : 1,
+          "link.afterUpdateScheduled" : 1,
+          "link.beforeEventDispatch" : 1,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 8.942616166663356
+      },
+      {
+        "counts" : {
+          "fire" : 10,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.523858541622758,
+        "medianIntervalMs" : {
+          "fire" : 100
+        },
+        "modes" : {
+          "fire" : {
+            "kCFRunLoopDefaultMode" : 10
+          }
+        },
+        "name" : "segment.timerLookup",
+        "offsetsMs" : {
+          "fire" : [
+            100.4,
+            200.4,
+            300.4,
+            400.4,
+            500.4,
+            600.4,
+            700.4,
+            800.4,
+            900.4,
+            1000.4
+          ]
+        },
+        "ratesHz" : {
+          "fire" : 6.6,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 9.988459291751496
+      },
+      {
+        "counts" : {
+          "fire" : 10,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.5265759583562613,
+        "medianIntervalMs" : {
+          "fire" : 100
+        },
+        "modes" : {
+          "fire" : {
+            "none" : 10
+          }
+        },
+        "name" : "segment.timerBare",
+        "offsetsMs" : {
+          "fire" : [
+            102.1,
+            200.7,
+            302.1,
+            400.3,
+            502.1,
+            602.1,
+            702.1,
+            802.1,
+            902.1,
+            1002.1
+          ]
+        },
+        "ratesHz" : {
+          "fire" : 6.6,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 11.512317833374254
+      },
+      {
+        "counts" : {
+          "fire" : 10,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.5501224166946486,
+        "medianIntervalMs" : {
+          "fire" : 103.68
+        },
+        "modes" : {
+          "fire" : {
+            "none" : 10
+          }
+        },
+        "name" : "segment.dispatchBare",
+        "offsetsMs" : {
+          "fire" : [
+            101.6,
+            206.7,
+            307.2,
+            412.3,
+            516.2,
+            616.6,
+            720.3,
+            824.5,
+            926.5,
+            1026.9
+          ]
+        },
+        "ratesHz" : {
+          "fire" : 6.5,
+          "link.afterEventDispatch" : 0,
+          "link.afterUpdateComplete" : 0,
+          "link.afterUpdateScheduled" : 0,
+          "link.beforeEventDispatch" : 0,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 13.038893791730516
+      }
+    ]
+  }
+}

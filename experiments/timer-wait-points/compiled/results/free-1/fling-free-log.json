@@ -1,0 +1,141 @@
+{
+  "udid": "53546626-A3B9-4C30-9E6C-20F4E31C151E",
+  "pid": 85540,
+  "flings": 6,
+  "fifty": 3,
+  "distance": 600,
+  "log": [
+    {
+      "t": 1793127056085,
+      "what": "launched",
+      "pid": 85540
+    },
+    {
+      "t": 1793127060445,
+      "what": "tapped conversation-demo"
+    },
+    {
+      "t": 1793127063319,
+      "what": "added fifty",
+      "i": 0
+    },
+    {
+      "t": 1793127065902,
+      "what": "added fifty",
+      "i": 1
+    },
+    {
+      "t": 1793127068482,
+      "what": "added fifty",
+      "i": 2
+    },
+    {
+      "t": 1793127072070,
+      "what": "trace",
+      "name": "trace-0-before",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-1/trace-0-before.json"
+    },
+    {
+      "t": 1793127072070,
+      "what": "fling",
+      "i": 0,
+      "dy": 372.4
+    },
+    {
+      "t": 1793127072353,
+      "what": "lifted",
+      "i": 0
+    },
+    {
+      "t": 1793127074197,
+      "what": "trace",
+      "name": "trace-1-after-fling-1",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-1/trace-1-after-fling-1.json"
+    },
+    {
+      "t": 1793127074197,
+      "what": "fling",
+      "i": 1,
+      "dy": -372.4
+    },
+    {
+      "t": 1793127074484,
+      "what": "lifted",
+      "i": 1
+    },
+    {
+      "t": 1793127076303,
+      "what": "trace",
+      "name": "trace-2-after-fling-2",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-1/trace-2-after-fling-2.json"
+    },
+    {
+      "t": 1793127076303,
+      "what": "fling",
+      "i": 2,
+      "dy": 372.4
+    },
+    {
+      "t": 1793127076595,
+      "what": "lifted",
+      "i": 2
+    },
+    {
+      "t": 1793127078397,
+      "what": "trace",
+      "name": "trace-3-after-fling-3",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-1/trace-3-after-fling-3.json"
+    },
+    {
+      "t": 1793127078397,
+      "what": "fling",
+      "i": 3,
+      "dy": -372.4
+    },
+    {
+      "t": 1793127078682,
+      "what": "lifted",
+      "i": 3
+    },
+    {
+      "t": 1793127080498,
+      "what": "trace",
+      "name": "trace-4-after-fling-4",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-1/trace-4-after-fling-4.json"
+    },
+    {
+      "t": 1793127080498,
+      "what": "fling",
+      "i": 4,
+      "dy": 372.4
+    },
+    {
+      "t": 1793127080787,
+      "what": "lifted",
+      "i": 4
+    },
+    {
+      "t": 1793127082640,
+      "what": "trace",
+      "name": "trace-5-after-fling-5",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-1/trace-5-after-fling-5.json"
+    },
+    {
+      "t": 1793127082640,
+      "what": "fling",
+      "i": 5,
+      "dy": -372.4
+    },
+    {
+      "t": 1793127082930,
+      "what": "lifted",
+      "i": 5
+    },
+    {
+      "t": 1793127084867,
+      "what": "trace",
+      "name": "trace-6-after-fling-6",
+      "file": "/Users/admin/Developer/exact2-timer-wait-points/experiments/timer-wait-points/compiled/results/free-1/trace-6-after-fling-6.json"
+    }
+  ]
+}

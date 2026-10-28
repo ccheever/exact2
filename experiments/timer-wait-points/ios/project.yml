@@ -1,0 +1,41 @@
+name: TimerWaitsProbe
+options:
+  bundleIdPrefix: dev.exact.probe
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    GENERATE_INFOPLIST_FILE: YES
+    COMPILATION_CACHE_ENABLE_CACHING: NO
+targets:
+  TimerWaitsProbe:
+    type: application
+    platform: iOS
+    sources: [App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.exact.probe.TimerWaitsProbe
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1"
+  TimerWaitsProbeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: TimerWaitsProbe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.exact.probe.TimerWaitsProbeUITests
+        TEST_TARGET_NAME: TimerWaitsProbe
+schemes:
+  TimerWaitsProbe:
+    build:
+      targets:
+        TimerWaitsProbe: all
+    test:
+      targets: [TimerWaitsProbeUITests]
