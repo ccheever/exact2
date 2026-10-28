@@ -12,14 +12,17 @@ const GROUPS = ['base', 'module', 'storage', 'rust', 'gpu', 'gpuModules', 'nativ
 // Groups that always ship with another: storage ships whenever module does (an app with app.ts; scripts/app.mjs).
 const WITH = { module: ['storage'] };
 
-/** A source's static relative imports (`import … from './x.js'`, `import './x.js'`, `export … from './x.js'`), by file name. */
+/** A source's static relative imports (import and export forms, comments and line breaks anywhere), by file name, as
+ * Bun's own parser reads them; dynamic import() is not one. */
 export function staticImports(source) {
-  const names = [...source.matchAll(/(?:^|[;\s])(?:import|export)\s*(?:[\w*{}\s,$]+\s*from\s*)?["']\.\/([\w.-]+\.m?js)["']/g)].map(m => m[1]);
-  return [...new Set(names)];
+  const found = new Bun.Transpiler({ loader: 'js' }).scanImports(source);
+  return [...new Set(found.filter(i => i.kind !== 'dynamic-import' && i.path.startsWith('./')).map(i => i.path.slice(2)))];
 }
 
-test('static imports: import, export and side-effect forms, not dynamic import()', () => {
+test('static imports: import, export and side-effect forms, with comments, not dynamic import()', () => {
   expect(staticImports(`import { a } from './a.js';\nimport './b.js';\nexport { c } from "./c.js";\nconst d = await import('./d.js');`)).toEqual(['a.js', 'b.js', 'c.js']);
+  // Comments and line breaks inside the statement (Astra's quick review).
+  expect(staticImports(`export * /* public API */ from './e.js';\nimport {\n  f, // the f\n  g,\n} from './f.js';`)).toEqual(['e.js', 'f.js']);
 });
 
 test("each group's files import statically only from their own group or base", () => {
