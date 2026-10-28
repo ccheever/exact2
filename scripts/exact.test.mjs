@@ -11,7 +11,7 @@ import { dirname, relative, resolve } from 'node:path';
 import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile, wrapFramework } from '../host/apple/assets.mjs';
 import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
-import { packageWidgets } from '../host/apple/widgets.mjs';
+import { packageWidgets, packageAlarmExtension } from '../host/apple/widgets.mjs';
 
 const plist = (executable) => `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>${executable}</string></dict></plist>\n`;
@@ -106,6 +106,47 @@ test.skipIf(!tools)('widget packaging preserves parent platform and device capab
     assert.equal(info.CFBundleVersion, parent.CFBundleVersion);
   }
 }));
+for (const device of [true, false]) {
+  const platform = device ? 'iphoneos' : 'iphonesimulator';
+  for (const [shape, metadata] of [
+    ['array', { DTPlatformName: platform, UIRequiredDeviceCapabilities: ['arm64', 'gps'] }],
+    ['dictionary', { DTPlatformName: platform, UIRequiredDeviceCapabilities: { arm64: true, gps: false } }],
+    ['empty array', { DTPlatformName: platform, UIRequiredDeviceCapabilities: [] }],
+    ['empty dictionary', { DTPlatformName: platform, UIRequiredDeviceCapabilities: {} }],
+    ['omitted capabilities', { DTPlatformName: platform }],
+    ['omitted platform', { UIRequiredDeviceCapabilities: { arm64: true, gps: false } }],
+    ['omitted keys', {}],
+  ]) test.skipIf(process.platform !== 'darwin')(`alarm-only ${platform} extension preserves ${shape} parent metadata`, () => inDir(dir => {
+    const bundle = resolve(dir, 'Fixture.app'), directory = resolve(dir, 'build');
+    mkdirSync(bundle);
+    mkdirSync(directory);
+    const parent = { CFBundleVersion: '8', CFBundleShortVersionString: '1.0.0', MinimumOSVersion: '17.0',
+      UIDeviceFamily: [1, 2], CFBundleSupportedPlatforms: [device ? 'iPhoneOS' : 'iPhoneSimulator'], ...metadata };
+    writeFileSync(resolve(bundle, 'Info.plist'), plistFile(parent));
+    const readPlist = path => {
+      const result = spawnSync('plutil', ['-convert', 'json', '-o', '-', path], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout);
+    };
+    let signed = null;
+    packageAlarmExtension({ app: { dir, id: 'dev.exact.fixture', displayName: 'Fixture', manifest: {} }, bundle,
+      directory, sdk: 'fixture-sdk', triple: 'fixture-target', device, entitlements: plistFile({}), alarm: 'ExactAlarms',
+      runApple(command, args) {
+        if (command === 'plutil') return { stdout: JSON.stringify(readPlist(args.at(-1))) };
+        assert.equal(command, 'xcrun');
+        return { stdout: '' };
+      }, sign(extension) { signed = extension; } });
+    assert.equal(signed, resolve(bundle, 'PlugIns/ExactWidgets.appex'));
+    const info = readPlist(resolve(signed, 'Info.plist'));
+    for (const key of ['DTPlatformName', 'UIRequiredDeviceCapabilities', 'CFBundleSupportedPlatforms',
+      'CFBundleVersion', 'CFBundleShortVersionString', 'MinimumOSVersion', 'UIDeviceFamily']) {
+      assert.equal(Object.hasOwn(info, key), Object.hasOwn(parent, key), key);
+      assert.deepEqual(info[key], parent[key], key);
+    }
+    assert.equal(existsSync(resolve(bundle, 'Frameworks')), false);
+  }));
+}
+
 test('release refuses code in content-addressed assets before signing changes its digest', () => inDir(dir => {
   const app = resolve(dir, 'Fixture.app'), helper = resolve(app, 'Contents/Resources/assets/helper');
   mkdirSync(dirname(helper), { recursive: true });
