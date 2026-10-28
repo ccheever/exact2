@@ -279,7 +279,7 @@ const num = (value: unknown) => typeof value === 'number' && Number.isFinite(val
 
 /** Attachment ids a chip in the prose already shows: their standalone file rows are left out. */
 export function chippedAttachmentIds(chips: ChipView[]): Set<string> {
-  return new Set(chips.filter(chip => chip.kind === 'file' || chip.kind === 'video').map(chip => chip.target));
+  return new Set(chips.filter(chip => chip.kind === 'file' || chip.kind === 'video' || chip.kind === 'image').map(chip => chip.target));
 }
 
 /** appearanceFonts.ts: the code family and clamped size (10–18, default 13) and the word-wrap default chat Markdown reads. */

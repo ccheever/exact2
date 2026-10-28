@@ -21,6 +21,8 @@ describe('sent-message context chips', () => {
       [{ version: 1, kind: 'file', contextId: 'file_svg', label: name, attachmentId: 'att-s', name, mimeType, sizeBytes: 2048 }],
       [{ type: 'file', id: 'att-s', name, mimeType, sizeBytes: 2048 }]), '', [], 'm1')[0];
     expect(svg('image/svg+xml')).toMatchObject({ kind: 'image', label: 'logo.svg', size: '2 KB', tip: 'File attachment, logo.svg, 2 KB', detail: 'logo.svg\n2 KB', target: 'att-s' });
+    // Its chip shows it, so it has no file row of its own.
+    expect([...chippedAttachmentIds([svg('image/svg+xml')])]).toEqual(['att-s']);
     expect(svg('application/octet-stream')).toMatchObject({ kind: 'image' });
     // A definite type other than SVG keeps the name's extension from counting.
     expect(svg('text/plain')).toMatchObject({ kind: 'file' });
