@@ -20,7 +20,7 @@ extension NodeView {
     /// and its text wraps at layout's width, not the drawn one.
     package var layoutBounds: CGRect {
         #if os(iOS) || os(tvOS)
-        CGRect(origin: bounds.origin, size: grid?.layout.size ?? bounds.size)
+        CGRect(origin: boxBounds.origin, size: grid?.layout.size ?? boxBounds.size)
         #else
         bounds
         #endif
@@ -36,7 +36,11 @@ extension NodeView {
 
     package func contentBox() -> CGRect {
         if !isNativeTextControl {
+            #if os(iOS) || os(tvOS)
+            return kernelContentBox?.offsetBy(dx: boxBounds.minX, dy: boxBounds.minY) ?? layoutBounds
+            #else
             return kernelContentBox?.offsetBy(dx: bounds.minX, dy: bounds.minY) ?? layoutBounds
+            #endif
         }
         let uniform = number("border_width")
         return layoutBounds.insetBy(

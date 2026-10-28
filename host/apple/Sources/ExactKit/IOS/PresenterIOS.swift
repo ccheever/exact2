@@ -997,7 +997,7 @@ package final class Presenter {
         flats.flush()
         // A view the flush promoted and mounted may have moved its children.
         while !gridMoved.isEmpty { regridMoved(); flats.flush() }
-        fitDocument(); reachPageEdges()
+        fitDocument(); reachPageEdges(); reachSafeEdges() // PROTO (safe-area design r2)
         paintCanvas()
         let first = root.subviews.first as? NodeView
         let widget = first?.props["interactiveWidget"]
@@ -1014,7 +1014,7 @@ package final class Presenter {
         let touchedHere = Set(touchedIDs + geometryApplied)
         geometryApplied = []
         swipeActions.sync(changed: changed, reshaped: touchedAndAbove(reshapedIDs)); rowCells.sync(changed: changed)
-        groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
+        groupedLists?.sync(changed: changed); reachPageEdges(); reachSafeEdges() // a list mounted now reaches its bands too
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)
         menuKey.sync()

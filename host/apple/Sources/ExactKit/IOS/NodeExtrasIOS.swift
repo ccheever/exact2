@@ -432,7 +432,7 @@ extension NodeView {
     /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
     /// scroll by the bar and the home indicator, as a table view's does not.
     func scrollFloor(_ sv: UIScrollView) -> CGFloat {
-        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height - pageBand.top - pageBand.bottom }
+        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height - reach.top - reach.bottom - pageBand.top - pageBand.bottom }
         return max(0, sv.bounds.height - top - bottom - pageBand.top - pageBand.bottom)
     }
 }

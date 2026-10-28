@@ -713,6 +713,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package var container: UIView { glassGroupView?.contentView ?? baseContainer }
     /// Where layout put this box and where it is drawn (`PixelGridIOS.swift`).
     package var grid: GridPlace?
+    /// PROTO (safe-area design r2 §2.3): how far this box's native view reaches past its laid-out box on
+    /// each side, as overflow. Its bounds origin is shifted by as much, so its subviews stay where layout
+    /// put them while the view covers the band and UIKit's safe area reaches what is inside it.
+    package var reach: UIEdgeInsets = .zero
+    /// PROTO: the laid-out box in this view's own coordinates, its bounds less its reach.
+    package var boxBounds: CGRect { bounds.inset(by: reach) }
+    /// PROTO: the cross-axis reach written into its scroll view's `contentInset` (by delta, as bands are).
+    package var reachInset: UIEdgeInsets = .zero
 
     /// Every canvas's overlay alive, and every node a surface placed. With
     /// none, no node is under a canvas (`canvasAbove`) or placed
@@ -1370,12 +1378,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // Ending where its last edge is drawn, from this box's place on the
         // pixel grid, so the furthest offset is a whole pixel and reaches it (`PixelGridIOS.swift`).
         let s = presenter?.gridScale ?? 1, o = grid?.origin ?? .zero
-        let size = CGSize(width: sv.scrollsX ? max(PixelGrid.length(content.width, from: o, vertical: false, scale: s), sv.bounds.width) : sv.bounds.width,
-                          height: sv.scrollsY ? max(PixelGrid.length(content.height, from: o, vertical: true, scale: s), scrollFloor(sv)) : sv.bounds.height)
+        // PROTO (safe-area design r2 §5.3): the logical port, the scroll view's bounds less the band it reaches into.
+        let portWidth = sv.bounds.width - reach.left - reach.right, portHeight = sv.bounds.height - reach.top - reach.bottom
+        let size = CGSize(width: sv.scrollsX ? max(PixelGrid.length(content.width, from: o, vertical: false, scale: s), portWidth) : portWidth,
+                          height: sv.scrollsY ? max(PixelGrid.length(content.height, from: o, vertical: true, scale: s), scrollFloor(sv)) : portHeight)
         if !holdsSize(sv, for: size), sv.contentSize != size { sv.contentSize = size }
         // Forced bounce on a carousel's computed y traps Mac wheel input; one travels a quarter of its width or lays a
         // row (itself, or a child wider than the port), and a page a few points too wide keeps its bounce.
-        let travel = size.width - sv.bounds.width
+        let travel = size.width - portWidth
         let row = { (v: NodeView) in v.style["display"]?.string == "flex" || v.style["flex_direction"] != nil ? !(v.style["flex_direction"]?.string ?? "row").hasPrefix("column") : false }
         let carousel = travel > 0.5 && (travel > sv.bounds.width / 4 || row(self) || sv.subviews.contains { ($0 as? NodeView).map { $0.frame.width > sv.bounds.width + 0.5 && row($0) } ?? false })
         // One that fits inside an author's scroller that scrolls down leaves

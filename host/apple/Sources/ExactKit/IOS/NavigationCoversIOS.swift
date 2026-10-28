@@ -109,11 +109,14 @@ extension NavigationHost {
                 }
             }
             if settled, c.viewIfLoaded?.window != nil {
-                let safe = c.view.safeAreaInsets
-                // The route's end with its page unscrolled: scrolling moves the route, not the bars.
-                // A route the keyboard shortens can end above the bars, with no bottom cover.
-                let end = c.node.convert(c.node.bounds, to: c.contentMount).maxY + (c.contentViewport?.frame.minY ?? 0)
-                let reached = end - (c.view.bounds.maxY - safe.bottom)
+                var safe = c.view.safeAreaInsets
+                // PROTO (safe-area design r2 §2.5): a collapsing large title is UIKit's alone; the content root's top
+                // stays at the expanded title's bottom (its scroller's widest resting inset).
+                if let origin = c.collapseScroll?.scrollOrigin, origin > safe.top { safe.top = origin }
+                // PROTO (r2 §2.1): the bottom clearance is the part of the inset the block still overlaps (a block the
+                // keyboard ends above the bars has none), measured from the block, not the root laid out inside it.
+                let block = presenter.owners.block(in: c.view)
+                let reached = block.maxY - (c.view.bounds.maxY - safe.bottom)
                 let own = Self.routeEdges(safe: safe, edges: whole, reached: reached)
                 clearance = own
                 // A band riding the bar goes under it, with the scroller below the band: the route is covered nothing
@@ -140,7 +143,9 @@ extension NavigationHost {
             // under the bar and above the home indicator, and scrolling
             // content still passes under both. A large title's inset is its
             // widest, at rest (CSS scrollTop 0).
-            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil {
+            // PROTO (safe-area design r2 §2.3): the route's root is laid out in its safe area and its scrollers reach
+            // the edges natively (`SafeReachIOS`), where UIKit insets them: no `Inset` cover subtracts the bars again.
+            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil && false {
                 if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
                     // The bottom edge's scroller takes the route's bottom
                     // clearance, which the route then pads nothing of
@@ -263,7 +268,8 @@ extension NavigationHost {
     func ownerValues(of c: RouteController, clearance: HostCover.Edges?) -> OwnerValues? {
         guard let view = c.viewIfLoaded, view.window != nil else { return nil }
         let e = clearance ?? .init(top: 0, right: 0, bottom: 0, left: 0)
-        let content = c.node.convert(c.node.bounds, to: view).inset(by: UIEdgeInsets(top: e.top, left: e.left, bottom: e.bottom, right: e.right))
+        // PROTO (safe-area design r2 §2.2): the content root is the block less the clearance.
+        let content = presenter.owners.block(in: view).inset(by: UIEdgeInsets(top: e.top, left: e.left, bottom: e.bottom, right: e.right))
         guard content.width > 0, content.height > 0 else { return nil }
         let safe = view.bounds.inset(by: view.safeAreaInsets)
         let inset = [safe.minY - content.minY, content.maxX - safe.maxX, content.maxY - safe.maxY, safe.minX - content.minX].map { max(0, $0) }

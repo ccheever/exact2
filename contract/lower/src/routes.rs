@@ -330,20 +330,20 @@ impl NavPlace {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
         let path = |p: &[String]| [p, &[tag.to_string()]].concat();
         if let Some(a) = attrs.iter().rev().find(|a| a.name == "-exact-safe-area") {
-            if !self.is_route(attrs) {
-                return err(
-                    "lower-attr-value",
-                    "`-exact-safe-area` belongs on a content owner's authored root (a route with a `navigationKey`), not the session root or a descendant",
-                    a.span,
-                );
-            }
+            // PROTO (safe-area design r2 §3.1): any box takes `contain` or `ignore` groups.
             // A computed value the host reads; an invalid one is `auto` there, journalled once.
             let mut literals = Vec::new();
             crate::theme::literal_leaves(&a.value, &mut literals);
             for (word, span) in literals {
-                let edges: Vec<_> = word.split_whitespace().collect();
+                let mut edges: Vec<_> = word.split_whitespace().collect();
+                // PROTO: a leading `contain` or `ignore` keyword, its edges optional.
+                let keyword = matches!(edges.first(), Some(&"contain") | Some(&"ignore"));
+                if keyword {
+                    edges.remove(0);
+                }
                 if word != "auto"
                     && word != "none"
+                    && !(keyword && edges.is_empty())
                     && (edges.is_empty()
                         || edges.iter().enumerate().any(|(i, edge)| {
                             !matches!(*edge, "top" | "right" | "bottom" | "left")

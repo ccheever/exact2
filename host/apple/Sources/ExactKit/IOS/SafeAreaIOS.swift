@@ -46,6 +46,10 @@ final class RouteSafeArea {
     private static func parse(_ value: String) -> UIRectEdge? {
         if value == "auto" { return [] }
         if value == "none" { return .all }
+        // PROTO (safe-area design r2 §3.1): `ignore [edges]` is D4's opt-out; a root's `contain` is not prototyped.
+        if value.hasPrefix("contain") { return [] }
+        if value == "ignore" { return .all }
+        let value = value.hasPrefix("ignore ") ? String(value.dropFirst(7)) : value
         let words = value.split(whereSeparator: { $0.isWhitespace })
         guard !words.isEmpty else { return nil }
         var out: UIRectEdge = []
