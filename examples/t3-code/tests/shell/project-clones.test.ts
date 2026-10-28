@@ -29,6 +29,8 @@ describe('projectClone.ts labels', () => {
   test('progress summary joins the stage, percent and detail', () => {
     expect(projectCloneProgressSummary(clone())).toBe('Receiving objects · 45% · 12.3 MiB | 5.0 MiB/s');
     expect(projectCloneProgressSummary(clone({ stage: 'connecting', percent: null, detail: null }))).toBe('Connecting');
+    // 7c3b3b3605ef (#22780): a stall replaces git's last transfer speed.
+    expect(projectCloneProgressSummary(clone({ stalled: true }))).toBe('Receiving objects · 45% · Stalled');
     expect(['counting', 'resolving', 'checkout'].map(stage => projectCloneProgressSummary(clone({ stage, percent: null, detail: null })))).toEqual(['Counting objects', 'Resolving deltas', 'Checking out files']);
   });
 });

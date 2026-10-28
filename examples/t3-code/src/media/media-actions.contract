@@ -167,4 +167,5 @@ component FilesMedia
             if media.state == "failed"
               MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
             else
-              video media.url controls=true playsinline=true preload="metadata" aria-label=media.name error=local("media-video-error", media.url) width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
+              // Its playback tells the data module when a changed file may load (media-views.ts playbackUrl).
+              video media.url controls=true playsinline=true preload="metadata" aria-label=media.name error=local("media-video-error", media.url) play=local("media-video-play", media.retryKey) pause=local("media-video-pause", media.retryKey) ended=local("media-video-pause", media.retryKey) width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"

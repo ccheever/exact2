@@ -177,6 +177,27 @@ describe('media views', () => {
     await mediaLocal(client, native, 'image-error', image.url, 'HTTP 404');
     expect(await filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', '', 1000)).toMatchObject({ state: 'failed', failText: 'Unable to load workspace image.' });
   });
+  // FilePreviewPanel and MediaVideoPlayer at 7c3b3b3605ef (#23106): the file's revision rides on the URL, a re-signed URL
+  // keeps the loaded video, and a changed file loads once playback pauses.
+  test('Files: a video keeps its source across a re-sign, and takes a changed file once paused', async () => {
+    let signature = 0, revision = 'r1';
+    const { client } = fakeClient(() => ({}), { rpc: async () => ({ relativeUrl: `/api/assets/clip.mp4?sig=${++signature}`, fileRevision: revision }) });
+    const view = (workspace: string) => filesMediaView(client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', workspace, 1000);
+    const first = await view('w1');
+    expect(first.url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=1&file-revision=r1');
+    // A command changed the workspace, not this file: it signs again, and the loaded source stays.
+    expect((await view('w2')).url).toBe(first.url);
+    // The file changed while it plays: the source holds until playback pauses.
+    await mediaLocal(client, native, 'video-play', first.retryKey, '');
+    revision = 'r2';
+    expect((await view('w3')).url).toBe(first.url);
+    await mediaLocal(client, native, 'video-pause', first.retryKey, '');
+    expect((await view('w3')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=3&file-revision=r2');
+  });
+  test('Files: without a file revision the workspace revision rides on the URL', async () => {
+    const { client } = fakeClient(() => ({}));
+    expect((await filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', 'w9', 1000)).url).toBe('http://127.0.0.1:16260/api/assets/fresh/logo.png?sig=2&workspace-revision=w9');
+  });
   test('Files: a refused signature is the failure state, menu kept', async () => {
     const { client } = fakeClient(() => ({}), { rpc: async () => { throw new Error('denied'); } });
     expect(await filesMediaView(client, native, 'gone.png', '/repo/gone.png', '/repo', '', 1)).toMatchObject({ state: 'failed', failText: 'Unable to load workspace image.' });

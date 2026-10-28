@@ -24,6 +24,7 @@ import { addProjectEnvironments, projectLocation } from './palette-environments'
 import { fleet } from '../connections/settings-b-fleet';
 import { sourceControlHosts } from '../shared/source-control-hosts';
 import { textDirection } from '../shared/text-direction';
+import { findForMessageMatch } from '../shared/thread-find-requests';
 import {
   findSearchTokenRanges, foldSearchQuery, PALETTE_MESSAGE_LIMIT, PALETTE_SECONDARY_LIMIT, PALETTE_THREAD_LIMIT, rankMessageMatches, rankSearchGroups, scoreSearchTerms,
   scoreThreadSearch, splitSearchText, threadRecentUse, threadSearchSubject, type SearchMatchHint, type SearchRange, type ThreadSearchSubject,
@@ -274,7 +275,8 @@ export function threadItems(client: T3Client, now: number, query: string): Item[
 /**
  * The threads whose messages match and whose title, branch or pull request do not, best first (rankMessageMatches,
  * PALETTE_MESSAGE_LIMIT): the server's matches, one per thread, as their threads' rows with the snippet in place of the
- * project line. `query` is the one the matches were found for.
+ * project line. `query` is the one the matches were found for. A row's `arg2` is the find it opens at its message
+ * (findForMessageMatch), which its pick carries (palette-commands.ts).
  */
 export function messageItems(threads: Item[], matches: Map<string, Obj>, query: string, now: number): Item[] {
   const byId = new Map(threads.map(item => [item.row.arg, item]));
@@ -284,7 +286,8 @@ export function messageItems(threads: Item[], matches: Map<string, Obj>, query: 
     const item = byId.get(candidate.threadId);
     if (!item) return [];
     const snippet = str(candidate.match.snippet).replace(/\s+/g, ' ').trim();
-    return [{ ...item, row: { ...item.row, matchLabel: str(candidate.match.source) === 'user' ? 'You:' : 'Agent:', matchParts: searchParts(snippet, findSearchTokenRanges(snippet, query)),
+    const find = findForMessageMatch({ snippet: str(candidate.match.snippet), messageId: str(candidate.match.messageId) || undefined }, query);
+    return [{ ...item, row: { ...item.row, arg2: JSON.stringify(find), matchLabel: str(candidate.match.source) === 'user' ? 'You:' : 'Agent:', matchParts: searchParts(snippet, findSearchTokenRanges(snippet, query)),
       context: rowContext(item.thread),
       // When the matching message was written, not when the thread last moved.
       timestamp: candidate.messageCreatedAt ? relativeLabel(candidate.messageCreatedAt, now) : item.row.timestamp } }];

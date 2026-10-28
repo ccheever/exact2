@@ -10,6 +10,8 @@ import { noteAutomationWindow } from '../browser/browser-automation';
 import { agentHoldWaiting, settleAgentHolds } from '../browser/browser-automation-run';
 import { threadTurnRunning } from '../browser/browser-capture';
 import { frameEntry } from '../browser/browser-frames';
+import { reportBrowserProfiles } from '../browser/browser-profile-report';
+import { findOpening, takeRequestedFind } from '../shared/thread-find-requests';
 import { migrateModelPreferences } from '../providers/model-preferences';
 import type { T3Client } from '../client/client';
 import { terminalAvailable, terminalOpen } from '../terminal/terminal-drawer-view';
@@ -285,6 +287,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     state.status = await nativeNotifyStatus(native, state.status, page.focused);
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
+    reportBrowserProfiles(client, native); // browser-profile-report.ts: server browsers keep this client's profiles and frame rate
     updateEverythingPass(client, native, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await coordinateGuides(client, native, state.status, now);
@@ -298,6 +301,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const menu = titleMenu(client, now);
   const opened = await activationOpen(client, native, state.status);
   const announce = announcements(client, now); // before `ticking`: a region it just wrote keeps the clock running
+  takeRequestedFind(client, now); // thread-find-requests.ts: a ⌘K message result's find opens in its thread
   settleAgentHolds(client, now, runtimeId => frameEntry(client, runtimeId) !== null, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return {
     toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: announcing(client) || notificationsWaiting(client) || guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client) || agentHoldWaiting(client, now),
@@ -315,5 +319,6 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
     highlightPending: highlightPending(), // after the panel's code texts asked for their tokens
     announce,
+    findOpening: findOpening(client, now),
   };
 }

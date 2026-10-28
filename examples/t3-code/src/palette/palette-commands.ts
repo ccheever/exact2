@@ -22,7 +22,9 @@ import { startTrackedClone } from '../shell/project-clones-live';
 import { cloneTracking } from '../client/live-streams';
 import { letGo } from '../client/let-go';
 import { composerNow } from '../composer/composer-controls';
-import { claimThreadOpen } from './palette-search';
+import { claimThreadOpen, pickedQuery } from './palette-search';
+import { targetOf } from '../sidebar/sidebar-commands';
+import { requestThreadFind } from '../shared/thread-find-requests';
 import { addTarget, targetRequest, type AddEnvironment } from './palette-environments';
 import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
@@ -74,11 +76,38 @@ function claimPick(client: T3Client, threadId: string, pick: string): void {
   const space = pick.indexOf(' '), at = Number(pick.slice(0, space)), query = pick.slice(space + 1);
   if (space > 0 && Number.isFinite(at) && query.trim().length > 0 && !query.startsWith('>') && threadId !== client.threadId) claimThreadOpen(client.environmentId, threadId, at);
 }
+/**
+ * runThread's visit (T3 Code 7c3b3b3605ef): a pick for a query tells the thread's server it was opened with that query,
+ * so search ranks it first for the query next time (`thread.visit` `opened`, `searchQuery`; a visited-tracking server,
+ * whose shells carry `lastVisitedAt`). The open thread is no pick. A failed visit is not shown.
+ */
+function visitPick(client: T3Client, native: Native, id: string, pick: string): void {
+  const space = pick.indexOf(' '), query = pick.slice(space + 1);
+  if (space <= 0 || !query.trim() || query.startsWith('>')) return;
+  const target = targetOf(client, id);
+  if (!target || target.thread.lastVisitedAt === undefined || (target.environmentId === client.environmentId && target.threadId === client.threadId)) return;
+  void target.send(native, { type: 'thread.visit', visitedAt: str(target.thread.updatedAt), opened: true, searchQuery: pickedQuery(query) }).catch(error => { if (letGo(error)) throw error; });
+}
+/** A message result's pick also carries its find (palette.ts messageItems), which opens once the thread shows. */
+function requestPickedFind(client: T3Client, id: string, pick: string, find: string): void {
+  const target = targetOf(client, id), at = Number(pick.slice(0, pick.indexOf(' ')));
+  let request: Obj;
+  try { request = obj(JSON.parse(find)); } catch { return; }
+  if (!target || !Number.isFinite(at) || !str(request.query)) return;
+  const start = obj(request.start);
+  requestThreadFind(client, `${target.environmentId}:${target.threadId}`, { query: str(request.query), ...(str(start.entryId) ? { start: { entryId: str(start.entryId), occurrence: Number(start.occurrence) || 0 } } : {}) }, at);
+}
 
 export async function paletteCommand(client: T3Client, native: Native | null | undefined, storage: Files, op: string, id: string, value: string, source: EnvironmentFleet = fleet): Promise<PaletteResult> {
   // A thread row and New thread in <project>: the palette closes and the window navigates. A thread row's `value` is its
-  // pick (claimPick).
-  if (op === 'thread') { claimPick(client, id, value); return done(client, '', id); }
+  // pick (claimPick), and a message result's adds its find after a newline (requestPickedFind).
+  if (op === 'thread') {
+    const newline = value.indexOf('\n'), pick = newline >= 0 ? value.slice(0, newline) : value;
+    claimPick(client, id, pick);
+    if (native?.available) visitPick(client, native, id, pick);
+    if (newline >= 0) requestPickedFind(client, id, pick, value.slice(newline + 1));
+    return done(client, '', id);
+  }
   if (op === 'new-thread') return done(client, id);
   if (!native?.available) return stay(client, false, 'Open this app on macOS to connect to T3 Code.');
   const flow = flowOf(client);

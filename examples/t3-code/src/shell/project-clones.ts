@@ -1,6 +1,6 @@
-// Tracked project clones (MIT reference, see LICENSE-T3; T3 Code 1e2ecbd975:
-// packages/contracts/src/projectClone.ts projectCloneDisplayName / projectCloneProgressSummary;
-// T3 Code 74541bab17: apps/web/src/components/ProjectCloneToastCoordinator.tsx, the clone and
+// Tracked project clones (MIT reference, see LICENSE-T3; T3 Code 7c3b3b3605ef:
+// packages/contracts/src/projectClone.ts projectCloneDisplayName / projectCloneProgressSummary,
+// apps/web/src/components/ProjectCloneToastCoordinator.tsx; T3 Code 74541bab17: the clone and
 // file-copy banner and send block of components/ChatView.tsx). The toast coordinator and the banner are pure functions of the
 // environment's clone list and the viewed draft; the toast queue is reached through a port so
 // the state machine runs in tests. Changes: an action button closes its toast here (toast.ts),
@@ -22,11 +22,13 @@ export function projectCloneDisplayName(snapshot: Obj): string {
   return segments[segments.length - 1] ?? destination;
 }
 
-/** One-line progress summary: `Receiving objects · 45% · 12.3 MiB | 5.0 MiB/s`. */
+/** One-line progress summary: `Receiving objects · 45% · 12.3 MiB | 5.0 MiB/s`, or `… · Stalled` once git has printed
+ *  nothing for a while (`stalled`, which older servers omit): the detail's transfer speed is then stale. */
 export function projectCloneProgressSummary(snapshot: Obj): string {
   const parts = [projectCloneStageLabel(str(snapshot.stage))];
   if (snapshot.percent !== null && snapshot.percent !== undefined) parts.push(`${num(snapshot.percent)}%`);
-  if (snapshot.detail) parts.push(str(snapshot.detail));
+  if (snapshot.stalled === true) parts.push('Stalled');
+  else if (snapshot.detail) parts.push(str(snapshot.detail));
   return parts.join(' · ');
 }
 
@@ -62,7 +64,7 @@ export type CloneToast = { kind: ToastKind; title: string; description: string; 
 export type ToastPort = { add(key: string, toast: CloneToast, onClose: () => void): number; update(id: number, toast: CloneToast): void; close(id: number): void; live(id: number): boolean };
 export type TrackedToast = { toastId: number; renderedKey: string; phase: string; dismissed: boolean };
 
-const renderKey = (clone: Obj) => `${str(clone.phase)}:${str(clone.stage)}:${clone.percent ?? ''}:${str(clone.detail)}:${str(clone.error)}`;
+const renderKey = (clone: Obj) => `${str(clone.phase)}:${str(clone.stage)}:${clone.percent ?? ''}:${str(clone.detail)}:${clone.stalled === true}:${str(clone.error)}`;
 
 /**
  * The toast for one snapshot. Open project is the reference's openProject on every environment (handleNewThread with

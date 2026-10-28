@@ -101,6 +101,14 @@ describe('a thread row\'s pick carries its moment and the query it was found by'
     // A query moved off the URL lists the thread results again, which count.
     expect(picked(`pr-linked|${url}`, 'old')).toEqual([['thread', 't1', '1234.5 old']]);
   });
+  test('a message result\'s pick carries the find it opens, after a newline', () => {
+    const p = palette(), sent: unknown[][] = [];
+    Object.assign(p.state, { palettePage: '', paletteQuery: 'cafe' });
+    Object.assign(p.scope, { wallTime: { epochAtZero: 1000 }, performanceNow: () => 234.5, paletteCommand: (...args: unknown[]) => sent.push(args) });
+    p.scope.paletteThreadQuery = value(threadQuery, { ...p.scope, ...p.state });
+    p.call('paletteRun', 'thread', 't1', '{"query":"Café"}');
+    expect(sent).toEqual([['thread', 't1', '1234.5 cafe\n{"query":"Café"}']]);
+  });
 });
 
 describe('palette focus returns where it was when no composer is shown (#18850)', () => {

@@ -8,6 +8,7 @@ import type { Obj } from '../../src/client/domain';
 import type { Files } from '../../src/client/protocol';
 import { commandView, settingTarget, type CommandContext } from '../../src/palette/palette';
 import { paletteCommand } from '../../src/palette/palette-commands';
+import { findOpening } from '../../src/shared/thread-find-requests';
 import { CATALOG } from '../../src/settings/settings-catalog';
 import { searchSettings, settingsNavigation } from '../../src/settings/settings-search';
 
@@ -163,5 +164,37 @@ describe('text direction', () => {
     expect(rows.find(entry => entry.arg === 'en')!.titleDir).toBe('');
     c.shell.projects[0]!.title = 'مشروع';
     expect(view(c, '').rows.find(entry => entry.op === 'new-thread')).toMatchObject({ bold: 'مشروع', titleDir: '' });
+  });
+});
+
+// CommandPaletteThreadItems runThread at 7c3b3b3605ef (#24343): a pick for a query tells a visited-tracking server it
+// was opened with the query, so its search ranks the thread first for it next time; a message result also opens find.
+describe('a pick the server records', () => {
+  function served(threads: Obj[]) {
+    const c = client(threads, 'pick-env'), dispatched: Obj[] = [];
+    Object.assign(c, { scopes: ['orchestration:operate'], threadId: '' });
+    c.config = { ...c.config, environment: { label: 'Local', capabilities: { pullRequests: true, serverResolvedCommandContext: true } } };
+    Object.assign(c, { restAccess: () => ({ ids: async () => ['command-1'], request: async (method: string, payload: Obj) => { dispatched.push({ method, ...payload }); return {}; } }) });
+    return { c, dispatched, native: { available: true } as never };
+  }
+  test('sends thread.visit with opened and the picked query, and only for a search', async () => {
+    const { c, dispatched, native } = served([{ id: 'a', title: 'Fix oauth redirect', updatedAt: at(1), lastVisitedAt: at(2) }]);
+    await paletteCommand(c, native, files, 'thread', 'a', `${NOW} Upl `);
+    await paletteCommand(c, native, files, 'thread', 'a', `${NOW} `);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(dispatched).toEqual([{ method: 'orchestration.dispatchCommand', type: 'thread.visit', threadId: 'a', visitedAt: at(1), opened: true, searchQuery: 'upl', commandId: 'command-1' }]);
+  });
+  test('a message result\'s pick leaves its find for the thread it opens', async () => {
+    const { c, native } = served([{ id: 'a', title: 'Fix oauth redirect', updatedAt: at(1) }]);
+    c.config = { ...c.config, threadFind: true };
+    await paletteCommand(c, native, files, 'thread', 'a', `${NOW} cafe\n${JSON.stringify({ query: 'Café', start: { entryId: 'message-1', occurrence: 0 } })}`);
+    Object.assign(c, { threadId: 'a' });
+    expect(findOpening(c, NOW + 1_000)).toBe(true);
+  });
+  test('an older server (no lastVisitedAt) records nothing', async () => {
+    const { c, dispatched, native } = served([{ id: 'a', title: 'Fix oauth redirect', updatedAt: at(1) }]);
+    await paletteCommand(c, native, files, 'thread', 'a', `${NOW} oauth`);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(dispatched).toEqual([]);
   });
 });
