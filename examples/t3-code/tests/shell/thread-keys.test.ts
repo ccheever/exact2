@@ -177,6 +177,14 @@ describe('A14: keys', () => {
     const quiet = keyClient({ projection: { ...projection, providerSessions: [{ id: 's', capabilities: { turns: {} } }] } });
     expect(find(keyboardDispatch(quiet, rows(['a'], 'a'), '', '', context), 'thread.steerQueuedMessage')).toBeUndefined();
   });
+  // QueuedRunsControl steerNext at 7c3b3b3605ef (96f09c6558): with no turn running, ⇧⌘↩ starts one with the first
+  // queued message, as its bubble's "Start a turn with this message" says; an archived thread sends nothing.
+  test('⇧⌘↩ sends the first queued message when no turn runs, not on an archived thread', () => {
+    const idle = { thread: { id: 'a' }, messages: [{ id: 'm1', text: 'one' }], runs: [{ id: 'q1', status: 'queued', userMessageId: 'm1', ordinal: 1 }] };
+    const keysOf = (projection: Obj) => keyboardDispatch(keyClient({ projection }), rows(['a'], 'a'), '', '', context);
+    expect(find(keysOf(idle), 'thread.steerQueuedMessage')).toMatchObject({ kind: 'command', target: 'cc:queued-steer', extra: 'q1', chord: 'Meta+Shift+Enter' });
+    expect(find(keysOf({ ...idle, thread: { id: 'a', archivedAt: iso(0) } }), 'thread.steerQueuedMessage')).toBeUndefined();
+  });
   // QueuedRunsControl editLatest at 7c3b3b3605ef (fe507c5a1e): an open question takes the composer for its answer, so ⌥↑
   // leaves the queue alone; a guest's message can be cancelled, not edited.
   test('⌥↑ does not edit the last queued message while a question is open, when it is a guest\'s, or while one is being sent', () => {

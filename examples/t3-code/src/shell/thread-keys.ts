@@ -20,14 +20,15 @@ import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
 /** The composer's dispatches that send a queued message (composer-controls-commands.ts `queued-steer`). */
 const QUEUED_SENDS = ['Steer queued message', 'Send queued message'];
-/** steerNext and editLatest: the first queued message as a steer, the last one into the composer. Not on a draft. */
+/** steerNext and editLatest: the first queued message sent (a new turn or a steer), the last one into the composer. Not on a draft. */
 export function queueKeyRows(add: DispatchAdd, client: T3Client, context: DispatchContext): void {
   if (context.draftThreadRoute || !client.threadId) return;
   if (!client.projection) return;
   const state = queueState(client.projection);
   const first = state.queued[0], last = state.queued[state.queued.length - 1];
-  // workflow.canPromoteToSteer: a running turn whose provider steers (queueState canSteer).
-  if (first && state.canSteer) add('thread.steerQueuedMessage', 'command', 'cc:queued-steer', 'Steer First Queued Message', str(first.run.id));
+  // QueuedRunsControl steerNext at T3 Code 7c3b3b3605ef (96f09c6558): the first queued message is sent whenever it can
+  // be: it starts a turn when none runs (canSendNow), else it steers one whose provider steers (canSteer).
+  if (first && (state.canSendNow || state.canSteer)) add('thread.steerQueuedMessage', 'command', 'cc:queued-steer', 'Send First Queued Message', str(first.run.id));
   // QueuedRunsControl editLatest at T3 Code 7c3b3b3605ef: declines while a queued message is already being edited, so the
   // key keeps moving the caret in that draft, while a question is open (queuedRunEditBlockedReason), for a guest's, and
   // while a queued message is being sent (its busyRunId: the steer, or the start of a turn, in flight).
