@@ -176,25 +176,11 @@ component T3Code
     after(1, balanceLoadNow)
   action balanceLoadNow
     send balanceLoaded = command("cclocal:balance-load", branches.balanceFetch, `${wallTime.epochAtZero + performanceNow()}`, 0)
-  state noticeExit = ""
-  state noticeExitOp = ""
-  state noticeExitTarget = ""
-  state noticeExitSerial = 0
+  state noticeExit = "" // the notice leaving above the composer: none, since a dismissed notice goes at once
   action noticeDismiss(notice: string, op: string, target: string)
-    if noticeExitOp == "" and not commandPending
-      noticeExit = notice
-      noticeExitOp = op
-      noticeExitTarget = target
-      noticeExitSerial = noticeExitSerial + 1
-  task noticeExiting when noticeExitOp != "" key=noticeExitSerial
-    after(220, noticeExited)
-  action noticeExited
     if not commandPending
       commandPending = true
-      send changed = command(noticeExitOp, noticeExitTarget, "", 0)
-    else
-      noticeExit = ""
-    noticeExitOp = ""
+      send changed = command(op, target, "", 0)
   state hoverWait = 0 // the hover clock (hover-layer.contract): +10 each 10 ms while a hover card's close delay runs (to hoverEnd), and on a surface change, which ends a tooltip or card whose trigger went with no leave
   state hoverEnd = 0
   task hoverTick when hoverWait < hoverEnd key=hoverEnd
@@ -367,6 +353,8 @@ component T3Code
     elapsed = performanceNow()
   task clock mount
     every(60000, tick)
+  task resetClock when data.composer.resetSoon key=data.composer.resetKey // a usage-limit reset under a minute away turns its banner on time
+    every(1000, tick)
   state windowReturns = 0 // the window focused again, the clock read then (useLiveRefresh's `focus` at Date.now(), not at the last minute tick), for the list and the detail
   task windowBack when page.hasFocus and page.visibilityState == "visible"
     after(1, windowReturned)
@@ -784,6 +772,14 @@ component T3Code
     after(200, threadJumpHintsShow)
   task threadJumpHintReset when threadJumpHintsShown and not threadJumpsHeld
     after(1, threadJumpHintsHide)
+  // The sidebar's Working shelf on the window's clock (thread-inbox.ts): a grace's start or a return owed its time
+  // reads it at once, and the soonest grace ends 2 s after it started. Root timers, so they run with the sidebar closed.
+  task workingGraceOwed when data.sidebar.graceOwed > 0 key=data.sidebar.graceOwed
+    after(1, workingGraceClock)
+  task workingGraceEnds when data.sidebar.graceUntil > 0 key=data.sidebar.graceUntil
+    after(2000, workingGraceClock)
+  action workingGraceClock
+    send localChanged = command("sidebarlocal:working-grace", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
   action threadJumpHintsShow
     threadJumpHintsShown = true
   action threadJumpHintsHide

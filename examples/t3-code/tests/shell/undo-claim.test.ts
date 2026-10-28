@@ -133,7 +133,7 @@ describe('other chords, other fields and ⌘B release the claim', () => {
     const window = contractComponent('src/shell/app-window.contract', 'T3Window');
     window.call('search', {}, { releaseUndoClaim: () => calls.push('release'), command: () => calls.push('search') }, ['abc']);
     const rename = contractComponent('src/sidebar/sidebar-row.contract', 'SidebarRenameField');
-    rename.call('edit', { title: 'a' }, { releaseUndoClaim: () => calls.push('release') }, ['ab']);
+    rename.call('edit', { title: 'a' }, { releaseUndoClaim: () => calls.push('release'), local: () => {}, t: { id: 'a' } }, ['ab']);
     for (const name of ['LegacyRenameField', 'LegacyRenameProject'])
       contractComponent('src/sidebar/legacy-sidebar.contract', name).call('edit', { title: 'a' }, { releaseUndoClaim: () => calls.push('release') }, ['ab']);
     expect(calls).toEqual(['release', 'search', 'release', 'release', 'release']);

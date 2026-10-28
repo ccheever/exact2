@@ -1,11 +1,13 @@
 // Thread search by pull request (T3 Code 74541bab17, MIT; see LICENSE-T3): packages/shared/src/threadPullRequests.ts
 // threadPullRequestSearchTerms, apps/web/src/components/Sidebar.logic.ts pullRequestMatchesSearchQuery and
-// ThreadStatusIndicators.tsx ThreadSearchPullRequestNumber. A thread is found by its links, its legacy link and the
-// pull request the server found for its branch; a search result shows the badge its sidebar row shows.
+// ThreadStatusIndicators.tsx ThreadSearchPullRequestNumber (at 7c3b3b3605ef: in its host's terms). A thread is found
+// by its links, its legacy link and the pull request the server found for its branch; a search result shows the badge
+// its sidebar row shows.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { visiblePullRequests } from '../panel/shell-pr';
-import { lifecycle, lifecycleIcon, sidebarPrBadge, snapshotPr, statusTooltip } from '../panel/pr-surface';
+import { lifecycle, lifecycleIcon, providerOfUrl, sidebarPrBadge, snapshotPr, statusTooltip } from '../panel/pr-surface';
+import { terminologyOf } from '../details/git-logic';
 import { sharedPullRequestLinks } from '../pull-requests/pages-pr-shared';
 import { parseFleetThreadId } from '../connections/settings-b-fleet';
 import { branchPullRequest } from './sidebar-branch-pr';
@@ -53,14 +55,14 @@ export function searchPullRequest(client: T3Client, thread: Obj, query: string):
   if (!pullRequestMatchesSearchQuery(pullRequestSearchTerms(thread), query)) return null;
   const links = rowPullRequestLinks(client, thread), visible = visiblePullRequests(links);
   const badge = sidebarPrBadge({ ...thread, pullRequests: links });
-  if (badge.stacked) return { text: badge.badge, icon: badge.badgeIcon, state: badge.badgeState, label: `Stack of ${badge.badge} pull requests, ${STATE_LABEL[badge.badgeState]}` };
   const current = resolveThreadCurrentPullRequestLink(links);
   const pr = current ? snapshotPr(current) : branchPullRequest(client, thread);
   const stored = current ?? [thread.linkedPullRequest, thread.branchPullRequest].map(reference)
     .find((candidate): candidate is Obj => candidate !== null && pullRequestMatchesSearchQuery(pullRequestSearchTerms({ linkedPullRequest: candidate }), query));
-  const number = pr?.number ?? (stored ? num(stored.number) : 0), url = pr?.url || str(stored?.url);
+  const number = pr?.number ?? (stored ? num(stored.number) : 0), url = pr?.url || str(stored?.url), terms = terminologyOf(providerOfUrl(url)); // changeRequestTerminologyForUrl
+  if (badge.stacked) return { text: badge.badge, icon: badge.badgeIcon, state: badge.badgeState, label: `Stack of ${badge.badge} ${terms.plural}, ${STATE_LABEL[badge.badgeState]}` };
   if (!number || !url) return null;
-  const tooltip = pr ? statusTooltip(pr) : `PR #${number}, status pending`;
+  const tooltip = pr ? statusTooltip(pr) : `${terms.shortLabel} #${number}, status pending`;
   if (visible.length > 1) {
     return { text: badge.badge, icon: badge.badgeIcon, state: badge.badgeState, label: `${tooltip}, and ${visible.length - 1} more linked; overall ${STATE_LABEL[badge.badgeState]}` };
   }

@@ -29,7 +29,7 @@ export const DEFAULT_APPROVAL_OPTIONS = [
   { decision: 'acceptForSession', label: 'Always allow this session' },
   { decision: 'accept', label: 'Approve' },
 ];
-const NOT_RESUMABLE = 'Provider process is gone — interrupt or restart the run to respond.';
+const NOT_RESUMABLE = 'Provider process is gone. Interrupt or restart the run to respond.';
 
 function approvalLabel(kind: string): string {
   return kind === 'mcp-elicitation' ? 'App access approval' : kind === 'command' ? 'Command approval'

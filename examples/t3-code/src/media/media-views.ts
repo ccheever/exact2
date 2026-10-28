@@ -90,7 +90,7 @@ function latchedVideoUrl(client: T3Client, key: string, entry: Minted, now: numb
   const held = map.get(key);
   if (held && held.revision === entry.fileRevision && (now <= 0 || held.at <= 0 || now - held.at < LATCH_MS)) return held.url;
   // The revision goes in the URL too, since two mints in the same millisecond sign identical URLs.
-  const url = `${entry.url}${entry.url.includes('?') ? '&' : '?'}file-revision=${encodeURIComponent(entry.fileRevision)}`;
+  const url = revisedUrl(entry.url, entry.fileRevision, 'file-revision');
   map.set(key, { revision: entry.fileRevision, url, at: now });
   if (map.size > 64) map.delete(map.keys().next().value!);
   return url;

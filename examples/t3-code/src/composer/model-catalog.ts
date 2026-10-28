@@ -74,8 +74,9 @@ export function providerRowLabel(displayName: string, subProvider: string): stri
   const escaped = provider.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return provider && new RegExp(`^${escaped}\\s+\\S`, 'i').test(sub) ? sub : `${displayName} · ${sub}`;
 }
+/** getDisplayModelName: a row names its model in full. */
 function display(item: Item): string {
-  const name = item.shortName || item.name, qualifier = item.subProvider.trim();
+  const name = item.name, qualifier = item.subProvider.trim();
   if (!qualifier) return name;
   const pattern = new RegExp(`^${qualifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s*[.:/-]\\s*|\\s+)`, 'iu');
   return name.replace(pattern, '').trim() || name;
@@ -105,10 +106,10 @@ export type PickerTarget = { reason: (instanceId: string, model: string) => stri
 export function railLabel(provider: Obj, locked: boolean): string {
   const name = str(provider.displayName, str(provider.driver));
   if (!pickerReady(provider)) {
-    if (provider.enabled !== true || provider.status === 'disabled') return `${name} — Disabled in settings.`;
+    if (provider.enabled !== true || provider.status === 'disabled') return `${name}: Disabled in settings.`;
     const kind = provider.status === 'error' ? 'Unavailable' : provider.status === 'warning' ? 'Limited' : 'Not ready';
     const message = str(provider.message).trim();
-    return message ? `${name} — ${kind}. ${message}` : `${name} — ${kind}.`;
+    return message ? `${name}: ${kind}. ${message}` : `${name}: ${kind}.`;
   }
   return locked ? `${name} is unavailable in this thread. Start a new thread to switch providers.` : name;
 }
