@@ -108,6 +108,11 @@ pub enum RunnerError {
     },
     /// A region sits at the plan root; v1 requires one root node.
     RootRegion,
+    /// Curried argument evaluation refused before this handler's action ran.
+    HandlerArguments {
+        action: String,
+        error: Box<RunnerError>,
+    },
     /// A slot initializer or write does not conform to the slot's declared type.
     SlotType {
         slot: String,

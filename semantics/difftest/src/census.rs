@@ -13,6 +13,7 @@ pub(crate) struct Census {
     steps: usize,
     multiple: usize,
     poisoned: usize,
+    pub(crate) omitted: usize,
 }
 
 pub(crate) struct Finding {
@@ -28,6 +29,7 @@ impl Census {
         let mut compared = 0;
         for step in crate::chunks(lines) {
             self.steps += 1;
+            self.omitted += usize::from(step.iter().any(|l| l == crate::observe::OMITTED_COMMIT));
             let commits = step.iter().filter(|l| l.starts_with("ran ")).count();
             self.multiple += usize::from(commits > 1);
             self.poisoned += usize::from(step.iter().any(|l| {
@@ -122,6 +124,7 @@ impl Census {
             "steps: {} (including boot); {} with more than one ran line; {} poisoned",
             self.steps, self.multiple, self.poisoned
         );
+        println!("steps with a commit the trace leaves out: {}", self.omitted);
         let counts: Vec<_> = [
             "world",
             "limit",

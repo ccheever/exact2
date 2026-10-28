@@ -606,7 +606,7 @@ impl<D: DataSource> Runner<D> {
                 };
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
-                match self.scheduled(at, |r| r.traced_action("task", action, Vec::new(), &[])) {
+                match self.scheduled(at, |r| r.run_action(action, Vec::new(), &[])) {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
                         receipt,

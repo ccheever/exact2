@@ -42,6 +42,8 @@ pub struct Oracle {
     ///
     /// [`Case::prerendered`]: crate::script::Case::prerendered
     pub prerendered: bool,
+    /// The fixed date and zone supplied before boot.
+    pub launch: exact_runner::time::Launch,
 }
 
 impl Oracle {
@@ -66,6 +68,7 @@ impl Oracle {
             facts: Rc::default(),
             stored: Rc::default(),
             prerendered: false,
+            launch: Default::default(),
         }
     }
 
@@ -74,6 +77,7 @@ impl Oracle {
     pub fn for_case(plan: &Plan, case: &crate::script::Case) -> Self {
         let mut oracle = Oracle::new(plan, crate::seed_of(&case.name));
         oracle.prerendered = case.prerendered;
+        oracle.launch = case.launch.clone();
         if case.stored {
             oracle.with_store()
         } else {
@@ -126,6 +130,7 @@ impl Oracle {
             facts: self.facts.clone(),
             stored: self.stored.clone(),
             prerendered: self.prerendered,
+            launch: self.launch.clone(),
         }
     }
 

@@ -79,8 +79,47 @@ Debug text and Lean's `why`, and are not compared; `ran` lines are compared.
 Boot has no `ran` line. Neither does an event with no handler or whose
 curried arguments refused before reaching its action. A due refusal and a
 successful handler therefore print separate commit outcomes even when the
-step's outcome is `refused`. `Observe` uses traced variants of `advance`
-and `dispatch`; their equality to the untraced functions is not yet proved.
+step's outcome is `refused`. A curried-argument refusal's `#` reason names
+its handler action without printing a `ran handler` line.
+
+`Observe.runScript` runs `advance` and `dispatch` beside their traced variants.
+The original supplies the configuration and outcome; the variant supplies only
+`ran` lines. A difference in either result replaces the configuration with
+`trace disagrees`, which always fails comparison. The guard compares derived
+structural representations of the entire configuration and outcome, including
+hidden scheduling state and the bits of every number. Projection equality is
+not proved. The new `land` has no earlier function to compare. `ScriptEvent`
+extends the harness vocabulary; the original `Observe.Event`, `step` and every
+existing theorem stay unchanged.
+
+The runner also commits transport or MIDI answers, re-asks, wake deliveries and
+expiry, drop deadlines, transport ends, and the advance tail's presence, polls,
+live times and text-axis frames. These have no corresponding semantics branch.
+They print no `ran` line. For each step, `observe.rs` compares successful commit receipts
+with successful `ran` lines. Extra receipts mark it with
+`# a commit the semantics has no branch for`; the census prints
+`steps with a commit the trace leaves out`. Property checks must exclude marked
+steps from `after`. A differing configuration remains a divergence and is named
+with that reason; the marker alone is commentary, not a difference.
+
+`land` drains armed `then`s and queued sends at the current clock, without firing
+a timer, even one due exactly now. It is `Runner::land_then` on the runner and
+`Observe.land` in Lean. An authored `clock data` emits it; an authored `tap` or
+`type`, and each explore tap, emits its input followed by `land`. Expectations
+read the observation after that pair. A primitive `clock +0` still fires due
+timers as well as continuations.
+
+An authored `clock settle` expands on a live runner: `clock +0`, then at most
+sixteen repetitions of an advance to the latest task with
+`now < due <= now + 1`, followed by another `clock +0`. Every task qualifies,
+including repeating tasks and tasks armed by earlier inputs or continuations.
+The expansion replaces the settle in the case and its expectation positions;
+Lean and JS replay those same events. A `.events` file under
+`target/difftest/expansions/` keeps it, and the block reports
+`settle expanded to k events` once, totaling all its settles. A task still due
+within a millisecond after sixteen rounds stops the block there, naming it.
+The host's waits on motion, scrolling and hatches, and its advance to an
+animation's end, have no image here; verify prints that limit on its world line.
 
 An event is delivered as every host delivers one, at the current time: the
 work already due (a timer, a mutation's `then`, a queue's next send) fires
@@ -206,8 +245,11 @@ every other `*.test.contract` beside it) plus an explore script, first on
 the runner, then on the semantics. `--runner-only`, or an unavailable `lake`,
 runs the runner's half alone and reports how to install Lean. Its exit
 status comes from that half: a type refusal fails; app refusals are findings.
-`clock data` and `clock settle` become `clock +0`, labelled once per block
-as `empty under the synchronous oracle`. A block runs up to its first
+`clock data` lands continuations; `clock settle` expands as described beside
+the observation format. Leading fixed `epoch` and `time-zone` lines set the
+runner's launch facts, using Bun's Date and Intl APIs for the date and offset;
+Lean receives the resulting host facts in its oracle. `epoch now` and other
+launch settings remain undelivered. A block runs up to its first
 undeliverable step, with its location, kind and reason printed. Only a block
 that stops at its first step is `SKIP`. Expectations before the stop still
 run. The summary counts whole, partial and skipped blocks.
@@ -216,7 +258,11 @@ The refusal census classifies every failed outcome and commit line as
 `world`, `limit`, `poisoned`, `cycle`, `value`, `app`, `type`, or
 `unclassified`. Those counts include both the aggregate outcome and its
 commit line; findings use the refusing commit's line, without attributing
-due work to the event. A boot or argument refusal has no commit line.
+due work to the event. A boot or curried-expression refusal has no commit line.
+At slot initializers and writes, derives and ordinary action arguments, a value
+that fails `typed` is class `type` and fails verification; one that is typed but
+fails `conforms` is non-finite, class `value`. Hidden `@` parameters use `typed`
+alone. VM `Trap::Arity` is `type`; host-payload `RunnerError::Arity` is `world`.
 Coverage names actions committed and never run, clock actions fired against
 the declared tasks, steps with multiple commits, and poisoned steps.
 
@@ -758,7 +804,7 @@ fire in order of due time, ties by declaration order. A mutation's `then`
 is armed, due at the commit's time, by every commit that stood in which a
 send into the mutation was answered (here every answer is synchronous,
 `armThens`; arming again moves the due time); it runs as its own commit
-at the next advance, before any timer due at or after its time, ties by
+at the next advance or `land`, before any timer due at or after its time, ties by
 the mutations' order. A frame task is the runner's virtual display while
 the host presents no frames (the harness never does): due at
 `virtualFrame 0 k = k·1000/60` for k = 1, 2, …; presented frames

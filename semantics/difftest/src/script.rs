@@ -1,7 +1,7 @@
 //! Cases: a program and the events a host delivers to it.
 //!
 //! A corpus case is a `.contract` file with `test` blocks (LLP 1017 P7):
-//! each block's `tap`, `type` and `clock +ms` steps are the events, and its
+//! each block's inputs and clocks become primitive events, and its
 //! `expect` lines are checked against the runner's observations. A random
 //! case comes from [`crate::gen`].
 
@@ -16,6 +16,8 @@ pub enum Event {
     Type(String, String),
     /// Advance the clock by this many milliseconds, firing due timers.
     Clock(f64),
+    /// Land armed mutation continuations and queued sends without firing timers.
+    Land,
 }
 
 /// What a corpus test expects of the runner after the steps before it.
@@ -36,6 +38,11 @@ pub enum Item {
     Event(Event),
     /// Check the last observation.
     Expect(Expect),
+    /// Expanded from live runner tasks before the case is compared.
+    Settle {
+        span: contract_syntax::Span,
+        taken: usize,
+    },
 }
 
 /// A program and its script.
@@ -57,6 +64,8 @@ pub struct Case {
     /// rendered ahead of its runtime does (LLP 1075.003 §9.14,
     /// `Runner::build_every_tab`); an authored test's panels wait.
     pub prerendered: bool,
+    /// Fixed host facts supplied before boot.
+    pub launch: exact_runner::time::Launch,
 }
 
 /// A corpus case: a [`Case`] whose script also holds expectations.
@@ -79,8 +88,10 @@ pub struct Delivery {
     pub taken: usize,
     /// The authored location of each delivered event.
     pub events: Vec<contract_syntax::Span>,
-    /// A `clock data` or `clock settle` became `clock +0`.
-    pub empty_clock: bool,
+    /// Primitive events emitted for all settles in this block.
+    pub settle_events: Option<usize>,
+    /// The replayable expansion, when the block contains a settle.
+    pub expansion: Option<std::path::PathBuf>,
 }
 
 impl Event {
@@ -94,16 +105,18 @@ impl Event {
                 crate::observe::quote(s)
             ),
             Event::Clock(ms) => format!("clock +{}", exact_runner::stdlib::format_number(*ms)),
+            Event::Land => "land".into(),
         }
     }
 
-    /// The event as a `Contract.Observe.Event` term.
+    /// The event as a `Contract.Observe.ScriptEvent` term.
     pub fn lean(&self) -> String {
         use contract::lean::string;
         match self {
             Event::Tap(t) => format!("(.tap {})", string(t)),
             Event::Type(t, s) => format!("(.change {} {})", string(t), string(s)),
             Event::Clock(ms) => format!("(.clock (F64.ofBits 0x{:016x}))", ms.to_bits()),
+            Event::Land => "(.land)".into(),
         }
     }
 }
@@ -135,24 +148,48 @@ pub fn scripted(
     let tests = contract::tests(source).map_err(|e| format!("{file}: {e}"))?;
     tests
         .iter()
-        .map(|t| test_case(file, source, path, t))
+        .map(|t| test_case(file, source, path, t, None))
         .collect()
 }
 
 /// One `test` block as a scripted case over the program `source`, which
 /// may be another file's (an `app.test.contract` beside its
-/// `app.contract`). Each event item is one `tap`, `type` or `clock` step of
-/// the block, in order.
+/// `app.contract`). Inputs include a following `land`; settles expand from
+/// the runner's live tasks. `plan` reuses the caller's compilation when supplied.
 pub fn test_case(
     file: &str,
     source: &str,
     path: Option<&std::path::Path>,
     t: &contract_syntax::TestDecl,
+    plan: Option<&exact_plan::Plan>,
 ) -> Result<Scripted, String> {
     let mut items = Vec::new();
     let mut delivery = Delivery::default();
+    let (mut epoch, mut zone) = (None, None);
+    let mut leading = true;
     for step in &t.steps {
-        let item = match deliver(step) {
+        if leading {
+            match step {
+                Step::Epoch { value, .. } if value != "now" => {
+                    epoch = Some(value.as_str());
+                    continue;
+                }
+                Step::TimeZone { zone: value, .. } => {
+                    zone = Some(value.as_str());
+                    continue;
+                }
+                _ => leading = false,
+            }
+        }
+        let item = if matches!(step, Step::Clock { arg, .. } if arg == "settle") {
+            Ok(Some(Item::Settle {
+                span: step.span(),
+                taken: delivery.taken,
+            }))
+        } else {
+            deliver(step)
+        };
+        let item = match item {
             Ok(item) => item,
             Err(why) => {
                 delivery.stopped = Some((step.span(), step_kind(step), why));
@@ -164,20 +201,22 @@ pub fn test_case(
             if matches!(item, Item::Event(_)) {
                 delivery.events.push(step.span());
             }
-            if matches!(step, Step::Clock { arg, .. } if arg == "data" || arg == "settle") {
-                delivery.empty_clock = true;
-            }
+            let input = matches!(item, Item::Event(Event::Tap(_) | Event::Type(_, _)));
             items.push(item);
+            if input {
+                items.push(Item::Event(Event::Land));
+                delivery.events.push(step.span());
+            }
         }
     }
     let events = items
         .iter()
         .filter_map(|i| match i {
             Item::Event(e) => Some(e.clone()),
-            Item::Expect(_) => None,
+            Item::Expect(_) | Item::Settle { .. } => None,
         })
         .collect();
-    Ok(Scripted {
+    let mut script = Scripted {
         case: Case {
             name: format!("{file}: {}", t.name),
             source: source.to_string(),
@@ -185,10 +224,13 @@ pub fn test_case(
             path: path.map(std::path::Path::to_path_buf),
             stored: false,
             prerendered: false,
+            launch: crate::launch::facts(epoch, zone)?,
         },
         items,
         delivery,
-    })
+    };
+    crate::settle::expand(&mut script, plan)?;
+    Ok(script)
 }
 
 fn deliver(step: &Step) -> Result<Option<Item>, String> {
@@ -205,9 +247,7 @@ fn deliver(step: &Step) -> Result<Option<Item>, String> {
             append: false,
             ..
         } => Item::Event(Event::Type(target.clone(), text.clone())),
-        Step::Clock { arg, .. } if arg == "data" || arg == "settle" => {
-            Item::Event(Event::Clock(0.0))
-        }
+        Step::Clock { arg, .. } if arg == "data" => Item::Event(Event::Land),
         Step::Clock { arg, .. } => match arg.strip_prefix('+').map(str::parse::<f64>) {
             Some(Ok(ms)) if ms.is_finite() && ms >= 0.0 => Item::Event(Event::Clock(ms)),
             _ => return Err("only clock +ms, data and settle are delivered".into()),
@@ -274,18 +314,19 @@ mod tests {
         assert_eq!(
             s.case.events,
             [
-                Event::Clock(0.0),
+                Event::Land,
                 Event::Tap("add".into()),
+                Event::Land,
                 Event::Clock(0.0)
             ]
         );
         assert_eq!(s.delivery.taken, 4);
-        assert!(s.delivery.empty_clock);
+        assert_eq!(s.delivery.settle_events, Some(1));
         let (span, kind, _) = s.delivery.stopped.as_ref().unwrap();
         assert_eq!((span.line, span.col, kind.as_str()), (13, 3, "reload"));
         assert_eq!(
             s.delivery.events.iter().map(|s| s.line).collect::<Vec<_>>(),
-            [9, 10, 11]
+            [9, 10, 10, 11]
         );
         crate::expectations(s).unwrap();
         let source = source.replace("expect state n == 1", "expect state n == 7");
@@ -315,5 +356,15 @@ mod tests {
             assert!(s.case.events.is_empty(), "{step}");
             assert_eq!(s.delivery.stopped.as_ref().unwrap().1, kind, "{step}");
         }
+    }
+    #[test]
+    fn fixed_launch_facts_precede_the_delivered_prefix() {
+        let source = format!("{APP}\nepoch \"2026-10-22T18:00:00Z\"\ntime-zone \"America/Los_Angeles\"\ntest \"fixed\"\n  clock settle\n  clock until state n == 1 within 100\n");
+        let s = scripted("launch", &source, None).unwrap().remove(0);
+        assert_eq!(s.case.launch.time.unwrap().epoch_at_zero, 1792692000000.0);
+        assert_eq!(s.case.launch.time.unwrap().utc_offset, -420.0);
+        assert_eq!(s.delivery.settle_events, Some(1));
+        assert_eq!(s.delivery.taken, 1);
+        assert_eq!(s.delivery.stopped.unwrap().1, "clock until");
     }
 }

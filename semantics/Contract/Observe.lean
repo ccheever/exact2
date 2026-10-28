@@ -163,6 +163,33 @@ def advanceTrace (p : Program) (o : Oracle) (c : Config) (t : F64) : (Config × 
         | (c, out) => ((c, out), [⟨"task", tm.action, out⟩])
   if t < c.now then ((c, .ok), []) else go timerFireLimit c
 
+/-- Land the armed `then`s and queued sends at the current clock, without timers. -/
+def land (p : Program) (o : Oracle) (c : Config) : (Config × Outcome) × List Ran :=
+  let rec go : Nat → Config → (Config × Outcome) × List Ran
+    | 0, c =>
+      match clockPick p c c.now .none with
+      | .none => ((c, .ok), [])
+      | .some _ => ((c, .refused (.refused "too many timer fires")), [])
+    | n + 1, c =>
+      if c.poisoned then ((c, .refused (.refused "poisoned")), []) else
+      match clockPick p c c.now .none with
+      | .some (.next m _) =>
+        let c := { c with nexts := c.nexts.filter (·.1 != m) }
+        match nextCommit p o c m with
+        | (c, .ok) =>
+          let (result, ran) := go n c
+          (result, ⟨"queue", m, .ok⟩ :: ran)
+        | (c, out) => ((c, out), [⟨"queue", m, out⟩])
+      | .some (.andThen m _ a) =>
+        let c := { c with armed := c.armed.filter (·.1 != m) }
+        match runAction p o c a [] [] with
+        | (c, .ok) =>
+          let (result, ran) := go n c
+          (result, ⟨"then", a, .ok⟩ :: ran)
+        | (c, out) => ((c.armNexts p, out), [⟨"then", a, out⟩])
+      | .none => ((c, .ok), [])
+  go timerFireLimit c
+
 /-- A commit's outcome uses the same reasons as the step's. -/
 def Ran.line (r : Ran) : String :=
   let head := "ran " ++ r.kind ++ " " ++ r.action ++ " "
@@ -256,9 +283,52 @@ def stepTrace (p : Program) (o : Oracle) (c : Config) : Event → (Config × Out
   | .clock ms => advanceTrace p o c (c.now + ms)
   | .other t e v => dispatchAtTrace p o c t e v
 
-/-- Boot, then every event: the whole observation text. Stops after a
-poisoned outcome (a poisoned runner refuses everything after). -/
-def run (p : Program) (o : Oracle) (events : List Event) : List String := Id.run do
+/-- Script delivery includes `land`; the event type used by the existing theorems stays unchanged. -/
+inductive ScriptEvent where
+  | tap (target : String)
+  | change (target : String) (text : String)
+  | clock (ms : F64)
+  | other (target event : String) (payload : Option Value)
+  | land
+
+def ScriptEvent.event : ScriptEvent → Option Event
+  | .tap t => .some (.tap t)
+  | .change t s => .some (.change t s)
+  | .clock ms => .some (.clock ms)
+  | .other t e v => .some (.other t e v)
+  | .land => .none
+
+def ScriptEvent.ofEvent : Event → ScriptEvent
+  | .tap t => .tap t
+  | .change t s => .change t s
+  | .clock ms => .clock ms
+  | .other t e v => .other t e v
+
+-- Structural equality includes hidden scheduling state and compares F64 bits,
+-- including NaNs and signed zeros; observation text alone omits that state.
+deriving instance Repr for TabInfo
+deriving instance Repr for Settled
+deriving instance Repr for VNode
+deriving instance Repr for Timer
+deriving instance Repr for Config
+deriving instance Repr for Outcome
+
+/-- Check the complete result, including state the observation does not print. -/
+def checkedLines (p : Program) (label : String) (result twin : Config × Outcome)
+    (before : Nat) (ran : List Ran) : List String :=
+  if reprStr result == reprStr twin then lines p label result.1 result.2 before ran
+  else ["== " ++ label, outcome result.2] ++ ran.map Ran.line ++ ["trace disagrees"]
+
+#guard let c : Config := default
+  (checkedLines default "clock +0" (c, .ok) ({ c with armed := [("m", 0)] }, .ok) 0 []).contains "trace disagrees"
+#guard let c : Config := default
+  (checkedLines default "tap" (c, .ok) (c, .refused (.refused "x")) 0 []).contains "trace disagrees"
+#guard let c : Config := { (default : Config) with now := F64.ofBits 0x7ff8000000000000 }
+  !(checkedLines default "land" (c, .ok) (c, .ok) 0 []).contains "trace disagrees"
+
+/-- Boot, then every script event. The originals own the state and outcome;
+a traced twin that disagrees replaces the configuration with a failing line. -/
+def runScript (p : Program) (o : Oracle) (events : List ScriptEvent) : List String := Id.run do
   let (c, out) := boot p o
   match out with
   | .ok => pure ()
@@ -267,12 +337,23 @@ def run (p : Program) (o : Oracle) (events : List Event) : List String := Id.run
   let mut c := c
   for e in events do
     let before := c.commands.length
-    let ((c', out), ran) := stepTrace p o c e
-    acc := acc ++ lines p e.label c' out before ran
+    let (label, result, twin, ran) := match e.event with
+      | .some ev =>
+        let (twin, ran) := stepTrace p o c ev
+        (ev.label, step p o c ev, twin, ran)
+      | .none =>
+        let (result, ran) := land p o c
+        ("land", result, result, ran)
+    let (c', out) := result
+    acc := acc ++ checkedLines p label result twin before ran
     c := c'
     match out with
     | .poisoned _ => return acc
     | _ => pure ()
   return acc
+
+/-- Observation of the event vocabulary used by component comparison and theorems. -/
+def run (p : Program) (o : Oracle) (events : List Event) : List String :=
+  runScript p o (events.map ScriptEvent.ofEvent)
 
 end Contract.Observe

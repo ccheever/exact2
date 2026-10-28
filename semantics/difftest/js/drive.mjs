@@ -298,6 +298,9 @@ async function drive(code, c, hostSources) {
       const deliverable = e && e.type !== 'checkbox' && e.type !== 'radio' && datetime(e, text)
         && (!options || options.some(o => !o.hasAttribute('disabled') && (o.getAttribute('value') ?? o.textContent) === text));
       if (!deliverable || !e.$listeners?.change?.length) refused = true; else { e.value = text; fire(e, 'change'); }
+    } else if (ev.land) {
+      out.push('== land');
+      advance(clock.now, false, undefined, false);
     } else {
       const ms = fromHex(ev.clock.$);
       out.push(`== clock +${String(ms)}`);

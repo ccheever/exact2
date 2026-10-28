@@ -65,15 +65,23 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
             }
         };
         for t in &tests {
-            let scripted = crate::script::test_case(&show(&test_file), &source, Some(&file), t)?;
+            let scripted =
+                crate::script::test_case(&show(&test_file), &source, Some(&file), t, Some(&plan))?;
             let delivery = &scripted.delivery;
-            let empty = if delivery.empty_clock {
-                "; empty under the synchronous oracle"
-            } else {
-                ""
-            };
+            let expansion = delivery
+                .settle_events
+                .map(|k| {
+                    format!(
+                        "; settle expanded to {k} events; kept: {}",
+                        delivery
+                            .expansion
+                            .as_ref()
+                            .map_or_else(String::new, |p| p.display().to_string())
+                    )
+                })
+                .unwrap_or_default();
             if let Some((span, kind, why)) = &delivery.stopped {
-                let verdict = if delivery.taken == 0 {
+                let verdict = if delivery.taken == 0 && scripted.case.events.is_empty() {
                     skipped += 1;
                     "SKIP"
                 } else {
@@ -81,16 +89,16 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
                     "PART"
                 };
                 println!(
-                    "{verdict} {}: stopped at {}: {kind}: {why}{empty}",
+                    "{verdict} {}: stopped at {}: {kind}: {why}{expansion}",
                     scripted.case.name,
                     at_span(&test_file, *span)
                 );
-                if delivery.taken == 0 {
+                if delivery.taken == 0 && scripted.case.events.is_empty() {
                     continue;
                 }
             } else {
                 whole += 1;
-                println!("WHOLE {}{empty}", scripted.case.name);
+                println!("WHOLE {}{expansion}", scripted.case.name);
             }
             let steps = delivery
                 .events
@@ -135,6 +143,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
     }
     ok &= census.passed();
     census.print(&plan);
+    println!("world: settle omits host waits on motion, scrolling and hatches, and advances to animation ends");
     println!("verify: {} cases ({tests} tests, 1 explored); blocks: {whole} whole, {partial} partial, {skipped} skipped", located.len());
     if options.runner_only || !lean_available() {
         println!("semantics did not run ({}); install Lean: curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y", if options.runner_only { "--runner-only" } else { "lake is unavailable" });
@@ -243,6 +252,7 @@ fn locate(
     rust: &[String],
     lean: &[String],
 ) -> String {
+    let rust_original = rust;
     let rust: Vec<&String> = rust.iter().filter(|l| !l.starts_with('#')).collect();
     let step = rust
         .iter()
@@ -292,6 +302,12 @@ fn locate(
             }
         }
         _ => {}
+    }
+    if crate::chunks(rust_original)
+        .get(step)
+        .is_some_and(|s| s.iter().any(|l| l == crate::observe::OMITTED_COMMIT))
+    {
+        out.push_str("  a commit the semantics has no branch for\n");
     }
     out.push_str(&format!(
         "  runner: {}\n  lean:   {}\n",

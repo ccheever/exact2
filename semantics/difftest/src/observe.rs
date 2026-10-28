@@ -109,17 +109,23 @@ fn find(r: &Runner<Oracle>, test_id: &str) -> Option<ViewId> {
 
 /// Boot `plan` against `oracle`, on the device store the oracle holds,
 /// building every tab panel then when the host would (a prerendered page).
-fn boot(plan: Plan, oracle: Oracle) -> Result<Runner<Oracle>, exact_runner::RunnerError> {
+pub(crate) fn boot(
+    plan: Plan,
+    oracle: Oracle,
+) -> Result<Runner<Oracle>, exact_runner::RunnerError> {
     let snapshot = oracle.snapshot();
     let every = oracle.prerendered;
-    let mut r = Runner::boot_stored(
-        plan,
-        oracle,
-        Kernel::with_monospace(),
-        snapshot,
-        Default::default(),
-        "/",
-    )?;
+    let launch = oracle.launch.clone();
+    let mut r = exact_runner::time::launching_with(launch, || {
+        Runner::boot_stored(
+            plan,
+            oracle,
+            Kernel::with_monospace(),
+            snapshot,
+            Default::default(),
+            "/",
+        )
+    })?;
     if every {
         r.build_every_tab()?;
     }
@@ -227,26 +233,21 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
     for e in events {
         out.push(format!("== {}", e.label()));
         let was = r.is_poisoned();
-        let (result, ran) = r.trace_commits(|r| match e {
-            Event::Tap(t) => match find(r, t) {
-                Some(view) => deliver(r, view, HostEvent::Press),
-                None => Err(exact_runner::RunnerError::UnknownView(0)),
-            },
-            Event::Type(t, s) => match find(r, t) {
-                Some(view) => deliver(r, view, HostEvent::Change(ControlValue::Text(s.clone()))),
-                None => Err(exact_runner::RunnerError::UnknownView(0)),
-            },
-            Event::Clock(ms) => {
-                let to = r.now_ms() + ms;
-                r.advance(to).map(drop)
-            }
-        });
+        let ((result, receipts), ran) = r.trace_commits(|r| apply(r, e));
+        let traced = ran
+            .iter()
+            .filter(|l| l.starts_with("ran ") && l.ends_with(" ok"))
+            .count();
+        let omitted = receipts > traced;
         if r.is_poisoned() && !was {
             out.push("outcome poisoned".into());
             if let Err(e) = &result {
                 out.push(format!("# {e:?}"));
             }
             out.extend(ran);
+            if omitted {
+                out.push(OMITTED_COMMIT.into());
+            }
             break;
         }
         match &result {
@@ -257,6 +258,9 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
             }
         }
         out.extend(ran);
+        if omitted {
+            out.push(OMITTED_COMMIT.into());
+        }
         if r.is_poisoned() {
             break;
         }
@@ -271,15 +275,7 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
 pub fn site(plan: Plan, oracle: Oracle, events: &[Event], test_id: &str) -> Option<usize> {
     let mut r = boot(plan, oracle).ok()?;
     for e in events {
-        let _ = match e {
-            Event::Tap(t) => find(&r, t).map(|v| deliver(&mut r, v, HostEvent::Press)),
-            Event::Type(t, s) => find(&r, t)
-                .map(|v| deliver(&mut r, v, HostEvent::Change(ControlValue::Text(s.clone())))),
-            Event::Clock(ms) => {
-                let to = r.now_ms() + ms;
-                Some(r.advance(to).map(drop))
-            }
-        };
+        let _ = apply(&mut r, e);
         if r.is_poisoned() {
             return None;
         }
@@ -298,18 +294,49 @@ fn deliver(
     r: &mut Runner<Oracle>,
     view: ViewId,
     event: HostEvent,
-) -> Result<(), exact_runner::RunnerError> {
+) -> (Result<(), exact_runner::RunnerError>, usize) {
     let kind = match &event {
         HostEvent::Press => Some(exact_plan::EventKind::Press),
         HostEvent::Change(_) => Some(exact_plan::EventKind::Change),
         _ => None,
     };
     if !kind.is_some_and(|k| r.handlers_of(view).contains(&k)) {
-        return r.dispatch(view, event).map(drop);
+        let result = r.dispatch(view, event);
+        let receipts = usize::from(result.is_ok());
+        return (result.map(drop), receipts);
     }
     let now = r.now_ms();
-    match r.dispatch_at(view, event, now).error {
-        Some(e) => Err(e),
-        None => Ok(()),
+    let advanced = r.dispatch_at(view, event, now);
+    (advanced.error.map_or(Ok(()), Err), advanced.receipts.len())
+}
+
+/// A receipt with no modeled commit. Property checks must exclude this step from `after`.
+pub const OMITTED_COMMIT: &str = "# a commit the semantics has no branch for";
+
+/// Deliver a primitive event, retaining successful receipts even when a later commit refuses.
+pub(crate) fn apply(
+    r: &mut Runner<Oracle>,
+    e: &Event,
+) -> (Result<(), exact_runner::RunnerError>, usize) {
+    match e {
+        Event::Tap(t) | Event::Type(t, _) => match find(r, t) {
+            Some(view) => deliver(
+                r,
+                view,
+                match e {
+                    Event::Type(_, s) => HostEvent::Change(ControlValue::Text(s.clone())),
+                    _ => HostEvent::Press,
+                },
+            ),
+            None => (Err(exact_runner::RunnerError::UnknownView(0)), 0),
+        },
+        Event::Clock(ms) => {
+            let a = r.advance_timed(r.now_ms() + ms);
+            (a.error.map_or(Ok(()), Err), a.receipts.len())
+        }
+        Event::Land => {
+            let a = r.land_then();
+            (a.error.map_or(Ok(()), Err), a.receipts.len())
+        }
     }
 }

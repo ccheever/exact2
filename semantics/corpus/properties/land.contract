@@ -1,0 +1,60 @@
+// A refused continuation leaves another armed beside a timer due exactly now.
+shape Ack
+  ok: bool
+
+component App
+  state after = 0
+  state ticks = 0
+  mutation first as shape Ack then refuse
+  mutation second as shape Ack then landed
+  action start
+    send first = ping(1)
+    send second = ping(2)
+  action refuse
+    after = 1 / 0
+  action landed
+    after = after + 1
+  action tick
+    ticks = ticks + 1
+  task prime mount
+    after(1, start)
+  task timer mount
+    after(1, tick)
+  action change(s: string)
+    send second = ping(s.length)
+  action one
+    send second = ping(0)
+  view
+    column
+      button "one" press=one testId="one"
+      input change=change testId="entry"
+
+test "data lands a then without the timer due now"
+  clock +1
+  expect state after == 0
+  expect state ticks == 0
+  clock data
+  expect state after == 1
+  expect state ticks == 0
+  clock data
+  expect state after == 1
+  clock +0
+  expect state ticks == 1
+
+test "data with nothing armed"
+  clock data
+  expect state after == 0
+  expect state ticks == 0
+
+test "inputs land their continuations before expectations"
+  tap "one"
+  expect state after == 1
+  type "entry" "hello"
+  expect state after == 2
+
+test "settle starts with an advance that fires a timer due now"
+  clock +1
+  expect state ticks == 0
+  clock settle
+  expect state after == 1
+  expect state ticks == 1

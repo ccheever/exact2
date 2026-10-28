@@ -17,6 +17,7 @@ mod census;
 pub mod expansion;
 pub mod gen;
 pub mod js;
+mod launch;
 pub mod leanrun;
 pub mod lowering;
 pub mod observe;
@@ -24,8 +25,11 @@ pub mod observe;
 mod observe_tests;
 pub mod oracle;
 pub mod quick;
+#[cfg(test)]
+mod refusal_tests;
 pub mod rng;
 pub mod script;
+mod settle;
 pub mod types;
 pub mod verify;
 
@@ -253,6 +257,11 @@ pub fn refusal_class(reason: &str) -> &'static str {
         return "limit";
     }
     match tag {
+        "HandlerArguments" => refusal_class(
+            reason
+                .split_once(", error: ")
+                .map_or("", |(_, error)| error),
+        ),
         "Trap" | "Instance" => refusal_class(reason.split_once('(').map_or("", |(_, inner)| inner)),
         "Data"
         | "Shape"
@@ -301,6 +310,14 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     let lean_raw = lean.clone();
     let rust_raw = rust.clone();
     let (rust, lean) = (keep(rust), keep(lean));
+    if let Some(at) = lean.iter().position(|l| l == "trace disagrees") {
+        return Verdict::Diverge {
+            at,
+            rust: rust_raw,
+            lean,
+            lean_raw,
+        };
+    }
     // Where the two first differ, a refusal for a construct the semantics
     // leaves out is not a divergence.
     let unsupported = |at: usize| -> Option<String> {
@@ -348,8 +365,10 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     };
     let first = rust.iter().zip(&lean).position(|(a, b)| a != b);
     if let Some(at) = first.or((rust.len() != lean.len()).then(|| rust.len().min(lean.len()))) {
-        if let Some(why) = unsupported(at).or_else(|| bound(at)) {
-            return Verdict::Unsupported(why);
+        if !omitted_at(&rust_raw, at) {
+            if let Some(why) = unsupported(at).or_else(|| bound(at)) {
+                return Verdict::Unsupported(why);
+            }
         }
     }
     let at = rust.iter().zip(&lean).position(|(a, b)| a != b);
@@ -370,6 +389,18 @@ fn compare(rust: Vec<String>, lean: Vec<String>) -> Verdict {
     }
 }
 
+/// Whether the step at a compared line committed work absent from the modeled trace.
+pub fn omitted_at(lines: &[String], at: usize) -> bool {
+    let mut end = 0;
+    for step in chunks(lines) {
+        end += step.iter().filter(|l| !l.starts_with('#')).count();
+        if at < end {
+            return step.iter().any(|l| l == observe::OMITTED_COMMIT);
+        }
+    }
+    false
+}
+
 /// The runner's observation split into steps: entry 0 is boot, entry `k`
 /// follows the `k`-th event.
 fn chunks(lines: &[String]) -> Vec<&[String]> {
@@ -386,7 +417,7 @@ fn chunks(lines: &[String]) -> Vec<&[String]> {
 /// Check a corpus case's `expect` lines against the runner's observation.
 pub fn expectations(s: &Scripted) -> Result<(), String> {
     let plan = compile(&s.case)?;
-    let oracle = oracle::Oracle::new(&plan, seed_of(&s.case.name));
+    let oracle = oracle::Oracle::for_case(&plan, &s.case);
     let (rust, _) = observe::run(plan, oracle, &s.case.events);
     expectations_on(s, &rust)
 }
@@ -398,6 +429,7 @@ pub fn expectations_on(s: &Scripted, rust: &[String]) -> Result<(), String> {
     for item in &s.items {
         match item {
             Item::Event(_) => k += 1,
+            Item::Settle { .. } => return Err("settle was not expanded".into()),
             Item::Expect(e) => {
                 let step = steps.get(k).copied().unwrap_or(&[]);
                 let ok = match e {
@@ -522,6 +554,7 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
         path: path.map(Path::to_path_buf),
         stored: false,
         prerendered: false,
+        launch: Default::default(),
     };
     if let Ok(plan) = compile(&probe) {
         let oracle = oracle::Oracle::new(&plan, seed_of(name));
@@ -533,7 +566,10 @@ pub fn explore(name: &str, source: &str, path: Option<&Path>) -> Scripted {
             .filter(|id| !id.contains('\\'))
             .collect();
         for _ in 0..2 {
-            events.extend(ids.iter().map(|id| script::Event::Tap(id.clone())));
+            events.extend(
+                ids.iter()
+                    .flat_map(|id| [script::Event::Tap(id.clone()), script::Event::Land]),
+            );
         }
         events.push(script::Event::Clock(1000.0));
         events.push(script::Event::Clock(60_000.0));
@@ -633,5 +669,32 @@ mod tests {
                 "{reason}"
             );
         }
+    }
+    #[test]
+    fn a_trace_disagreement_or_an_omitted_commit_cannot_be_hidden_as_outside() {
+        let rust = lines(&[
+            "== boot",
+            "outcome ok",
+            "== land",
+            "outcome refused",
+            "# Trap(IterationLimit { pc: 0 })",
+        ]);
+        let lean = lines(&[
+            "== boot",
+            "outcome ok",
+            "== land",
+            "outcome ok",
+            "trace disagrees",
+        ]);
+        assert!(matches!(
+            compare(rust.clone(), lean),
+            Verdict::Diverge { .. }
+        ));
+        let mut omitted = rust;
+        omitted.push(observe::OMITTED_COMMIT.into());
+        assert!(omitted_at(&omitted, 3));
+        assert!(!omitted_at(&omitted, 1));
+        let lean = lines(&["== boot", "outcome ok", "== land", "outcome ok"]);
+        assert!(matches!(compare(omitted, lean), Verdict::Diverge { .. }));
     }
 }

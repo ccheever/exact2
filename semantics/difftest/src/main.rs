@@ -553,6 +553,12 @@ fn report(outcomes: &[Outcome], strict_refusals: bool, shrinking: bool) -> Resul
                         .iter()
                         .find(|l| l.starts_with('#'))
                         .map_or(String::new(), |w| format!("\n  rust {w}"));
+                let why = why
+                    + if contract_difftest::omitted_at(rust, *at) {
+                        "\n  a commit the semantics has no branch for"
+                    } else {
+                        ""
+                    };
                 println!(
                     "DIVERGE {} at line {at}:\n  rust: {}\n  lean: {}{why}\n  kept: {}.{{contract,events,rust.txt,lean.txt}}",
                     o.case.name,

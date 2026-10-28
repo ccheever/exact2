@@ -92,6 +92,7 @@ pub fn case(seed: u64, size: &Size) -> Case {
         path: None,
         stored: true,
         prerendered: false,
+        launch: Default::default(),
     }
 }
 

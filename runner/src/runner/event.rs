@@ -1361,7 +1361,15 @@ impl<D: DataSource> Runner<D> {
         let mut args = Vec::new();
         for a in handler.args.iter() {
             let code = self.plan.arg(a).expr;
-            args.push(self.eval(code, &[], &frames)?);
+            args.push(self.eval(code, &[], &frames).map_err(|error| {
+                RunnerError::HandlerArguments {
+                    action: self
+                        .plan
+                        .str(self.plan.action(handler.action).name)
+                        .to_string(),
+                    error: Box::new(error),
+                }
+            })?);
         }
         if let Some(p) = payload {
             // A navigate action may deliberately ignore its location (D8).
