@@ -1,8 +1,8 @@
-# Ink S0: retained rows, the wgpu control and direct Metal
+# Ink S0: retained rows, wgpu, Metal and Direct3D 11
 
 @ref LLP 1149 D4, D15.
 
-[C5: direct Metal against wgpu](#c5-direct-metal-measured-against-wgpu) reports the second decision gate.
+[C5: direct Metal against wgpu](#c5-direct-metal-measured-against-wgpu) reports the second decision gate. [C6: NucBox](#nucbox) reports the Windows spike.
 
 ## First D15 verdict: frame time passes; the full gate is not established
 
@@ -580,3 +580,277 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1502 filtered out; f
 ```
 
 Only macOS on this Apple GPU was measured at runtime. iOS/tvOS and discrete-GPU managed storage were not exercised. Presented frame intervals, input latency, energy and a machine’s first-ever driver-cache-cold launch remain unmeasured.
+
+## NucBox
+
+**The composition window and RichEdit spike work on the NucBox.** Direct3D 11
+opens its hardware device in 48.101 ms and builds its DXBC pipeline in
+2.703 ms, versus 138.590 ms and 457.330 ms for wgpu DirectX 12. Shelf's
+1024×720 first complete screen reaches DXGI display at 406.236 ms. Its
+composition setup costs 1.812 ms. These are ten-run medians.
+
+The window path avoids GPU readback and CPU upload. It is not an across-the-board
+device win: at 1920×1080, C4's headless scrolling frame costs 3.920 ms on
+Direct3D 11 versus 2.718 ms on wgpu DirectX 12, a **44.26% regression**.
+The Direct3D readback phase accounts for most of that difference. D5.2 requires
+this Windows device regardless; these results establish the spike, not a
+complete S2 replacement qualification.
+
+C6 runs on the physical NucBox: AMD Ryzen AI Max+ 395, Radeon 8060S,
+Windows 11 Pro 10.0.26200, display driver 32.0.23033.1002. The attached
+5120×1440 display runs at 60 Hz and 1× scaling. C: had 305,256,144,896
+bytes free before building. Rust is the repository's pinned 1.97.0 MSVC
+toolchain; Bun is 1.4.2. DXBC was compiled by Windows SDK 10.0.26100.0
+`fxc` during the build. No Direct3D shader source is compiled by the app.
+
+### What ran in the window
+
+Shelf's 1024×720 first screen ran through the Ink adapter and Direct3D 11,
+with a two-buffer, premultiplied BGRA `FLIP_DISCARD` composition swap chain,
+a frame-latency waitable object and the system Mica backdrop. The screenshot
+shows the backdrop through the sidebar and frame.
+
+[The captured Shelf window and typed RichEdit field](../../target/ink-c6-shelf-window.png)
+show a windowless RichEdit texture in the same window. Windows keyboard input
+entered “typed on the NucBox”. `CreateTextServices` and `TxDrawD2D` draw into
+a BGRA render-target texture on the same D3D11 device; Ink samples that texture
+as an image. The opt-in spike field is enabled by `EXACT_INK_RICHEDIT`; it is
+not yet the implementation of Shelf's search field. The desktop test also
+checks the returned text, visible glyph pixels and transparent background.
+Selection UI, IME placement, accessibility and binding the editor to Contract
+fields remain S2 work.
+
+The NucBox accepts the requested composition `FLIP_DISCARD` swap effect.
+Microsoft's [CreateSwapChainForComposition documentation](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforcomposition)
+still specifies `FLIP_SEQUENTIAL`; the result here qualifies this Windows
+11 driver combination, not older Windows releases. An SSH session alone
+cannot open its composition display. Window tests and captures ran as the
+logged-in user's interactive desktop task.
+
+### Timing definitions
+
+Device and pipeline measurements use fresh processes. Direct3D device time
+includes `D3D11CreateDevice` and the adapter description; hardware falls back
+to WARP only on failure, while the WARP arm forces the software driver.
+Pipeline time includes creating shaders and state objects from embedded DXBC.
+The control explicitly selects wgpu 30 DirectX 12 and asserts that API in its
+boot worker. Its device time includes instance, adapter and device creation,
+and its shader time includes wgpu's translation and pipeline creation.
+
+Window startup identifies Shelf's complete first screen by its painted
+`library-count` marker, using `EXACT_AGENT_WINDOW_READY=library-count`.
+Unrelated background requests do not postpone that marker. Process creation
+comes from `GetProcessTimes`. The Direct3D displayed timestamp uses
+[DXGI frame statistics](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/ns-dxgi1_3-dxgi_frame_statistics_media)
+and QPC. The common comparison with softbuffer uses process age after
+[DwmFlush](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmflush):
+a synchronization proxy, not an exact per-frame scanout timestamp.
+A return from `Present` is reported separately. These are platform timestamps,
+not photodiode measurements.
+
+Ten rounds interleave the arms, rotating their order each round. No compiler
+runs during the series. Application storage is isolated per process; ordinary
+desktop applications and services remain running. These are fresh-process
+samples after development and diagnostic runs, not the machine's first-ever
+driver-cache-cold launch. All boot samples report `cached=false`; that describes
+the renderer's explicit cache, not the driver's internal caches.
+
+Device startup and C4 use `host-dev` (optimization 3, 16 codegen units, no
+LTO, debug assertions disabled). Shelf uses `host/windows/build.mjs`'s normal
+`gpu-dev` build (workspace optimization 1, dependencies 3, debug assertions
+enabled). The tables keep these profiles separate. The measurement worker
+and device boot binaries are the final optimized build of commit `910ca295e4`;
+the Shelf executable is built from that commit too.
+
+Each available mode measures 300 redraws. Shelf's carrier forces still redraws
+and paces them at the monitor's 60 Hz. Its first screen has no scroll range.
+C4 uses Messages Stress's paused, virtualized 1,000-message history, pinned
+DejaVu Sans, fixed virtual time and the same asserted 20-point wheel steps
+and row-text updates as the Mac protocol. `INK_WIDTH` and `INK_HEIGHT` select
+1024×720 or 1920×1080 at 1×; `INK_WINDOW=1 INK_ARM=D` attaches a real composition
+window. C and D without `INK_WINDOW` retain C4's synchronous readback protocol.
+
+C4 window paint is wall time in `window_frame` minus the device's present
+time. The latter includes the frame-latency wait and `Present(1)`; the unpaced
+worker spends most of each refresh interval there. Shelf's carrier has already
+paced the draw, so its present wait is much shorter. Neither is GPU execution
+time. The headless table keeps the complete frame cost, including readback.
+CPU uses `GetProcessTimes`; working-set memory uses `GetProcessMemoryInfo`.
+
+Tables report the median of ten per-run medians, with minimum–maximum in
+brackets. Percentages use unrounded values. Startup cells use ten individual
+process measurements. Shelf's
+carrier reports p50/p95 rounded to 0.01 ms; C4 retains each raw frame sample.
+The raw logs and derived values are in `target/ink-c6-nucbox/`.
+
+### Device startup, host-dev
+
+Milliseconds, ten fresh processes per arm. No application-owned pipeline cache
+was loaded in any arm. The hardware arm reports Radeon 8060S; forced WARP
+reports Microsoft Basic Render Driver.
+
+| Device | Device creation | Pipeline creation |
+|---|---:|---:|
+| D3D11 hardware | 48.101 [44.994–67.088] | 2.703 [2.439–2.852] |
+| D3D11 WARP | 14.169 [12.122–22.590] | 3.142 [2.795–3.616] |
+| wgpu DirectX 12 | 138.590 [132.968–240.469] | 457.330 [442.482–728.803] |
+
+### Shelf startup, gpu-dev
+
+The composition setup includes the swap chain, composition device/target/visual
+and backdrop attributes. First-screen timings start at process creation.
+A dash means that the softbuffer path has no app-owned DXGI displayed-frame
+timestamp; it is not a zero-time result.
+
+| Pixels | Painter and carrier | Composition setup | DWM synchronization proxy | DXGI displayed first screen |
+|---|---|---:|---:|---:|
+| 1024×720 | CPU / softbuffer | — | 342.250 [321.624–510.227] | — |
+| 1024×720 | Ink DX12 / readback / softbuffer | — | 1156.401 [1027.982–1390.895] | — |
+| 1024×720 | Ink D3D11 / DirectComposition | 1.812 [1.723–2.476] | 393.297 [381.811–493.200] | 406.236 [394.713–506.196] |
+| 1920×1080 | CPU / softbuffer | — | 334.646 [325.226–392.451] | — |
+| 1920×1080 | Ink DX12 / readback / softbuffer | — | 1113.303 [1056.257–1280.340] | — |
+| 1920×1080 | Ink D3D11 / DirectComposition | 2.123 [1.761–2.796] | 393.834 [376.437–434.162] | 411.086 [390.044–446.967] |
+
+Paired differences use each round's DWM proxy, not the difference between two
+independent medians. They compare complete paths, including device creation,
+not the swap chain in isolation. Positive values are added startup time.
+
+| Pixels | D3D11 minus today's CPU/softbuffer | D3D11 minus wgpu/readback/softbuffer |
+|---|---:|---:|
+| 1024×720 | 45.822 [-113.059–171.576] | -753.673 [-1002.612 to -555.174] |
+| 1920×1080 | 48.646 [33.454–101.688] | -701.178 [-876.693 to -661.847] |
+
+All 20 Direct3D first-screen timestamps were confirmed against the swap chain's
+last present ID. Statistics sometimes lag the first DWM synchronization; the
+measurement waits for that ID. The DWM proxy can precede the corresponding
+DirectComposition display by a refresh interval. Exact softbuffer scanout time
+and its exact on-glass difference from D3D11 remain unmeasured.
+
+### Shelf still redraws, gpu-dev
+
+Each cell is the median and range of ten per-run p50 values, 299 post-first-frame
+samples per run. Paint for the wgpu path includes readback; present for the two
+softbuffer paths includes CPU conversion and upload.
+
+| Pixels | Path | Paint ms | Present ms | Frame interval ms |
+|---|---|---:|---:|---:|
+| 1024×720 | CPU / softbuffer | 3.320 [3.260–3.410] | 1.085 [1.080–1.100] | 16.620 [16.600–16.660] |
+| 1024×720 | wgpu DX12 / softbuffer | 3.735 [3.170–4.520] | 1.100 [1.080–1.120] | 16.625 [16.600–16.640] |
+| 1024×720 | D3D11 / DirectComposition | 0.420 [0.380–0.460] | 0.350 [0.310–0.400] | 16.610 [16.580–16.630] |
+| 1920×1080 | CPU / softbuffer | 6.570 [6.460–6.620] | 2.970 [2.950–2.990] | 16.600 [16.580–16.640] |
+| 1920×1080 | wgpu DX12 / softbuffer | 5.105 [4.290–5.570] | 2.965 [2.950–2.990] | 16.620 [16.610–16.650] |
+| 1920×1080 | D3D11 / DirectComposition | 0.405 [0.390–0.490] | 0.345 [0.310–0.360] | 16.625 [16.600–16.640] |
+
+### C4 in the composition window, host-dev
+
+Messages Stress, 3,000 frames per cell across ten runs. Present includes waiting
+for the next refresh, so its roughly 16 ms duration is not rendering work.
+
+| Pixels | Mode | Paint excluding present ms | Present including wait ms | Process CPU ms/frame |
+|---|---|---:|---:|---:|
+| 1024×720 | still | 0.627 [0.603–0.648] | 16.028 [16.009–16.066] | 1.458 [1.198–1.771] |
+| 1024×720 | scroll | 0.583 [0.499–0.623] | 15.912 [15.861–15.988] | 1.745 [1.458–2.188] |
+| 1024×720 | text | 0.615 [0.544–0.651] | 15.950 [15.921–16.072] | 1.641 [1.302–1.979] |
+| 1920×1080 | still | 0.625 [0.557–0.682] | 16.033 [16.000–16.105] | 1.562 [1.094–1.719] |
+| 1920×1080 | scroll | 0.673 [0.636–0.785] | 15.812 [15.723–15.847] | 1.927 [1.667–2.240] |
+| 1920×1080 | text | 0.642 [0.590–0.705] | 15.952 [15.879–16.010] | 1.823 [1.562–2.188] |
+
+### C4 with synchronous readback, host-dev
+
+The same workload and protocol through each device, with no window. This
+is the device comparison; it does not credit Direct3D for removing readback.
+Readback includes GPU completion and CPU copying, not just transfer time.
+
+| Pixels | Mode | Device | Whole frame ms | Encode ms | Readback ms |
+|---|---|---|---:|---:|---:|
+| 1024×720 | still | wgpu DX12 | 1.408 [1.390–1.420] | 0.328 [0.321–0.336] | 0.702 [0.692–0.714] |
+| 1024×720 | still | D3D11 | 1.475 [1.399–1.565] | 0.046 [0.044–0.050] | 1.057 [1.003–1.099] |
+| 1024×720 | scroll | wgpu DX12 | 1.426 [1.400–1.463] | 0.339 [0.331–0.351] | 0.706 [0.692–0.728] |
+| 1024×720 | scroll | D3D11 | 1.595 [1.573–1.657] | 0.049 [0.047–0.051] | 1.128 [1.113–1.159] |
+| 1024×720 | text | wgpu DX12 | 1.449 [1.431–1.467] | 0.333 [0.327–0.358] | 0.709 [0.694–0.716] |
+| 1024×720 | text | D3D11 | 1.570 [1.520–1.621] | 0.046 [0.045–0.047] | 1.085 [1.060–1.119] |
+| 1920×1080 | still | wgpu DX12 | 2.725 [2.668–2.823] | 0.414 [0.400–0.435] | 1.649 [1.624–1.673] |
+| 1920×1080 | still | D3D11 | 3.311 [3.118–3.868] | 0.054 [0.053–0.058] | 2.646 [2.465–3.213] |
+| 1920×1080 | scroll | wgpu DX12 | 2.718 [2.666–2.796] | 0.410 [0.399–0.421] | 1.632 [1.620–1.656] |
+| 1920×1080 | scroll | D3D11 | 3.920 [3.312–4.115] | 0.059 [0.057–0.067] | 3.238 [2.570–3.290] |
+| 1920×1080 | text | wgpu DX12 | 2.731 [2.620–2.796] | 0.399 [0.375–0.421] | 1.626 [1.607–1.637] |
+| 1920×1080 | text | D3D11 | 3.922 [3.253–3.988] | 0.053 [0.053–0.055] | 3.250 [2.558–3.269] |
+
+The series completed **150 successful processes**: 30 device boots, 60 Shelf
+windows and 60 C4 workers. C4 contains 54,000 frame samples, including 18,000
+composition-window frames. Shelf contributes 18,000 presented redraws. The raw
+logs, executable hashes, PIDs, exit statuses and derived medians are preserved
+in `target/ink-c6-nucbox/`; `summary.json` contains the table values.
+
+The first-ever machine/driver-cold launch, exact softbuffer scanout timestamps,
+energy, other Windows drivers and DPI scales were not qualified. A shared
+desktop remains noisy: the startup ranges include every run, including the
+slow CPU sample. This spike does not qualify RichEdit IME, selection or
+accessibility, nor layer-heavy workloads absent from these first screens.
+
+### Reproduce on Windows
+
+Use the logged-in desktop, with the Windows SDK's `fxc` on `PATH`. Build the
+workers before timing; run each arm in a fresh process and rotate their order
+over ten rounds. The C4 window requires `INK_ARM=D`; omit `INK_WINDOW` for
+headless readback, and select `INK_ARM=C` for wgpu DirectX 12.
+
+```powershell
+cargo test --profile host-dev -p exact-linux -p exact-ink --lib --no-run
+$env:INK_BOOT_DEVICE='d3d11' # also warp and wgpu
+cargo test --profile host-dev -p exact-ink --lib device::d3d11::tests::boot_worker -- --ignored --exact --nocapture --test-threads=1
+
+$env:WGPU_BACKEND='dx12'
+$env:INK_APP='messages-stress'; $env:INK_ARM='D'; $env:INK_WINDOW='1'
+$env:INK_WIDTH='1024'; $env:INK_HEIGHT='720' # also 1920 and 1080
+cargo test --profile host-dev -p exact-linux --lib presenter::kept_rows_tests::measurement::worker -- --ignored --exact --nocapture --test-threads=1
+
+bun host/windows/build.mjs shelf
+$env:EXACT_PAINTER='ink'; $env:EXACT_INK_DEVICE='d3d11'
+$env:EXACT_SIZE='1024x720'; $env:EXACT_AGENT_WINDOW_FRAMES='300'
+$env:EXACT_AGENT_WINDOW_READY='library-count'
+$env:EXACT_AGENT_STORAGE='ink-c6-example'; $env:EXACT_AGENT_STORAGE_FRESH='1'
+& .\apps\shelf\dist-windows\Shelf.exe
+```
+
+For the field demonstration, set `EXACT_INK_RICHEDIT` to its initial text before
+launching Shelf and type into the window. The measurements leave this unset.
+For the two softbuffer controls, select `EXACT_PAINTER=cpu` or
+`EXACT_PAINTER=ink EXACT_INK_DEVICE=wgpu WGPU_BACKEND=dx12`.
+
+### C6 validation
+
+The Mac's six checks pass, including 7,016 root tests (60 ignored), the
+workspace/all-targets compilation and the caps check's 29 wasm32 crates and
+one binary. The separate Linux-host suite passes 1,887 tests (32 ignored);
+Ink passes 19. The named Mac suites report:
+
+| Suite | Result |
+|---|---|
+| paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 1.61s` |
+| borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 0.53s` |
+| tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.47s` |
+| backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.90s` |
+| gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.49s` |
+| visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 1.02s` |
+| materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.22s` |
+| image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.56s` |
+
+On the NucBox, `cargo build -p exact-windows` succeeds. The native suites
+report the following. The pinned run sets `EXACT_REQUIRED=1` and
+`EXACT_INK_DEVICE=d3d11`, so it cannot silently omit the device.
+
+```text
+exact-windows: test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+exact-ink: test result: ok. 19 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.64s
+pinned: test result: ok. 102 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 12.32s
+image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.83s
+desktop RichEdit: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.34s
+```
+
+The native pinned tests include CPU/Ink parity, borders, tint, backdrop,
+gradients, visual and materials. The desktop RichEdit test is explicitly
+ignored in ordinary runs because it needs a logged-in composition display.
+MSVC cross-compilation of Ink's tests and GNU cross-compilation of the
+Windows carrier also pass on the Mac; the missing-`fxc` build stub names the
+missing DXBC if opened at runtime.
