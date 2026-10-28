@@ -1,6 +1,8 @@
-# Ink S0 C4: retained rows and the wgpu control
+# Ink S0: retained rows, the wgpu control and direct Metal
 
 @ref LLP 1149 D4, D15.
+
+[C5: direct Metal against wgpu](#c5-direct-metal-measured-against-wgpu) reports the second decision gate.
 
 ## First D15 verdict: frame time passes; the full gate is not established
 
@@ -415,3 +417,166 @@ Optimized series:
 ```text
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1499 filtered out; finished in 605.35s
 ```
+
+## C5: direct Metal measured against wgpu
+
+### D15 verdict: the frame-time alternative passes; startup regresses
+
+**D meets the 10% frame-time margin on Shelf and Excord. It does not meet it on desktop Messages Stress, and it loses on uncached startup.** At 1920×1080, Shelf improves by 21.32–27.11% and Excord by 24.43–29.59%. Every one of those five-run ranges is separated from C’s. Messages Stress improves by only 3.53–6.59%; its scroll ranges overlap. This is a workload-specific frame-time result, not a claim that direct Metal is faster everywhere.
+
+An empty application cache makes D’s constructor **162.048 ms [159.215–172.556]**, versus C’s **15.334 ms [14.556–15.993]**. Metal’s pipeline/archive phase takes 126.872 ms; populating a new binary archive is included, never moved outside the timer. With a retained archive that phase falls to 0.519 ms, but device creation still makes the whole constructor 31.699 ms versus C’s 15.564 ms. Direct Metal therefore does **not** earn a cold-start win. The startup regression must accompany any decision to keep the device layer.
+
+D’s lifetime peak RSS and physical footprint are lower in every measured workload and size. C’s RSS spikes remain; the readback investigation below localizes them and names the remaining fix. This comparison does not reopen C4’s C-over-B verdict: B was not rerun here.
+
+Both arms have zero of 21,000 redraws over 25 ms. Their maximum service times are 5.529 ms (C) and 3.715 ms (D). These are unpaced, synchronous headless redraws including readback, not presented frame intervals or input latency.
+
+### Implementation and method
+
+The renderer and harness are commit `62e64568e2` on `lane/ink`, after the C3f fixes that followed the C4 measurement. The final report also removes a disproved allocation comment; it changes no measured executable code. The machine, toolchains, `host-dev` profile, fonts, first screens, virtual clock, 300-frame modes, viewport sizes and five-round interleaving are those of C4. Arms C and D use the same Ink core, shader, glyph rasterizer and kept rows. C uses wgpu 30’s Metal backend; D uses objc2-metal 0.3.2 directly. The adapter field distinguishes `wgpu Metal` from `direct Metal`; wgpu remains the default.
+
+`host/ink/build.rs` compiles naga’s MSL into an embedded `.metallib` for the Apple SDK/minimum-version pairs used by the Canvas module. `device/metal.rs`, `metal/setup.rs` and `metal/mips.rs` implement the device trait, premultiplied pipelines, uploads, a three-buffer instance ring, scissored instanced draws, copies, readback and completion-based retirement. Power-of-two mip chains use Metal’s blit encoder. Odd dimensions use the shared area-filter shader: a pixel test caught the blit’s 3→1 reduction selecting only the middle pixel. `device/selected.rs` and the Linux adapter select the layer at boot. No application shader source is compiled at launch.
+
+The existing `presenter/kept_rows_tests/measurement.rs` harness adds arm D. Each sample is a fresh process. The series ran with no lane builds or other lane tests alongside it. Shelf and Excord used the same baked plan and bytecode SHA-256 hashes listed in C4; their scroll modes remain unavailable because the first screens have no 20-point scroll range.
+
+For C5, macOS CPU samples use `getrusage` user-plus-system time and RSS samples use `proc_pid_rusage`, without spawning `ps`. Sampling still occurs every 20 frames. `INK_SAMPLE_PS=1` preserves the C4 sampler for the diagnostic comparison. Lifetime RSS and footprint remain `/usr/bin/time -l`’s fields. Both C and D use this same instrumentation; its CPU values are not quantized to C4’s 10 ms `ps` resolution.
+
+Run the C4 fixture and bake commands above, then:
+
+```sh
+INK_ARM=D cargo test --profile host-dev -p exact-linux --lib \
+  presenter::kept_rows_tests::measurement::series -- \
+  --ignored --exact --nocapture --test-threads=1
+```
+
+The raw 220 records are `target/ink-c5-results.jsonl`; the session log is `target/ink-c5-series.log`. Raw-record SHA-256: `0875efc49af0b3357f20886b095c838bbcc342c2f0659ff9207120b9d13a5bb8`. There are 60 workload workers, 42,000 measured frames and 40 boot workers.
+
+### Boot phases
+
+Each cell is milliseconds, median [minimum–maximum] over ten fresh processes. “Empty” removes this arm’s application cache directory before the run; “retained” uses the archive that the preceding run wrote. The OS driver cache is not cleared. These are not first-ever launches on a new machine. Constructor time includes sampler/buffer setup and archive serialization; the pipeline phase includes library loading, pipeline creation and archive population, but excludes serialization.
+
+wgpu’s Metal backend exposes no wgpu pipeline-cache feature here, so C reports `cached=false` for both requests. D reports `false` for empty and `true` for retained directories. Its flag means a persisted archive was successfully loaded and supplied to Metal; it is not a GPU-driver cache-hit counter.
+
+| Arm | Application cache | Reported cached | Device | Pipelines/archive | Constructor |
+|---|---|---|---:|---:|---:|
+| C | empty | false | 12.931 [12.300–13.573] | 2.135 [2.103–2.270] | 15.334 [14.556–15.993] |
+| D | empty | false | 29.573 [28.678–30.239] | 126.872 [124.375–137.271] | 162.048 [159.215–172.556] |
+| C | retained | false | 13.188 [12.873–17.130] | 2.205 [2.123–2.728] | 15.564 [15.159–20.053] |
+| D | retained | true | 31.085 [28.189–39.048] | 0.519 [0.477–0.547] | 31.699 [28.736–39.650] |
+
+### Frame times
+
+Milliseconds, median [minimum–maximum] of five per-run medians. Each arm in each row represents 1,500 frames. Percentage improvements use unrounded values.
+
+| Workload | Size | Mode | C paint | D paint | D improvement | Ranges separated |
+|---|---|---|---:|---:|---:|---|
+| Messages Stress | 390×844 | still | 0.585 [0.573–0.617] | 0.529 [0.521–0.579] | 9.65% | no |
+| Messages Stress | 390×844 | scroll | 0.623 [0.593–0.738] | 0.566 [0.554–0.576] | 9.15% | yes |
+| Messages Stress | 390×844 | text | 0.672 [0.648–0.701] | 0.570 [0.560–0.598] | 15.13% | yes |
+| Messages Stress | 1920×1080 | still | 1.227 [1.205–1.331] | 1.159 [1.152–1.201] | 5.50% | yes |
+| Messages Stress | 1920×1080 | scroll | 1.298 [1.258–1.354] | 1.252 [1.238–1.280] | 3.53% | no |
+| Messages Stress | 1920×1080 | text | 1.288 [1.270–1.358] | 1.203 [1.190–1.210] | 6.59% | yes |
+| Shelf | 390×844 | still | 0.502 [0.481–0.532] | 0.369 [0.367–0.474] | 26.41% | yes |
+| Shelf | 390×844 | text | 0.561 [0.545–0.576] | 0.416 [0.411–0.450] | 25.75% | yes |
+| Shelf | 1920×1080 | still | 1.124 [1.045–1.147] | 0.820 [0.811–1.032] | 27.11% | yes |
+| Shelf | 1920×1080 | text | 1.100 [1.085–1.213] | 0.866 [0.860–0.872] | 21.32% | yes |
+| Excord | 390×844 | still | 0.492 [0.472–0.534] | 0.444 [0.326–0.468] | 9.90% | yes |
+| Excord | 390×844 | text | 0.609 [0.582–0.610] | 0.455 [0.447–0.519] | 25.25% | yes |
+| Excord | 1920×1080 | still | 1.091 [1.027–1.165] | 0.768 [0.758–0.914] | 29.59% | yes |
+| Excord | 1920×1080 | text | 1.162 [1.117–1.200] | 0.878 [0.861–0.902] | 24.43% | yes |
+
+### Encode, readback, CPU and sampled RSS
+
+Timing cells are milliseconds, median [minimum–maximum] across five runs; CPU is process time per frame. RSS is MiB. Encode excludes the tree walk and glyph preparation. Readback includes GPU completion and the CPU pixel copy, so it does not isolate shader execution.
+
+| Workload | Width | Mode | Arm | Encode | Readback | CPU/frame | Sampled peak RSS |
+|---|---:|---|---|---:|---:|---:|---:|
+| Messages Stress | 390 | still | C | 0.103 [0.098–0.123] | 0.313 [0.306–0.320] | 0.523 [0.504–0.554] | 54.1 [54.0–56.7] |
+| Messages Stress | 390 | still | D | 0.018 [0.018–0.024] | 0.351 [0.347–0.374] | 0.405 [0.398–0.451] | 49.6 [49.4–52.0] |
+| Messages Stress | 390 | scroll | C | 0.104 [0.100–0.132] | 0.346 [0.325–0.399] | 0.578 [0.557–0.713] | 58.4 [55.8–58.9] |
+| Messages Stress | 390 | scroll | D | 0.019 [0.018–0.020] | 0.379 [0.373–0.384] | 0.453 [0.441–0.466] | 50.5 [50.1–52.8] |
+| Messages Stress | 390 | text | C | 0.105 [0.099–0.114] | 0.366 [0.357–0.401] | 0.614 [0.589–0.627] | 58.5 [57.2–59.0] |
+| Messages Stress | 390 | text | D | 0.019 [0.018–0.021] | 0.359 [0.353–0.371] | 0.468 [0.436–0.503] | 53.0 [50.5–53.2] |
+| Messages Stress | 1920 | still | C | 0.136 [0.126–0.151] | 0.902 [0.880–0.979] | 1.080 [1.037–1.152] | 68.4 [67.8–68.7] |
+| Messages Stress | 1920 | still | D | 0.023 [0.023–0.027] | 0.951 [0.948–0.977] | 0.913 [0.904–0.964] | 64.3 [64.0–65.0] |
+| Messages Stress | 1920 | scroll | C | 0.139 [0.132–0.146] | 0.942 [0.915–0.988] | 1.173 [1.124–1.202] | 70.8 [69.8–71.0] |
+| Messages Stress | 1920 | scroll | D | 0.027 [0.025–0.028] | 1.018 [1.011–1.039] | 1.042 [1.012–1.057] | 66.5 [66.1–66.8] |
+| Messages Stress | 1920 | text | C | 0.129 [0.126–0.135] | 0.940 [0.920–1.011] | 1.162 [1.136–1.201] | 70.9 [70.4–71.1] |
+| Messages Stress | 1920 | text | D | 0.023 [0.023–0.024] | 0.964 [0.955–0.967] | 0.960 [0.942–0.965] | 66.7 [66.2–66.9] |
+| Shelf | 390 | still | C | 0.085 [0.080–0.086] | 0.329 [0.319–0.364] | 0.464 [0.444–0.486] | 58.1 [57.7–59.8] |
+| Shelf | 390 | still | D | 0.015 [0.014–0.017] | 0.276 [0.276–0.364] | 0.274 [0.269–0.299] | 54.6 [53.5–55.8] |
+| Shelf | 390 | text | C | 0.086 [0.081–0.087] | 0.353 [0.337–0.360] | 0.533 [0.514–0.586] | 59.6 [57.9–60.0] |
+| Shelf | 390 | text | D | 0.015 [0.014–0.015] | 0.280 [0.277–0.313] | 0.332 [0.329–0.339] | 54.7 [53.6–56.0] |
+| Shelf | 1920 | still | C | 0.092 [0.087–0.098] | 0.921 [0.872–0.948] | 0.989 [0.926–1.023] | 80.5 [80.2–85.4] |
+| Shelf | 1920 | still | D | 0.017 [0.017–0.020] | 0.714 [0.708–0.890] | 0.656 [0.634–0.696] | 80.4 [75.8–80.7] |
+| Shelf | 1920 | text | C | 0.085 [0.084–0.098] | 0.888 [0.873–0.949] | 1.014 [0.986–1.088] | 85.0 [80.8–104.7] |
+| Shelf | 1920 | text | D | 0.017 [0.016–0.017] | 0.723 [0.719–0.727] | 0.697 [0.688–0.705] | 80.5 [76.0–80.8] |
+| Excord | 390 | still | C | 0.084 [0.079–0.088] | 0.368 [0.341–0.406] | 0.444 [0.421–0.482] | 63.2 [60.5–63.3] |
+| Excord | 390 | still | D | 0.015 [0.014–0.018] | 0.389 [0.276–0.410] | 0.234 [0.227–0.278] | 58.6 [58.0–59.0] |
+| Excord | 390 | text | C | 0.082 [0.078–0.087] | 0.352 [0.343–0.369] | 0.581 [0.546–0.603] | 63.5 [62.0–64.8] |
+| Excord | 390 | text | D | 0.014 [0.014–0.015] | 0.284 [0.279–0.326] | 0.385 [0.349–0.392] | 59.1 [58.5–59.4] |
+| Excord | 1920 | still | C | 0.092 [0.081–0.099] | 0.938 [0.896–1.000] | 0.972 [0.889–1.020] | 84.2 [83.8–89.9] |
+| Excord | 1920 | still | D | 0.017 [0.015–0.019] | 0.701 [0.691–0.836] | 0.590 [0.580–0.627] | 83.6 [79.9–83.8] |
+| Excord | 1920 | text | C | 0.084 [0.081–0.087] | 0.917 [0.860–0.934] | 1.056 [1.011–1.070] | 84.4 [84.0–90.1] |
+| Excord | 1920 | text | D | 0.015 [0.015–0.016] | 0.708 [0.690–0.723] | 0.715 [0.693–0.727] | 83.7 [80.0–83.9] |
+
+### Lifetime memory
+
+MiB, median [minimum–maximum] over five workers; includes CPU boot and every available mode. Physical footprint includes memory that is not charged as the process’s resident set.
+
+| Workload | Width | Arm | Peak RSS | Peak footprint |
+|---|---:|---|---:|---:|
+| Messages Stress | 390 | C | 60.4 [57.5–60.9] | 377.8 [375.7–381.8] |
+| Messages Stress | 390 | D | 53.1 [50.8–53.5] | 224.8 [222.4–225.1] |
+| Messages Stress | 1920 | C | 78.7 [70.7–98.6] | 410.2 [403.2–429.3] |
+| Messages Stress | 1920 | D | 66.8 [66.4–67.0] | 239.8 [239.3–241.4] |
+| Shelf | 390 | C | 61.1 [58.6–61.8] | 375.0 [372.5–375.5] |
+| Shelf | 390 | D | 54.7 [53.6–56.0] | 222.9 [221.8–224.1] |
+| Shelf | 1920 | C | 89.6 [85.1–117.4] | 416.8 [408.8–438.0] |
+| Shelf | 1920 | D | 80.6 [76.0–80.8] | 249.9 [245.3–250.2] |
+| Excord | 390 | C | 64.9 [63.5–73.8] | 379.1 [376.3–387.0] |
+| Excord | 390 | D | 59.2 [58.5–59.5] | 227.3 [226.6–227.6] |
+| Excord | 1920 | C | 93.8 [91.0–123.4] | 419.8 [412.0–448.3] |
+| Excord | 1920 | D | 83.8 [80.1–84.0] | 253.0 [249.3–253.2] |
+
+All measured frames still have zero overflow atlas bytes and zero layer-pool targets. They do not qualify backdrop-heavy or deeply clipped workloads.
+
+### Where the RSS spikes occur
+
+Temporary phase probes sampled current and lifetime peak RSS before and after device setup, readback allocation, mapping, the CPU pixel copy and the harness’s `ps` calls. Three fresh 1920×1080 Messages Stress workers were interleaved for each sampler. The probes were removed before the C/D series. Their logs are `target/ink-c5-memory-{0,1,2}-{0,1}.log`; these diagnostic runs are not timing samples.
+
+With no `ps` children, lifetime RSS reached **100.3–103.1 MiB**. With the original `ps` sampler it reached **75.9–83.3 MiB**. Thus children are not required for the spike; changing the sampler also changes the pauses between frames and the observed peak. Device setup ended at about 55 MiB and the first completed frame at about 66 MiB. Later peak increases occur inside the CPU pixel copy, often by one 1920×1080 RGBA image (7.91 MiB) at a time. They do not occur at pipeline creation or during first glyph rasterization. The separate physical-footprint rise during first-frame atlas allocation is already present before these later RSS spikes.
+
+Zero-initializing the tightly packed output instead of allocating capacity and extending each row **did not remove the peaks**: three further runs reached 101.1–104.6 MiB without `ps`, and 76.1–79.3 MiB with it (`target/ink-c5-memory-fixed-*.log`). The C/D series uses this allocation in C and records its remaining peaks, including 123.4 MiB for Excord. The diagnostic establishes the readback-copy phase, not which allocator or driver retention policy keeps every page resident.
+
+**Remaining fix:** reuse the presenter’s CPU pixmap and the device’s staging allocation instead of allocating a new full-frame output and staging buffer for each readback, then rerun the memory protocol. This requires the readback/Backend ownership seam to return the old output for reuse; it is recorded in `QUEUE.md`. No claim is made that C4’s memory concern is resolved.
+
+### Validation
+
+All six checks pass: root build, tests, Clippy and fmt; caps; boot; workspace/all-targets check. The root tests report 7,016 passed and 60 ignored across 111 binaries. Caps includes the wasm32 check. `cargo test -p exact-ink --lib --no-fail-fast` reports 19 passed. Extra Clippy for Ink and Linux passes.
+
+`cargo test -p exact-linux --lib --tests --no-fail-fast` passes with both the default wgpu device and `EXACT_INK_DEVICE=metal`: 1,887 passed and 32 ignored across 14 binaries in each run. Filtered pinned runs use `EXACT_REQUIRED=1`, which refuses to silently omit Ink. Result lines below are verbatim.
+
+| Device | Suite | Result |
+|---|---|---|
+| metal | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 3.30s` |
+| metal | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 0.60s` |
+| metal | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.56s` |
+| metal | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 1.16s` |
+| wgpu | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 2.02s` |
+| wgpu | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 0.80s` |
+| wgpu | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.76s` |
+| wgpu | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 1.25s` |
+| wgpu | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.78s` |
+| wgpu | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 1.27s` |
+| wgpu | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.57s` |
+| wgpu | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.72s` |
+
+Caltrain was built in `host-dev` and driven with `EXACT_PAINTER=ink EXACT_INK_DEVICE=metal bun scripts/smoke.mjs linux --app-only --shot target/ink-c5-caltrain.png`. Its three contract tests passed, the smoke completed, and the screenshot was inspected. The app drive exercises the headless Linux presenter on macOS; it is not a native window-carrier qualification.
+
+Optimized series:
+
+```text
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1502 filtered out; finished in 271.87s
+```
+
+Only macOS on this Apple GPU was measured at runtime. iOS/tvOS and discrete-GPU managed storage were not exercised. Presented frame intervals, input latency, energy and a machine’s first-ever driver-cache-cold launch remain unmeasured.
