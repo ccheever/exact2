@@ -36,8 +36,7 @@ component App
 struct App(PathBuf);
 impl App {
     fn new(name: &str) -> Self {
-        let path =
-            std::env::temp_dir().join(format!("exact-device-{name}-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("exact-device-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         let package = path.join("node_modules/@exact/device");
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/device");
@@ -151,7 +150,11 @@ fn the_interface_loads_and_answers_its_defaults() {
     }
     let (_app, r) = boot("defaults", "ios");
     assert_eq!(texts(&r), ["1 true", "unknown false", "false nominal"]);
-    assert_eq!(text(&r, "words"), "none none", "the default names no platform's words");
+    assert_eq!(
+        text(&r, "words"),
+        "none none",
+        "the default names no platform's words"
+    );
 }
 
 #[test]
@@ -159,7 +162,11 @@ fn a_preferred_value_is_laid_over_the_default_and_clear_restores_it() {
     let (_app, mut r) = boot("prefer", "macos");
     prefer(&mut r, "getBattery", r#"{"level":0.42,"charging":false}"#);
     assert_eq!(text(&r, "battery"), "0.42 false");
-    prefer(&mut r, "connection", r#"{"type":"cellular","saveData":true}"#);
+    prefer(
+        &mut r,
+        "connection",
+        r#"{"type":"cellular","saveData":true}"#,
+    );
     assert_eq!(text(&r, "network"), "cellular true");
     prefer(&mut r, "powerState", r#"{"lowPowerMode":true}"#);
     assert_eq!(text(&r, "power"), "true nominal");
@@ -186,14 +193,21 @@ fn an_unsupported_target_fails_not_supported() {
     // and a failed read keeps the answer it had. A web build's first read
     // fails, so it shows the placeholder (§10 drive 5, `test/drives.mjs`).
     assert_eq!(text(&r, "power"), "false nominal");
-    assert_eq!(["battery-error", "network-error"].map(|id| text(&r, id)), ["", ""]);
+    assert_eq!(
+        ["battery-error", "network-error"].map(|id| text(&r, id)),
+        ["", ""]
+    );
 }
 
 #[test]
 fn linux_and_windows_answer_no_thermal_state() {
     for target in ["linux", "windows"] {
         let (_app, r) = boot(target, target);
-        assert_eq!(texts(&r), ["1 true", "unknown false", "false none"], "{target}");
+        assert_eq!(
+            texts(&r),
+            ["1 true", "unknown false", "false none"],
+            "{target}"
+        );
         assert_eq!(
             ["battery-error", "network-error", "power-error"].map(|id| text(&r, id)),
             ["", "", ""].map(String::from),
@@ -208,9 +222,14 @@ fn a_rendered_document_keeps_no_device_fact() {
     // seeded answer is never asked again, so the page would never read it.
     let (_app, r) = boot("document", "web");
     let checkpoint = r.document_checkpoint("/");
-    let names: Vec<&str> = (checkpoint.answers.iter()).map(|(n, ..)| n.as_str()).collect();
+    let names: Vec<&str> = (checkpoint.answers.iter())
+        .map(|(n, ..)| n.as_str())
+        .collect();
     for name in ["battery", "network", "power"] {
         assert!(!names.contains(&name), "{name} is in {names:?}");
-        assert!(!checkpoint.pending.iter().any(|p| p == name), "{name} pending");
+        assert!(
+            !checkpoint.pending.iter().any(|p| p == name),
+            "{name} pending"
+        );
     }
 }
