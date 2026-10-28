@@ -1290,9 +1290,13 @@ list virtualized=true height=600 keep-mounted=[first(ids), ids.at(-1)]
 
 - **Value.** `keep-mounted` takes a list of row keys as the `for`'s `key=`
   gives them: strings, numbers or bools, or options of one, `none` naming no
-  row. It may be computed and change; the compiler refuses another type
-  (`lower-attr-type`) and the attribute anywhere but `list virtualized=true`
-  (`lower-list-virtualized`).
+  row. It may be computed and change. The compiler refuses keys of another
+  type than the `for`'s key (`lower-attr-type`), and the attribute anywhere
+  but `list virtualized=true` (`lower-list-virtualized`).
+- **On the list, not the row.** A flag on the row template would have to be
+  evaluated for every item, mounted or not, to find the rows it keeps; that
+  is the work the window exists to avoid. Keys on the list are found in the
+  index the list already keeps.
 - **Window.** A kept row the list holds is owed wherever the window is, like a
   pin: it is built in a report with any limit, never retired as the window
   passes it, and published with its `listitem` position like any row. A key
@@ -1300,18 +1304,24 @@ list virtualized=true height=600 keep-mounted=[first(ids), ids.at(-1)]
   When the set changes, the commit that changes it mounts the rows it now
   names and retires the rows it no longer names unless the window holds them;
   the revision moves, so the host measures the new rows.
-- **Bound.** At most 64 keys, the most rows a list builds before its first
-  report (`initial-item-count`). Another value (more keys, a non-key) is
-  invalid at computed-value time: the list keeps none and the journal says so,
-  as for any refused prop. The set is the author's and does not grow as the
-  reader scrolls, so §6.2's memory requirement holds.
+- **Bound.** At most 64 keys, the bound `initial-item-count` has: kept rows
+  add at most that many to any window, so a list's first build is at most 128
+  rows. Another value (more keys, a non-key) is invalid at computed-value
+  time: the list keeps none and the journal says so, as for any refused prop.
+  The set is the author's and does not grow as the reader scrolls, so §6.2's
+  memory requirement holds. Kept rows are not counted among the rows a
+  limited report keeps past the window.
 - **Hosts.** The runner owns it (`runner/src/instance/collection/keep.rs`), so
   every host the runner windows for keeps the rows: the Apple hosts, Linux,
   Windows and the wasm web host. A kept row is an ordinary mounted row, a
   subview of the scroll document at its offset, which the platform exposes to
-  accessibility as it does the window's rows. On macOS, `tree --ax` shows
-  messages-stress's first and last message, kept, above and below a port
-  scrolled to the middle (2026-10-28); iOS was not driven. The JS target's
-  `list.js` reads it as the runner does. Scrolling a kept row into view when
-  VoiceOver lands on it is the platform's, as for any element of a scroll
-  view, and the window follows that scroll; no VoiceOver session was run.
+  accessibility as it does the window's rows. The JS target's `list.js` reads
+  it as the runner does. Scrolling a kept row into view when VoiceOver lands
+  on it is the platform's, as for any element of a scroll view, and the
+  window follows that scroll.
+- **What the window assumed.** The mounted rows are no longer one run. A
+  `scrollIntoView` settles when the run of mounted rows reaching its target is
+  measured, with each mounted row before that run; a host's fill-ahead stops
+  at the list's end only when the run covering the port reaches the end row
+  (`CollectionIOS.swift` and `collection-glue.js` `rowsToCover`, as macOS's
+  `preparedCover` already treats a gap).

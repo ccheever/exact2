@@ -4,8 +4,8 @@
 //! its player.
 use super::*;
 
-/// The most keys a list keeps: as many rows as it may build before its
-/// first report (`initial-item-count`). The set is the author's and does not
+/// The most keys a list keeps, `initial-item-count`'s bound: kept rows add
+/// at most this many to any window. The set is the author's and does not
 /// grow as the reader scrolls (§6.2's memory requirement).
 pub(crate) const MOST: usize = 64;
 
