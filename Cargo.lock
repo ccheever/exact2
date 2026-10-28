@@ -4487,6 +4487,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-bake",
+ "exact-data-host",
  "exact-linux",
  "photos-fixture-data",
 ]
@@ -4495,8 +4496,10 @@ dependencies = [
 name = "photos-fixture-data"
 version = "0.1.0"
 dependencies = [
+ "exact-data",
  "exact-plan",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]
