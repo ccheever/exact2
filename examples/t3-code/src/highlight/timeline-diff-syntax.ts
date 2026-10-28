@@ -1,17 +1,17 @@
 // Syntax colour for the changes panel: @pierre/diffs highlights each side of a
-// hunk with the same Shiki themes as chat code (pierre-light / pierre-dark), so
-// a line keeps the context of the lines around it. Word marks and syntax
-// classes overlay into one run list per line.
+// hunk with the same lexers and themes as chat code (highlights.ts), so a line
+// keeps the context of the lines around it. Word marks and syntax classes
+// overlay into one run list per line.
 import { highlight, type Token } from './timeline-highlight';
-import { fileLanguage, SHIKI_MAX_CHARS, TOKENIZE_MAX_LINE_LENGTH } from './shiki-highlight';
+import { fileLanguage, HIGHLIGHT_MAX_CHARS, TOKENIZE_MAX_LINE_LENGTH } from './highlights';
 
 /** Token runs per line for one side of a hunk, highlighted as one text (up to the highlighter's limit). */
 export function lineTokens(lines: readonly string[], path: string): Token[][] {
   const language = fileLanguage(path);
   const total = lines.reduce((sum, line) => sum + line.length + 1, 0);
-  if (!language || !lines.length || total > SHIKI_MAX_CHARS) return lines.map(line => line ? [{ text: line, cls: '' }] : []);
+  if (!language || !lines.length || total > HIGHLIGHT_MAX_CHARS) return lines.map(line => line ? [{ text: line, cls: '' }] : []);
   const out: Token[][] = [[]];
-  // The path picks the grammar, as @pierre/diffs picks it from the file name (a root
+  // The path picks the lexer, as @pierre/diffs picks it from the file name (a root
   // Dockerfile too); a line of 1,000 characters or more stays plain, as there.
   for (const token of highlight(lines.join('\n'), language, TOKENIZE_MAX_LINE_LENGTH)) {
     token.text.split('\n').forEach((part, index) => {

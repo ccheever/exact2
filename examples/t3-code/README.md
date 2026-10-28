@@ -42,8 +42,8 @@ stays blank and the host logs that `assets/terminal/index.html` is not an app as
 
 Generated sources are built, not committed. `tools/generate/generate.mjs` makes them from the
 packages pinned beside it (`tools/generate/package.json` and `bun.lock`, the versions the
-reference locks; network once) and from committed inputs: the Shiki grammar tables
-(`src/highlight/grammar*.ts`), the CSS word lists (`src/highlight/css-words.ts`), the Lucide and
+reference locks; network once) and from committed inputs: the code colours' lexers and tables
+(`data/highlights.wasm`, `src/highlight/highlights-tables.ts`, `syntax-ink.contract`), the Lucide and
 Pierre icon data (`src/settings/settings-b-lucide.ts`, `src/shared/pages-icons.contract`,
 `src/shared/timeline-files.contract`, `timeline-files-tables.ts` and `data/pierre-icons.tsv`),
 the ten icon tables (`icons`, `shell-icons`, `sidebar-icons`,
@@ -178,9 +178,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   the reference's KaTeX in the math page (`assets/math/`, an `iframe` per formula); inline math
   stays TeX source until Markdown text has an inline atom (draft PR #888). A failed workspace
   preparation offers Retry (`prepared-run.retry`), and the failure row hides once a retry
-  supersedes it (`workspace-retry.ts`, 737993303d). Code colouring follows Shiki for
-  every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
-  import lines and keyword-named members (`ts-statements.ts`).
+  supersedes it (`workspace-retry.ts`, 737993303d). Code is coloured by the reference's lexers,
+  @pierre/highlights 0.2.0, which the data crate runs (`data/src/highlights.rs`, `highlights.ts`).
 - Composer: send, stop, queue and steer while running (queued messages wait at the end of the
   timeline, with Send now, edit and remove; with no turn running, Send now starts one),
   model picker with search and favourites, reasoning and runtime options, Plan/Build,
@@ -234,8 +233,7 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, and `http` to an IP
   address or a named host: `app.json` allows arbitrary loads in web content, #106), `media-frame.*`)
   from a signed asset URL, with the reference's Show HTML source / Show rendered page toggle,
-  `files-rendered-html.ts`; regex literals in its scripts are coloured as Shiki does,
-  `html-script-regex.ts`; every right-panel tab (Files, files, the
+  `files-rendered-html.ts`; every right-panel tab (Files, files, the
   pull request list, the Diff, the Device surface with its device, pull request details and
   attachments) is kept per thread across launches, `saved-panel.ts`, `saved-surfaces.ts`;
   diffs keep the project's requested cwd, including projects outside the server's launch directory), Linked pull requests (rows, Copy link, Open, Watch for changes / Stop
@@ -259,8 +257,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   hands the bytes to the window's Save panel, `attachment-files.ts`, `save-file.ts`;
   `attachment-media*`, `media-frame.*`: PDFs in the platform's viewer (an `iframe` of a copy in app:/cache, which
   Apple shows in PDFKit, LLP 1020.002 D10), HTML in a sandboxed `iframe` that loads its token directory and external
-  hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
-  Pierre themes (`html-syntax.ts`), audio and video in the platform's players, "Unable to
+  hosts as the reference's frame does, or as source coloured by the reference's html lexer
+  (`highlights.ts`), audio and video in the platform's players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
@@ -666,10 +664,9 @@ Differences that belong to the app:
   third attempt has failed (`state/shell.ts` `allEnvironmentShellsBootstrappedAtom`). So a relaunch can
   open the draft in another environment's project when the most recent one is This machine's or a
   retrying one's.
-- Code colours: eight languages are left out because of their licences (ada, gnuplot, nginx
-  and racket are GPL-3.0; dax, dream-maker, glsl and tcl have no licence upstream), so they
-  paint as plain text. Every other grammar is loaded at launch, so a fresh window colours
-  an embedded language straight away, where the reference does so only after its first use.
+- Code colours: a code text paints plain until the data crate's lexers answer for it, a few frames
+  through the root's pump (`app.contract` highlightStep), where the reference's loaded highlighter
+  colours it in the render that shows it.
 - An ⌥-click on a reply's `#fragment` link opens nothing. Chromium downloads the page instead.
 - Split view's empty side stripes every 10 pt, where the reference stripes every 8 px: each row
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
@@ -933,7 +930,7 @@ activity of any environment, as the reference's IndexDraftLanding does (3 of 3).
 it is, the copy opens with Lane Second's projects and no toast (3 of 3), as does the development bundle
 itself paired the same way (2 of 2, on a build with the pump change alone). On the bundle of `c067957ad`
 each relaunch opened with no projects and "native executor admission limit reached" (2 of 2). While the
-first snapshot answer reported a code text waiting for its Shiki tokens, the root's highlight pump refreshed
+first snapshot answer reported a code text waiting for its tokens, the root's highlight pump refreshed
 `data` and `shell` every 16 ms. A refresh replaces the answer in flight, so the launch's snapshot answer,
 which waits seconds on its connections, never landed, and the replaced answers' native calls filled the
 executor's admission limit about 4 s after launch (`host/apple/src/executor_core.rs:491`). A fresh bundle id
@@ -1178,8 +1175,8 @@ Rust data source (`t3-code-data`): the chat Markdown that `app.ts` leaves to Rus
 no I/O when it runs, so any host can link it, and its build script runs the generator below. `macos/`
 is the macOS host crate (`t3-code-macos`: the bake and the Apple host's entry), its tests of the baked
 plan, and the AppKit tests. `tools/` holds the lanes (`github-lane/`, `network-lane/`), the generator
-of the generated sources (`generate/`), the embedded server's staging (`stage-runtime/`) and the
-Shiki comparison. T3's MIT notice is retained in `LICENSE-T3`.
+of the generated sources (`generate/`) and the embedded server's staging (`stage-runtime/`). T3's MIT
+notice is retained in `LICENSE-T3`.
 
 Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
 that arrives while the snapshot read is in flight lets that read's reply land and then asks

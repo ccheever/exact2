@@ -19,6 +19,7 @@ import { diagramPreviewAction, diagramPreviewView, noteMermaidFrame } from '../.
 import type { Native } from '../../src/client/protocol';
 import { value } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
+import { settleHighlights } from '../support/highlights-fixture';
 import { memoryAppFiles, serveAssets } from '../support/asset-server';
 
 const panel = (): PanelState => ({ surfaces: [], active: '', visible: false, userRevision: 0 });
@@ -133,9 +134,12 @@ describe('Files surface', () => {
   });
   test('breadcrumbs, numbered lines and syntax runs', () => {
     expect(crumbs('surface-fixture', 'src/index.ts').map(crumb => [crumb.label, crumb.current])).toEqual([['surface-fixture', false], ['src', false], ['index.ts', true]]);
+    // The lines paint plain until the root's pump has the lexers answer for the file (highlights.ts).
+    expect(codeLines('src/index.ts', 'export const PI = 3.14;\n')[0]!.runs).toEqual([{ id: '0', text: 'export const PI = 3.14;', syntax: '' }]);
+    settleHighlights();
     const lines = codeLines('src/index.ts', 'export const PI = 3.14;\n');
     expect(lines.map(line => line.number)).toEqual(['1', '2']);
-    expect(lines[0]!.runs.some(run => run.syntax === 'kw' && run.text === 'export')).toBe(true);
+    expect(lines[0]!.runs.some(run => run.syntax === 'kw' && run.text === 'export const ')).toBe(true);
   });
   test('opening a file lists its folders, reads it and reveals it; the panel shows it as a tab', async () => {
     const { client, calls, replies } = fakeClient();

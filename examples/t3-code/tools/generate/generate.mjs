@@ -3,8 +3,8 @@
 // integrity values the reference T3 Code locks; installed on first use) and from committed inputs,
 // and examples/t3-code/.gitignore keeps it out of git:
 //
-//   gen-grammar.mjs    src/highlight/grammar.ts and grammar-<n>.ts: Shiki's grammars, the pierre themes
-//   gen-css-words.mjs  src/highlight/css-words.ts: the CSS grammar's word lists
+//   gen-highlights.mjs data/highlights.wasm and its licence: @pierre/highlights' lexers; src/highlight/
+//                      highlights-tables.ts and syntax-ink.contract: its languages and its colour classes
 //   gen-icons.mjs      src/settings/settings-b-lucide.ts, src/shared/pages-icons.contract (Lucide);
 //                      src/shared/timeline-files.contract and timeline-files-tables.ts, data/pierre-icons.tsv,
 //                      the icon tables of icon-tables.mjs and
@@ -38,7 +38,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
-const GENERATORS = ['gen-grammar.mjs', 'gen-css-words.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs'];
+const GENERATORS = ['gen-highlights.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs'];
 
 /** Every input: this directory's scripts, package.json and bun.lock, and the assets gen-page-scripts.mjs copies (no
  *  generator reads another app source). */

@@ -7,7 +7,7 @@ import { arr, num, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { closedView, flatten, row, type PalettePart, type PaletteRow, type PaletteView } from './palette';
 import { highlight } from '../highlight/timeline-highlight';
-import { fileLanguage } from '../highlight/shiki-highlight';
+import { fileLanguage } from '../highlight/highlights';
 import { letGo } from '../client/let-go';
 
 export const FILE_RESULT_LIMIT = 200;

@@ -11,9 +11,11 @@
 /.exact/
 # Generated sources (tools/generate/generate.mjs writes them; the app build runs it): built, not
 # committed (rules/RULES.md).
-/src/highlight/grammar.ts
-/src/highlight/grammar-*.ts
-/src/highlight/css-words.ts
+/src/highlight/highlights-tables.ts
+/src/highlight/syntax-ink.contract
+/data/highlights.wasm
+/data/LICENSE-highlights.md
+/data/NOTICE-highlights.md
 /src/highlight/shell-parser/
 /src/settings/settings-b-lucide.ts
 /src/settings/settings-icons.contract

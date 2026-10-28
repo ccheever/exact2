@@ -62,6 +62,9 @@ test('tool images replace raster payload text while preserving unsupported block
 
 test('REPL arguments preserve labels and values while highlighting only code', async () => {
   const { replArguments } = await import('../../src/timeline/tool-activity');
+  const { settleHighlights } = await import('../support/highlights-fixture');
+  replArguments('node_repl.js', { code: 'const answer = 42;' });
+  settleHighlights(); // the code waits for the lexers (highlights.ts)
   const args = replArguments('node_repl.js', { title: 'Inspect', code: 'const answer = 42;', timeout_ms: 1000 });
   expect(args.map(arg => [arg.key, arg.text])).toEqual([['title', 'Inspect'], ['code', 'const answer = 42;'], ['timeout_ms', '1000']]);
   expect(args[1]?.tokens.map(token => token.text).join('')).toBe('const answer = 42;');

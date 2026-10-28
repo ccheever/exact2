@@ -1721,6 +1721,7 @@ dependencies = [
  "exact-runner",
  "markdown-parse",
  "unicode-general-category",
+ "wasmi",
 ]
 
 [[package]]

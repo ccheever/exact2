@@ -3,6 +3,7 @@ use FindPart, FindParts, FindToken from "./thread-find.contract"
 use FileTypeIcon from "../shared/timeline-files.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
 use Tip from "../shell/shell-tip.contract"
+use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
 use AttachmentUrl, ChipThumb from "./timeline-attachments.contract"
 use CodeTip from "./code-tips.contract"
 use Icon from "../shared/icons.contract"
@@ -99,13 +100,8 @@ shape CodeHighlight
   code: string
   icon: string
   tokens: CodeToken[]
-// pierre-light / pierre-dark, the reference's Shiki themes, by token class.
-// A class ends in "+i" where the pierre theme sets italic (shiki-highlight.ts).
-fn synColor(cls: string): string = synInk(cls.endsWith("+i") ? cls.slice(0, -2) : cls)
-fn synSlant(cls: string): string = cls.endsWith("+i") ? "italic" : "normal"
 // .chat-markdown strong is 600 (3816296021); the parser's bold runs are capped there.
 fn runWeight(weight: number): number = weight > 600 ? 600 : weight
-fn synInk(cls: string): string = ["kw", "decl", "type", "fn", "var", "const"].includes(cls) ? (cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : "light-dark(#d5901c, #ffab16)") : ["param", "pyparam", "flag", "interp", "bold", "str", "esc", "num"].includes(cls) ? (cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : "light-dark(#1ca1c7, #68cdf2)") : ["nul", "op", "builtin", "punct", "com", "key", "tag", "heading", "attr"].includes(cls) ? (cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : "light-dark(#18a46c, #60d199)") : ["regex", "deco"].includes(cls) ? (cls == "regex" ? "light-dark(#17a5af, #64d1db)" : "light-dark(#1a85d4, #69b1ff)") : "light-dark(#000000, #fafafa)"
 
 shape TranscriptMarkdown
   documents: ChatDocument[]
@@ -1112,20 +1108,20 @@ component CodeBlock
           text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
             for token in hl.tokens key=token.id
               if ms < 0
-                text color=synColor(token.cls) font-style=synSlant(token.cls)
+                text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                   FindToken(value=token.text, at=tokenAt(hl.tokens, token.id), parts=block.findParts)
               else
-                text color=synColor(token.cls) font-style=synSlant(token.cls)
+                text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                   MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
               for token in hl.tokens key=token.id
                 if ms < 0
-                  text color=synColor(token.cls) font-style=synSlant(token.cls)
+                  text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                     FindToken(value=token.text, at=tokenAt(hl.tokens, token.id), parts=block.findParts)
                 else
-                  text color=synColor(token.cls) font-style=synSlant(token.cls)
+                  text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                     MarkedText(value=token.text, at=codeAt + tokenAt(hl.tokens, token.id), ms=ms, me=me)
 // MarkdownMermaidCodeBlock (74541bab17): a closed ```mermaid fence draws its diagram with
 // no card, centred and fit to the lane, under the code header's actions ("Show code" left of Copy);

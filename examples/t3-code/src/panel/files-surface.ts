@@ -628,7 +628,7 @@ function runsKey(tokens: readonly { text: string; cls: string }[] | undefined, l
   for (let at = 0; at < text.length; at++) hash = (hash * 31 + text.charCodeAt(at)) | 0;
   return `${text.length}:${(hash >>> 0).toString(36)}`;
 }
-/** Pierre's File: numbered lines with Shiki-class runs (the diff panel's highlighter). */
+/** Pierre's File: numbered lines with colour-class runs (the diff panel's highlighter, highlights.ts). */
 export function codeLines(path: string, contents: string): CodeLine[] {
   const lines = contents.split(/\r\n|\r|\n/);
   const tokens = lineTokens(lines, path);

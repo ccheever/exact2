@@ -1,5 +1,5 @@
 // T3 Code 9c161462c9 (MIT; see LICENSE-T3), apps/web/src/lib/embeddedScripts.ts.
-import { fileLanguage as getFiletypeFromFileName } from './shiki-highlight';
+import { fileLanguage as getFiletypeFromFileName } from './highlights';
 import {
   parse,
   type Command,

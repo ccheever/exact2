@@ -1,6 +1,6 @@
 // ShellCommandBlock and HighlightedTokens.withEmbeddedScripts from T3 Code
-// 9c161462c9 (MIT; see LICENSE-T3), over the clone's shared Shiki tokens.
-import { highlight, type Cls, type Token } from './timeline-highlight';
+// 9c161462c9 (MIT; see LICENSE-T3), over the clone's shared tokens (highlights.ts).
+import { highlight, type Token } from './timeline-highlight';
 import { embeddedScripts } from './embedded-scripts';
 import { commandHighlightLanguage, withVisibleControlCharacters } from '../timeline/command-label';
 
@@ -12,7 +12,7 @@ export function shellCommand(command: string): Token[] {
   try {
     const scripts = embeddedScripts(code);
     if (!scripts.length) return tokens;
-    const styles: Cls[] = Array.from({ length: code.length }, () => '');
+    const styles: string[] = Array.from({ length: code.length }, () => '');
     let offset = 0;
     for (const token of tokens) { styles.fill(token.cls, offset, offset + token.text.length); offset += token.text.length; }
     for (const script of scripts) {

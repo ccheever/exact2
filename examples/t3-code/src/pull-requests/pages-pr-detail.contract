@@ -75,6 +75,8 @@ shape PrBody
   title: string
   body: string
 shape PrDetailView
+  // A code text it painted waits for its tokens (highlights.ts; app.contract highlightStoredThen refreshes it).
+  highlightPending: bool
   guide: GuideView
   guideDiff: GuideDiffView
   open: bool

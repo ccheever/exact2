@@ -2,7 +2,7 @@ import { updateEverythingView } from '../sidebar/update-everything';
 import { legacySidebarSnapshot } from '../sidebar/legacy-sidebar-view';
 import { timelineReadsNeeded } from '../timeline/timeline-prepare';
 import { projectCloneBlock } from '../shell/project-clones-live';
-import { highlightPending } from '../highlight/shiki-highlight';
+import { highlightPending } from '../highlight/highlights';
 import { markdownSkills } from '../timeline/message-chips';
 import { workspaceValues } from '../composer/composer-workspace-snapshots';
 import { workspaceCwd } from '../composer/composer-editor';

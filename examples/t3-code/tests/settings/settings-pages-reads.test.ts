@@ -14,7 +14,7 @@ import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { SCHEDULED_TASKS_KEY } from '../../src/client/live-streams';
 import { resetPrimary } from '../support/local-primary-fixture';
 import type { Native } from '../../src/client/protocol';
-import { resetHighlightSlicing } from '../../src/highlight/shiki-highlight';
+import { resetHighlights } from '../../src/highlight/highlights';
 import { TELEMETRY_KEY } from '../../src/settings/settings-a-telemetry';
 
 // The app's own answer(), from an instance of app.ts that only this file uses: its client adopts only a newer
@@ -92,7 +92,7 @@ async function launched(setup: (server: PageServer) => void = () => {}) {
 }
 
 afterEach(async () => {
-  resetPrimary(); resetHighlightSlicing();
+  resetPrimary(); resetHighlights();
   for (const page of Object.values(PAGES)) await answer(page.source, page.args({ revision: 0, now: 0, refresh: 0, telemetry: 0 }, false), null, storage().files, null); // the pages close
 });
 

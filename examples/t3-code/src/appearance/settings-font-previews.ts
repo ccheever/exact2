@@ -9,6 +9,7 @@
 // the spans with pushOrJoinSpan; both are ported below.
 import { parsePatch } from '../diff/diff';
 import { lineTokens, overlay, type Segment } from '../highlight/timeline-diff-syntax';
+import { highlightDeferrals } from '../highlight/highlights';
 
 export const DIFF_PREVIEW_PATCH = [
   'diff --git a/src/formatUser.ts b/src/formatUser.ts',
@@ -167,8 +168,10 @@ function previewLines(): Omit<FontDiffPreview, 'scheme'> {
   return { path: file.path, status: file.status, additions: file.additions, deletions: file.deletions, lines };
 }
 let cached: Omit<FontDiffPreview, 'scheme'> | undefined;
-/** CodeFontPreview's content, in the chosen diff colours (red-green or blue-orange). */
+/** CodeFontPreview's content, in the chosen diff colours (red-green or blue-orange). It is kept once the sample has its
+ *  tokens; until the lexers answer (highlights.ts) it paints plain and is made again. */
 export function fontDiffPreview(diffColorScheme: string): FontDiffPreview {
-  cached ??= previewLines();
-  return { ...cached, scheme: diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green' };
+  const deferrals = highlightDeferrals, lines = cached ?? previewLines();
+  if (highlightDeferrals === deferrals) cached = lines;
+  return { ...lines, scheme: diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green' };
 }

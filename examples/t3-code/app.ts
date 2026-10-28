@@ -55,7 +55,7 @@ import { shellView } from './src/shell/shell';
 import { shellDetails } from './src/details/shell-details';
 import { chatCanvasView } from './src/shell/chat-canvas-view';
 import { sidebarLaunchWidth } from './src/sidebar/sidebar-width';
-import { highlightSlice, startHighlightTurn } from './src/highlight/shiki-highlight';
+import { highlightAsk, highlightDeferrals, highlightStore } from './src/highlight/highlights';
 import { noteServerUpdateClock } from './src/connections/server-update-notices';
 import { terminalDrawerView, terminalOpen } from './src/terminal/terminal-drawer-view';
 import { terminalFocused } from './src/terminal/terminal-focus';
@@ -122,6 +122,14 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
   return answerClient(source, args, store, storage, transport.wrap(native, source) as Native | null | undefined);
 }
 
+/** A view that paints code reports whether it painted a text that waits for its tokens; the root's highlight pump
+ *  refreshes it when they land (app.contract highlightStoredThen), as it does `data` and `shell`. */
+async function withHighlightPending<T extends object>(view: () => Promise<T>): Promise<T & { highlightPending: boolean }> {
+  const deferrals = highlightDeferrals;
+  const value = await view();
+  return { ...value, highlightPending: highlightDeferrals !== deferrals };
+}
+
 // The client's answers, given the bridge it talks to: `answer` puts the transport in front of the app's module; a test
 // hands its own scripted server. The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
@@ -129,10 +137,10 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (native?.available) native = composerFieldNative(client, letGoAware(native), () => composerFieldOwner(client));
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = preferenceFiles(_storage);
-  if (source === 'highlightSlice') return highlightSlice(); // a background highlight turn
+  if (source === 'highlightAsk') return highlightAsk(); // the texts waiting for their tokens (app.contract highlightStep)
+  if (source === 'highlightStore') return highlightStore(args[0] as { id: number; records: number[] }[]); // the lexers' answer
   if (source === 'promptLinkView') return promptLinkView(client);
   if (source === 'promptLinksReady') return promptLinksReady(client);
-  startHighlightTurn(); // any other answer tokenizes code within one turn's budget
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
     transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick
@@ -179,7 +187,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, viewport: Number(args[5]) || 1280, sidebar: Number(args[6]) || 0 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
   if (source === 'timelineAttachments') return { ...await attachmentUrls(client, native, Number(args[1]) || 0, String(args[3] || '')), posted: inlineDocumentsPosted(client) }; // timeline-attachments.ts
-  if (source === 'prList' || source === 'prDetail' || source === 'welcome') return pagesSource(client, native, source, args, storage);
+  if (source === 'prDetail') return withHighlightPending(() => pagesSource(client, native, source, args, storage) as Promise<object>); // its Code tab's rows
+  if (source === 'prList' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true, Number(args[5]) || 0); // args[5]: the clock, each second while Authorized clients show
   if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // pairing-fields.ts
   if (source === 'sshPrompt') return sshPromptSource(native, Number(args[0]) || 0); // ssh-auth.ts: the password dialog's queue
@@ -207,7 +216,10 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'integrationsPage') return { ...(await integrationsPage(pageClient, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''))),
     browserProfiles: args[2] === true ? await browserProfilesView(client, native) : emptyBrowserProfilesView() }; // Browser profiles and the browser defaults
   if (source === 'settingsNavigation') return settingsNavigation(String(args[0] || ''), searchContext(client.config, client.ready, String(args[1] || 'all')), Number(args[2]) || 0);
-  if (source === 'settingsCore') return settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));
+  if (source === 'settingsCore') {
+    const view = () => settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));
+    return withHighlightPending(view); // its font preview (settings-font-previews.ts)
+  }
   if (source === 'settings') {
     const environmentId = String(args[0] || '');
     const projectId = String(args[1] || '');
@@ -219,7 +231,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   }
   if (source === 'modelCatalog') return modelCatalog(client, String(args[0] || ''), String(args[1] || ''), String(args[3] || '')); // args[3]: a Settings row's picker target
   if (source === 'createProvider') return client.command('provider-create', String(args[0] || ''), JSON.stringify({ driver: args[1], name: args[2], binaryPath: args[3], homePath: args[4] }), 0, native, storage);
-  if (source === 'paletteView') return paletteView(client, native, args);
+  if (source === 'paletteView') return withHighlightPending(() => paletteView(client, native, args)); // its content search lines
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
   if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false, Array.isArray(args[7]) ? args[7].map(String) : [], Array.isArray(args[8]) ? args[8].map(String) : [], Array.isArray(args[9]) ? args[9].map(String) : [], args[10] !== false); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219); args[10]: the window is visible
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load

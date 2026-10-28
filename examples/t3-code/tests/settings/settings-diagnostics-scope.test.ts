@@ -13,7 +13,7 @@ import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { SCHEDULED_TASKS_KEY } from '../../src/client/live-streams';
 import type { Native } from '../../src/client/protocol';
 import { resetPrimary } from '../support/local-primary-fixture';
-import { resetHighlightSlicing } from '../../src/highlight/shiki-highlight';
+import { resetHighlights } from '../../src/highlight/highlights';
 import { TELEMETRY_KEY } from '../../src/settings/settings-a-telemetry';
 
 const READ_AT = '2026-10-09T08:00:00.000Z';
@@ -136,7 +136,7 @@ async function launched(latency = 0, setup: (server: DiagnosticsServer) => void 
 }
 
 afterEach(async () => {
-  resetPrimary(); resetHighlightSlicing();
+  resetPrimary(); resetHighlights();
   await answer('diagnosticsSettings', ['env1', '15m', false, 0, 0, 0, 0], null, storage().files, null); // the page closes: its reads and stream are dropped
 });
 

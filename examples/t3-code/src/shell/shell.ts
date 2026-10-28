@@ -15,7 +15,7 @@ import { migrateModelPreferences } from '../providers/model-preferences';
 import type { T3Client } from '../client/client';
 import { terminalAvailable, terminalOpen } from '../terminal/terminal-drawer-view';
 import type { DispatchContext } from './keyboard-dispatch'; // terminal labels resolve with terminalFocus
-import { highlightPendingSince } from '../highlight/shiki-highlight';
+import { highlightPendingSince } from '../highlight/highlights';
 import { toasts, dismissToast, type Toast, type ToastAction, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Files, Native } from '../client/protocol';
