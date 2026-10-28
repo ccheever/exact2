@@ -83,66 +83,32 @@ pub fn open(callback: Callback, done: Box<dyn FnOnce(String) + Send>) -> Result<
     })
 }
 
-/// Bind `address` without `SO_REUSEADDR`, which `TcpListener::bind` sets:
-/// with it, macOS binds 127.0.0.1:P beside another process listening on
-/// 0.0.0.0:P or [::]:P, and the browser's callback could reach either.
+/// Bind `address`, refusing a port another process listens on through
+/// the wildcard address. `SO_REUSEADDR` stays, so a port the last receiver
+/// left in TIME_WAIT (it closes first) binds again at once; with it alone,
+/// macOS would also bind `127.0.0.1:P` beside a listener on `0.0.0.0:P` or
+/// `[::]:P`, so a probe binds the wildcard first, without listening: it
+/// fails for such a holder, with or without its `SO_REUSEADDR`, and not for
+/// TIME_WAIT. `socket2` sets `SO_NOSIGPIPE` on Apple, which accepted
+/// sockets inherit: this runs inside an app that does not ignore SIGPIPE.
 fn bind(address: SocketAddr) -> io::Result<TcpListener> {
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-    let check = |r: libc::c_int| {
-        if r < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(r)
-        }
+    use socket2::{Domain, Socket, Type};
+    let wildcard: SocketAddr = match address {
+        SocketAddr::V4(a) => (Ipv4Addr::UNSPECIFIED, a.port()).into(),
+        SocketAddr::V6(a) => (Ipv6Addr::UNSPECIFIED, a.port()).into(),
     };
-    let family = if address.is_ipv4() {
-        libc::AF_INET
-    } else {
-        libc::AF_INET6
-    };
-    // SAFETY: a new socket, owned at once.
-    let fd = unsafe { OwnedFd::from_raw_fd(check(libc::socket(family, libc::SOCK_STREAM, 0))?) };
-    let raw = fd.as_raw_fd();
-    // SAFETY: `raw` is open; each address is a valid `sockaddr` of its length.
-    unsafe {
-        libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC);
-        match address {
-            SocketAddr::V4(a) => {
-                let mut sin: libc::sockaddr_in = std::mem::zeroed();
-                sin.sin_family = libc::AF_INET as libc::sa_family_t;
-                sin.sin_port = a.port().to_be();
-                sin.sin_addr.s_addr = u32::from_ne_bytes(a.ip().octets());
-                #[cfg(target_vendor = "apple")]
-                {
-                    sin.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
-                }
-                let len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
-                check(libc::bind(
-                    raw,
-                    (&sin as *const libc::sockaddr_in).cast(),
-                    len,
-                ))?;
-            }
-            SocketAddr::V6(a) => {
-                let mut sin6: libc::sockaddr_in6 = std::mem::zeroed();
-                sin6.sin6_family = libc::AF_INET6 as libc::sa_family_t;
-                sin6.sin6_port = a.port().to_be();
-                sin6.sin6_addr.s6_addr = a.ip().octets();
-                #[cfg(target_vendor = "apple")]
-                {
-                    sin6.sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
-                }
-                let len = std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t;
-                check(libc::bind(
-                    raw,
-                    (&sin6 as *const libc::sockaddr_in6).cast(),
-                    len,
-                ))?;
-            }
-        }
-        check(libc::listen(raw, 16))?;
+    let probe = Socket::new(Domain::for_address(wildcard), Type::STREAM, None)?;
+    probe.set_reuse_address(true)?;
+    if wildcard.is_ipv6() {
+        probe.set_only_v6(false)?;
     }
-    Ok(TcpListener::from(fd))
+    probe.bind(&wildcard.into())?;
+    drop(probe);
+    let socket = Socket::new(Domain::for_address(address), Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&address.into())?;
+    socket.listen(128)?; // std's backlog
+    Ok(socket.into())
 }
 
 /// One connection, reading its head.
@@ -176,7 +142,12 @@ fn serve(
                 }),
                 Ok(_) => {}
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                // A peer that left before it was taken: the next one.
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::Interrupted | io::ErrorKind::ConnectionAborted
+                    ) => {}
                 Err(_) => paused = Some(Instant::now() + Duration::from_millis(100)),
             }
         }
@@ -422,16 +393,109 @@ mod tests {
     #[ignore = "async lane: binds a real loopback port"]
     fn a_port_held_on_the_wildcard_address_is_in_use() {
         for wildcard in ["0.0.0.0:0", "[::]:0"] {
-            let held = TcpListener::bind(wildcard).unwrap();
-            let port = held.local_addr().unwrap().port();
-            assert!(
-                matches!(
-                    open(callback(port), Box::new(|_| {})),
-                    Err(Failed::PortInUse)
-                ),
-                "{wildcard}"
-            );
+            // With `SO_REUSEADDR` (std's) and without.
+            for reuse in [true, false] {
+                let address: SocketAddr = wildcard.parse().unwrap();
+                let held = socket2::Socket::new(
+                    socket2::Domain::for_address(address),
+                    socket2::Type::STREAM,
+                    None,
+                )
+                .unwrap();
+                held.set_reuse_address(reuse).unwrap();
+                held.bind(&address.into()).unwrap();
+                held.listen(4).unwrap();
+                let port = held.local_addr().unwrap().as_socket().unwrap().port();
+                assert!(
+                    matches!(
+                        open(callback(port), Box::new(|_| {})),
+                        Err(Failed::PortInUse)
+                    ),
+                    "{wildcard} reuse={reuse}"
+                );
+            }
         }
+    }
+
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn a_receiver_opens_again_on_its_port_right_after_answering() {
+        let free = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = free.local_addr().unwrap().port();
+        drop(free);
+        for round in 0..2 {
+            let (tx, rx) = mpsc::channel();
+            let receiver = open(callback(port), Box::new(move |url| tx.send(url).unwrap()))
+                .unwrap_or_else(|e| panic!("round {round}: {e:?}"));
+            // The receiver answers and closes first, leaving TIME_WAIT behind.
+            let answer = ask(
+                port,
+                &format!("GET /cb?state=s+A HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+            );
+            assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+            assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
+            drop(receiver);
+        }
+    }
+
+    /// The receiver runs inside an app that does not ignore SIGPIPE, so a
+    /// write to a connection its peer reset must fail, not signal: the
+    /// listener, and each connection accepted from it, carry `SO_NOSIGPIPE`.
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn the_listener_and_what_it_accepts_never_raise_sigpipe() {
+        use std::os::fd::AsRawFd;
+        let nosigpipe = |fd: i32| {
+            let (mut on, mut len) = (0i32, std::mem::size_of::<i32>() as libc::socklen_t);
+            // SAFETY: `fd` is open; `on` and `len` are this frame's.
+            let r = unsafe {
+                libc::getsockopt(
+                    fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_NOSIGPIPE,
+                    (&mut on as *mut i32).cast(),
+                    &mut len,
+                )
+            };
+            assert_eq!(r, 0);
+            on != 0
+        };
+        let listener = bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        assert!(nosigpipe(listener.as_raw_fd()), "the listener");
+        let _peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (accepted, _) = listener.accept().unwrap();
+        assert!(nosigpipe(accepted.as_raw_fd()), "an accepted connection");
+    }
+
+    #[test]
+    #[ignore = "async lane: binds a real loopback port"]
+    fn a_peer_that_resets_mid_reply_does_not_kill_the_process() {
+        // The app the receiver runs in does not ignore SIGPIPE; the test
+        // harness does, so it is restored here.
+        // SAFETY: setting a signal's disposition to its default.
+        unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+        let free = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = free.local_addr().unwrap().port();
+        drop(free);
+        let (tx, rx) = mpsc::channel();
+        let _receiver = open(callback(port), Box::new(move |url| tx.send(url).unwrap())).unwrap();
+        let head = format!("GET /cb?state=wrong HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n");
+        for _ in 0..50 {
+            let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.write_all(head.as_bytes()).unwrap();
+            socket2::SockRef::from(&s)
+                .set_linger(Some(Duration::ZERO))
+                .unwrap();
+            drop(s);
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        let answer = ask(
+            port,
+            &format!("GET /cb?state=s+A HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+        );
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(rx.recv_timeout(Duration::from_secs(5)).is_ok());
     }
 
     #[test]
