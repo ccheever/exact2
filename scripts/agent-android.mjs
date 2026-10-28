@@ -175,8 +175,9 @@ function readerDeploy(app, apk, env) {
     run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
   }
   // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
-  // seed, the fetch faults), a pushed plan and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
-  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN' || k === 'EXACT_PLAN'));
+  // seed, the fetch faults), EXACT_STORE (`real`: the platform's stores, a conformance suite's), a pushed plan and a
+  // dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
+  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || ['EXACT_STORE', 'EXACT_DEV_PLAN', 'EXACT_PLAN'].includes(k)));
   return {
     serial, dir, shot,
     spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),

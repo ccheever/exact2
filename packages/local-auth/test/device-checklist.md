@@ -7,14 +7,15 @@ step says what to see; a step that shows something else is a failure to
 report with a screenshot.
 
 Build Excord for the device and sign in with a real account, or against the
-fixture, which signs in by itself. Excord's fixture origin is
-`http://127.0.0.1:4790`:
+fixture, which signs in by itself. A development build bakes the fixture at
+`http://127.0.0.1:<port>`, a port of this checkout's own that `bun
+scripts/agent-launch.mjs --fixture-port --app excord` prints (`<port>` below):
 
-- Android: run `bun apps/excord/fixture/server.ts --world transcript` on this
-  Mac and `adb reverse tcp:4790 tcp:4790`.
+- Android: run `bun apps/excord/fixture/server.ts --world transcript --port
+  <port>` on this Mac and `adb reverse tcp:<port> tcp:<port>`.
 - iPhone: run the server on this Mac's LAN address (`ipconfig getifaddr en0`,
-  say `10.0.0.73`) with `--host 10.0.0.73`, and build with
-  `EXACT_BACKEND_ORIGIN=http://10.0.0.73:4790`. A development build takes the
+  say `10.0.0.73`) with `--host 10.0.0.73 --port <port>`, and build with
+  `EXACT_BACKEND_ORIGIN=http://10.0.0.73:<port>`. A development build takes the
   fixture's loopback grants for that address; a production build refuses it.
   Allow Excord's Local Network prompt.
 

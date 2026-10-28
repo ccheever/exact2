@@ -7,12 +7,17 @@
 // usage: bun packages/local-auth/test/drives.mjs [macos|ios|android] [--only 1,2,…]
 //   Builds nothing: build Excord for the host first (host/apple/build.mjs
 //   excord-apple, `--ios --sim <udid>` for a simulator), which the driver
-//   checks is current. Starts Excord's fixture server on 4790 and stops it.
-import { spawn, spawnSync } from 'node:child_process';
+//   checks is current; on Android, the APK (scripts/agent-android.mjs build
+//   excord --apk), driven with `--reader` on adb's device (ANDROID_SERIAL),
+//   which must let adb run as root (an emulator's Google APIs image does) for
+//   the drive to list the app's files. Starts Excord's fixture server on the port
+//   this checkout's build bakes, which an Android device reaches through `adb
+//   reverse`, and stops it.
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { checker } from './fixture.mjs';
+import { checker, excordFixture } from './fixture.mjs';
 
 const root = resolve(import.meta.dir, '../../..');
 const argv = process.argv.slice(2), host = argv.find((a) => ['macos', 'ios', 'android'].includes(a)) ?? 'macos';
@@ -20,18 +25,24 @@ const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1].split(',
 const { open, faultRequest } = await import(resolve(root, 'scripts/agent.mjs'));
 const { check, failed } = checker();
 const where = (n) => `${host} drive ${n}`;
-const ORIGIN = 'http://127.0.0.1:4790', TOKEN = 'fixture-token', LOCKED = `${TOKEN}: locked, user-presence`;
+const TOKEN = 'fixture-token', LOCKED = `${TOKEN}: locked, user-presence`;
 // A token whose bytes no name shares, so a check that they are nowhere in the state means something.
 const SECRET = 'fixture-secret-8';
 const run = Date.now().toString(36);
 const store = (name) => `la-${run}-${name}`;
 
 // The fixture, for every drive: a relaunch identifies against the same world.
-const fixture = spawn('bun', [resolve(root, 'apps/excord/fixture/server.ts'), '--world', 'transcript', '--reset-on-identify'], { stdio: ['ignore', 'pipe', 'inherit'] });
-await new Promise((ok, fail) => {
-  fixture.stdout.once('data', ok);
-  fixture.once('exit', (code) => fail(new Error(`the fixture server exited (${code}); is 4790 taken?`)));
-});
+const serial = host === 'android' ? (process.env.ANDROID_SERIAL ?? spawnSync('adb', ['devices'], { encoding: 'utf8' }).stdout.split('\n').map((l) => l.split('\t')).find(([, s]) => s?.trim() === 'device')?.[0]) : null;
+const adb = (...a) => spawnSync('adb', ['-s', serial, ...a], { encoding: 'utf8' });
+if (host === 'android') {
+  if (!serial) throw new Error('no Android device: start an emulator, or set ANDROID_SERIAL');
+  process.env.ANDROID_SERIAL = serial;
+  process.env.EXACT_ANDROID_READER = '1';
+  adb('root');
+  adb('wait-for-device');
+}
+const fixture = await excordFixture(), ORIGIN = fixture.origin;
+if (host === 'android') adb('reverse', `tcp:${fixture.port}`, `tcp:${fixture.port}`);
 const control = (name, body) => fetch(`${ORIGIN}/control/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 const fixtureState = () => fetch(`${ORIGIN}/control/state`).then((r) => r.json());
 
@@ -80,6 +91,13 @@ function home() {
 }
 /** The drive store's files: whether a plain copy and a locked item of the token are on disk. */
 function copies(name) {
+  if (host === 'android') {
+    // The reader's XDG_CACHE_HOME is the app's cache directory (ExactActivity).
+    const tree = `/data/data/com.exact.excord/cache/exact/com.exact.excord/agent/${store(name)}`;
+    const files = (dir) => adb('shell', `ls -A ${tree}/${dir} 2>/dev/null`).stdout.split('\n').filter((f) => f && !f.startsWith('.'));
+    if (adb('shell', `test -d ${tree}`).status !== 0) return null;
+    return { plain: files('secrets').length > 0, locked: files('kv/exact.presence.agent').length > 0 };
+  }
   const tree = [resolve(home(), 'Library/Caches/exact/com.exact.excord/agent', store(name))].find(existsSync);
   if (!tree) return null;
   const files = (dir) => (existsSync(dir) ? readdirSync(dir) : []);
@@ -100,7 +118,8 @@ const drives = {
       await answer(s, 'permission', 'allow');
       await answer(s, 'presence', 'allow');
       await s.clock('settle');
-      const st = await state(s);
+      // The switch reads the session, which `protect`'s answer asks again.
+      const st = await until(s, (x) => x.resources?.session?.lockOn === true, 5000);
       check(where(1), 'the switch is on once protect resolves', st.resources?.session?.lockOn === true, JSON.stringify(st.resources?.session));
       check(where(1), 'the store lists the token locked', JSON.stringify(await list(s)) === JSON.stringify([LOCKED]), JSON.stringify(st.store));
       check(where(1), 'only the locked copy is on disk', JSON.stringify(copies('a')) === '{"plain":false,"locked":true}', JSON.stringify(copies('a')));
@@ -263,7 +282,14 @@ const drives = {
           await s.prefer({ extension: 'local-auth.localAuthStatus={"available":true,"biometry":"faceID","deviceCredential":false,"presenceSecrets":true}' });
           await s.op(faultRequest('pass', ['fetch', 'exact-presence:hold.move']));
           await s.clock('+10');
-          check(where(8), 'no way to lock it: the plain copy is deleted, the name absent', JSON.stringify(await list(s)) === JSON.stringify([`${TOKEN}: absent`]) && JSON.stringify(copies(name)) === '{"plain":false,"locked":false}', JSON.stringify({ list: await list(s), disk: copies(name) }));
+          // Then the fixture's account signs itself in again (Excord's `loadSession`), as an app signs in again
+          // after a deleted token (D4): a fresh plain copy, written after the deletion, may follow it.
+          const lines = (await s.logs()).lines ?? [], shown = await list(s), disk = copies(name);
+          const deleted = lines.findIndex((l) => l.endsWith(`presence ${TOKEN}: it cannot be locked on this device, so its plain copy is deleted`));
+          const again = deleted >= 0 && lines.slice(deleted + 1).some((l) => l.endsWith(`store ${TOKEN}`));
+          const gone = JSON.stringify(shown) === JSON.stringify([`${TOKEN}: absent`]) && JSON.stringify(disk) === '{"plain":false,"locked":false}';
+          const signedInAgain = again && JSON.stringify(shown) === JSON.stringify([`${TOKEN}: plain`]) && disk?.locked === false;
+          check(where(8), 'no way to lock it: the plain copy is deleted, the name absent until the app signs in again', deleted >= 0 && (gone || signedInAgain), JSON.stringify({ deleted, list: shown, disk }));
         }
         if (point === 'unprotect.record') {
           await answer(s, 'presence', 'allow');
@@ -311,7 +337,7 @@ try {
     try { await drive(); } catch (e) { check(where(n), 'ran', false, e.stack ?? e.message); }
   }
 } finally {
-  fixture.kill();
+  fixture.stop();
 }
 console.log(`${failed()} failed`);
 process.exit(failed() ? 1 : 0);
