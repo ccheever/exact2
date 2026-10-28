@@ -141,7 +141,8 @@ fn call_value(
         | Stdlib::Top
         | Stdlib::Depth
         | Stdlib::Params
-        | Stdlib::SearchParam => {
+        | Stdlib::SearchParam
+        | Stdlib::SharedFiles => {
             return router?.call(plan, f, args);
         }
         Stdlib::EncodeURIComponent => {
@@ -321,7 +322,10 @@ pub fn join(args: &[Value], limit: usize) -> Result<Value, JoinError> {
 /// A native module's props (LLP 1024 D1): `pairs` alternate key and value,
 /// keys already in canonical order. Every value is carried as a string (a
 /// number as JavaScript prints it); an option's `none` leaves its key out.
-/// Escaping is JSON's, deterministic: `"`, `\\` and C0 controls only.
+/// Escaping is JSON's, deterministic: `"`, `\\` and C0 controls only. A key
+/// that is the list `[name, schema]` carries its value as JSON text by the
+/// schema (a package view's record or list prop, LLP 1133.021 §9 item 1,
+/// `contract_lower`'s `native_typed.rs`).
 pub fn native_props(pairs: &[Value]) -> Option<String> {
     fn quote(s: &str, out: &mut String) {
         out.push('"');
@@ -346,21 +350,84 @@ pub fn native_props(pairs: &[Value]) -> Option<String> {
             Value::Option(Some(inner)) => inner.as_ref(),
             v => v,
         };
-        let text = match value {
-            v if v.is_str() => v.as_str().unwrap_or_default().to_string(),
-            Value::Number(n) => format_number(*n),
-            Value::Bool(b) => b.to_string(),
+        let (key, schema) = match key {
+            Value::List(k) => {
+                let [name, schema] = &k[..] else { return None };
+                let schema: serde_json::Value = serde_json::from_str(schema.as_str()?).ok()?;
+                (name.as_str()?, Some(schema))
+            }
+            k => (k.as_str()?, None),
+        };
+        let text = match (value, schema) {
+            (v, Some(schema)) => {
+                let mut text = String::new();
+                typed_json(v, &schema, &mut text, &quote)?;
+                text
+            }
+            (v, None) if v.is_str() => v.as_str().unwrap_or_default().to_string(),
+            (Value::Number(n), None) => format_number(*n),
+            (Value::Bool(b), None) => b.to_string(),
             _ => return None,
         };
         if out.len() > 1 {
             out.push(',');
         }
-        quote(key.as_str()?, &mut out);
+        quote(key, &mut out);
         out.push(':');
         quote(&text, &mut out);
     }
     out.push('}');
     Some(out)
+}
+
+/// `v` as JSON by `schema` (`native_props`), as `budget.js`'s `NP` writes
+/// it with `JSON.stringify`: a record's `none` field left out.
+fn typed_json(
+    v: &Value,
+    schema: &serde_json::Value,
+    out: &mut String,
+    quote: &dyn Fn(&str, &mut String),
+) -> Option<()> {
+    let at = |k: &str| schema.get(k);
+    match v {
+        Value::Option(None) => out.push_str("null"),
+        Value::Option(Some(inner)) => typed_json(inner, at("o").unwrap_or(schema), out, quote)?,
+        Value::List(items) => {
+            let item = at("l")?;
+            out.push('[');
+            for (i, x) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                typed_json(x, item, out, quote)?;
+            }
+            out.push(']');
+        }
+        Value::Record(fields) => {
+            let names = at("r")?.as_array()?;
+            out.push('{');
+            let mut first = true;
+            for (field, x) in names.iter().zip(fields.iter()) {
+                if matches!(x, Value::Option(None)) {
+                    continue;
+                }
+                if !first {
+                    out.push(',');
+                }
+                first = false;
+                quote(field[0].as_str()?, out);
+                out.push(':');
+                typed_json(x, &field[1], out, quote)?;
+            }
+            out.push('}');
+        }
+        v if v.is_str() => quote(v.as_str()?, out),
+        Value::Number(n) if n.is_finite() => push_number(*n, out),
+        Value::Number(_) => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        _ => return None,
+    }
+    Some(())
 }
 
 /// JavaScript's decimal/exponent boundaries over Rust's shortest-round-trip printer.

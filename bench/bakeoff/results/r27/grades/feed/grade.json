@@ -1,0 +1,105 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Newest-first feed; author, handle, relative time, full text, rounded full-width images at native aspect, carousels with titled cards that snap card by card and a '9 in this collection' header."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Heart toggles fill/colour and count (872→873); reply count shown."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Tapping a post pushes a detail screen with a larger image and absolute timestamp; tapping an image (feed, detail or carousel card) opens a black full-screen viewer that a swipe down dismisses; a short drag springs back."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Pull to refresh adds 3 posts at the top, count goes 400→403, and a '3 fresh posts added' toast appears."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Compose sheet with placeholder; Post is disabled when the text is empty or only spaces; the new post appears at the top."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Like, composed post and refreshed posts all survive relaunch."
+      }
+    ],
+    "bugs": [
+      "Refreshed posts are ordered 401,402,403 top-down, so the 'newest' one is not first (all are labelled 'now', so it is hardly visible)."
+    ],
+    "tells": [
+      "Custom branded header (red logo tile plus serif 'Feed') and a 'Life, in good company.' hero instead of a standard large title that collapses into the nav bar; the header stays the same size when scrolling.",
+      "Posts are drawn as rounded white cards on a beige background, a web/marketing look rather than an iOS list.",
+      "At the largest text size the nav title and avatars do not scale, the '404 posts' red dot is separated from its text, and handle/time lines break awkwardly ('@mayachen' / '· 6m').",
+      "Carousel card titles sit in a grey footer slab, a hand-made card style."
+    ],
+    "scroll": "Smooth on slow drags and flings, with no blank or popping rows; status-bar tap scrolls to top and the scroll position is kept after returning from a post.",
+    "scores": {
+      "features": 9,
+      "platform": 6,
+      "polish": 8,
+      "overall": 8
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Newest-first feed with author, handle, relative time, full text, rounded full-width images at native aspect, and a horizontal carousel of titled cards; the carousel scrolls freely with no paging, so cards stop half-cut."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Like toggles the heart and count (872→873); reply count shown."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Tapping a post pushes a detail screen with a larger image; tapping an image or card opens a full-screen viewer that a swipe down dismisses."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Pull to refresh adds 3 new posts at the top."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Compose sheet; Post is disabled when the text is empty or only spaces; the post appears at the top."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Like and composed post survive relaunch."
+      }
+    ],
+    "bugs": [
+      "Relative times never update: a post composed 5+ minutes earlier still says 'Just now', and the detail screen shows 'Just now' instead of a date.",
+      "After relaunch the app sometimes reopened the post detail screen rather than the feed."
+    ],
+    "tells": [
+      "Full-screen photo viewer has a white background in light mode, with a thin blue X, where iOS photo viewers use black.",
+      "Carousel has no paging or snapping; it stops mid-card with titles clipped.",
+      "The like control is exposed as a Switch, and the detail image is a plain Image rather than a button (accessibility semantics feel hand-wired).",
+      "Reply icon is a wide double speech bubble with large gaps between the actions."
+    ],
+    "scroll": "Smooth drags and flings with no blank rows; the large title collapses into the inline nav bar like a native list, status-bar tap scrolls to top, and the position is kept after opening a post.",
+    "scores": {
+      "features": 8,
+      "platform": 8,
+      "polish": 7,
+      "overall": 7
+    }
+  },
+  "better": "A",
+  "why": "Both meet all six requirements. A is more finished: carousels snap, the black photo viewer looks right, the detail screen shows a real timestamp, relative times update, and there is refresh feedback. B looks more like stock iOS (collapsing large title, plain list, better scaling at large text), but its white photo viewer, free-scrolling carousel and frozen 'Just now' times feel less finished, so A edges it."
+}

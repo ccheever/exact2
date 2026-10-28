@@ -107,6 +107,35 @@ final class NavigationCollapseIOSTests: XCTestCase {
         return session
     }
 
+    private final class InsetWrites: UIScrollView {
+        var writes = 0
+        override var contentInsetAdjustmentBehavior: UIScrollView.ContentInsetAdjustmentBehavior {
+            didSet { writes += 1 }
+        }
+    }
+
+    func testUnchangedProjectionLeavesTheNativeInsetPolicyAlone() throws {
+        let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "inset-policy")
+        let navigation = session.presenter.navigation
+        let nav = try XCTUnwrap(navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let home = try node(session, "home-scroll")
+        let scroll = InsetWrites(frame: try XCTUnwrap(home.scrollView).frame)
+        home.addSubview(scroll)
+        home.more.nativeScrollView = scroll
+        navigation.prepareRoutes([route], in: nav)
+        XCTAssertTrue(route.contentScrollView(for: .top) === scroll)
+        for transparent in [false, true, false] {
+            route.node.props["navigationBar"] = transparent ? "transparent" : nil
+            navigation.prepareRoutes([route], in: nav)
+            XCTAssertEqual(scroll.contentInsetAdjustmentBehavior, transparent ? .never : .automatic)
+            scroll.writes = 0
+            navigation.prepareRoutes([route], in: nav)
+            navigation.prepareRoutes([route], in: nav)
+            XCTAssertEqual(scroll.writes, 0, "unchanged projection leaves UIKit's scroll configuration alone")
+        }
+    }
+
     /// `navigationBar="transparent"` over `scripts/fixtures/transparent-bar.contract`:
     /// the bar shows, clear at the top of the route's scroller, whose content
     /// starts at the top edge under it (UIKit insets it nothing), as under a

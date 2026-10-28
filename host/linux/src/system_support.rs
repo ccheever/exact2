@@ -2,6 +2,8 @@
 //! app's store files (a named agent drive's, or the app's own) and physical
 //! memory.
 
+use std::path::PathBuf;
+
 /// The kv scope the runner's kept answers live in, beside secrets
 /// (LLP 1027 D4). The same scope Apple's store writes.
 const KEPT: &str = "exact.kept";
@@ -18,6 +20,8 @@ const STATE: &str = "exact.state";
 /// (`picker::empty_fresh_tree`); one that cannot be emptied gives nothing,
 /// said at boot and again by the activation.
 pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, Vec<u8>)> {
+    // What an earlier host in this process committed is on disk before it is read back.
+    super::store_writer::settle();
     if carried {
         return Vec::new();
     }
@@ -84,11 +88,44 @@ struct PendingWrite {
     warned: bool,
 }
 
+/// Where an app's store writes go, as the environment says when they are
+/// committed: the store's root and, where secrets are kept on disk, theirs;
+/// `None` for a drive that keeps nothing (a nameless one), or why neither
+/// could be found.
+pub(super) type StoreRoots = Result<Option<(PathBuf, Option<PathBuf>)>, String>;
+
+/// [`StoreRoots`] for app `app_id`, now.
+pub(super) fn store_roots(app_id: &str) -> StoreRoots {
+    let found = || -> Result<_, exact_runner::DataError> {
+        let Some(root) = crate::picker::store_root(app_id)? else {
+            return Ok(None);
+        };
+        Ok(Some((root, crate::picker::secret_root(app_id)?)))
+    };
+    found().map_err(|e| format!("{e:?}"))
+}
+
 impl StoreWrites {
+    /// Whether a write failed and waits to be tried again.
+    pub(super) fn pending(&self) -> bool {
+        !self.0.is_empty()
+    }
+
     /// Retry at each commit, with newer writes replacing pending values or removals.
+    #[cfg(test)]
     pub(super) fn flush(
         &mut self,
         app_id: &str,
+        writes: &[exact_runner::StoreWrite],
+    ) -> Vec<String> {
+        self.flush_to(&store_roots(app_id), writes)
+    }
+
+    /// [`StoreWrites::flush`] to `roots`, resolved when the writes were
+    /// committed (the store's own thread writes them later).
+    pub(super) fn flush_to(
+        &mut self,
+        roots: &StoreRoots,
         writes: &[exact_runner::StoreWrite],
     ) -> Vec<String> {
         for write in writes {
@@ -103,26 +140,24 @@ impl StoreWrites {
         if self.0.is_empty() {
             return Vec::new();
         }
-        let root = match crate::picker::store_root(app_id) {
+        let stores = match roots {
             Ok(None) => {
                 self.0.clear();
                 return Vec::new();
             }
-            Ok(Some(root)) => Ok(root),
-            Err(error) => Err(error),
-        };
-        let stores = root.and_then(|root| {
-            Ok((
-                crate::picker::secret_root(app_id)?
+            Ok(Some((root, secrets))) => Ok((
+                secrets
+                    .as_ref()
                     .map(|root| ibex2::secrets::FileStore::new(root.join("secrets"))),
                 ibex2::kv::FileStore::new(root.join("kv")),
-            ))
-        });
+            )),
+            Err(error) => Err(error.clone()),
+        };
         let mut errors = Vec::new();
         self.0.retain(|name, pending| {
             let result = stores
                 .as_ref()
-                .map_err(|e| format!("{e:?}"))
+                .map_err(|e| e.clone())
                 .and_then(|(secrets, kv)| {
                     let owned = [
                         (KEPT, exact_runner::Store::KEPT),

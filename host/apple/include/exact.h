@@ -122,6 +122,10 @@ typedef struct ExactTextRun {
     float box_width, box_height, box_shift;
 } ExactTextRun;
 
+/* Evidence of the host's local-network fact from @exact/local-network
+ * (LLP 1133.036 D8): 0 granted, 2 denied. Returns 1 if the fact moved. */
+uint32_t exact_local_network_report(uint32_t state);
+
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
  * runs, the one algorithm the measurer applies before each measure callback. `utf8` is
  * the runs joined, `lens` their byte lengths, `white_space` as in ExactMeasureRequest.
@@ -488,6 +492,12 @@ void exact_module_invoke(ExactRuntime rt, size_t len, ExactInvokeReply reply, vo
 uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
 /* The runner's own go to the UTF-8 location in exact_in, a batch. */
 uint32_t exact_host_go(ExactRuntime rt, size_t len, double now_ms);
+/* LLP 1133.024 D2-D4: a received share, the JSON in exact_in
+ * ({"root", "target", "share", "inbox"?}), a batch; before the boot its
+ * location and tokens become the launch's, and exact_share_land, after
+ * storage is configured, lands its files (a batch). */
+uint32_t exact_share(ExactRuntime rt, size_t len, double now_ms);
+uint32_t exact_share_land(ExactRuntime rt);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
@@ -550,6 +560,9 @@ uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
    exact_in; returns the ordinary batch. */
 uint32_t exact_into_view(ExactRuntime rt, uint32_t view, size_t len);
+/* What UIKit covers of a virtualized list's port at its start and end, in
+   points: a row the runner aligns (scrollIntoView, a focus) lands clear of it. */
+void exact_list_covered(ExactRuntime rt, uint32_t view, double start, double end);
 /* Property: 0 translate, 1 scale, 2 rotate, 3 opacity. Begin replies with a
  * hold op {token:decimal-string,x,y}. Tokens belong to this runtime incarnation.
  * Check liveness before an authored action; final update, action, then end. */

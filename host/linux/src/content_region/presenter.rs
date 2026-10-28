@@ -1,9 +1,14 @@
 //! Selected native content, successful-paint publication and autonomous wake.
 use super::*;
+use crate::paint::FrameTarget;
 impl<D: DataSource> Presenter<D> {
     /// Reuse a presented CPU frame only after every other reader has released it.
     pub fn recycle_frame(&mut self, pixels: Arc<Pixmap>) {
         self.brush.recycle_frame(pixels);
+    }
+    /// The last frame's (paint, readback) milliseconds; CPU readback is zero.
+    pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
+        self.brush.last_frame_ms()
     }
     /// Explicit opt-in, before the first layout, for a native consumer.
     #[allow(clippy::too_many_arguments)]
@@ -54,12 +59,17 @@ impl<D: DataSource> Presenter<D> {
     /// ([`crate::text::cache::deferring_eviction`]): a paint that misses walks
     /// the cache once, not once per paragraph.
     pub fn frame(&mut self) -> Arc<Pixmap> {
+        self.frame_for(FrameTarget::Pixels)
+            .expect("capture has pixels or a CPU fallback")
+    }
+
+    pub(crate) fn frame_for(&mut self, target: FrameTarget) -> Option<Arc<Pixmap>> {
         // Its session's roles, whatever else lives on the thread (LLP 1121 stage 5).
         let _roles = self.host.runner().bind_roles();
         crate::text::cache::deferring_eviction(|| {
-            let frame = self.paint_frame();
+            let frame = self.paint_frame(target);
             if self.last_frame_succeeded && self.reveal_field_cursor() {
-                self.paint_frame()
+                self.paint_frame(target)
             } else {
                 frame
             }
@@ -69,7 +79,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn last_frame_succeeded(&self) -> bool {
         self.last_frame_succeeded
     }
-    fn paint_frame(&mut self) -> Arc<Pixmap> {
+    fn paint_frame(&mut self, target: FrameTarget) -> Option<Arc<Pixmap>> {
         self.brush.composition = self.ime_paint();
         self.alert_sync();
         self.prepare_overlay();
@@ -174,14 +184,16 @@ impl<D: DataSource> Presenter<D> {
             motion: &motion,
         };
         let mut paint = |brush: &mut Painter| match region {
-            Some(region) => brush.paint_region(
-                &scene,
-                self.viewport,
-                region,
-                &collection_limits,
-                &mut actions,
-            ),
-            None => brush.paint(&scene, self.viewport),
+            Some(region) => brush
+                .paint_region(
+                    &scene,
+                    self.viewport,
+                    region,
+                    &collection_limits,
+                    &mut actions,
+                )
+                .map(|frame| frame.map_pixels(Some)),
+            None => brush.paint_for(&scene, self.viewport, target),
         };
         let mut painted = paint(&mut self.brush);
         if let Err(e) = &painted {
@@ -199,7 +211,7 @@ impl<D: DataSource> Presenter<D> {
                 if region.is_some() && !deferred {
                     // One bounded-to-viewport retained surface, separate from
                     // glyph/font/image ledgers. No copy on ordinary opt-out.
-                    self.last_region_frame = Some(pixmap.clone());
+                    self.last_region_frame = pixmap.clone();
                     self.last_region_scale = Some(self.brush.scale.to_bits());
                     if let Some(e) = self.host.content_region_painted(&self.brush) {
                         self.host.log(e);
@@ -214,7 +226,7 @@ impl<D: DataSource> Presenter<D> {
                     // margins in the DRM carrier. New viewport area is opaque;
                     // old source and hit positions keep their original origin.
                     (
-                        retained_surface(old, self.viewport, self.brush.scale),
+                        Some(retained_surface(old, self.viewport, self.brush.scale)),
                         if self.last_region_scale == Some(self.brush.scale.to_bits()) {
                             std::mem::take(&mut self.boxes)
                         } else {
@@ -226,7 +238,7 @@ impl<D: DataSource> Presenter<D> {
                     let h = ((self.viewport.1 * self.brush.scale).round() as u32).max(1);
                     let mut blank = Pixmap::new(w, h).expect("a viewport has pixels");
                     blank.fill(tiny_skia::Color::WHITE);
-                    (Arc::new(blank), std::mem::take(&mut self.boxes))
+                    (Some(Arc::new(blank)), std::mem::take(&mut self.boxes))
                 }
             }
         };

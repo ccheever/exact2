@@ -439,9 +439,9 @@ component Cart
   the file also declares is refused (`syntax-method-shadowed`).
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
-  and the commands `share(…)`, `showNotification(…)`, `scrollIntoView(…)`, `playSound(…)` and
-  `stopSounds(…)`. Every other function takes
-  positional arguments.
+  the commands `share(…)`, `scrollIntoView(…)`, `playSound(…)` and
+  `stopSounds(…)`, and a native module's sources and sends
+  (`showNotification(…)`). Every other function takes positional arguments.
 
 For the full roster and special calls, see
 [standard functions and intrinsics](contract-grammar.md#standard-functions-and-intrinsics).
@@ -887,6 +887,13 @@ Choose the mechanism from its lifetime:
 | Why it failed, to branch on or show | `failure(resourceOrMutationName)`: `none`, or `some({ code, message, reason })`, `code` a domain refusal code when supplied, otherwise one of `offline`, `timeout`, `refused`, `shape`, `storage`, `error`; `reason` a Snapback refusal's code (`SLOT_FULL`), else `""` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
+A timer's step that reloads a resource runs the data module before the next frame, and
+the frame waits for it: a module that rebuilds every row each second drops a frame of a
+scrolling list each second, and `verify ios` says when the data module is in a late
+frame's time. Rebuild only what the tick changed (keep last tick's rows, remake those
+whose values moved), and leave out of the rows what the list does not show: a detail
+screen's chart points belong to a resource the detail reads.
+
 Resources read as their declared type. Mutations read as `option<T>` and start at
 `none`, so a mutation's `T` is not itself an option. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
@@ -1164,9 +1171,10 @@ each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https:/
 whole scheme, `net.fetch https:` (any host and port, for a server the person names
 at run time; `net.websocket` takes `wss:` or `ws:` the same way); on iOS
 cleartext `http` reaches only a local host, and only with `app.json`'s
-`host.ios.localNetworking` set; a server on the local network needs the grant
-`device.local-network purpose.<key>`, whose text is the platform's prompt on macOS
-and iOS; an `iframe` of `http://` from a named host needs
+`host.ios.localNetworking` set; a device on the local network the person names or
+the app finds is `net.fetch local-network` with `device.local-network purpose.<key>`,
+whose text is the platform's prompt on macOS and iOS ([recipe](recipes/local-network.md));
+an `iframe` of `http://` from a named host needs
 `host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
 `{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
 not an `http:` sub-resource of the app's own `assets/` page),
@@ -1314,7 +1322,8 @@ reach is past it, and on iOS the pull-to-refresh spinner draws below
 same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
 with `scroll-padding-top` equal to a header's height, the first row's
 `block="start"` is `scrollTop` 0. Only a virtualized list takes it
-(`lower-scroll-padding` elsewhere: native hosts read it nowhere else). `reorderdrop` belongs only on a vertical `list virtualized=true`
+(`lower-scroll-padding` elsewhere: native hosts read it nowhere else).
+`reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
@@ -1338,6 +1347,12 @@ stays there, so rows inserted on top show, and one following its end
 (`scrollFollowEnd`) follows it. A row root may move where it paints
 (`translate`, `rotate`, `scale`, a relative `top`/`left`, `z-index`: a lifted
 row being dragged) and keeps its place in the list.
+
+A virtualized list mounts only the rows near its port, and a screen reader
+moves only through mounted rows. `keep-mounted=[first(ids), ids.at(-1)]`
+names rows by key that stay mounted wherever the window is: a transcript's
+first and last message, so VoiceOver moves from one to the other, or a row that
+is playing. It takes up to 64 keys of the `for`'s key type (LLP 1010 §6.11).
 
 A `button` is the platform's own control by default. A background, border or
 radius, rich children, or a row/attribute/context the native control cannot
@@ -1508,7 +1523,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | --- | --- |
 | `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)); a row of your own parts starts and ends at the cell's margin, as UIKit's own rows do, so write no padding at its ends |
-| the same, `listStyle="plain"`, each `section`'s `header` one letter (Contacts) | the list with UIKit's A–Z section index at its trailing edge, when every section has a row; a name that starts with no letter A–Z goes under `#`, not nowhere |
+| the same, `listStyle="plain"`, each `section`'s `header` one letter (Contacts) | the list with UIKit's A–Z section index at its trailing edge, when every section has a row; sections above the letters (Favorites) stay out of it; a name that starts with no letter A–Z goes under `#`, not nowhere. Its headers pin as the list scrolls, over UIKit's blur; a `grouped` list's scroll away |
 | `list` with no `appearance`, its rows down the page (each child is a row) | a plain list's cells: UIKit's separators, the cell's grey ground while a row is pressed, the row selected under the screen it pushed. Draw none of it, and no inset either: a row's content stands at the cell's margin (16 at each end; UIKit's, 20 in an iPhone's landscape) where you write no padding, the row `border-box` (LLP 1138); write a padding to choose your own. The row is your box; a border you write on a row is yours and replaces the separator there (`border-bottom="none"`: none), and `appearance="none"` keeps rows of your own (a transcript, a feed of cards). The Mac shows a table, the web and the Linux desktop one line between rows, Android none (LLP 1115.000 D16) |
 | `delete=remove(id)` on either list's row (`disabled` beside it: no delete) | the cell's swipe action Delete, which a full swipe performs (`contract vocab swipe`) |
 | `input type="checkbox" switch` | `UISwitch` |
@@ -1695,12 +1710,16 @@ usual. Keep a picked photo by copying it to
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
 
 An `image` hears HTML `<img>`'s two events, once per source, on the web, macOS and
-iOS: `load=` when the picture is ready (no payload), and `error=` when it does not
+iOS (Linux, Android and Windows send `load` and not yet `error`): `load=` when the picture
+is ready (no payload), and `error=` when it does not
 load, with a `message` that says why (`error=failed` runs `action failed(message:
 string)`; `error=failed("icon")` passes `"icon"` before it). On macOS and iOS the
 message is the reason (`HTTP 404`, `Could not connect to the server.`, `not an image
 format this host decodes`); the browser gives none, so the web says `the image did
-not load`. A symbol fires neither. What each host's fetch of an `http(s)` source
+not load`. On every native host a download that asking again may mend (the network, a lookup, TLS, a timeout, the spool,
+a 5xx, 408 or 429, an empty body) is asked again while the picture is on screen, after 1, 2, 4, 8, 16 and 30 s
+and never sooner than `Retry-After`, so on macOS and iOS its `error` comes once those are spent (about a minute of
+waits, plus the downloads and any `Retry-After`), and one that fails off screen errs only after it has shown ([LLP 1011](../llp/1011-image-v1.spec.md) §4). A symbol fires neither. What each host's fetch of an `http(s)` source
 sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
 `Referer`, follow redirects to any host (within App Transport Security), take any
 2xx body up to 64 MiB whatever its `Content-Type`, and keep an HTTP cache on disk;
@@ -2657,10 +2676,30 @@ ids and non-root use are refused. The fixed ids are `close-all`, `autofill`, `sh
 Develop menu; its chords stay), `paste-and-match-style`, `find`,
 `spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
 *App* Help), `actual-size`, `zoom-in`, `zoom-out`.
-Other standard items remain; other hosts ignore removal. View has Actual Size
+Other standard items remain; other hosts ignore removal.
+`-exact-menu-keys="close-window=none"` on the root keeps File ▸ Close Window
+with no chord, so ⌘W reaches the page; declare `-exact-menu-remove="close-all"`
+with it, or AppKit's Close All ⌥⌘W shows as a row of its own.
+`close-window=Meta+Shift+W` gives it ⇧⌘W instead: one `aria-keyshortcuts`
+chord with `Meta` that is not the host's or the system's own. View has Actual Size
 ⌘0, Zoom In ⌘+ and Zoom Out ⌘-, which scale the root font size, the app's
 `setRootFontSize` included, and leave `px` as it is. See the grammar’s “The
 Mac’s menu bar”.
+
+Two more presentations of a button reach past the window
+([LLP 1133.025](../llp/1133.025-desktop.rfc.md) D4, D5). `dock` beside a menu
+id, or alone, also files the button in the app's Dock menu:
+`-exact-menu="file dock"` is New Conversation in File and in the Dock menu.
+`-exact-menu="status"`, alone, makes the button the app's status item: a menu
+bar item on macOS, a notification-area icon on Windows. Its text or
+`aria-label` is the item's title and tooltip, one `img` or `svg` child its
+image (a template image on macOS), and its `popovertarget` menu the item's
+menu; a click on macOS opens that menu, or runs `press` when there is none.
+On those two hosts the button takes no room in the page; elsewhere it is an
+ordinary button. An accessory app's status menu ends with the host's Quit,
+which `-exact-menu-remove="status-quit"` removes. Bare `focus()` brings the
+window forward, showing it if it was hidden; the agent lists the items as
+`state.statusItems` and `state.dockMenu`.
 
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
@@ -2841,10 +2880,11 @@ away, from a `pagehide` with `persisted` until the `pageshow`; `restores`
 counts those `pageshow` events, so `task t when page.restores > 0
 key=page.restores` runs once for each return, never at launch; a Mac window a
 `keepRunning` close hid is put away, a minimized one only hidden). A reminder that should
-open a route uses `showNotification(title="Done", navigate="/thread/42")`;
-its click reaches the navigation root as a warm `navigate` event or a cold
-launch location. Under the agent `state.notifications` lists `navigate`, and
-`type <navigation root> "/thread/42"` checks the destination. Under the agent each
+open a route uses `showNotification(title="Done", navigate="/thread/42")`
+(`@exact/notifications`); its click reaches the navigation root as a warm
+`navigate` event or a cold launch location, and without `navigate=` it is
+`notificationclick` on the root. Under the agent `state.notifications` lists
+each post, and `tap @ref` clicks one. Under the agent each
 is the drive's (`prefer has-focus false`; `state.device`). Use dimensions,
 media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts
@@ -3098,6 +3138,18 @@ which the runner steps a point across the drag and back in the hold's last
 150 ms, as a finger does (measured along a list); `hold 50` still glides. A
 drag that ends past the screen is the agent's drag above, `delivery:
 recognized`.
+
+On macOS a wheel is applied at once, with no momentum and no rubber band.
+`tap <scroller> wheel 0 600 fling` is a trackpad's fling instead: the driver
+posts its events to the app through the window server, AppKit glides and bands
+as it does for a person, and the reply comes when the scroller rests, with its
+`offset` (on the real clock; the session's clock does not move). `wheel 0 3000
+hold` leaves the finger down, so `layout` and `screenshot` see a band pulled
+past the end, and `wheel 0 0 release` lifts it; a drive that ends with a hold
+open lifts it too. These need the terminal's Accessibility grant (System
+Settings › Privacy & Security) and a window that is on screen; without either
+the operation fails and says why. A pull that starts at a scroller's end goes to
+the scroller around it, so one from the end of the outermost moves nothing.
 During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
@@ -3554,6 +3606,15 @@ count, as Chrome's do, on every host. It balances up to six lines (more, or a
 `line-clamp`, wrap as usual), moves only the breaks (the box measures as
 before, and `text-align` places the lines in it), and `auto` turns it off. `pretty` and `stable` are refused; supported values are `auto | balance`.
 
+`-webkit-font-smoothing="antialiased"` (inherited) draws text as Chrome and
+Safari on the Mac do under that property: lighter glyphs, without the stem
+darkening the Mac's default smoothing adds. Write it on the root only when the
+web app being matched sets it; unsaid, text is the platform's. AppKit draws it
+and the web writes it. Linux, Windows, a terminal and the widget and watch
+drivers accept it and draw as before, as browsers off the Mac ignore it; iOS
+is expected to as well, but has not been measured. `none` and
+`subpixel-antialiased` are refused; supported values are `auto | antialiased`.
+
 `text-box` cuts a paragraph's line box to its glyphs (CSS Inline Layout 3 §4),
 to centre a label in a pill or line a heading's cap height up with an icon
 without padding by eye: `text-box="trim-both cap alphabetic"` trims the first
@@ -4004,10 +4065,39 @@ selection as the bar's current item (`aria-current="page"`, iOS's selected
 trait) and takes no long press itself: an item held for more puts
 `contextmenu` on its slot fill (Bluesky's Profile avatar), so the press lands
 on the fill rather than the whole column.
+`@exact/actions` also exports `FollowButton` `(id, following, text, label,
+tone, size, shape, icon, press)`, a person's Follow button (Bluesky's
+FollowButtonInner), an authored pressable under D9's exception as
+`PostButton` is. Its variants are Bluesky's own: `tone` `"primary"`,
+`"inverted"`, `"subtle"` or `"overlay"`; `size` `"small"` or `"tiny"`;
+`shape` `"pill"` or `"round"` (icon only); `icon` `"both"` (plus, then a
+check once following), `"follow"`, `"following"` or `"none"`. Its words are
+yours: `text` is the visible label (Follow, Follow back, Following) and
+`label` the spoken one (`""` speaks `text`). It says following by its label
+alone, with no `aria-pressed`, so swap both with the state; a round one shows
+no text, so give it a `label` in both states (`"Follow Ada"`, `"Following
+Ada"`), which the compiler can't check. Each tone's fill and text, not
+following and following, are params (`fill`, `ink`, `followingFill`, …,
+`overlayFollowingInk`) over `actions.follow-*` tokens, its sizes are tokens,
+and its press scales are params, one for a small pill, a tiny one and a
+round one.
 The in-repo `@exact/cards` exports PostCard, AtCard, ProfileHeader (and its
-ProfileAlert shape), Avatar `(src, size)` and VerifiedBadge `(badge, size,
-ink, mark)`; `badge` is `"verified"`, `"verifier"`, or `""` for none, which
-draws nothing. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
+ProfileAlert shape), Avatar `(src, size)`, VerifiedBadge `(badge, size, ink,
+mark)` and PersonRow; `badge` is `enum<"none", "verified", "verifier">` (as
+ProfileHeader's and PostCard's), `"none"` drawing nothing. It was a string
+with `""` for none until stage 15 B batch 2: pass `"none"` now, and a data
+value of that enum type. `PersonRow` `(id, label, avatar, name, handle,
+badge, pill, description, descriptionLines, divider, disabled, press)` is a
+person in a list (Bluesky's ProfileCard), its one slot the trailing control
+(a `FollowButton`, your own, or nothing). Its one press target is the link,
+everything but the slot (`role="link"`, testId `<id>-link`, `label` its
+spoken name, such as "View Ada's profile"); the slot is a column beside it at
+the trailing edge, never in it, so the trailing control stays its own to a
+screen reader, and the pill and description run under the names;
+`handle` is the second line as shown (`"@ada.bsky.social"`), `pill` the
+pill's text (`""` for none), `divider` `"bottom"`, `"top"` or `"none"`;
+`disabled` dims the link (not your trailing control) and says so on it (`aria-disabled`) but doesn't stop `press`, so check in your
+action. Avatar's and VerifiedBadge's `size`, and VerifiedBadge's
 `ink` and `mark`, have no defaults: pass token or role names
 (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or
 your own), not literal colours, so setting those tokens restyles them.
@@ -4019,9 +4109,12 @@ name: `@exact/cards`' `cards.repost`, `cards.pin`, `cards.corner-down-right`
 `cards.verifier`, `cards.verifier-check` (VerifiedBadge), and `@exact/actions`'
 `actions.reply`, `actions.repost`, `actions.heart`, `actions.heart-filled`,
 `actions.bookmark`, `actions.bookmark-filled`, `actions.share`, `actions.dots`
-(ActionRow) and `actions.gallery`, `actions.camera`, `actions.gif`
-(ComposeFrame's toolbar). Each has no `sf`, so Apple draws the same path as the
-web. The Attie mark, the toolbar's three and the badges' paths were inline
+(ActionRow), `actions.gallery`, `actions.camera`, `actions.gif`
+(ComposeFrame's toolbar) and `actions.follow-add`, `actions.follow-check`
+(FollowButton). Each but FollowButton's two has no `sf`, so Apple draws the
+same path as the web; those two name SF Symbols' `plus` and `checkmark`
+beside Bluesky's paths, so Apple draws the symbols (as some of the clone's
+copies did; a copy that drew a path there changes, a named pixel change). The Attie mark, the toolbar's three and the badges' paths were inline
 `svg` with `fill-rule="evenodd"`; each one's holes wind against its outline, so
 it fills the same nonzero, and its SVG has no `fill-rule` (an even-odd icon
 gives its app a new compat id). A badge is two one-colour templates stacked,

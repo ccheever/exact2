@@ -5,14 +5,16 @@
 // hosts; contract/cli/tests/it/module_seam.rs drives it through the runner.
 // Drive 7 is a person's (test/device.md).
 //
-// usage: bun packages/speech-recognition/test/drives.mjs [web|macos|ios] [--only 1,2,…]
+// usage: bun packages/speech-recognition/test/drives.mjs [web|macos|ios|android] [--only 1,2,…]
 //   Builds nothing: build the recorder for the host first (`bun host/web/build.mjs
 //   recorder`; `bun host/apple/build.mjs recorder-apple`, `--ios --sim <udid>` for a
-//   simulator), which the driver checks is current.
+//   simulator; `bun scripts/agent-android.mjs build recorder --apk`, driven with
+//   EXACT_ANDROID_READER=1 and ANDROID_SERIAL naming the emulator), which the driver
+//   checks is current.
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dir, '../../..');
-const argv = process.argv.slice(2), host = argv.find((a) => ['web', 'macos', 'ios'].includes(a)) ?? 'web';
+const argv = process.argv.slice(2), host = argv.find((a) => ['web', 'macos', 'ios', 'android'].includes(a)) ?? 'web';
 const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1].split(',').map(Number) : null;
 const { open } = await import(resolve(root, 'scripts/agent.mjs'));
 let failures = 0;
@@ -46,6 +48,17 @@ async function allow(s) {
   return true;
 }
 const takes = async (s) => (await s.state()).resources.library.takes;
+/** The state once `want` holds of it, waiting on the wall clock up to 10 s: on Android's reader an extension answers
+ * on the main thread, which `clock settle`, holding exact2's, cannot wait for. */
+async function until(s, want) {
+  const end = Date.now() + 10000;
+  let st = await s.state();
+  while (!want(st) && Date.now() < end) {
+    await s.clock('+250 real');
+    st = await s.state();
+  }
+  return st;
+}
 const drive = (n) => !only || only.includes(n);
 
 async function each(n, name, body) {
@@ -70,7 +83,7 @@ await each(1, 'a live transcript', async (go) => {
   check(1, 'the line shows the phrase', (await texts(s))['live-transcript'] === 'pick up milk and eggs', JSON.stringify(await texts(s)));
   await s.tap('toggle');
   await s.clock('settle');
-  const st = await s.state(), [take] = st.resources.library.takes;
+  const st = await until(s, (x) => x.slots.stopped?.readyState === 'ended' && x.resources.library.takes[0]?.complete), [take] = st.resources.library.takes;
   check(1, 'the row shows its transcript', take?.transcript === 'pick up milk and eggs' && take.complete, JSON.stringify(take));
   check(1, 'one file of one result', st.slots.transcribed?.files === 1 && st.slots.transcribed?.finalCount === 1, JSON.stringify(st.slots.transcribed));
   check(1, 'the track ended', st.slots.stopped?.readyState === 'ended', JSON.stringify(st.slots.stopped));
@@ -85,7 +98,7 @@ await each(2, 'speech recognition denied', async (go) => {
   await s.clock('+2000');
   await s.tap('toggle');
   await s.clock('settle');
-  const [take] = await takes(s), t = await texts(s);
+  const [take] = (await until(s, (x) => x.resources.library.takes.length > 0)).resources.library.takes, t = await texts(s);
   check(2, 'the take records with no transcript', take && take.transcript === '', JSON.stringify(take));
   check(2, 'the denied line', 'speech-denied' in t, JSON.stringify(t));
   return s;

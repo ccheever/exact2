@@ -13,11 +13,11 @@ import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf, levelsOf, lookOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
-import { pairingSources } from './pairing';
-import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { opWords, whenText } from './optext';
+import { pairingSources } from './pairing'; import { chosenDiffSources } from './chosen-diff';
+import { gridSources } from './grid'; import { canvasRefusal } from './canvas-check'; import { refusalOf, refusalRows, refuse, restoreRefusals, stepping, stepRefused, stepsAgain, takeRefusals } from './refusals'; import { contrast } from './contrast'; import { heldTitle, opWords, whenText } from './optext';
 import { GONE, wire, type Reply } from './wire'; import { reviewed } from './reviewed'; import { again, heard, keep, resolveAll, type Kept } from './reread';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
-import { carriedChoice, startsChosen } from './choice';
+import { carriedChoice, chosenOf, heldChoice, startsChosen } from './choice';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
 import { moveLabel, moveOps, NUMBER, unread } from './moves';
 export { cellText, colourLiteral, controlOf, folded, panelOf } from './dials';
@@ -70,7 +70,7 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], firstColumn: '', tokenGroups: [], names: [], axes: [], icons: [], components: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', appDesign: false, answer: ++designs, groups: [], columns: [], firstColumn: '', tokenGroups: [], names: [], axes: [], icons: [], components: [] });
 let designs = 0;
 
 
@@ -344,7 +344,7 @@ const sameHold = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.
 /** A build's hold moved (another, or none): the selection's held report
  * was of the last one, so it is asked for again under this one. */
 const forgetHeld = (id: string) => { if (selectionNow?.e.held && String(selectionNow.e.build) === id) selectionNow.e = { ...selectionNow.e, held: undefined }; };
-let designAxes: Axis[] = [];
+let designAxes: Axis[] = [], axesRead = false;
 // Each library component's parts, by its declaring identity, as the app design's newest describe lists them (stage
 // 12 D3, LLP 1139 D5): the inspector's part outline. Empty until the server says them.
 let libraryParts = new Map<string, { name: string; slot: boolean }[]>();
@@ -362,7 +362,7 @@ const latch = () => { if (!selectionNow) return; const b = buildsNow.get(String(
 let polls = 0, resync = true, polled = '', seeded = '';
 // The changes' poll (stage 14 D): `reread`, a reply the long poll could not fold alone (a coalesced one, from
 // another cursor, or starting again), so the next ask reads once by POST; its answers' common part.
-let reread = false, byCursor = false, taken: unknown = null; // (`byCursor`: the server speaks 1.17's GET long poll; an older one keeps the held POST; `taken`, the last answer's cursor folded, opaque)
+let reread = false, byCursor = false, byChoice = false, taken: unknown = null; // (`byCursor`: the server speaks 1.17's GET long poll; `byChoice`, 1.18's choose; an older one keeps the held POST; `taken`, the last answer's cursor folded, opaque)
 const changesState = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold} ${written}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, heldDesign, builds: buildRows(), reloading: goneNow.rows(), reloadGen: goneNow.newest, ...refusalRows(buildsNow.values()) });
 /** One reply of the long poll (wire.ts `longPoll`), folded as it comes, or the poll's end (`ok: false`, asked again
  * after 3 s). A reply that names another cursor than the last folded, or carries others folded into it (D4's
@@ -412,7 +412,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // sent: the list is the one this tool has (its revision named), shown
   // again only when a newer read of the design moves its swatches.
   const design = Math.max(0, ...snapshots.keys());
-  if (r.proposals || design !== heldDesign) {
+  if (r.proposals || design !== heldDesign || heldChoice.shownStale()) {
     if (r.proposals) {
       heldAt = { epoch: String(r.epoch ?? ''), revision: typeof r.held === 'number' ? r.held : -1 };
       heldRaw = r.proposals;
@@ -420,11 +420,12 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
     }
     heldDesign = design;
     heldOps = new Map(heldRaw.map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
-    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review]));
+    heldReview = new Map(heldRaw.map(p => [String(p.proposal), p.review])); heldChoice.saw(heldRaw, heldAt.epoch, client); heldChoice.takeShown(); // (each card's base, the server's choice, built again when one moves: choice.ts)
     held = heldRaw.map(p => ({
       proposal: String(p.proposal), client: String(p.client ?? ''), editedBy: String(p.editedBy ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
-      tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], replaces: String(p.replaces ?? ''),
+      tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], title: heldTitle((p.ops ?? []).map((o: { op: unknown }) => o.op), (p.changed ?? []).map((c: { file: string; token: string }) => ({ file: String(c.file ?? ''), token: String(c.token) })), designFile), replaces: String(p.replaces ?? ''),
       items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
+      choiceGen: heldChoice.gen(String(p.proposal)),
       ...reviewOf(p),
     }));
   }
@@ -436,7 +437,7 @@ function fold(r: { events?: unknown[]; seq?: number; epoch?: string; missed?: bo
   // changeset starts again with it.
   // Another run of the server has none of this run's scrub: it ended
   // there, and a new one is chosen again.
-  if (place.epoch && r.epoch !== place.epoch) { holdNotes.clear(); asked.clear(); forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); keptReads.clear(); buildsNow = new Map(); goneNow.clear(); selectionNow = null; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
+  if (place.epoch && r.epoch !== place.epoch) { holdNotes.clear(); asked.clear(); forget(placeRun, [...undoStack, ...redoStack].some(e => e.token !== used)); changeset = []; reads.clear(); keptReads.clear(); buildsNow = new Map(); goneNow.clear(); selectionNow = null; designAxes = []; axesRead = false; axesReads += 1; inspectOn.clear(); endedIds.clear(); if (scrubbing) endScrub(scrubbing, scrubEndText('server lost')); }
   // Events missed: an end among them would be lost, so a scrub open is
   // ended here (cancelled, if the server still has it).
   // Missed, inspect mode's state is not known either: Inspect sends it again.
@@ -644,31 +645,24 @@ function reviewOf(p: any) {
         return { index, kind: 'other', name, text: opText(op), modes: [] };
     }
   });
-  const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept, on = startsChosen(p, r);
+  const c = r.counted ?? {}, recomputed = !!p.replaces || !!r.kept, on = startsChosen(p, r), chose = heldChoice.base(String(p.proposal)), base = chose && new Set(chose);
   return {
-    importer: String(r.importer), mapped, from: String(r.from ?? ''), kept: on,
+    importer: String(r.importer), mapped: mapped.map(m => ({ ...m, on: !base || base.has(m.index) })), from: String(r.from ?? ''), kept: base ? (r.offers ?? []).some((o: any) => (o.items ?? []).length > 0 && (o.items as number[]).every(i => base.has(i))) : on,
     // Off until ticked; in a recomputed import, the ones it kept were
     // ticked already, so they are on. One with no items is one
     // the importer could not make, its note saying why; in a recomputed
     // import, one with neither was not chosen, and is left out.
-    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: on && (o.items ?? []).length > 0 })),
+    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || o.note).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: (o.items ?? []).length > 0 && (base ? (o.items as number[]).every(i => base.has(i)) : on) })),
     // Each with where it came from (a file, a CSS block), so two of one
     // name in two modes are told apart.
     unmapped: (r.unmapped ?? []).map((u: any, i: number) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? '') + (u.block === '(derived)' ? ' (derived: outside the count)' : ''), derived: u.block === '(derived)', block: String(u.block ?? ''), key: `${i}` })),
     counted: `${recomputed ? 'the source import: ' : ''}${c.source} source values = ${c.mapped} mapped + ${c.reported} reported`, countOk: c.source === c.mapped + c.reported,
   };
 }
-/** An import's items its card has chosen: the mapped tokens unless
- * unticked, the role overrides only if ticked (LLP 1121 D1), or, on a
- * recomputed import (`startsChosen`), on unless unticked.
- * `picked`: the view's flipped items, `<proposal>:<i[,j]>` joined by `;`. */
-function chosen(proposal: string, picked: string): number[] {
-  const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
-  const recomputed = startsChosen(held.find(h => h.proposal === proposal), r);
-  const flipped = new Set(picked.split(';').filter(x => x.startsWith(`${proposal}:`)).flatMap(x => x.slice(proposal.length + 1).split(',').map(Number)));
-  const tokens = Number(r?.tokens ?? 0);
-  return ops.map((_, i) => i).filter(i => (i < tokens || recomputed ? !flipped.has(i) : flipped.has(i)));
-}
+/** An import's items its card has chosen (choice.ts `chosenOf`); `picked`, the view's flips joined by `;`. */
+const chosen = (proposal: string, picked: string): number[] => chosenOf(proposal, picked, heldReview.get(proposal), heldOps.get(proposal) ?? [], held.find(h => h.proposal === proposal));
+/** A held proposal's choice recorded (1.18 `choose`): its answer, or null. */
+const askChoose = (client: string, proposal: string) => async (items: number[]) => { const { error, reply } = await call('/__tamber', { method: 'choose', client, proposal, items }, 15000, heldToken || undefined); return error ? null : reply.ok as { choiceAt?: number }; };
 /** An operation in plain words (optext.ts), and the file it edits (the design's when it names none): two items may
  * differ only there. */
 const opText = (o: any): string => `${opWords(o)} (${o?.file || designFile || 'the design'})`;
@@ -763,7 +757,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 
 const sources: Sources = {
   ...pairingSources(call, pairWith, remote), sendSelectUp: async ([client, build, up]) => { stepping.add(String(build)); const r = await call('/__tamber', { method: 'inspect', client, build, select: { up } }); if (r.error) stepping.delete(String(build)); return { ok: !r.error, error: r.error }; },
-  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API),
+  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API), ...chosenDiffSources(call, () => held.filter(h => h.importer && (h.replaces || h.from)), (p, picked) => chosen(p, picked), p => heldOps.get(p) ?? [], () => heldToken || undefined, () => lastFiles, (p, picked, gen) => heldChoice.inStep(p, picked, gen)), // (D1.1: the diff a card shows follows its choice)
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
@@ -771,7 +765,7 @@ const sources: Sources = {
     // Paired, the server is another machine's whatever its hello says: never this machine's pages.
     const local = remote() === '' && ok.local !== false;
     liveTable = ok.live === true;
-    designFile = String(ok.design ?? ''); byCursor = Number(/^tamber\/1\.(\d+)$/.exec(String(ok.protocol ?? ''))?.[1] ?? 0) >= 17; // (the events' GET long poll, 1.17)
+    designFile = String(ok.design ?? ''); byCursor = Number(/^tamber\/1\.(\d+)$/.exec(String(ok.protocol ?? ''))?.[1] ?? 0) >= 17; byChoice = Number(/^tamber\/1\.(\d+)$/.exec(String(ok.protocol ?? ''))?.[1] ?? 0) >= 18; // (the events' GET long poll, 1.17; choose, 1.18)
     // `page`: the dev loop's own origin, which the canvas frames; "" with no
     // dev loop (tamber/1.3).
     return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files), ...(local ? pageOf(ok.page, Number(new URL(API).port)) : { page: '', frame: '' }), live: liveTable,
@@ -858,7 +852,7 @@ const sources: Sources = {
       // Overtaken: never shown, so nothing to keep.
       if (number === issued) {
         // The app design's axes, of the newest read only.
-        if (axesAt === axesReads) designAxes = axes;
+        if (axesAt === axesReads) { designAxes = axes; axesRead = true; }
         if (partsAt === partsReads) libraryParts = partsFrom(ir);
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files), kinds: new Map([...(ir.dials ?? []), ...ir.tokens, ...(ir.components ?? []).flatMap((c: { params: unknown[] }) => c.params)].map((t: { name: string; kind: string }) => [t.name, t.kind])), params: paramInfoOf(ir), tokenOf: tokenOfIn(ir), levelParams: read.params ?? [] });
         if (!file || file === designFile) { appParams = snapshots.get(number)!.params; appParamsKey = snapshots.get(number)!.digests; appKinds = snapshots.get(number)!.kinds; paramNames = new Map([...appParams].map(([name, p]) => [name, p.short])); }
@@ -867,7 +861,7 @@ const sources: Sources = {
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
       }
       return {
-        ok: true, error: '', file: file || '', answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
+        ok: true, error: '', file: file || '', appDesign: !file || file === designFile, answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
         columns: columns.map(({ id, label }) => ({ id, label })), firstColumn: columns[0]?.id ?? '',
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
@@ -1299,10 +1293,10 @@ const sources: Sources = {
     // files and holds that instead, to be reviewed and accepted afresh.
     // Its operations, kept now: the poll that answers as it is accepted no
     // longer lists it.
-    const at = session, some = items ? items.split(',').map(Number) : undefined, ops = (heldOps.get(proposal) ?? []) as Record<string, unknown>[];
+    const at = session, ops = (heldOps.get(proposal) ?? []) as Record<string, unknown>[], some = items ? items.split(',').map(Number) : byChoice ? ops.map((_, i) => i) : undefined; // (1.18: all named, never a recorded choice by default)
     const proposer = held.find(h => h.proposal === proposal)?.client;
     // To the server run that listed it.
-    const { error, reply, used } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}) }, WRITE_WAIT, heldToken || undefined);
+    const { error, reply, used } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}), ...(byChoice ? { choiceAt: heldChoice.at(proposal) } : {}) }, WRITE_WAIT, heldToken || undefined); // (the choice it saw: another client's since is 409, choice.ts)
     if (error === RESTARTED) forget(used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '' };
     if (error) return { ...stacks(false, error, ''), note: '' };
@@ -1339,19 +1333,22 @@ const sources: Sources = {
     }
     return { ok: true, error: '', proposal: ok.proposal, note: `Held for review as ${ok.proposal}.`, ...none };
   },
-  acceptImport: async ([client, proposal, picked]) => {
+  acceptImport: async ([client, proposal, picked, shownGen]) => {
     const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
     if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
-    const items = chosen(proposal, picked);
-    if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
-    return sources.acceptHeld([client, proposal, items.length === ops.length ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
+    // What the card shows is accepted: its own choose landed first, another client's choice asks for another look.
+    const moved = { ...stacks(false, 'Another client changed what this import has chosen: review it, then accept.', ''), note: '' };
+    if (!heldChoice.inStep(proposal, picked, shownGen)) return moved; // (the card not yet showing it)
+    const seen = heldChoice.gen(proposal), items = chosen(proposal, picked); if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
+    // (1.18: what it accepts recorded first, as an edit does, so no choose of its own lands after the choiceAt it names; before, its sends flushed)
+    if (!(await (byChoice ? heldChoice.send(proposal, items, askChoose(client, proposal)) : heldChoice.flush(proposal))) || heldChoice.gen(proposal) !== seen) return heldChoice.gen(proposal) !== seen || !byChoice ? moved : { ...stacks(false, 'The choice could not be recorded on the design server, so nothing was accepted: try again.', ''), note: '' };
+    // (on 1.18 its items always named, all of them included: never the server's choice by default, which may be older)
+    return sources.acceptHeld([client, proposal, items.length === ops.length && !byChoice ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
   },
-  editImport: async ([client, proposal, index, mode, value, picked]) => {
-    // A mapped token's value in one mode changed before accepting: the import held again (on the same server run)
-    // whole, with the edit, the old one dropped. Every role override is still offered, ticked or not, and the new one
-    // begins as a fresh import does (tokens in, overrides off), what the card had chosen carried to it: so editing
-    // before or after ticking ends with the same held proposal and the same choice, and a page loaded again later
-    // never finds an override on that no one ticked.
+  editImport: async ([client, proposal, index, mode, shownGen, value, picked]) => {
+    // A mapped token's value in one mode changed before accepting: the import held again whole, with the edit, the old
+    // one dropped, every role override still offered and the card's choice carried: on 1.18 recorded first, so the
+    // server carries it (choice.ts); before, by the page's flips on the new one (#6).
     const at = session;
     const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o, whens: o.whens?.map((w: any) => ({ ...w })) }));
     const op = ops[index];
@@ -1360,20 +1357,32 @@ const sources: Sources = {
     if (mode === 0) op.value = value.trim();
     else if (op.whens?.[mode - 1]) op.whens[mode - 1].value = value.trim();
     else return { ...stacks(false, `No such mode in \`${proposal}\`.`, ''), note: '', carried: [] };
-    const was = new Set(chosen(proposal, picked));
+    const moved = { ...stacks(false, 'Another client changed what this import has chosen: review it, then edit.', ''), note: '', carried: [] };
+    if (byChoice && !heldChoice.inStep(proposal, picked, shownGen)) return moved;
+    const seen = heldChoice.gen(proposal), was = new Set(chosen(proposal, picked));
     if (!was.has(index)) return { ...stacks(false, `${op.name} is left out of the import: tick it to edit it.`, ''), note: '', carried: [] };
-    const tokens = Number(r.tokens ?? 0);
-    const review = { ...r, kept: false, from: proposal };
-    // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step.)
-    const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim() } : { method: 'propose', hold: true, client, ops, review }, WRITE_WAIT, heldToken || undefined);
+    const tokens = Number(r.tokens ?? 0), review = { ...r, kept: false, from: proposal };
+    // (A 1.17 server edits it in place, `edit-held`: one value, no ops sent, the old one replaced in the same step. On
+    // 1.18 the card as shown, its choice recorded first and still it after, edit-held named its choiceAt: refused if moved.)
+    if (byChoice && !(await heldChoice.send(proposal, [...was].sort((a, b) => a - b), askChoose(client, proposal)))) return { ...stacks(false, 'The choice could not be recorded on the design server, so the edit was not sent: try again.', ''), note: '', carried: [] };
+    if (byChoice && heldChoice.gen(proposal) !== seen) return moved;
+    const made = await call('/__tamber', byCursor ? { method: 'edit-held', client, proposal, index, ...(mode ? { when: mode } : {}), value: value.trim(), ...(byChoice ? { choiceAt: heldChoice.at(proposal) } : {}) } : { method: 'propose', hold: true, client, ops, review }, WRITE_WAIT, heldToken || undefined);
     if (made.error === RESTARTED) forget(made.used);
     if (session !== at) return { ...stacks(false, RESTARTED, ''), note: '', carried: [] };
     if (made.error) return { ...stacks(false, made.error, ''), note: '', carried: [] };
     const fresh = String(made.reply.ok.proposal);
     const dropped = byCursor ? { error: '' } : await call('/__tamber', { method: 'drop', client, proposal }, 15000, heldToken || undefined);
-    const carried = carriedChoice(fresh, tokens, r.offers ?? [], was);
+    const carried = byChoice ? [] : carriedChoice(fresh, tokens, r.offers ?? [], was);
     const said = `${op.name} is ${value.trim()}${mode ? ` when ${whenText(op.whens[mode - 1].when ?? [])}` : ''} in the import, held again as ${fresh} with what was chosen: review it and accept.`;
     return { ...stacks(true, '', 'edited'), note: dropped.error ? `${said} The old one, ${proposal}, could not be dropped (${dropped.error}): drop it.` : said, carried };
+  },
+  sendChoices: async ([client, picked]) => {
+    // Each import card's choice, sent as it is ticked (1.18, choice.ts): a card the page has flipped, or sent before.
+    // (`drop` taken as it is invoked, with the picked it was given: a later answer, superseded, never clears a marker)
+    const flips = picked.split(';').filter(Boolean), drop = heldChoice.drop(flips), live = flips.filter(f => !heldChoice.stale(f)), sends = byChoice ? held.filter(h => heldReview.get(h.proposal)?.importer && (live.some(f => f.startsWith(`${h.proposal}:`)) || heldChoice.touchedFor(h.proposal))) : [];
+    await Promise.all(sends.map(h => heldChoice.send(h.proposal, chosen(h.proposal, picked), askChoose(client, h.proposal))));
+    // (`drop`: flips on a card another client chose on, said until dropped; `again`: a base moved, the cards built again)
+    return { ok: true, answer: heldChoice.answer(), drop, again: heldChoice.shownStale() };
   },
   loadAppAxes: async ([file]) => {
     // The running app's axes while another file is open: its own design's,
@@ -1384,7 +1393,7 @@ const sources: Sources = {
     const ir = (reply?.ok as { ir?: { axes?: Axis[] } } | undefined)?.ir, axes = error ? [] : (ir?.axes ?? []);
     // Also the axes a selection is placed by, while this file is open; and its library components' parts, of the
     // newest of these reads (the open file's own reads move `axesReads`, never the parts).
-    if (!error && axesAt === axesReads) designAxes = axes;
+    if (!error && axesAt === axesReads) { designAxes = axes; axesRead = true; }
     if (!error && partsAt === partsReads) libraryParts = partsFrom(ir as Parameters<typeof partsFrom>[0]);
     return { axes: axes.map(a => ({ name: a.name, values: a.values })), answer: ++appReads };
   },
@@ -1401,7 +1410,7 @@ const sources: Sources = {
     }
     latch();
     const b = selectionNow ? buildsNow.get(String(selectionNow.e.build)) : undefined;
-    const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', designAxes, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '', id => libraryParts.get(id) ?? null);
+    const view = () => selectionView(selectionNow, selectionNow?.stale ?? '', axesRead ? designAxes : null, columnsOf(designAxes), inspectOn.size > 0, b?.holding, holdNotes.get(String(selectionNow?.e.build)) ?? '', id => libraryParts.get(id) ?? null);
     const shown = view();
     // Held here and the selection not reporting that state yet (none, or an
     // earlier hold's): its page is asked to report it again, once a hold.

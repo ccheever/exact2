@@ -61,10 +61,10 @@ Core Animation, the presenter and one **apply coordinator**.
 |---|---|
 | T1 | One owner thread per process holds every Rust runtime from `exact_create` to `exact_destroy`. The registry, runners, kernels, hosts, data sources and Rust thread-locals live there. No `Send`, no `unsafe impl` |
 | T2 | Every C entry point has a class in §2.3's table. Owner-class calls run as one indivisible owner job: input write, operation, output copy and decode. That job is synchronous from main unless it is one of T3's two asynchronous operations |
-| T3 | Asynchronous: the collection fill during motion, and the display-link frame job while a fill is in flight. Nothing else |
+| T3 | Asynchronous on iOS: the collection fill during motion, the display-link frame job (§7.1), canvas draws (§8.5), system notices and data-source reply pumps (LLP 1027.007 P1), and timer advances (LLP 1072.000). Nothing else |
 | T4 | One non-reentrant apply coordinator on main applies batches in owner sequence. A synchronous call returns after its own batch has applied. Reports that an apply triggers are deferred until the coordinator is empty. Geometry is gathered after the drain, and a report the runner rejects as stale stays dirty and is retried |
 | T5 | Callback service is one-way. The owner reaches main only through `Owner.callMain`. A main callback cannot synchronously re-enter a runtime: that is refused by name. Notifications and logging are deferred as owner jobs. Each callback is claimed once, and locks are released before it runs |
-| T6 | An asynchronous fill only creates. It evicts nothing and dispatches no edge action; it says whether eviction or an edge is owed. After applying its batch, main runs a synchronous report with fresh pins that evicts and dispatches, exactly as today. Timer advances stay synchronous |
+| T6 | An asynchronous fill only creates. It evicts nothing and dispatches no edge action; it says whether eviction or an edge is owed. After applying its batch, main runs a synchronous report with fresh pins that evicts and dispatches, exactly as today. Timer advances are asynchronous on iOS except a `then` or queue `next` that is the earliest work due (LLP 1072.000 §4 B); an input on a view a commit not yet applied removed is refused and logged, and one on a view it changed runs against current state (LLP 1072.000 §7.1 (a)) |
 | T7 | Coverage is verified before presentation. After a drain, main re-reads current geometry, rescues uncovered owed rows synchronously, and checks that the viewport is covered, apart from D3's pending rows and 1068's held leaves |
 | T8 | Text measurement and text painting have separate mutable caches. Measurement publishes immutable line geometry keyed by content, width and font generation. No `CTLine` crosses threads |
 | T9 | Agent settlement is a fixed point over fills, frame jobs, publications, apply-generated reports and the existing conditions. It is re-checked after the request and after native completion turns. When work remains after the bound, it answers `settled: false` with reason `owner` |
@@ -374,8 +374,9 @@ The main-thread cost of one mount, averaged over 132 long turns:
 | Swift apply (flat leaves 2.1, SVG scene and animations 1.2, pool 0.6, …) | 5.9 | stage 4, if profiled |
 
 These are means over turns that mostly hold one row. A fill asks for
-`max(1, fits, needed)` rows. A change in pins or geometry lifts the limit,
-and a data change realizes the whole window. So neither "one fill" nor
+`max(1, fits, needed)` rows. A change in geometry lifts the limit, and a
+data change realizes the whole window; a change in pins keeps the limit and
+retires every row that left. So neither "one fill" nor
 "8.9 ms" is a bound. §11 replaces both with measured distributions.
 
 The live clock is off in the fling, in both apps. With `BENCH_LIVE=1`,

@@ -98,15 +98,17 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     if (!(mean > 0)) return 0;
     const top = viewport(s.port, A).start, bottom = top + g.portMain;
     let shortfall;
+    // The run that covers the port from its edge: a kept row past a gap of
+    // unbuilt rows is not in it (CollectionIOS.swift `rowsToCover`).
     if (ahead > 0) {
-      if (rows.at(-1).index === count - 1) return 0;
-      let reached = top;
-      for (const r of rows) if (r.top <= reached + 0.5) reached = Math.max(reached, r.bottom);
+      let reached = top, last = null;
+      for (const r of rows) if (r.top <= reached + 0.5 && r.bottom >= reached) { reached = r.bottom; last = r.index; }
+      if (last === count - 1) return 0;
       shortfall = bottom + ahead - reached;
     } else {
-      if (rows[0].index === 0) return 0;
-      let reached = bottom;
-      for (const r of rows.toReversed()) if (r.bottom >= reached - 0.5) reached = Math.min(reached, r.top);
+      let reached = bottom, first = null;
+      for (const r of rows.toReversed()) if (r.bottom >= reached - 0.5 && r.top <= reached) { reached = r.top; first = r.index; }
+      if (first === 0) return 0;
       shortfall = reached - (top + ahead);
     }
     return shortfall > 0 ? Math.min(64, Math.ceil(shortfall / mean)) : 0;

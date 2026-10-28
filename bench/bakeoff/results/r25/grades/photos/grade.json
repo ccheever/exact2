@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across square centre-cropped grid with thin gaps and day headings ('Thu, Feb 19' … 'Saturday', 'Yesterday'). Oldest at the top; opens at the newest, though not quite at the bottom: the last row sits about 75 pt under the tab bar until you drag. Subtitle shows the photo count."},
+      {"n": 2, "status": "pass", "note": "Tap opens the photo at its own aspect ratio. Swiping left and right pages between photos; swiping down closes back to the grid at the same position."},
+      {"n": 3, "status": "pass", "note": "A heart in the viewer's bottom bar toggles favourite, and a white heart badge shows in the grid. Unfavourite works."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title lists the 8 albums with cover and count, plus an extra Utilities > Favorites album. An album opens a continuous grid with a count subtitle."},
+      {"n": 5, "status": "pass", "note": "Select puts checkmark badges on tapped photos and shows 'N Photos Selected' with heart and trash buttons in the nav bar. Favourite applies to all of them; Delete asks for confirmation in an alert ('Delete 2 Photos'), then removes them and updates the count."},
+      {"n": 6, "status": "pass", "note": "After relaunch, favourites stay, deleted photos stay gone, and the count reads 1,498 / 1,497."}
+    ],
+    "bugs": [
+      "On launch (and after closing the viewer) the grid stops about 75 pt short of the true bottom, so the newest row is half hidden behind the floating tab bar until the user drags.",
+      "Winter (February) photos show times one hour later than B for the same photo (4:41 AM vs 3:41 AM), so some late-night photos land on the next day's heading. It looks like a fixed UTC offset with no DST, which would make A the wrong one; October times match between the apps."
+    ],
+    "tells": [
+      "The viewer's favourite control is exposed to accessibility as a Switch, not a button.",
+      "The viewer's bottom bar is two bare tinted glyphs (heart, trash) with no Liquid Glass button backgrounds and no Share button, unlike the iOS 26/27 Photos toolbar.",
+      "At the largest text size the viewer's heart and trash icons grow very large (system toolbar icons don't scale that way).",
+      "Select mode keeps the tab bar and puts the favourite/delete actions in the nav bar, instead of replacing the tab bar with a bottom toolbar as Photos does; there's no Select All.",
+      "The viewer is pushed with a back chevron rather than presented with a close button."
+    ],
+    "scroll": "Smooth and native. Slow drags and hard flings across 109 pages never showed blank tiles or pop-in, a fling reaches the top quickly, and position is kept when returning from the viewer. The only flaw is the slightly short initial bottom offset.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across square centre-cropped grid with thin gaps and day headings ('Thu, February 19' … 'Yesterday'). Oldest at the top; opens exactly at the newest, with the last row clear of the tab bar."},
+      {"n": 2, "status": "pass", "note": "Tap opens the photo at its own aspect ratio, titled with date, time and album. Swiping left and right pages ('Photo 1499 of 1500') and stops at the ends; swiping down dismisses."},
+      {"n": 3, "status": "pass", "note": "A heart button in the glass bottom toolbar toggles favourite/unfavourite, and a heart badge shows in the grid."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title lists the 8 albums with cover and 'N photos'. An album opens a grid of its photos, but split by day headings, so most rows hold one or two photos."},
+      {"n": 5, "status": "pass", "note": "Select hides the tab bar and shows a bottom toolbar (favourite, delete), 'N Photos Selected' and Select All / Cancel. Favourite applies to all; Delete confirms in a popover anchored to the button, then animates the cells out."},
+      {"n": 6, "status": "pass", "note": "After relaunch, favourites, unfavourites and deletions (from select mode and from the viewer) all stay; album counts update."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The album grids repeat the library's day headings, so an album is a column of mostly single-photo rows; Photos shows albums as a continuous grid.",
+      "The library title shows no photo count or date range, though that is minor."
+    ],
+    "scroll": "Feels like a native collection view. Flings over 92 pages to the top show no blank tiles, stutter or pop-in, headings stay in place, and position is kept on returning from the viewer.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both meet every requirement and persist correctly. B looks and behaves more like iOS Photos: a glass bottom toolbar with Share in the viewer, select mode that swaps the tab bar for a toolbar with Select All, confirmation popovers anchored to the button, and it opens exactly at the bottom. A has a nicer continuous album grid and a Favorites album, but its viewer controls look hand-made and grow huge at large text, its launch position leaves the newest row under the tab bar, and its winter timestamps appear to be an hour off."
+}

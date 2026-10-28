@@ -15,7 +15,7 @@ use super::shape::{Plan, Row};
 use crate::paint::{rgba, Backend, Ink, Rect4, Shape, SvgPaint};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_kernel::style::roles;
-use exact_kernel::{ColorValue, StyleProps, TextAlign, ViewId, WhiteSpace};
+use exact_kernel::{ColorValue, StyleProps, SymbolSet, TextAlign, ViewId, WhiteSpace};
 use std::rc::Rc;
 use tiny_skia::Transform;
 
@@ -149,6 +149,8 @@ pub struct Layout {
     pub targets: Vec<Target>,
     windows: Option<windows::Content>,
     menu: Option<menu::Scroll>,
+    /// Whose shapes its symbols take: WinUI's on the desktop, else Material's.
+    symbols: SymbolSet,
 }
 
 pub(in crate::presenter) fn paragraph(
@@ -337,7 +339,7 @@ impl Layout {
                                 })
                         })
                         .map_or(*color, |p| p.highlighted_text);
-                    symbol(backend, role, *rect, color);
+                    symbol(backend, role, *rect, color, self.symbols);
                 }
             }
         }
@@ -349,16 +351,17 @@ impl Layout {
     }
 }
 
-/// A symbol role's path in `rect`, as the page draws one at a regular
-/// weight (`paint/svg.rs`): stroked, or filled for a `-fill` role.
+/// A symbol role's path in `rect`, in `set`'s shape, as the page draws one
+/// at a regular weight (`paint/svg.rs`): stroked, or filled.
 pub(in crate::presenter) fn symbol(
     backend: &mut dyn Backend,
     role: &str,
     rect: Rect4,
     color: [u8; 4],
+    set: SymbolSet,
 ) {
     // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
-    let Some(path) = exact_kernel::symbol_path(role) else {
+    let Some(path) = exact_kernel::symbol_path_in(role, set) else {
         return;
     };
     // A translucent colour once over all an icon's paths.
@@ -385,17 +388,6 @@ pub(in crate::presenter) fn symbol(
     if group {
         backend.pop_opacity();
     }
-}
-
-/// A 24-unit path in `rect`: stroked as a symbol role's is, or filled.
-pub(in crate::presenter) fn glyph(
-    backend: &mut dyn Backend,
-    d: &str,
-    filled: bool,
-    rect: Rect4,
-    color: [u8; 4],
-) {
-    glyph_in(backend, d, filled, true, "0 0 24 24", rect, color);
 }
 
 /// A path in `rect` under its viewBox, stroked in a role's 24 units, or filled.
@@ -518,6 +510,7 @@ fn alert(
         targets: targets.into_iter().flatten().collect(),
         windows: None,
         menu: None,
+        symbols: SymbolSet::Material,
     }
 }
 
@@ -648,6 +641,11 @@ fn menu(
         targets,
         windows: None,
         menu: (height < y + padding).then(|| menu::Scroll::new(y + padding - height, dark)),
+        symbols: if desktop {
+            SymbolSet::Fluent
+        } else {
+            SymbolSet::Material
+        },
     }
 }
 

@@ -53,6 +53,10 @@ abstract class ExactExtension(val context: ExtensionContext) {
     /** The activity is in front again: what changed in Settings meanwhile is read again (Android has no event). */
     open fun resumed() {}
 
+    /** [Activity.onPause]: what only the activity in front may hold is let go, such as NFC reader mode, which
+     * [android.nfc.NfcAdapter.enableReaderMode] admits only while the activity is resumed (LLP 1133.035 D16 item 5). */
+    open fun paused() {}
+
     /**
      * Picture [source] of the interface's `img` scheme (`photos:<id>`, LLP 1133.019 D2, D11 item 1) for a box of
      * [width] by [height] device pixels at `object-fit` [fit], once the runner admitted it: [reply] once, from any
@@ -139,6 +143,9 @@ interface ExtensionRoster {
     val extensions: Map<String, (ExtensionContext) -> ExactExtension>
     /** Each view tag a package serves, with the extension that makes it (LLP 1133.001 D1). */
     val views: Map<String, String> get() = emptyMap()
+    /** The extensions whose interface says `"start": "load"`: made after the reader's first frame rather than at their
+     * first call (LLP 1133.015 D16 item 1). */
+    val startAtLoad: List<String> get() = emptyList()
 }
 
 /** What an extension may use of the host. */
@@ -168,9 +175,17 @@ class ExtensionContext internal constructor(val application: Context, private va
     /** The session's track table, which its implementations share (LLP 1133.009 D10 item 6). */
     val tracks: Tracks get() = Extensions.tracks
 
+    /** The process's audio focus owner, through which a module that plays or captures claims focus (LLP 1133.012
+     * D12 item 2). */
+    val audioFocus: AudioFocus get() = AudioFocus
+
     /** The file an admitted `app:/` path names (LLP 1133.009 D10 item 4): the app's own directories, a drive's
      * scratch tree under the agent. Admission checked the path against the calling source's grants. */
     fun file(path: String): java.io.File? = try { Native.appFile(path)?.let { java.io.File(it) } } catch (e: UnsatisfiedLinkError) { null }
+
+    /** A content URI for the file an admitted `app:/` path names, which an intent may carry with a read grant
+     * (`FLAG_GRANT_READ_URI_PERMISSION`), or null when it names none ([Files], LLP 1133.024 D22 item 2). */
+    fun contentUri(path: String): android.net.Uri? = file(path)?.let { Files.uri(application, it) }
 
     /** Whether the activity is resumed: a prompt shows only over a resumed activity (LLP 1133.010 D8). */
     val resumed: Boolean get() = Extensions.resumedNow
@@ -185,6 +200,10 @@ class ExtensionContext internal constructor(val application: Context, private va
     /** The page's canvases, whose input an extension may feed (LLP 1133.013 D6). */
     val surfaces = ExtensionSurfaces()
 
+    /** Claims on the host's foreground services, which keep a capability running while the app is hidden (LLP
+     * 1133.033 D2). */
+    val foregroundService = ForegroundServices(application, name) { agent }
+
     /**
      * The display's angle as the web's `screen.orientation.angle` (0, 90, 180, 270; LLP 1133.013 D12 item 4), from
      * `Display.getRotation`: [ExactExtension.orientation] is told each change.
@@ -193,6 +212,28 @@ class ExtensionContext internal constructor(val application: Context, private va
 
     /** The readers of [topic] are asked again (LLP 1016.002). */
     fun changed(topic: String) = Exact.changed(topic)
+
+    /**
+     * Raise the interface's event [event] with [args] (LLP 1133.004 D6): delivered in order, once, with the device's
+     * origin. Its one channel to the runner is [changed], as on Apple (`exact-event:`,
+     * `runner/src/runner/modules/events.rs`); the sequence number keeps two alike from coalescing. Main thread.
+     */
+    fun emit(event: String, args: JSONArray) {
+        Extensions.emitted += 1
+        changed("exact-event:" + JSONObject().put("extension", name).put("event", event).put("args", args).put("seq", Extensions.emitted))
+    }
+
+    /**
+     * Under the agent, what the implementation discloses of its own objects for `state.extensions` (LLP 1133.008 D8
+     * item 9): listed as its `implementation`, each field replacing the one of its name said before. Through
+     * [changed], as on Apple (`exact-state:`, `runner/src/runner/modules/disclosed.rs`). Nothing outside the agent.
+     */
+    fun state(fields: JSONObject) {
+        if (agent) changed("exact-state:" + JSONObject().put("extension", name).put("state", fields))
+    }
+
+    /** The process's pads (LLP 1133.022 D10 item 1), which a world canvas reads too. */
+    val pads = ExtensionPads(application)
 
     /** Each [wake]'s `ended`, by id, until the runner tells its outcome. */
     internal val ended = HashMap<String, (String) -> Unit>()
@@ -247,6 +288,40 @@ class ExtensionContext internal constructor(val application: Context, private va
      */
     fun startActivityForResult(intent: android.content.Intent, done: (Int, android.content.Intent?) -> Unit) = Extensions.start(intent, done)
 
+    /** [startActivityForResult] for a [android.content.IntentSender]: a Play services resolution's (Google Pay's sheet). */
+    fun startIntentSenderForResult(sender: android.content.IntentSender, done: (Int, android.content.Intent?) -> Unit) = Extensions.start(sender, done)
+
+    /**
+     * The app's handler [handler] run for the work [handle] names (LLP 1133.016 D15 item 1): one the call that made
+     * the handle listed, run by the runner as a fresh answer whose origin is at most `tool`. [reply] gets
+     * `{"text": JSON}` or `{"error", "message"}`, on the main thread.
+     */
+    fun invoke(handle: String, handler: String, args: JSONObject, reply: (JSONObject) -> Unit) {
+        val body = JSONObject().put("extension", name).put("handle", handle).put("handler", handler).put("args", args)
+        val id = try { Native.invoke(body.toString()) } catch (e: UnsatisfiedLinkError) { -1 }
+        if (id < 0) return reply(JSONObject().put("error", "InvalidStateError").put("message", "no session runs"))
+        // The answer lands on the host's turn; the main thread reads it a frame at a time.
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        lateinit var poll: Runnable
+        poll = Runnable {
+            val answer = try { Native.invoked(id) } catch (e: UnsatisfiedLinkError) { "{\"error\":\"InvalidStateError\"}" }
+            if (answer != null) reply(JSONObject(answer)) else main.postDelayed(poll, 16)
+        }
+        main.post(poll)
+    }
+
+    /**
+     * Whether the embedder lets the app leave for [url] (LLP 1133.024 D22 item 7), [how] `browser` (a page over the
+     * app) or `external` (another app): asked before a page or a hand-off by URL opens. The stock activity lets every
+     * one go; an embedding app sets [ExtensionContext.leaving] to decide. Main thread.
+     */
+    fun leave(url: String, how: String): Boolean = leaving?.invoke(url, how) ?: true
+
+    companion object {
+        /** The embedder's decision on leaving the app ([leave]); null lets every URL go. */
+        @JvmStatic var leaving: ((String, String) -> Boolean)? = null
+    }
+
     /** [requestPermissions] for [name], keeping the history [permission] reads. */
     fun askPermission(name: String, done: () -> Unit) = requestPermissions(arrayOf(name)) {
         val a = activity
@@ -255,6 +330,20 @@ class ExtensionContext internal constructor(val application: Context, private va
         }
         done()
     }
+}
+
+/** The process's gamepads as a module reads them ([ExtensionContext.pads]): each by its slot, the index a world
+ * canvas knows it by. Main thread. */
+class ExtensionPads internal constructor(private val application: Context) {
+    /** The connected pads by index, with their identities. */
+    fun list(): List<Pair<Int, PadDevice>> = Pads.attach(application).list()
+    /** The pad whose button last went down; null when none has been used since it connected. */
+    val current: Int? get() = Pads.current.takeIf { it >= 0 }
+    /** Pad [index]'s latest standard reading: 17 buttons, then 4 axes; null for no pad. */
+    fun reading(index: Int): FloatArray? = Pads.values(index)
+    /** [f] is told each change: a pad came or went, or another is in use. Its [owner] ends it with [unwatch]. */
+    fun watch(owner: Any, f: () -> Unit) { Pads.attach(application).watch(owner, f) }
+    fun unwatch(owner: Any) = Pads.unwatch(owner)
 }
 
 /** The page's canvases, as an extension feeds them ([ExtensionContext.surfaces]). */
@@ -306,6 +395,8 @@ internal object Extensions {
     private val made = HashMap<String, ExactExtension>()
     /** The one session's track table. */
     val tracks = Tracks()
+    /** The events raised so far ([ExtensionContext.emit]). */
+    var emitted = 0
     private var application: Context? = null
     private var foreground = false
     private var asking = false
@@ -343,6 +434,7 @@ internal object Extensions {
         }
         if (application == null) application = activity.applicationContext
         Presence.application = activity.applicationContext
+        AudioFocus.application = activity.applicationContext
         if (roster.isNotEmpty()) Exact.bindExtensions(roster.keys.joinToString("\n"))
     }
 
@@ -456,6 +548,12 @@ internal object Extensions {
     fun authenticator(): ExactAuthenticator? = roster.keys.firstNotNullOfOrNull { extension(it) as? ExactAuthenticator }
 
     /** Extension [name], made at its first call or view. */
+    /** The reader drew its first frame: each extension declared `"start": "load"` is made now (LLP 1133.015 D16 item
+     * 1), once for the process, as an extension outlives the activities that show the app. */
+    fun firstFrame() {
+        written?.startAtLoad?.forEach { extension(it) }
+    }
+
     private fun extension(name: String): ExactExtension? = made[name]
         ?: roster[name]?.let { make -> application?.let { make(ExtensionContext(it, name)) } }?.also { made[name] = it; webauthn.forEach { f -> it.webauthnField(f, true) } }
 
@@ -515,6 +613,19 @@ internal object Extensions {
         }
     }
 
+    fun start(sender: android.content.IntentSender, done: (Int, android.content.Intent?) -> Unit) {
+        val activity = Exact.reader?.get()
+        if (activity == null || !foreground) return done(Activity.RESULT_CANCELED, null)
+        val code = RESULTS + (started++ % 0x1000)
+        results[code] = done
+        try {
+            activity.startIntentSenderForResult(sender, code, null, 0, 0, 0)
+        } catch (e: android.content.IntentSender.SendIntentException) {
+            results.remove(code)
+            done(Activity.RESULT_CANCELED, null)
+        }
+    }
+
     /** [Activity.onActivityResult]: the answer of the call that started it, if this process made one. */
     fun activityResult(code: Int, result: Int, data: android.content.Intent?) { results.remove(code)?.invoke(result, data) }
 
@@ -535,5 +646,9 @@ internal object Extensions {
         made.values.forEach { it.resumed() }
     }
 
-    fun paused() { foreground = false }
+    /** [Activity.onPause]. */
+    fun paused() {
+        foreground = false
+        made.values.forEach { it.paused() }
+    }
 }

@@ -1,0 +1,6 @@
+6 flings of 372 pt · 732 frames presented · 21 late (34 missed, 8 overruns) · p50 16.67 ms p95 16.67 ms p99 56.57 ms max 77.19 ms · period 16.67 ms
+  late frames spent: runtime 216.19 · scroll 1.12 · text 0.94 · unattributed 707.91 ms
+  motion (diagnostic): 529 gliding frames · 0 unexplained steps · 0 stalls mid-glide
+  rows created: 0
+  images shown blank since launch: 0
+  a simulator's frames are the Mac's: compare runs and commits here, and judge a frame budget on a device

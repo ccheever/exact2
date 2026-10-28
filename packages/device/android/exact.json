@@ -1,0 +1,32 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/device@^1.0",
+  "platform": "android",
+  "targets": ["android"],
+  "shapes": {
+    "AndroidBattery": {
+      "status": "enum<charging|discharging|full|notCharging|unknown>",
+      "plugged": "enum<ac|usb|wireless|dock|none>",
+      "batteryLow": "bool"
+    },
+    "AndroidNetwork": {
+      "metered": "bool",
+      "temporarilyNotMetered": "option<bool>",
+      "roaming": "bool",
+      "restrictBackgroundStatus": "enum<disabled|enabled|whitelisted>"
+    },
+    "AndroidPower": {
+      "thermalStatus": "enum<none|light|moderate|severe|critical|emergency|shutdown>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "kotlin": ["."] },
+  "artifacts": [],
+  "class": "exact.device.DeviceModule",
+  "manifest": {
+    "permissions": ["android.permission.ACCESS_NETWORK_STATE"]
+  }
+}

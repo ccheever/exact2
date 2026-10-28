@@ -180,5 +180,115 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(try cell(p, 11).bounds.height, 120, accuracy: 0.5, "its row grew")
     }
+
+    /// A row inserted at the top of a list of custom rows: the shown rows
+    /// stay in their cells through the batch, as a collection view's cells
+    /// do under an insert, and go home in the order the batch gave them.
+    func testARowInsertedAboveCustomRowsLeavesTheShownOnesInTheirCells() throws {
+        var inserted = false
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].rows[0] = Row(view: 10, custom: true, pressable: true)
+            m.sections[0].rows[1] = Row(view: 11, custom: true, pressable: true)
+            if inserted { m.sections[0].rows.insert(Row(view: 14, custom: true, pressable: true), at: 0) }
+            return m
+        }
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 16.0, "y": 0.0, "w": 354.0, "h": 85.0],
+                           ["op": "frame", "id": 11, "x": 16.0, "y": 85.0, "w": 354.0, "h": 79.0]]))
+        let l = try list(p)
+        let a = try cell(p, 10), row = try XCTUnwrap(p.views[10])
+        XCTAssertTrue(row.superview === a.contentView)
+        inserted = true
+        let insert = wireBatch([
+            ["op": "create", "id": 14, "kind": "button", "props": ["testId": "row14"], "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 4, "ids": [14, 10, 11, 12]],
+            ["op": "frame", "id": 14, "x": 16.0, "y": 0.0, "w": 354.0, "h": 70.0],
+            ["op": "frame", "id": 10, "x": 16.0, "y": 70.0, "w": 354.0, "h": 85.0],
+            ["op": "frame", "id": 11, "x": 16.0, "y": 155.0, "w": 354.0, "h": 79.0],
+        ])
+        host(p).prepare(insert.ops)
+        XCTAssertTrue(row.superview === a.contentView, "a frame and its parent's children leave it in its cell")
+        p.apply(insert)
+        XCTAssertTrue(row.superview === a.contentView, "nor did the batch move it")
+        XCTAssertEqual(row.frame.minY, 0, "at its cell's top")
+        XCTAssertTrue(try XCTUnwrap(p.views[14]).superview === (try cell(p, 14)).contentView, "the new row in its own cell")
+        // Home, each is where the batch put it, in its order.
+        l.restore()
+        let group = try XCTUnwrap(p.views[4]).container
+        XCTAssertEqual(group.subviews.compactMap { ($0 as? NodeView)?.id }, [14, 10, 11, 12])
+        XCTAssertEqual(row.frame.minY, 70, "and its box")
+        // A prop on the row itself takes it home alone for the batch.
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0]]))
+        let b = try cell(p, 11)
+        host(p).prepare(wireBatch([["op": "props", "id": 10, "set": ["testId": "first"]]]).ops)
+        XCTAssertTrue(row.superview === group, "the row read at home")
+        XCTAssertTrue(try XCTUnwrap(p.views[11]).superview === b.contentView, "its neighbour still in its cell")
+    }
+
+    /// A swipe row inserted while a sheet is up (r25's contacts: the
+    /// contact its form saves) offers its actions once the sheet closes.
+    /// The sheet made it inert as it was mounted, and the batches after
+    /// change nothing in it, so its row keeps what it read then: only the
+    /// row's own `inert` may take its actions away.
+    func testASwipeRowInsertedUnderASheetSwipesOnceItCloses() throws {
+        var rows = [Row(view: 30, title: "Plain")]
+        ExactGroupedLists.install()
+        let p = Presenter()
+        host(p).model = { $0 == 1 ? GroupedListModel(sections: [.init(view: 2, header: nil, footer: nil, rows: rows)]) : nil }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let screen = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        screen.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let owner = UIViewController(), background = UIViewController()
+        screen.rootViewController = owner
+        screen.makeKeyAndVisible()
+        window = screen
+        addTeardownBlock { owner.presentedViewController?.dismiss(animated: false); screen.isHidden = true }
+        p.viewport.frame = owner.view.bounds
+        owner.view.addSubview(p.viewport)
+        owner.addChild(background)
+        background.view.frame = owner.view.bounds
+        owner.view.addSubview(background.view)
+        background.didMove(toParent: owner)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
+            ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 30, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 90, "kind": "view", "props": ["navigationPresentation": "modal"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [4]], ["op": "children", "id": 4, "ids": [30]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 0.0, "w": 354.0, "h": 52.0],
+        ]))
+        background.view.addSubview(try XCTUnwrap(p.views[1]))
+        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, preceding: nil, owner: owner)
+        XCTAssertTrue(try XCTUnwrap(p.views[1]).inert, "the sheet makes the list inert")
+
+        rows.insert(Row(view: 21, custom: true), at: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 21, "kind": "view", "props": ["swipeContent": "body", "swipeTrailing": "delete"],
+             "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": 22, "kind": "view", "props": ["id": "body"], "style": [:]],
+            ["op": "create", "id": 23, "kind": "button", "props": ["id": "delete", "accessibilityLabel": "Delete", "destructive": "true"],
+             "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 4, "ids": [21, 30]], ["op": "children", "id": 21, "ids": [22, 23]],
+            ["op": "frame", "id": 21, "x": 16.0, "y": 0.0, "w": 386.0, "h": 52.0],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 0.0, "w": 370.0, "h": 52.0],
+            ["op": "frame", "id": 23, "x": 370.0, "y": 0.0, "w": 60.0, "h": 52.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 52.0, "w": 354.0, "h": 52.0],
+        ]))
+        p.modals.closeTop(animated: false)
+        XCTAssertFalse(try XCTUnwrap(p.views[21]).inert, "the sheet closed")
+        // A batch that changes nothing in the row keeps it as it is.
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["testId": "rows"], "clear": [String]()]]))
+        let trailing = try list(p).swipeActions(at: IndexPath(item: 0, section: 0), leading: false)
+        XCTAssertEqual(trailing?.actions.count, 1, "its Delete, as the rows that were there before the sheet")
+        // Its cell, configured under the sheet, takes a tap and is an element
+        // (r28's expenses: a saved expense neither opened nor was read until relaunch).
+        try list(p).collection.layoutIfNeeded()
+        let cell = try XCTUnwrap(list(p).cell(21))
+        XCTAssertTrue(cell.isUserInteractionEnabled, "a tap reaches it")
+        XCTAssertFalse(cell.accessibilityElementsHidden, "VoiceOver reads it")
+    }
 }
 #endif

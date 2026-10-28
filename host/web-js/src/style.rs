@@ -1237,6 +1237,18 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
             &SCHEME_MAP,
         )],
         StyleId::TextWrapStyle => one("text-wrap-style", ""),
+        // @ref LLP 1019 D12 — css.rs writes Firefox's Mac spelling too.
+        StyleId::FontSmoothing => vec![
+            Write {
+                name: "-webkit-font-smoothing".into(),
+                unit: String::new(),
+                map: None,
+            },
+            with(
+                "-moz-osx-font-smoothing",
+                "v=>v==null?v:v==\"antialiased\"?\"grayscale\":\"auto\"",
+            ),
+        ],
         // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
         StyleId::TextBoxEdge => vec![with(
             "text-box-edge",
@@ -1383,6 +1395,7 @@ pub(crate) fn css_property(id: StyleId) -> String {
         StyleId::SvgMask => return "mask".into(),
         StyleId::TextStrokeWidth => return "-webkit-text-stroke-width".into(),
         StyleId::TextStrokeColor => return "-webkit-text-stroke-color".into(),
+        StyleId::FontSmoothing => return "-webkit-font-smoothing".into(),
         id => id.name(),
     };
     for (prefix, suffix) in [

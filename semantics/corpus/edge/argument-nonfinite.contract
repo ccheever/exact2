@@ -1,6 +1,4 @@
-// A handler's argument outside its parameter's type: a number that is not
-// finite. The runner refuses the action before its body runs
-// (ArgumentType); the web JS target once ran it.
+// A non-finite handler argument refuses the action before its body runs.
 component App
   state n = 0
   state last = "none"

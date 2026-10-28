@@ -15,6 +15,8 @@
 mod arity;
 mod calls;
 mod gates;
+mod properties;
+pub use properties::check_properties;
 mod rereads;
 mod sends;
 mod shortcuts;

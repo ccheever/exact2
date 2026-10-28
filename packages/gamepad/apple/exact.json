@@ -1,0 +1,20 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/gamepad@^1.0",
+  "platform": "apple",
+  "targets": ["ios", "macos", "tvos"],
+  "shapes": {
+    "AppleGamepad": {
+      "symbols": "string[]",
+      "productCategory": "string",
+      "vendorName": "string"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": ["controller"],
+  "sources": { "swift": ["Gamepad.swift"] },
+  "artifacts": [],
+  "class": "GamepadModule"
+}

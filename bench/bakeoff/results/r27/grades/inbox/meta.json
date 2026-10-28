@@ -1,0 +1,11 @@
+{
+  "spec": "inbox",
+  "key": {
+    "A": "uikit",
+    "B": "exact"
+  },
+  "exit": 0,
+  "minutes": 7.74,
+  "shots": 36,
+  "graded": true
+}

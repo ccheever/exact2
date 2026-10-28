@@ -2,7 +2,24 @@
 //! (`piece`, called with the element and the handler) and the event
 //! families `on` takes (`binder`), each imported only where a plan binds it.
 
-use exact_plan::EventKind;
+use exact_plan::{EventKind, HandlersRow, Plan};
+
+/// A package view's declared event (LLP 1133.021 §9 item 2): a `message`
+/// handler whose one bound argument is the literal `exact:event:<name>`
+/// (contract-lower's `native_typed.rs`): its name and its action's
+/// parameter types, as `rt.js` `viewEvent` decodes the arguments.
+pub(crate) fn declared(plan: &Plan, h: &HandlersRow) -> Option<(String, Vec<String>)> {
+    if h.event != EventKind::Message || h.args.len != 1 {
+        return None;
+    }
+    let first = h.args.iter().next()?;
+    let literal = crate::style::literal(plan, plan.code(plan.arg(first).expr))?;
+    let name = literal.as_str()?.strip_prefix("exact:event:")?.to_owned();
+    let params = (plan.action(h.action).params.iter())
+        .map(|p| crate::emit::surface_type_json(plan, plan.param(p).ty))
+        .collect();
+    Some((name, params))
+}
 
 /// The motion or input piece's export for an event, if it is one.
 pub(crate) fn piece(event: EventKind) -> Option<&'static str> {

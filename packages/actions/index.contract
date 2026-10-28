@@ -1,6 +1,7 @@
 // @exact/actions — library components for actions (LLP 1139 §5 E, from the
 // Bluesky clone's own pieces): the Post button, a post's action row, the
-// composer's frame, and an app's own bar's and header's buttons. Their look
+// composer's frame, an app's own bar's and header's buttons, and a person's
+// Follow button (LLP 1121 stage 15 B batch 2; its words the app's). Their look
 // is their params, whose defaults are the package's tokens (actions.tamber);
 // an app restyles it by setting a param or a token by full name, never by
 // editing this file.
@@ -10,3 +11,4 @@ use ActionRow from "./action-row.contract"
 use ComposeFrame from "./compose-frame.contract"
 use BarItem from "./bar-item.contract"
 use HeaderButton from "./header-button.contract"
+use FollowButton from "./follow-button.contract"

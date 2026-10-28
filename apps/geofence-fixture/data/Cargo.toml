@@ -1,0 +1,18 @@
+# The geofencing fixture's data source: none, beside its grant lines.
+[package]
+name = "geofence-fixture-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The geofencing fixture's data source: its grant lines"
+publish = false
+
+[lib]
+name = "geofence_fixture_data"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

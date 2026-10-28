@@ -30,7 +30,7 @@
 //! names each one's symbol).
 use crate::paint::{Backend, Rect4, Shape};
 use crate::presenter::palette::{material, Material};
-use crate::presenter::top::look::{glyph, paragraph, symbol, Role, Type, LABEL_LARGE, STATE_LAYER};
+use crate::presenter::top::look::{paragraph, symbol, Role, Type, LABEL_LARGE, STATE_LAYER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_kernel::generated::metric;
 use exact_kernel::style::metrics::{self, Column};
@@ -99,11 +99,6 @@ fn told(role: Material, dark: bool, light: u32, night: u32) -> [u8; 4] {
         [r, g, b, 255]
     })
 }
-
-/// Material Symbols' `arrow_back`, on a 24 grid: the Up arrow (D14). The
-/// one symbol of Material's own this stage needs; the others are still the
-/// symbol table's paths.
-const ARROW_BACK: &str = "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z";
 
 /// A header's button as the top bar shows it.
 #[derive(Debug, Clone, PartialEq)]
@@ -210,7 +205,6 @@ enum Item {
     Text(Rc<Paragraph>, (f32, f32), [u8; 4], ViewId),
     Fill(Shape, [u8; 4]),
     Symbol(String, Rect4, [u8; 4]),
-    Glyph(&'static str, Rect4, [u8; 4]),
 }
 
 /// A bar measured: its size, its colour and what it draws.
@@ -286,8 +280,14 @@ impl Layout {
                     backend.text(engine, paragraph, &paint, *at, ts);
                 }
                 Item::Fill(..) => {}
-                Item::Symbol(role, rect, color) => symbol(backend, role, *rect, *color),
-                Item::Glyph(d, rect, color) => glyph(backend, d, true, *rect, *color),
+                // Material's shapes (D14): the Up arrow is its `back`.
+                Item::Symbol(role, rect, color) => symbol(
+                    backend,
+                    role,
+                    *rect,
+                    *color,
+                    exact_kernel::SymbolSet::Material,
+                ),
             }
         }
     }
@@ -310,7 +310,7 @@ impl Layout {
         if top.up {
             let ink = Role::OnSurface.color(dark);
             let at = (left + (ICON_BUTTON - icon) / 2.0, middle(icon), icon, icon);
-            items.push(Item::Glyph(ARROW_BACK, at, ink));
+            items.push(Item::Symbol("back".into(), at, ink));
             targets.push(Target {
                 rect: (left, middle(ICON_BUTTON), ICON_BUTTON, ICON_BUTTON),
                 what: What::Up,
@@ -601,7 +601,6 @@ mod tests {
                 Item::Text(_, _, color, node) => texts.push((*node, *color)),
                 Item::Symbol(_, rect, color) => symbols.push((*rect, *color)),
                 Item::Fill(shape, _) => fills.push(shape.rect),
-                Item::Glyph(..) => {}
             }
         }
         // Where no palette was told, Material's baseline: the selected

@@ -98,7 +98,7 @@ fn walk(m: &mut Module, n: u32, every: u32) -> (Result<Value, DataError>, u32) {
 fn a_turn_over_the_budget_fails_and_names_scheduler_yield() {
     let mut m = module();
     let (answer, turns) = walk(&mut m, N, 0);
-    let Err(DataError::Unavailable(message)) = answer else {
+    let Err(DataError::Overrun(message)) = answer else {
         panic!("one turn over all of it is over the budget: {answer:?}");
     };
     assert!(

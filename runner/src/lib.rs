@@ -50,6 +50,7 @@ mod conform;
 pub mod decorations;
 pub mod delivery;
 pub mod design;
+pub mod desktop;
 pub mod device;
 pub mod failure;
 pub mod file_pickers;
@@ -60,8 +61,9 @@ pub mod hardened;
 pub mod head;
 pub mod held;
 pub mod instance;
+pub mod listen;
 pub mod lists;
-pub mod notify;
+pub mod local_network;
 pub mod orientation;
 pub mod page;
 pub mod perf;
@@ -72,6 +74,8 @@ pub mod save_file;
 /// The picker's helpers a host shares (LLP 1069.002): types by name,
 /// `accept` matching, the HEIC rule, a `type @t` answer's paths.
 pub use runner::picker as picker_support;
+/// A received share's helpers a host shares (LLP 1133.024 D2, D3).
+pub use runner::picker::shared as share_in;
 pub mod machine;
 pub mod midi;
 pub mod share;
@@ -116,12 +120,12 @@ pub use runner::{
     Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks, DrawReply, DrawRequest,
     Drawn, DropEvent, Event, FieldSelection, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
     InFlight, InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits,
-    ListTextPolicy, ListTextPosition, Native, NativeCall, NativeHandler, Overlaid, Picked,
-    PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange, RouterLink,
-    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, SnapshotModule,
-    SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target, Timed, WheelEvent,
-    Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED,
-    TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    ListTextPolicy, ListTextPosition, MouseEvent, Native, NativeCall, NativeHandler, Overlaid,
+    Picked, PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange,
+    RouterLink, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection,
+    SnapshotModule, SocketReader, SocketState, StackSplit, StreamCount, SurfaceAnswer, Target,
+    Timed, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND,
+    RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use runner::{AppState, LiveApplied, LiveRefusal, Place, Tamber};
 pub use runner::{CallHow, WakeHow};

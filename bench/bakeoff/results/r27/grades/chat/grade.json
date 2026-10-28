@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "My bubbles are blue on the right and Sam's are grey on the left, oldest at the top. Date headings appear where the day changes, Messages-style ('Wed, Jul 1 3:20 AM', with the day in bold). It opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Sending works: the new message shows at the bottom under a 'Today' heading and the composer clears. Send stays disabled for empty or whitespace-only text. Return adds a new line (multi-line composer)."},
+      {"n": 3, "status": "pass", "note": "The composer rides above the keyboard and the newest messages move up with it."},
+      {"n": 4, "status": "pass", "note": "A typing bubble with three dots and the label 'Sam is typing…' shows, then a canned reply ('On it') arrives about 2 s later."},
+      {"n": 5, "status": "pass", "note": "Long-press opens the system context menu with Copy and Delete over a correct lifted bubble preview. Copy then Paste puts the text in the composer. Delete removes the message, and it stays deleted after relaunch."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches the first message (Jul 1) with no blank rows. A round glass ↓ button appears when you are far up and goes back to the newest message."},
+      {"n": 7, "status": "pass", "note": "A sent message and Sam's reply are still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The jump-to-latest button has no accessibility label.",
+      "The contact title 'Sam' and the avatar in the navigation bar don't grow at the largest text size (the bubbles do).",
+      "The send button is a separate large glass circle outside the field, a bit heavier than Messages' send button inside the field."
+    ],
+    "scroll": "Scrolling is native and smooth: flings show no blank rows or pop-in, the top is reachable, and content scrolls under the glass bar and composer as it should.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Bubbles are on the correct sides, oldest at the top, with date headings where the day changes ('Jul 1, 2026 at 3:20 AM'). It opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Sending works: the new message shows at the bottom under a 'Today at …' heading and the composer clears. Send stays disabled for empty or whitespace-only text."},
+      {"n": 3, "status": "pass", "note": "The composer stays above the keyboard and the newest messages stay visible."},
+      {"n": 4, "status": "pass", "note": "A 'Sam is typing…' bubble appears, then a canned reply about 2 s later. The indicator is plain grey text in a bubble, with no animated dots."},
+      {"n": 5, "status": "partial", "note": "The system context menu offers Copy and Delete, and both work (paste confirmed, deletion kept after relaunch). But the lifted preview loses its blue bubble: in light mode it is a blank white pill, in dark mode white text on black."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches the first message with no blank rows. A round chevron button appears when you are far up and goes back to the newest message."},
+      {"n": 7, "status": "pass", "note": "A sent message and Sam's reply are still there after relaunch."}
+    ],
+    "bugs": [
+      "The long-press preview drops the bubble background: the message shows as an empty white pill in light mode (white text on white) and as unstyled white text in dark mode."
+    ],
+    "tells": [
+      "The context-menu preview doesn't match the bubble (above).",
+      "The typing indicator is static text with no animated dots.",
+      "Date headings use a generic 'Oct 22, 2026 at 12:43 AM' format instead of the Messages style.",
+      "The jump-to-latest button has no accessibility label.",
+      "The contact title doesn't grow at the largest text size.",
+      "The accessibility tree shows nested scroll views inside an element with id 'app', a slight hint of a non-native structure (nothing visible on screen)."
+    ],
+    "scroll": "Scrolling is smooth and native-feeling: flings show no blank rows or jumps, the top is reachable, and the chevron button goes back to the bottom cleanly.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both apps meet nearly every requirement and scroll equally well. A's long-press preview is correct and its typing indicator (animated dots) and date headings look like Messages. B's long-press preview loses the bubble (blank white in light mode), and its typing indicator and date headings look plainer."
+}

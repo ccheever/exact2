@@ -297,7 +297,7 @@ Not limits any more, because no browser has them: state-stack and clip depth, pa
 
 ### D5. Time, animation and the agent's clock
 
-`draw` returns `true` to ask for another frame. That is `requestAnimationFrame` without a global: modules have no timers (LLP 1027). The host serves the request from its frame source under LLP 1009 D4's `canvas` batch signal. It passes its presentable clock as `frame.time`, which under an agent-owned clock is the agent's time. `frame.mounted` is the time this canvas node was created, so a draw-in is `min(1, (time − mounted) / 600)` with no module state.
+`draw` returns `true` to ask for another frame. That is `requestAnimationFrame` without a global: modules have no frame callbacks, and a draw arms no timer (LLP 1027.000 D1: only an answer does). The host serves the request from its frame source under LLP 1009 D4's `canvas` batch signal. It passes its presentable clock as `frame.time`, which under an agent-owned clock is the agent's time. `frame.mounted` is the time this canvas node was created, so a draw-in is `min(1, (time − mounted) / 600)` with no module state.
 
 - **`clock +N` and `clock settle` do not wait for a canvas to stop asking.** Whether it ever stops is its code's business, as with an infinite CSS animation (LLP 1055).
 - **They do wait for the draws due at the landed time.** Each on-screen canvas that asked for a frame is drawn once at the landed clock. `clock` replies after those lists are applied, or after a bounded wait (the agent's existing settle bound), reporting any still pending. This is how the Apple agent already settles surface presentation (`host/apple/Sources/ExactKit/Agent.swift:254`). A canvas is sampled at most once per clock value, so settle's fixed-point loop does not draw it twice.

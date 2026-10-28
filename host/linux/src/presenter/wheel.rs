@@ -97,7 +97,7 @@ impl<D: DataSource> Presenter<D> {
             if id == PAGE || self.alert_root() == Some(id) {
                 return false;
             }
-            at = self.display.parent(self.host.kernel(), id);
+            at = self.scroll_parent(id);
         }
     }
 
@@ -157,7 +157,7 @@ impl<D: DataSource> Presenter<D> {
                 && ((dx != 0.0 && contained(node.style.overscroll_behavior_x))
                     || (dy != 0.0 && contained(node.style.overscroll_behavior_y)));
             // An SVG element has no display box: its ancestors scroll it.
-            let parent = self.display.parent(kernel, id).or_else(|| {
+            let parent = self.scroll_parent(id).or_else(|| {
                 node.node_type
                     .is_svg_element()
                     .then_some(node.parent)
@@ -228,6 +228,8 @@ impl<D: DataSource> Presenter<D> {
         } else {
             off.1
         };
+        // A wheel is a new input: the list's own pending position is retired now (`ack.rs`).
+        self.retire_for_wheel(id);
         let moved = self.anchor_input(id, off, if take_y { dy } else { 0. }, (nx, ny));
         self.scroll.insert(id, (nx, ny));
         if (nx, ny) != off || moved.is_some_and(|dy| dy != 0.) {

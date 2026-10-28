@@ -261,6 +261,7 @@ pub(super) fn alert(
         targets: targets.into_iter().flatten().collect(),
         windows: Some(content),
         menu: None,
+        symbols: exact_kernel::SymbolSet::Fluent,
     }
 }
 

@@ -19,6 +19,8 @@ package final class Presenter {
     /// sync last looked, those applied after a batch among them: their lists
     /// redraw separators by them
     private var geometryApplied: [UInt32] = []
+    /// The views `children` ops put under a parent they were not under (`placeChildren`).
+    private var placedAnew: [UInt32] = []
     /// Views whose drawn origin a batch moved (`PixelGridIOS.swift`).
     var gridMoved: [NodeView] = []
     /// What the native projections show changed outside a batch (a subtree's appearance or
@@ -212,6 +214,8 @@ package final class Presenter {
             return velocity == 0 ? nil : velocity
         }
         collections.requestFill = { [unowned self] in scrollPump.requestFill() }
+        collections.glimpse = { [unowned self] id in scrollPump.glimpse(id) }
+        collections.glimpsed = { [unowned self] id, seconds, rows in scrollPump.glimpsed(id, seconds: seconds, rows: rows) }
         // Rows a rescue built show this frame: their text paints now, not
         // after the commit, or they show without it (LLP 1050.000 D1).
         collections.rescued = { [unowned self] in paintVisibleText() }
@@ -571,7 +575,8 @@ package final class Presenter {
     var onScrolled: ((UInt32?, Double, Double) -> Void)?
     var interacting: UInt32 = 0
     var listViews: [UInt32: NodeView] = [:]
-    var textViews: [UInt32: NodeView] = [:]
+    var textViews: [UInt32: NodeView] = [:] { didSet { NodeView.textGeometry &+= 1 } }
+    let textIndex = TextIndex()
     lazy var scrollPump = ScrollPump(self)
     let textRasters = TextRasterizer()
     /// Clip geometry memoized for one text refresh (`TextClips`), else nil.
@@ -593,8 +598,12 @@ package final class Presenter {
     var inlineHoverTransition: UInt64 = 0
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""
-    package func press(_ id: UInt32, held: String = "", bubbled: Bool = false) {
-        pressHeld = held; defer { pressHeld = "" }
+    /// Where its touch lifted in the viewport, its `MouseEvent`'s `clientX`/`clientY`
+    /// (LLP 1021 D2); none for a key's press, which DOM puts at 0, 0.
+    private(set) var pressPoint: CGPoint?
+    /// `at`: the touch's point in the window.
+    package func press(_ id: UInt32, held: String = "", at: CGPoint? = nil, bubbled: Bool = false) {
+        pressHeld = held; pressPoint = at.map(client); defer { pressHeld = ""; pressPoint = nil }
         if let node = views[id], let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         let original = views[id]
         dispatchPressHandler(id, from: original)
@@ -749,8 +758,8 @@ package final class Presenter {
         collections.beginBatch(batch)
         if !applying { flats.begin(batch) }
         pool.begin(batch)
-        swipeActions.prepare()
-        groupedLists?.prepare()
+        swipeActions.prepare(batch)
+        groupedLists?.prepare(batch.ops)
         prepareContexts(batch)
         modals.prepare(batch)
         navigation.prepare(batch)
@@ -799,15 +808,19 @@ package final class Presenter {
                 #endif
             }
         }
-        var beganGeometry = false, touchedIDs: [UInt32] = []
+        var beganGeometry = false, touchedIDs: [UInt32] = [], reshapedIDs: [UInt32] = [], restyledIDs: [UInt32] = []
+        if outermost { placedAnew.removeAll(keepingCapacity: true) } // a flat leaf promoted between batches
+        let anewFrom = placedAnew.count
         let rowsOnly = onlyListRows(batch)
         if batch.controls { controls.facesChanged() }
         for op in batch.ops {
             let kind = op.op
             switch kind {
-            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id); controls.faceChanged(op.id)
+            case .create, .props, .style, .children, .paragraph, .flow: touchedIDs.append(op.id); reshapedIDs.append(op.id); controls.faceChanged(op.id)
+            case .frame: touchedIDs.append(op.id); controls.faceChanged(op.id)
             default: break
             }
+            if kind == .props || kind == .style { restyledIDs.append(op.id) }
             if kind == .create || kind == .frame || kind == .content { moved = true }
             if !beganGeometry && (kind == .frame || kind == .content) {
                 beganGeometry = true
@@ -867,7 +880,7 @@ package final class Presenter {
                 v.swipeOwner = op.props["swipeContent"] != nil
                 v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
-                if reused != nil { v.finishReuse() }
+                if reused != nil { v.finishReuse() } else { v.embedFrame(self) }
                 views[id] = v
                 elements.created(v)
                 if v.kind == "video" { leaves.created(v) }
@@ -996,7 +1009,7 @@ package final class Presenter {
         session?.canvases.captureIfNeeded()
         let changed = touchedAndAbove(touchedIDs + geometryApplied)
         geometryApplied = []
-        swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
+        swipeActions.sync(changed: changed, reshaped: touchedAndAbove(reshapedIDs)); rowCells.sync(changed: changed)
         groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
         if !flights.isEmpty { flightsBatchApplied() }
         #if os(tvOS)
@@ -1004,7 +1017,14 @@ package final class Presenter {
         playPauseKey.sync()
         #endif
         segments.sync()
-        controls.sync(contents: false)
+        // A batch that changes a control's contents (a select's options, a
+        // button's face) reads every control again. At or above a control,
+        // only props and style reach it (a disabled box, a closing one), and
+        // a move to another parent: the children and frame ops of a list
+        // whose rows a scroll replaced leave the controls of the rows it
+        // kept as they were. Every checkbox in a list of tasks was
+        // configured again each batch.
+        controls.sync(contents: false, changed: batch.controls ? nil : changed, touched: Set(restyledIDs + placedAnew[anewFrom...]))
         #if os(tvOS)
         // A remembered node's replacement owns focus only after its native
         // control exists, so retarget guides in this same batch after sync.
@@ -1013,12 +1033,16 @@ package final class Presenter {
         menus.sync()
         glassGroups.reconcile()
         positionContexts()
-        let ariaMoved = Set(batch.ops.filter { $0.op == .children }.flatMap(\.ids).filter { id in
+        // A view a `children` op moved within its parent keeps its ancestors.
+        let ariaMoved = Set(placedAnew[anewFrom...].filter { id in
             guard let node = views[id] else { return false }
             return node.accessibilityTraits.contains(.notEnabled) != (node.disabled || node.ariaUnavailable)
         })
         let ariaProps = batch.ops.filter { $0.op == .props && ($0.props["accessibilityDisabled"] != nil || $0.clear.contains("accessibilityDisabled")) }.map(\.id)
         let disabledRoots = Set(ariaProps).union(ariaMoved)
+        placedAnew.removeSubrange(anewFrom...)
+        // What a node's name, state and focus read: not its box (an autofocus waiting for one is indexed).
+        let named = touchedAndAbove(batch.ops.compactMap { [.create, .props, .style, .children, .paragraph, .flow].contains($0.op) ? $0.id : nil })
         // Finish controls and frames before UIKit synchronously lays out the destination.
         afterBatch { [weak self] in
             guard let self else { return }
@@ -1035,7 +1059,7 @@ package final class Presenter {
                 if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
             }
             pendingScrolls = pendingScrolls.filter { self.views[$0]?.pendingScrollTop != nil || self.views[$0]?.pendingScrollLeft != nil }
-            syncAccessibility(changed: changed.union(ariaMoved), disabledRoots: disabledRoots)
+            syncAccessibility(changed: named.union(ariaMoved), disabledRoots: disabledRoots)
         }
         #if os(iOS)
         syncScrollsToTop()
@@ -1068,8 +1092,9 @@ package final class Presenter {
     func placeChildren(_ parent: NodeView, _ ids: [UInt32]) {
         // Make any views required by this holder before assembling its list.
         for id in flats.place(parent, ids) { flats.promote(id) }
-        let want = ids.compactMap { views[$0] }
         let container = parent.container
+        // A row a grouped list carries stays in its cell (`GroupedLists.placing`).
+        let want = groupedLists.map { $0.placing(container, ids.compactMap { views[$0] }) } ?? ids.compactMap { views[$0] }
         // An open popover under the agent stays in the top layer.
         menus.children(container, want)
         let wanted = Set(want.map(ObjectIdentifier.init))
@@ -1080,13 +1105,19 @@ package final class Presenter {
         // In order, below anything else in the container (a scroll
         // view's indicators): inserting a subview at an index moves
         // it when it is already there. One already there stays.
+        for child in want where child.superview !== container { placedAnew.append(child.id) }
         let contained = NodeView.keepingGhosts(want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }, in: container)
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
+            // One already here is past `i` (those before it are in place):
+            // moved as UIKit moves it, without asking for every subview again
+            // (a pooled row comes back from past the rows, each a move).
             let wasHere = child.superview === container
+            let was = wasHere && i < current.count ? current[i...].firstIndex { $0 === child } : nil
             container.insertSubview(child, at: i)
-            if wasHere { current = container.subviews }
-            else { current.insert(child, at: i); regrid(child) }
+            if wasHere {
+                if let was { current.remove(at: was); current.insert(child, at: i) } else { current = container.subviews }
+            } else { current.insert(child, at: i); regrid(child) }
         }
         flats.mounted(parent.id)
         if parent === navigation.container { navigation.placeOwner() }
@@ -1111,14 +1142,11 @@ package final class Presenter {
     func applyGeometry(_ op: BatchOp) {
         // Outside a batch, carried rows go back to their authored parents
         // first, as before a batch, so the new box is theirs; the projections
-        // remount on the next turn. Inside one they went back as it began,
-        // unless a list laid out in the batch carried one again: a box applied
-        // then is the row's too, which `restore` would otherwise undo.
+        // remount on the next turn. Inside one, a carried row's box is placed
+        // from its authored parent (`gridOrigin`) and goes home with it.
         if !applying {
             groupedLists?.prepare()
             requestProjectionSync()
-        } else if groupedLists?.carriesRows == true {
-            groupedLists?.prepare()
         }
         let id = op.id
         guard let v = views[id] else { return }
@@ -1372,6 +1400,9 @@ package final class Presenter {
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
     func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false, boxChanged: Bool = true) {
+        // A filtered box draws again when it or anything in it changes, a
+        // flat leaf (a layer in its parent's view) included.
+        if !boxFilters.isEmpty, let v = views[id] ?? flats.parent(of: id).flatMap({ views[$0] }) { boxFilters.touched(v) }
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {

@@ -4,6 +4,7 @@ mod api;
 mod index;
 mod inset;
 mod into_view;
+mod keep;
 mod nest;
 mod reach;
 mod rekey;
@@ -28,6 +29,7 @@ use exact_kernel::PropId;
 use exact_plan::EventKind;
 use index::{MeasurementToken, SizeIndex};
 pub use into_view::{Align, IntoView, IntoViewStatus};
+pub(crate) use keep::idents as keep_mounted;
 pub use reorder_api::*;
 pub(super) use traversal::{collections_json, invalidate_typography};
 
@@ -37,9 +39,11 @@ pub(super) fn update_collection(
     u: &mut Update<'_>,
     frames: &[Frame],
     follow: bool,
+    keep: Option<&Value>,
 ) -> Result<(), InstanceError> {
     c.follow_end(follow);
-    c.update_data(u, frames, false)
+    let remount = c.keep_mounted(keep);
+    c.update_data(u, frames, false, remount)
 }
 
 const BOOTSTRAP_ROWS: usize = 16;
@@ -208,11 +212,15 @@ pub(crate) struct Collection {
     target: Option<into_view::Target>,
     /// The latest request here and how it stands, for `state`.
     into_view_status: Option<(Rc<str>, IntoViewStatus)>,
+    /// What the platform covers of the port at its start and end, where a row is not aligned.
+    covered: [f64; 2],
     /// Where the window starts before the host reports: 0, a restored
     /// position, or the end.
     start_offset: f64,
     /// How far ahead of an edge it fires (`reach-margin`).
     reach: reach::Margin,
+    /// The rows it keeps mounted wherever its window is (`keep-mounted`).
+    keep: Vec<Rc<str>>,
     /// `scroll-start: end`, until the list has opened there.
     at_end: bool,
     /// Consecutive reports that said the port was travelling, while it opens.
@@ -316,6 +324,7 @@ impl Collection {
         let mut smooth = false;
         let mut at_end = false;
         let mut reach = reach::Margin::default();
+        let mut keep = Vec::new();
         let mut estimated_height = ESTIMATED_HEIGHT;
         let mut initial: Option<usize> = None;
         let mut axis = ListAxis::Vertical;
@@ -368,6 +377,9 @@ impl Collection {
                     .ok_or_else(|| {
                         invalid("reach margin must be one or two nonnegative px or % lengths")
                     })?;
+            }
+            if binding.kind == BindingKind::Prop && binding.id == PropId::KeepMounted as u16 {
+                keep = keep::idents(&u.eval(binding.expr, frames)?).unwrap_or_default();
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollStart as u16 {
                 at_end = u.eval(binding.expr, frames)?.as_str() == Some("end");
@@ -499,30 +511,34 @@ impl Collection {
             restored_at: None,
             target: None,
             into_view_status: None,
+            covered: [0.0; 2],
             start_offset: 0.0,
             reach,
+            keep,
             at_end,
             end_travel: 0,
             end_sent: f64::NAN,
             reuse,
         });
-        this.update_data(u, frames, true)?;
+        this.update_data(u, frames, true, false)?;
         Ok(Some(this))
     }
     /// Bring the rows up to date when the subject, the keys' other inputs or
-    /// anything a mounted row reads changed; `fresh` on creation.
+    /// anything a mounted row reads changed; `fresh` on creation, `remount`
+    /// when the rows it keeps mounted changed.
     pub(super) fn update_data(
         &mut self,
         u: &mut Update<'_>,
         frames: &[Frame],
         fresh: bool,
+        remount: bool,
     ) -> Result<(), InstanceError> {
         let deps = &u.sites.deps;
         let index = self.region.0 as usize;
         let keys_stale = fresh || u.stale_outside(&deps.keys[index], 1);
         let data_changed = keys_stale || u.stale(&deps.subjects[index]);
         let body_changed = u.stale_outside(&deps.bodies[index], 1);
-        if !data_changed && !body_changed {
+        if !data_changed && !body_changed && !remount {
             u.work.regions_skipped += 1;
             return Ok(());
         }
@@ -620,9 +636,16 @@ impl Collection {
             self.restore(anchor)?;
         }
         self.start_at_end();
+        // A changed set that mounts a row: the host measures it.
+        let mounts = remount
+            && !changed
+            && (self.kept_rows().iter()).any(|p| !self.mounted.iter().any(|m| m.position == *p));
         let realized = self.realize_window(u, frames, true, CollectionFill::default());
         self.instant = false;
         realized?;
+        if mounts {
+            advance(&mut self.revision)?;
+        }
         if changed {
             let unchanged = previous.is_some_and(|mut before| {
                 let now = self.snapshot();
@@ -635,9 +658,8 @@ impl Collection {
         }
         Ok(())
     }
-    /// Keyed invalidation of the rows at `positions` (O(k log N)); a
-    /// confirmed zero among them goes back to the estimate, as in
-    /// [`Self::invalidate_height_estimates`].
+    /// Keyed invalidation of the rows at `positions` (O(k log N)); a confirmed zero among them
+    /// goes back to the estimate, as in [`Self::invalidate_height_estimates`].
     fn invalidate_rows(&mut self, positions: &[usize]) -> Result<(), InstanceError> {
         for &p in positions {
             let key = self.index.shared_key(p).unwrap().clone();
@@ -651,106 +673,6 @@ impl Collection {
             self.index.invalidate_row(&key).map_err(index_error)?;
         }
         Ok(())
-    }
-    /// Key every item, reusing a key only where the list kept its length and
-    /// an item its position ([`Self::rekey_shared`] handles the rest).
-    /// Whether any key changed.
-    fn rekey_full(
-        &mut self,
-        u: &mut Update<'_>,
-        frames: &[Frame],
-        key_code: exact_plan::Code,
-        items: &[Value],
-        compare_previous: bool,
-        keys_stale: bool,
-    ) -> Result<bool, InstanceError> {
-        let reuse_items = compare_previous && !keys_stale;
-        // No candidate N-vector or canonical strings until an actual key
-        // mismatch. All equal results reuse the existing uniqueness proof.
-        let mut changed = !compare_previous;
-        let mut keys = Vec::new();
-        let mut text_keys = Vec::new();
-        if changed {
-            keys.reserve(items.len());
-            text_keys.reserve(items.len());
-        }
-        // Membership only: hashed, and holding the identities the index
-        // keeps (no copy of each key's text).
-        // Each identity's position: the index takes it as its key map.
-        let mut unique: std::collections::HashMap<Rc<str>, usize> = Default::default();
-        if changed {
-            unique.reserve(items.len());
-        }
-        let mut dups = BTreeMap::new();
-        // Each key's text, written here before its identity is made.
-        let mut text = String::new();
-        let mut inner = frames.to_vec();
-        inner.push(Frame::default());
-        for (position, item) in items.iter().enumerate() {
-            let key = if reuse_items && crate::compare::same(item, &self.items[position]) {
-                if !changed {
-                    continue;
-                }
-                self.keys[position].clone()
-            } else {
-                u.work.rows_keyed += 1;
-                inner.last_mut().unwrap().item = Some(item.clone());
-                inner.last_mut().unwrap().index = Some(position);
-                u.eval(key_code, &inner)?
-            };
-            if !changed && same_key(&key, &self.keys[position]) {
-                continue;
-            }
-            if !changed {
-                // Seed only the already-validated prefix. Checking each
-                // following row now preserves duplicate-before-later-trap.
-                keys.reserve(items.len());
-                text_keys.reserve(items.len());
-                unique.reserve(items.len());
-                for prefix in 0..position {
-                    let text = self.index.shared_key(prefix).unwrap().clone();
-                    unique.insert(text.clone(), prefix);
-                    text_keys.push(text);
-                    keys.push(self.keys[prefix].clone());
-                }
-                dups.extend(self.dups.range(..position).map(|(p, d)| (*p, *d)));
-                changed = true;
-            }
-            text.clear();
-            if !super::key_text_into(&key, &mut text) {
-                return Err(InstanceError::KeyKind {
-                    region: self.region,
-                });
-            }
-            // A repeated key is the data's error: the repeat takes the
-            // next identity in order (as a `for` does).
-            let mut dup = 0;
-            let ident: Rc<str> = if unique.contains_key(text.as_str()) {
-                let mut ident = text.clone();
-                while unique.contains_key(ident.as_str()) {
-                    dup += 1;
-                    ident = super::disambiguate(text.clone(), dup);
-                }
-                Rc::from(ident)
-            } else {
-                Rc::from(text.as_str())
-            };
-            unique.insert(ident.clone(), position);
-            if dup > 0 {
-                dups.insert(position, dup);
-            }
-            keys.push(key);
-            text_keys.push(ident);
-        }
-        if changed {
-            self.index
-                .replace_keys_indexed(text_keys, unique)
-                .map_err(index_error)?;
-            self.string_keys = keys.iter().all(|key| key.as_str().is_some());
-            self.keys = keys;
-            self.dups = dups;
-        }
-        Ok(changed)
     }
     fn anchor(&self) -> Result<Option<index::Anchor>, InstanceError> {
         self.geometry
@@ -843,10 +765,12 @@ impl Collection {
         update: bool,
         fill: CollectionFill,
     ) -> Result<(), InstanceError> {
-        self.realize_window_with_row(u, frames, update, fill, None)
+        self.realize_window_with_row(u, frames, update, fill, None, false)
     }
 
-    /// A requested row is owed even when its measured height or port is zero.
+    /// A requested row is owed even when its measured height or port is
+    /// zero. `retire_leaving`: every row past the window retires, whatever
+    /// the limit (the pins changed).
     fn realize_window_with_row(
         &mut self,
         u: &mut Update<'_>,
@@ -854,10 +778,14 @@ impl Collection {
         update: bool,
         fill: CollectionFill,
         required: Option<usize>,
+        retire_leaving: bool,
     ) -> Result<(), InstanceError> {
         let limit = fill.limit.filter(|_| !update);
+        let glimpse = fill.glimpse && limit.is_some();
         let mut owed: Vec<std::ops::Range<usize>> = Vec::new();
         let mut port = None;
+        // A glimpse's middle of the viewport and what shows, for its rows.
+        let mut glimpsed = None;
         let mut ranges = if let Some(g) = &self.geometry {
             let pins = self.pins();
             let focus = self.pin(pins[0]);
@@ -876,7 +804,11 @@ impl Collection {
                     [focus.as_deref(), interaction.as_deref()],
                 )
                 .map_err(index_error)?;
-            owed.push(window.visible.clone());
+            if glimpse {
+                glimpsed = Some((window.offset + g.port_main / 2.0, window.visible.clone()));
+            } else {
+                owed.push(window.visible.clone());
+            }
             for key in [&focus, &interaction].into_iter().flatten() {
                 if let Some(i) = self.index.position(key) {
                     owed.push(i..i + 1);
@@ -888,7 +820,9 @@ impl Collection {
             let first = self.bootstrap_first()?;
             std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
-        if let Some(position) = required {
+        // The rows it keeps mounted are owed wherever the window is.
+        let keeping = self.kept_rows();
+        for position in required.into_iter().chain(keeping.iter().copied()) {
             owed.push(position..position + 1);
             if !ranges.iter().any(|range| range.contains(&position)) {
                 ranges.push(position..position + 1);
@@ -904,6 +838,10 @@ impl Collection {
                 )
             })
             .collect();
+        // The rows a glimpse leaves are optional, and none is admitted.
+        if let (Some((middle, visible)), Some(limit)) = (glimpsed, limit) {
+            owed.extend(self.glimpsed(visible, middle, limit, &old));
+        }
         let limited = limit.zip(port);
         let is_owed = |p: usize| owed.iter().any(|r| r.contains(&p));
         let toward_start = fill.velocity < 0.0;
@@ -926,6 +864,7 @@ impl Collection {
                 }
             }
             optional.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
+            let limit = if glimpse { 0 } else { limit };
             pending = optional.len() > limit as usize;
             if !fill.no_build {
                 more = optional.len().saturating_sub(limit as usize);
@@ -1019,7 +958,9 @@ impl Collection {
             // A rescue (no limit past what shows) only builds; slices retire,
             // but a row two viewports past what shows always goes: travel
             // faster than slices retire must not keep every row it passed.
-            let cap = if limit == 0 {
+            let cap = if retire_leaving {
+                usize::MAX
+            } else if limit == 0 {
                 0
             } else {
                 (2 * limit as usize).max(4)
@@ -1030,11 +971,11 @@ impl Collection {
             // viewport of rows (a thousand on an iPad at 48,000 pt/s, each
             // with its canvas's Metal layer and surface) until the list
             // stopped, and every report and frame walked them all.
-            let cap = cap.max(
-                leaving
-                    .len()
-                    .saturating_sub(self.mounted.len() + needed.len()),
-            );
+            // Kept rows (`keep-mounted`) are not the window's.
+            let window = (self.mounted.iter())
+                .filter(|m| !keeping.contains(&m.position))
+                .count();
+            let cap = cap.max(leaving.len().saturating_sub(window + needed.len()));
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
             let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
             kept = leaving.split_off(far.max(cap).min(leaving.len()));
@@ -1162,9 +1103,12 @@ impl Collection {
             if s.owner.is_some() && s.owner == arm {
                 let value = u.eval(s.init, &inner)?;
                 if !value.conforms(plan, s.ty) {
-                    return Err(InstanceError::SlotType {
-                        slot: plan.str(s.name).to_string(),
-                    });
+                    return Err(InstanceError::slot_type(
+                        plan,
+                        &value,
+                        s.ty,
+                        plan.str(s.name),
+                    ));
                 }
                 slots.borrow_mut().insert(i as u32, value);
             }
@@ -1317,27 +1261,24 @@ impl Collection {
             .geometry
             .as_ref()
             .is_none_or(|g| g.cross != feedback.cross);
-        // A new port size, width or pin retires every row that left and
-        // builds the whole window: only travel is sliced. A list's first
-        // report retires nothing, so a slice there builds what shows and
-        // leaves its lead pending (a tap's response frame, LLP 1072 §5).
+        // A new port size or width retires every row that left and builds
+        // the whole window: only travel is sliced. A list's first report
+        // retires nothing, so a slice there builds what shows and leaves its
+        // lead pending (a tap's response frame, LLP 1072 §5).
         if self.geometry.as_ref().is_some_and(|g| {
-            (
-                g.port_cross,
-                g.port_main,
-                g.cross,
-                g.focus_view,
-                g.interaction_view,
-            ) != (
-                feedback.port_cross,
-                feedback.port_main,
-                feedback.cross,
-                feedback.focus_view,
-                feedback.interaction_view,
-            )
+            (g.port_cross, g.port_main, g.cross)
+                != (feedback.port_cross, feedback.port_main, feedback.cross)
         }) {
             fill.limit = None;
         }
+        // A new pin retires every row that left too, but keeps the report's
+        // limit: a pinned row is already mounted, so it builds nothing, and
+        // a finger landing on a moving list or lifting off one would
+        // otherwise build the whole led window in one main-thread report
+        // (25 rows, 25 ms, at a 6,000 pt/s fling's release).
+        let pins_changed = self.geometry.as_ref().is_some_and(|g| {
+            (g.focus_view, g.interaction_view) != (feedback.focus_view, feedback.interaction_view)
+        });
         // An enclosing list is moving (LLP 1070 F2): build what this list
         // owes and nothing else, first report and resize included.
         if fill.ancestor_moving {
@@ -1402,7 +1343,7 @@ impl Collection {
         self.check_preview_height(u)?;
         self.restore(anchor)?;
         self.settle_into_view(u, feedback.offset);
-        self.realize_window(u, frames, false, fill)?;
+        self.realize_window_with_row(u, frames, false, fill, None, pins_changed)?;
         self.reveal_shown(u);
         self.settle_start(extent);
         let mut now = self.snapshot();

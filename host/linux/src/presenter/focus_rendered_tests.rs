@@ -186,7 +186,7 @@ fn nested_alert() -> Presenter<NoData> {
     assert_eq!(error, None);
     let dialog = named(&p, "confirm");
     let key = p.host.kernel().node(dialog).unwrap().key;
-    assert!(p.alert_present(Some(key), "confirm", None, 0.));
+    assert!(p.alert_present(Some(key), "confirm", None, None, true, 0.));
     p.frame();
     p
 }
@@ -296,7 +296,7 @@ fn an_opened_or_replaced_alert_focuses_its_action_before_display_acknowledgement
     for (name, action) in [("first", "first-ok"), ("next", "next-ok")] {
         let root = named(&p, name);
         let key = p.host.kernel().node(root).unwrap().key;
-        assert!(p.alert_present(Some(key), name, None, 1.));
+        assert!(p.alert_present(Some(key), name, None, None, true, 1.));
         assert_eq!(p.focus(), Some(named(&p, action)), "{name}");
         let frame = p.display_frame().unwrap();
         assert!(p.display_complete(&frame));
@@ -308,7 +308,7 @@ fn an_opened_or_replaced_alert_focuses_its_action_before_display_acknowledgement
     assert_eq!(p.focus(), Some(field));
     let root = named(&p, "first");
     let key = p.host.kernel().node(root).unwrap().key;
-    assert!(p.alert_present(Some(key), "first", None, 3.));
+    assert!(p.alert_present(Some(key), "first", None, None, true, 3.));
     p.key_down("Escape", 4.);
     assert!(p.alert_root().is_none());
     assert_eq!(p.focus(), Some(field));
@@ -333,4 +333,42 @@ fn neutral_process() -> bool {
         String::from_utf8_lossy(&output.stderr)
     );
     false
+}
+
+#[test]
+fn popover_follows_the_invoker_in_the_next_display_frame() {
+    if !neutral_process() {
+        return;
+    }
+    let source = include_str!("../../tests/authored_dialog.contract").replace(
+        "id=\"invoker\"",
+        "id=\"invoker\" position=\"absolute\" right=20 top=100",
+    );
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(&source).unwrap().encode(),
+        NoData,
+        (480., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.serve_overlays();
+    p.frame();
+    let frame = p.display_frame().unwrap();
+    assert!(p.display_complete(&frame));
+    p.tap(named(&p, "invoker")).unwrap();
+    p.run_commands(|| NoData);
+    p.frame();
+    let frame = p.display_frame().unwrap();
+    assert!(p.display_complete(&frame));
+    let root = named(&p, "picker");
+    let before = p.rect_of(root).unwrap();
+    assert!(p.resize(600., 400.).is_none());
+    let frame = p.display_frame().unwrap();
+    assert_eq!(p.rect_of(root), Some(before));
+    assert!(p.display_complete(&frame));
+    let moved = p.rect_of(root).unwrap();
+    assert_eq!(moved, (before.0 + 120., before.1, before.2, before.3));
 }

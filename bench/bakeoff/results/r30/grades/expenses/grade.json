@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list newest first, one section per day headed 'Oct 25, 2026 · $222.02'; moving an expense to another date regroups it and updates both day totals."},
+      {"n": 2, "status": "pass", "note": "'This Month' card at the top of History shows $5,269.70 · October 2026 · 86 expenses and updates on add/delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with amount (decimal pad + Done accessory), merchant, category pull-down menu of the 7 data categories, compact date picker defaulting to today, optional note. Save disabled for empty or -5; new row appears under today."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an Edit Expense sheet; merchant/date edits save and regroup. Swipe left shows a system Delete action that removes the row and updates totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists this month's 7 categories largest first with '29% of total · 16 expenses' and amount; tapping one pushes its this-month transactions grouped by day."},
+      {"n": 6, "status": "pass", "note": "All amounts formatted $1,544.59; add, edit and delete all survive relaunch."}
+    ],
+    "bugs": [
+      "Cancel on a filled-in New Expense sheet discards silently, with no confirmation.",
+      "The 'Enter an amount greater than zero.' footer shows on a blank form before the user has typed anything, and the form jumps when it goes away."
+    ],
+    "tells": [
+      "Category rows on the Categories screen push a detail view but have no disclosure chevron.",
+      "Merchant field has only a placeholder, no label, while Amount has a label, so the first section is inconsistent.",
+      "Nothing marks a category besides its name: no colour or icon anywhere, so the Categories screen has no visual share indicator (percentage text only).",
+      "Day-section headers scroll away instead of staying pinned (plain inset-grouped style; acceptable, but a long date-grouped history usually keeps the day visible)."
+    ],
+    "scroll": "Smooth and native: slow drags track the finger, flings decelerate naturally, the large title collapses and pull-past-top rubber-bands with no blank or popping rows. Scroll position and an open swipe action survive switching tabs.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day with 'Sunday, Oct 25' on the left and the day total right-aligned; date edits regroup correctly and an added expense lands under 'Today'."},
+      {"n": 2, "status": "pass", "note": "'THIS MONTH / October 2026 / $5,269.70 / 86 expenses this month' card with a stacked per-category colour bar, updating on add/edit/delete."},
+      {"n": 3, "status": "pass", "note": "Large amount field (decimal pad + Done), merchant, category pushed picker with icons and checkmark (7 categories), date defaulting to today, optional note. Saving empty shows inline red errors on amount and merchant; -5 is rejected."},
+      {"n": 4, "status": "pass", "note": "Rows (with chevrons) open an Edit sheet that also has a Delete expense button; edits regroup. Swipe left shows a system Delete action that removes the row and updates the day total."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists categories largest first with amount, 29.3% share, expense count and a progress bar; tapping one pushes its transactions with a This month / All time segmented control."},
+      {"n": 6, "status": "pass", "note": "Currency formatted throughout; add, edit and delete all survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Warm off-white/peach custom palette and an orange-red brand tint replace system grouped backgrounds. It is tasteful, but it reads as designed rather than stock.",
+      "The monthly total uses a condensed heavy display font that is not SF, and it barely grows at the largest text size.",
+      "Category picker rows expose no accessibility labels (unlabelled cells), so VoiceOver would not read them properly.",
+      "Category detail rows repeat the category name ('Health') under every merchant.",
+      "Notes are not shown in the list rows, so a note is only visible after opening the edit sheet.",
+      "Day-section headers scroll away rather than pinning."
+    ],
+    "scroll": "Smooth and native, with natural fling deceleration and rubber-banding. Pulling down at the top reveals a system search field the way Mail does; no blank rows or jumps were seen.",
+    "scores": {"features": 9, "platform": 8, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and persist correctly, and both scroll and adapt to dark mode and the largest text size well. B adds the details a careful iOS app has: a discard-changes confirmation, inline validation messages, category icons and share bars, chevrons on rows you can tap, a This month/All time filter and search. A is plainer and closer to stock, but it discards edits silently and shows its validation message too early. B's custom warm palette costs it a little platform fidelity, but it is the app I would rather ship."
+}

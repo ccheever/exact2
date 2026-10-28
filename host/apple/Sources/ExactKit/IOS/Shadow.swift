@@ -284,11 +284,14 @@ package final class Shadow {
         if b.contentsScale != a.contentsScale { b.contentsScale = a.contentsScale }
         if b.contentsGravity != a.contentsGravity { b.contentsGravity = a.contentsGravity }
         if b.isOpaque != a.isOpaque { b.isOpaque = a.isOpaque }
-        // A `box-shadow` (`BoxShadow.swift`): the shadow, and the mask that
-        // keeps it outside the box.
-        if a is ShadowCaster {
+        // A shadow: a `box-shadow`'s (`BoxShadow.swift`), a lone
+        // `drop-shadow()`'s on its box (`BoxFilter.swift`), a `text-shadow`'s
+        // on its ink; and the mask that keeps a `box-shadow` outside the box.
+        if a is ShadowCaster || a.shadowOpacity > 0 || b.shadowOpacity > 0 {
             b.shadowPath = a.shadowPath; b.shadowColor = a.shadowColor; b.shadowOffset = a.shadowOffset
             b.shadowRadius = a.shadowRadius; b.shadowOpacity = a.shadowOpacity
+        }
+        if a is ShadowCaster {
             let mask = a.mask.map { mirror($0) }
             if b.mask !== mask { b.mask = mask }
         }

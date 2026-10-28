@@ -1,0 +1,14 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/serial@^1.0",
+  "platform": "windows",
+  "targets": ["windows"],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["lib.rs"] },
+  "artifacts": [],
+  "class": "Serial"
+}

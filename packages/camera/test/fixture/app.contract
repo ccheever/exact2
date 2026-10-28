@@ -27,6 +27,9 @@ component Fixture
       case none
         track = ""
   // The Mac's own camera, never a phone's through Continuity Camera, for a person's run of the Apple suite.
+  // Both kinds at once: one request to the platform (D3).
+  action openBoth
+    send opened = getUserMedia(audio=true, video=true)
   action openBuiltIn
     send opened = getUserMedia(video=true, apple.deviceType="builtInWideAngleCamera")
   action shutter
@@ -50,6 +53,7 @@ component Fixture
       text `${caps.imageWidth.max} ${caps.fillLightMode.join(",")}` testId="caps"
       text (match live.settings.facingMode { case some(f) => f, case none => "none" }) testId="facing"
       text openError testId="open-error"
+      text `${match opened { case some(s) => s.tracks.map(t => t.kind).join(","), case none => "" }}` testId="kinds"
       match shot
         case some(p)
           text `${p.path} ${p.type} ${p.size > 0} ${p.width}x${p.height}` testId="shot"
@@ -58,6 +62,8 @@ component Fixture
       text shotError testId="shot-error"
       button press=open testId="open"
         text "Open"
+      button press=openBoth testId="open-both"
+        text "Open both"
       button press=openBuiltIn testId="open-builtin"
         text "Open built-in"
       button press=shutter testId="shutter"

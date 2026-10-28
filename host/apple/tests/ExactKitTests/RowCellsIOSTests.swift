@@ -160,6 +160,12 @@ final class RowCellsIOSTests: XCTestCase {
         // A padding layout resolved anew, its content box alone sent (a percentage in a resized block)
         p.apply(wireBatch([contentOp(20, 200, 20, padding: [0, 0, 0, 8])]))
         XCTAssertEqual(separators(p).filter { $0.maxY == 44 || $0.maxY == 1 }.map(\.minX), [64, 64])
+        // A text parked past the trailing edge (a `delete=` row's Delete), first among the row's
+        // children as a row mounted again can hold it, is not where the row's text starts.
+        p.apply(wireBatch([["op": "create", "id": 40, "kind": "text", "props": ["text": "Delete"], "style": ["font_size": 17]],
+                           ["op": "children", "id": 10, "ids": [40, 20]],
+                           ["op": "frame", "id": 40, "x": 420.0, "y": 12.0, "w": 60.0, "h": 20.0]]))
+        XCTAssertEqual(separators(p).filter { $0.maxY == 44 || $0.maxY == 1 }.map(\.minX), [64, 64])
     }
 
     func testWhatTheAuthorWritesOnARowWins() throws {

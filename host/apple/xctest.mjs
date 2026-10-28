@@ -20,8 +20,12 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/sticky-transition.contract'), '-o', env[`${prefix}_STICKY_TRANSITION_PLAN`] = resolve(dir, 'sticky-transition.plan')]);
   // HeldStateTests' own (a card that presses over a flat leaf), beside them.
   contract([resolve(root, 'host/apple/tests/fixtures/held-state.contract'), '-o', env[`${prefix}_HELD_STATE_PLAN`] = resolve(dir, 'held-state.plan')]);
+  // AgentStickyReveal{Mac,IOS}Tests': rows under a sticky header and dock.
+  contract([resolve(root, 'host/apple/tests/fixtures/sticky-tap.contract'), '-o', env[`${prefix}_STICKY_TAP_PLAN`] = resolve(dir, 'sticky-tap.plan')]);
   // RestartListIOSTests': a restart over a route whose bar covers a virtualized list.
   contract([resolve(root, 'host/apple/tests/fixtures/restart-list.contract'), '-o', env[`${prefix}_RESTART_LIST_PLAN`] = resolve(dir, 'restart-list.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/feedback-race.contract'), '-o', env[`${prefix}_FEEDBACK_RACE_PLAN`] = resolve(dir, 'feedback-race.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/async-advance.contract'), '-o', env[`${prefix}_ASYNC_ADVANCE_PLAN`] = resolve(dir, 'async-advance.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/reset-gate.contract'), '-o', env[`${prefix}_RESET_GATE_PLAN`] = resolve(dir, 'reset-gate.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/dialog-sheet-reads.contract'), '-o', env[`${prefix}_DIALOG_SHEET_READS_PLAN`] = resolve(dir, 'dialog-sheet-reads.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/progress-contexts.contract'), '-o', env[`${prefix}_PROGRESS_CONTEXTS_PLAN`] = resolve(dir, 'progress-contexts.plan')]);
@@ -256,7 +260,7 @@ export function hostedTests(dir) {
     const lines = readFileSync(resolve(dir, file), 'utf8').split('\n');
     let className = null, func = null;
     lines.forEach((line, i) => {
-      className = /class (\w+)\s*:\s*XCTestCase/.exec(line)?.[1] ?? className;
+      className = /class (\w+)\s*:\s*(XCTestCase|\w+Fixture)\b/.exec(line)?.[1] ?? className;
       func = /\bfunc (\w+)\s*\(/.exec(line)?.[1] ?? func;
       if (!/missing\("(scene|accessibility)"/.test(line)) return;
       if (!className || !func?.startsWith('test')) throw new Error(`${file}:${i + 1}: missing(scene or accessibility) outside a test method (${func ?? 'none'}); say it in the test so the test runs hosted`);

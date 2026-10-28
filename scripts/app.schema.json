@@ -53,6 +53,23 @@
         "additionalProperties": { "type": "string" }
       }
     },
+    "packages": {
+      "description": "Each package's configuration by target (LLP 1133.021 §9 item 7), as its interface's `config` declares it, read at bake and written into the bundle: {\"@exact/maps\": {\"web\": {\"tiles\": \"https://tile.openstreetmap.org/{z}/{x}/{y}.png\"}, \"android\": {\"apiKey\": {\"env\": \"EXACT_GOOGLE_MAPS_API_KEY\"}}}}. A secret is named by the environment variable that holds it, never written here.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              { "type": ["string", "number", "boolean"] },
+              { "type": "object", "properties": { "env": { "type": "string" } }, "required": ["env"], "additionalProperties": false }
+            ]
+          }
+        }
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,
@@ -223,7 +240,7 @@
     },
     "link": {
       "type": "array",
-      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates"] },
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates"] },
       "uniqueItems": true,
       "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses (and `auth_session` what its grants name) and nothing else, and a bundle that needs more is a new binary. Development links every capability but `media_picker` and `auth_session`, which it links as production would (LLP 1047.001.000 F). Names are the runner's (`exact_runner::Capability::name`)."
     },
@@ -549,6 +566,58 @@
         "additionalProperties": false
       }
     },
+    "share_target": {
+      "type": "object",
+      "description": "The Web App Manifest's share target: this app in other apps' share sheets (LLP 1133.024 D1). A share arrives as one location, `action` with the shared members under the names `params` gives them; files by a token that `sharedFiles(entry, name)` reads. The Apple bake derives a share extension, Android intent filters; the published web member is always GET with the text members only.",
+      "required": ["action", "params"],
+      "properties": {
+        "action": { "type": "string", "pattern": "^/", "description": "A path one of the app's routes matches." },
+        "method": { "enum": ["GET", "POST"] },
+        "enctype": { "enum": ["application/x-www-form-urlencoded", "multipart/form-data"] },
+        "params": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string", "minLength": 1 },
+            "text": { "type": "string", "minLength": 1 },
+            "url": { "type": "string", "minLength": 1 },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["name", "accept"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "accept": { "oneOf": [{ "type": "string" }, { "type": "array", "minItems": 1, "items": { "type": "string" } }] }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "apple": {
+          "type": "object",
+          "description": "Apple's words (D6): `NSExtensionActivationRule` beats the derived rule; `postTitle` is a strings key for the compose sheet's post button.",
+          "properties": {
+            "NSExtensionActivationRule": { "oneOf": [{ "type": "string" }, { "type": "object" }] },
+            "postTitle": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "android": {
+          "type": "object",
+          "properties": { "mimeTypes": { "type": "array", "items": { "type": "string", "pattern": "^[a-z*]+/[a-z0-9.+*-]+$" } } },
+          "additionalProperties": false
+        },
+        "windows": {
+          "type": "object",
+          "properties": { "dataFormats": { "type": "array", "items": { "enum": ["Text", "Uri", "StorageItems", "Bitmap", "Html", "Rtf"] } } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "launch_handler": {
       "type": "object",
       "description": "The W3C Web App Manifest's launch handler: where a launch or an opened document lands. `navigate-new` opens each document in its own window with its own session (LLP 1069.010 D4); `navigate-existing`, the default, delivers it to the window in front; `focus-existing` brings that window forward and delivers nothing to a window already showing a document.",
@@ -573,7 +642,8 @@
         "id": {
           "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
-          "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
+          "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$",
+          "x-hint": "every dot-separated part starts with a letter, since this one id is also the Android package and the Linux app id, which require that (Apple alone allows a leading digit). Put a letter before a part that starts with a digit, as in com.example.x2048, and use that id everywhere; nothing else needs changing."
         },
         "name": {
           "description": "The name a native host shows: the menu bar, the app switcher, Finder.",
@@ -709,6 +779,27 @@
                 "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$"
               }
             },
+            "nfc": {
+              "description": "The NFC tag reader session's lists (LLP 1133.035 D11), written to Info.plist: `iso7816Identifiers`, the ISO 7816 application identifiers (hex) a tag session selects, and `felicaSystemCodes`, the FeliCa system codes it polls for (never the wildcard FF). Core NFC reports no ISO 7816 or FeliCa tag the app does not list.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "iso7816Identifiers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^([0-9A-Fa-f]{2}){5,16}$"
+                  }
+                },
+                "felicaSystemCodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(?![Ff]{4}$)[0-9A-Fa-f]{4}$"
+                  }
+                }
+              }
+            },
             "team": {
               "type": "string"
             }
@@ -738,6 +829,10 @@
             "minimumOS": {
               "description": "The oldest macOS the app runs on, as \"14.0\"; never below 14.0.",
               "type": "string"
+            },
+            "activationPolicy": {
+              "enum": ["regular", "accessory"],
+              "description": "\"accessory\": a menu-bar app (LLP 1133.025 D6), written as LSUIElement: no Dock tile and no menu bar of its own, and every launch opens no window; a `-exact-menu=\"status\"` button is how the person reaches it, and `focus()` shows its window. Absent: regular."
             },
             "optimize": {
               "enum": ["speed", "size"],
@@ -844,7 +939,8 @@
                 "width": { "type": "number", "minimum": 1, "maximum": 16384 },
                 "height": { "type": "number", "minimum": 1, "maximum": 16384 },
                 "minWidth": { "type": "number", "minimum": 1, "maximum": 16384 },
-                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 }
+                "minHeight": { "type": "number", "minimum": 1, "maximum": 16384 },
+                "keepRunning": { "type": "boolean", "description": "Closing the window hides it while a `-exact-menu=\"status\"` button is placed in the notification area, as a tray app's does (LLP 1133.025 D4); with none placed, closing ends the app. Absent: false." }
               },
               "additionalProperties": false
             }
@@ -1144,6 +1240,14 @@
     "tamber": {
       "type": "string",
       "description": "The app's design (LLP 1121 D2): a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
+    },
+    "purchases": {
+      "type": "object",
+      "description": "In-app purchases (LLP 1133.015 §9). `catalog`: a JSON file of the Digital Goods API's `ItemDetails`, relative to app.json, which the synthetic store sells under the agent; its ids are the products configured in App Store Connect and Play Console.",
+      "properties": {
+        "catalog": { "type": "string" }
+      },
+      "additionalProperties": false
     },
     "strings": {
       "type": "object",

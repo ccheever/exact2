@@ -1,0 +1,11 @@
+{
+  "name": "@exact/store-review",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The store's own rating prompt (LLP 1133.015 D12).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json"
+  }
+}

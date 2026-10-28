@@ -66,8 +66,13 @@ export interface Live {
   // A version per channel that moves only when its messages change, which the window takes: a read
   // state's change re-asks the channel's record, not its history.
   history: Map<string, number>;
-  // Moves with any change outside the channel on screen: the lists' version.
+  // The lists' versions: the server list and rail (`Changed.sidebar`), the direct messages' list and
+  // the servers' channel lists (each also moves with a message or a read in a channel it lists), and
+  // any change outside the channel on screen.
   sidebar: number;
+  dmList: number;
+  channelList: number;
+  elsewhere: number;
   // The channel on screen ("" on the lists) and its guild, which op 37 subscribes.
   viewing: { channel: string; guild: string };
   // The guild and channel the session's last op 37 named; a fresh READY forgets it.
@@ -119,7 +124,7 @@ type Queued = { type: 'bytes'; data: ArrayBuffer } | { type: 'packet'; data: Uin
 export function createLive(origins: Origins): Live {
   return { origins, store: S.createStore(), gw: null, socket: null, identity: null, token: '',
     limiter: rest.limiterInit(), nonces: { lastMs: null, sequence: 0 }, applied: new Set(), arrived: new Map(),
-    history: new Map(), sidebar: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
+    history: new Map(), sidebar: 0, dmList: 0, channelList: 0, elsewhere: 0, viewing: { channel: '', guild: '' }, subscribed: '', kept: [], held: null, recorded: '', typedAt: new Map(),
     ackToken: null, paging: new Set(), missed: new Set(), sends: new Map(), attempt: 0, ready: false,
     queue: [], drainer: 0, outbox: [], closing: null, account: 0, snapshots: 0, signedOut: false };
 }
@@ -171,6 +176,7 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
     if (!known) live.arrived.set(d.channel_id, (live.arrived.get(d.channel_id) ?? 0) + 1);
   }
   const person = d?.user?.id ? S.user(store, String(d.user.id)) : null;
+  const identities = store.identityRevision;
   const changed = S.applyDispatch(store, t, d, clock.now);
   const channels = new Set(changed.channels);
   // A deleted message the store never held changes nothing it keeps, but a held reply to it now
@@ -185,7 +191,14 @@ export function applyEvent(live: Live, t: string, d: any): S.Changed {
   }
   // A person's new name or picture redraws the open channel, where a row may name them.
   if (t === 'GUILD_MEMBER_UPDATE' && person && live.viewing.channel && S.user(store, person.id) !== person) touched(live, live.viewing.channel);
-  if (changed.sidebar || [...channels].some(id => id !== live.viewing.channel)) live.sidebar++;
+  // A busy account changes channels elsewhere several times a second, so each list moves only for what
+  // it shows: a typing indicator shows only on screen.
+  const elsewhere = [...channels].filter(id => id !== live.viewing.channel);
+  const listed = t === 'TYPING_START' ? [] : elsewhere.map(id => S.isDirect(store, id));
+  if (changed.sidebar) live.sidebar++;
+  if (changed.sidebar || listed.includes(true) || store.identityRevision !== identities) live.dmList++;
+  if (changed.sidebar || listed.includes(false)) live.channelList++;
+  if (changed.sidebar || elsewhere.length > 0) live.elsewhere++;
   return { channels: [...channels], sidebar: changed.sidebar };
 }
 
@@ -198,7 +211,8 @@ export interface Upload { path: string; name: string; type: string; size: number
 
 export interface Snapshot {
   state: string; detail: string; me: string; meName: string; fixture: boolean; queued: number; seq: number; sidebar: number;
-  channel: string; version: number; history: number; members: number; retryIn: number; attempt: number;
+  dmList: number; channelList: number; elsewhere: number;
+  channel: string; version: number; history: number; members: number; memberRows: number; retryIn: number; attempt: number;
 }
 
 /** The gateway resource's answer, the same size whatever the account: the connection, the lists'
@@ -209,9 +223,11 @@ export function snapshot(live: Live, state?: string, detail = ''): Snapshot {
   const phase = !live.token && live.ready ? 'signed-out' : live.held ? 'recording' : gw?.phase ?? 'idle';
   return { state: state ?? phase, detail: detail || (gw?.stoppedReason ?? ''), me: store.meId ?? '',
     meName: store.meId ? S.user(store, store.meId)?.global_name || S.user(store, store.meId)?.username || '' : '',
-    fixture: live.origins.fixture, queued: live.queue.length, seq: ++live.snapshots, sidebar: live.sidebar, channel,
+    fixture: live.origins.fixture, queued: live.queue.length, seq: ++live.snapshots, sidebar: live.sidebar,
+    dmList: live.dmList, channelList: live.channelList, elsewhere: live.elsewhere, channel,
     version: channel ? S.channelVersion(store, channel) : 0, history: channel ? live.history.get(channel) ?? 0 : 0,
     members: live.viewing.guild ? store.memberLists.get(live.viewing.guild)?.revision ?? 0 : 0,
+    memberRows: live.viewing.guild ? store.memberLists.get(live.viewing.guild)?.rows ?? 0 : 0,
     retryIn: retry === null ? 0 : Math.max(1, Math.ceil(retry - clock.now)), attempt: live.attempt };
 }
 
@@ -360,6 +376,9 @@ function forget(live: Live, secrets: Secrets | null): void {
   live.subscribed = '';
   S.forgetAccount(live.store);
   live.sidebar++;
+  live.dmList++;
+  live.channelList++;
+  live.elsewhere++;
 }
 
 /** The gateway resource's answer: a socket whose mapper inflates each frame, steps the session and
@@ -572,7 +591,14 @@ export async function call(live: Live, request: rest.RestRequest): Promise<any> 
     rest.onResponse(limiter, request, 0, () => null, null, clock.now);
     throw error;
   }
-  const text = await response.text();
+  // The body can fail after the headers (a dropped connection): the route's slot is given back, with what the
+  // headers said of its limits.
+  let text: string;
+  try { text = await response.text(); }
+  catch (error) {
+    rest.onResponse(limiter, request, response.status, name => response.headers.get(name), null, clock.now);
+    throw error;
+  }
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = null; }
   rest.onResponse(limiter, request, response.status, name => response.headers.get(name), body, clock.now);
@@ -589,8 +615,14 @@ export async function page(live: Live, channelId: string, query: S.HistoryQuery)
   try {
     const messages = await call(live, rest.history(context(live), channelId, query));
     if (Array.isArray(messages)) {
+      const sidebar = S.sidebarVersion(live.store), identities = live.store.identityRevision;
       S.applyHistoryPage(live.store, channelId, query, messages, { since });
       touched(live, channelId);
+      // A page can clear an unread the store counted, or carry a DM recipient's new name.
+      const moved = S.sidebarVersion(live.store) !== sidebar;
+      if (moved) { live.sidebar++; live.channelList++; }
+      if (moved || live.store.identityRevision !== identities) live.dmList++;
+      if (moved || channelId !== live.viewing.channel) live.elsewhere++;
     }
   } finally {
     live.paging.delete(channelId);

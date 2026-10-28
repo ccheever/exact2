@@ -29,7 +29,8 @@ package struct CollectionFacts: Equatable {
     /// and whether an enclosing list is moving (LLP 1070 F2).
     /// `createOnly` and `noBuild` split a moving list's report around the
     /// owner thread (LLP 1072 §5): build only, off main; then retire only.
-    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false, createOnly: Bool = false, noBuild: Bool = false) -> Data {
+    /// `glimpse`: `limit` bounds the rows of what shows it builds too.
+    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false, createOnly: Bool = false, noBuild: Bool = false, glimpse: Bool = false) -> Data {
         var bytes = Data()
         func integer<T: FixedWidthInteger>(_ value: T) {
             var le = value.littleEndian
@@ -39,7 +40,7 @@ package struct CollectionFacts: Equatable {
         for value in [offset, portMain, portCross, cross, paddingStart, paddingEnd] { integer(value.bitPattern) }
         integer(focus ?? 0); integer(interaction ?? 0)
         integer((velocity.isFinite ? velocity : 0).bitPattern); integer(limit.map { Swift.min($0, UInt32.max - 1) } ?? UInt32.max)
-        integer(UInt32(ancestorMoving ? 1 : 0) | UInt32(createOnly ? 2 : 0) | UInt32(noBuild ? 4 : 0))
+        integer(UInt32(ancestorMoving ? 1 : 0) | UInt32(createOnly ? 2 : 0) | UInt32(noBuild ? 4 : 0) | UInt32(glimpse ? 16 : 0))
         integer(UInt32(measurements.count))
         for row in measurements { integer(row.view); integer(row.epoch); integer(row.size.bitPattern) }
         return bytes
@@ -206,6 +207,9 @@ package final class CollectionHost {
         /// reports again with the same facts (a rescue just reported them,
         /// building only what shows).
         var lastLimit: UInt32?
+        /// A report the runner turned away (a revision it had moved past) carried measurements its newer snapshot
+        /// doesn't acknowledge: they're owed again, whether or not the port moves (`update`).
+        var owed = false
         var port: [Double]?
         /// The offset when the batch began: where the reader is. Rows that
         /// leave above a deep offset shrink the document first, and the
@@ -214,10 +218,18 @@ package final class CollectionHost {
         /// The platform's insets of the port when the batch began
         /// (`portInsets`): one that changed under it moved the port.
         var batchInsets: [Double]?
+        /// What the platform covers of the port at its start and end, as the runner was last told.
+        var covered: [Double] = [0, 0]
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
     var onFeedback: ((Data) -> Void)?
+    /// Whether the runner's snapshot row has taken measurement `m`: measured at that epoch, its height within the
+    /// runner's noise of the size and on the same side of zero (runner `SizeIndex::noise_at`, `MEASURE_NOISE`).
+    static func acknowledges(_ row: CollectionSnapshot.Row, _ m: CollectionMeasurement) -> Bool {
+        guard row.measured, row.epoch == m.epoch, let height = row.size else { return false }
+        return (height == 0) == (m.size == 0) && abs(height - m.size) <= 0.01
+    }
     var entries: [UInt32: Entry] = [:]
     var interaction: UInt32?
     var contactEvent: AnyObject?
@@ -327,6 +339,18 @@ package final class CollectionHost {
         schedule()
     }
     var requestFill: (() -> Void)?
+    /// A glimpse (the runner's `CollectionFill::glimpse`): travel that crosses
+    /// a port or more each frame (the scroll indicator dragged) shows rows no
+    /// frame before showed, more than a frame can build; a photo grid's took
+    /// 30 to 70 ms a frame. The rows a rescue of a list may build, those
+    /// nearest the port's middle, or nil to build all that shows
+    /// (`ScrollPump.glimpse`); and what one cost.
+    var glimpse: ((UInt32) -> UInt32?)?
+    var glimpsed: ((UInt32, TimeInterval, Int) -> Void)?
+    /// Lists whose last report was a glimpse: the rest of what shows is
+    /// built in the frames that follow, a glimpse at a time.
+    private(set) var glimpses = Set<UInt32>()
+    private var glimpsing = Set<UInt32>()
     /// After a report that built what shows inside the scroll callback: the
     /// platform paints what those rows show before the frame commits.
     var rescued: (() -> Void)?
@@ -369,7 +393,7 @@ package final class CollectionHost {
         stopTracking?(); stopTracking = nil
         entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
         for view in animating { stopAnimation(view) }
-        fillPending.removeAll(); sliceLimits.removeAll()
+        fillPending.removeAll(); sliceLimits.removeAll(); glimpses.removeAll(); glimpsing.removeAll()
         building = nil; retireOwed.removeAll(); fillLimits.removeAll(); fillSent.removeAll()
         budget = CollectionTurnBudget(); rescuing.removeAll()
         refreshPins = false; lastVisited = 0
@@ -391,9 +415,20 @@ package final class CollectionHost {
             retireOwed = retireOwed.filter { live.contains($0.key) }
             dirty.formIntersection(live)
             fillPending.formIntersection(live)
+            glimpses.formIntersection(live)
             for snapshot in snapshots {
                 if let entry = entries[snapshot.view] {
-                    if snapshot.revision >= entry.snapshot.revision { entry.snapshot = snapshot }
+                    if snapshot.revision >= entry.snapshot.revision {
+                        // A row the last report measured, still in the newer snapshot at that epoch and not acknowledged
+                        // there: the runner hasn't taken that measurement (a report it turned away), so it's owed.
+                        if snapshot.revision > entry.snapshot.revision, let sent = entry.lastFacts?.measurements {
+                            let rows = Dictionary(snapshot.rows.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
+                            if sent.contains(where: { m in rows[m.view].map { $0.epoch == m.epoch && !Self.acknowledges($0, m) } ?? false }) {
+                                entry.owed = true
+                            }
+                        }
+                        entry.snapshot = snapshot
+                    }
                 } else { entries[snapshot.view] = Entry(snapshot) }
                 dirty.insert(snapshot.view)
                 if entries[snapshot.view]!.snapshot.pending { fillPending.insert(snapshot.view) }
@@ -503,28 +538,36 @@ package final class CollectionHost {
         // scroll callback returns, building ahead in its slice; otherwise
         // the rows the reader sees are built now (LLP 1050.000 D1).
         if motion != nil, covers(view) {
+            glimpses.remove(view)
             fillPending.insert(view)
             requestFill?()
         } else {
             // What shows is owed by estimated heights; two more rows cover
             // a port the estimates overstate (a jump into unmeasured rows).
-            if motion != nil { sliceLimits[view] = 2 }
+            let bounded = glimpse?(view)
+            if let bounded { sliceLimits[view] = bounded; glimpsing.insert(view) } else if motion != nil { sliceLimits[view] = 2 }
             lastVisited = view &- 1
             // What shows cannot wait for a slice in flight (T7): land it,
             // then report from the geometry that shows now.
             if filling?() == true { drain?() }
+            let before = bounded == nil ? [] : Set(entry.snapshot.rows.map(\.view)), started = ProcessInfo.processInfo.systemUptime
             rescuing.insert(view)
             flush()
             rescuing.remove(view)
             sliceLimits[view] = nil
+            if bounded != nil {
+                glimpsing.remove(view)
+                glimpsed?(view, ProcessInfo.processInfo.systemUptime - started, (entries[view]?.snapshot.rows ?? []).filter { !before.contains($0.view) }.count)
+            }
             if motion != nil { rescued?() }
         }
     }
     /// One slice of fill for `view`: a report that may build `limit` rows
     /// past what it owes, and its measurement pass. The slice is its own
     /// main-queue turn. Returns the rows it created.
+    /// `glimpse`: a glimpse's slice, which leaves what shows past its rows.
     @discardableResult
-    func fillSlice(_ view: UInt32, limit: UInt32) -> Int {
+    func fillSlice(_ view: UInt32, limit: UInt32, glimpse: Bool = false) -> Int {
         // One slice in flight at a time, and none before the last one's
         // retirement: this one stays owed (LLP 1072 §3.1, §5).
         if filling?() == true { return 0 }
@@ -541,9 +584,10 @@ package final class CollectionHost {
         sliceLimits[view] = limit
         // The slice's own list first: the round-robin would visit it last.
         lastVisited = view &- 1
-        if onFill != nil { building = (view, limit) }
+        if glimpse { glimpsing.insert(view) } else if onFill != nil { building = (view, limit) }
         flush()
         building = nil
+        glimpsing.remove(view)
         sliceLimits[view] = nil
         return (entries[view]?.snapshot.rows ?? []).filter { !before.contains($0.view) }.count
     }
@@ -688,24 +732,26 @@ package final class CollectionHost {
                 // the pins: a report that changes them may retire (§5).
                 let same = entry.lastFacts.map { ($0.portMain, $0.portCross, $0.cross, $0.focus, $0.interaction)
                     == (facts.portMain, facts.portCross, facts.cross, facts.focus, facts.interaction) } ?? false
-                let offMain = building?.view == id && same && retireLimit == nil ? building : nil
+                let glimpse = glimpsing.contains(id) && retireLimit == nil && limit != nil
+                let offMain = building?.view == id && same && retireLimit == nil && !glimpse ? building : nil
                 if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence
-                    || (entry.snapshot.pending && limit != 0) || further || retireLimit != nil {
+                    || (entry.snapshot.pending && limit != 0) || further || retireLimit != nil || entry.owed {
                     var report = facts
                     // A sent report may be rejected atomically. Only the
                     // runner's measured snapshot acknowledges a height;
                     // invalidated or unacknowledged sizes are sent again.
                     if let previous = entry.lastFacts, previous.cross == facts.cross {
-                        let known = Dictionary(uniqueKeysWithValues: entry.snapshot.rows.compactMap { row -> (UInt32, CollectionMeasurement)? in
-                            guard row.measured, let size = row.size else { return nil }
-                            return (row.view, CollectionMeasurement(view: row.view, epoch: row.epoch, size: size))
-                        })
-                        report.measurements.removeAll { known[$0.view] == $0 }
+                        let known = Dictionary(entry.snapshot.rows.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
+                        report.measurements.removeAll { m in known[m.view].map { Self.acknowledges($0, m) } ?? false }
                     }
                     entry.lastFacts = facts
+                    entry.owed = false
                     entry.lastSequence = entry.cursor.sequence
                     entry.lastLimit = limit
                     reported = true
+                    #if os(iOS) || os(tvOS)
+                    reportCovered(id, entry)
+                    #endif
                     // While its outer list moves, an inner list builds only
                     // what it owes (LLP 1070 F2); its pending report
                     // continues once the outer list rests.
@@ -718,8 +764,9 @@ package final class CollectionHost {
                         budget.end()
                         return
                     }
+                    if glimpse { glimpses.insert(id) } else { glimpses.remove(id) }
                     onFeedback(report.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
-                        velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, noBuild: retireLimit != nil))
+                        velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, noBuild: retireLimit != nil, glimpse: glimpse))
                 }
             }
             free -= reported ? 0 : 1

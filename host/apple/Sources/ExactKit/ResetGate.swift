@@ -45,6 +45,8 @@ enum ResetGate {
         "regions(_:)": (.fit, "the window's layout regions, told with its size: it fits again"),
         "titlebarArea(_:)": (.fit, "the title-bar area, told with its size: it fits again"),
         "tickAsync(now:frame:done:)": (.advance, "a frame's tick sent to the owner, as `tick` is"),
+        "advanceAsync(now:frame:done:)": (.advance, "a timer's advance sent to the owner, as `advance` is"),
+        "landThenFirst()": (.advance, "the `then`s due when a batch landed: the new runtime's due work advances once its tree is in"),
         "collectionFeedbackAsync(_:now:done:)": (.collections, "a list's fill sent to the owner: the new list fills its own"),
         "pump(now:)": (.pump, "the replies the network owes, pumped at once, as `pumpAsync`'s"),
         "pumpAsync(now:done:)": (.pump, "the replies the network owes are the new runtime's: they are pumped again (the held pump answered cancelled)"),

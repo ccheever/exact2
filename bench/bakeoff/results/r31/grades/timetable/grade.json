@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day (134 at Harbor) in time order, grouped by hour with opaque pinned headers ('05:00 — 05:59', '7 departures'). Each row has the time, a coloured line badge, the destination, the platform, and an amber 'Delayed N min' or Cancelled line when not on time."},
+      {"n": 2, "status": "pass", "note": "Station card at top opens a large-title sheet listing all 20 stations with departure counts and a checkmark. The search field filters live ('park' → Elm Park, Glen Park) and has a good empty state."},
+      {"n": 3, "status": "partial", "note": "Now scrolls to 05:00, the next departure (marked NEXT). At default size the list opens there. At the largest text size it opened two past rows early (00:52) and needed Now to reach 05:00."},
+      {"n": 4, "status": "pass", "note": "Chip row (All lines, R B G Y O) filters correctly and updates the count (29 on G). At large text it becomes a menu."},
+      {"n": 5, "status": "pass", "note": "Past rows are clearly dimmed: time, badge and text all faded."},
+      {"n": 6, "status": "pass", "note": "Star toggles. The Saved tab lists saved departures with station and platform, grouped by hour. Saved items and the chosen station (Glen Park) survived relaunch."}
+    ],
+    "bugs": [
+      "At the largest Dynamic Type size the list opens a couple of rows before the next departure (00:52 instead of 05:00)."
+    ],
+    "tells": [
+      "Hand-made header: small 'TIMETABLE' wordmark, date and a fixed 'Departures' title in place of a navigation bar. It doesn't collapse, and with the station card and chips the fixed chrome takes ~340pt, so the list only gets about half the screen.",
+      "Line filter is a row of custom letter chips rather than a system segmented control or menu.",
+      "Saved list has no swipe-to-delete; unstarring is the only way to remove.",
+      "A 'Now' button also appears on the Saved screen, where it makes little sense.",
+      "Warm beige custom palette and terracotta accent rather than system colours; reads like a designed web or Flutter-style skin, though it is well done.",
+      "Footer blurb 'The whole day, at a glance.' at the end of lists is marketing-style copy."
+    ],
+    "scroll": "Smooth, with native momentum and bounce. Headers pin and push cleanly and tab switches keep the scroll position. Only the lower half of the screen scrolls, which makes the list feel cramped.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day grouped by hour with pinned hour headers ('05:00') in a translucent glass style. Rows show the time, a coloured line badge, destination and platform. Delayed shows as grey secondary text; Cancelled is red."},
+      {"n": 2, "status": "pass", "note": "Station button opens a standard inset-grouped sheet with a checkmark and a bottom search field. Search filters live, has a 'No Stations Found' empty state, and picking a station works."},
+      {"n": 3, "status": "pass", "note": "Opens at the 05:00 next departure, also at the largest text size. Now in the nav bar scrolls back there."},
+      {"n": 4, "status": "pass", "note": "'All lines' pull-down menu with checkmark filters correctly to one line."},
+      {"n": 5, "status": "pass", "note": "Past rows dimmed (text and badge faded)."},
+      {"n": 6, "status": "pass", "note": "Star toggles. The Saved tab lists saved departures with the station, and has native swipe-to-delete. Saved items and the chosen station persisted across relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Station button sits awkwardly offset toward centre in a row with the filter, leaving a dead gap at the left.",
+      "Delayed status is plain grey secondary text, easy to miss next to the platform; not colour-coded like Cancelled.",
+      "Translucent pinned hour header lets the row underneath show through as ghosted text and badge while scrolling.",
+      "Rows are tall (109pt) with a lot of empty space on the right; the board is less dense than a typical departure list.",
+      "Saved list is a flat list with a 'Today · All stations' heading, with no time grouping."
+    ],
+    "scroll": "Native collection-view feel: smooth momentum, rubber-band past the top, sticky headers push correctly, no blank or popping rows, and the position is kept across tab switches.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both meet every requirement and persist correctly. A is the more designed, information-rich board with clearer delay styling, but its non-collapsing custom header eats half the screen, it lacks swipe-to-delete, and it opens at the wrong spot at large text. B uses stock navigation, menus, sheets and swipe actions and behaves like a hand-built iOS app, with only minor layout and status-styling weaknesses."
+}

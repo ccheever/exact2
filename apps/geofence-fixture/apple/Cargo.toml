@@ -1,0 +1,24 @@
+[package]
+name = "geofence-fixture-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The geofencing fixture on Apple platforms: the host's C exports over its baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "geofence_fixture_apple"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+geofence-fixture-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+geofence-fixture-data = { path = "../data" }

@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are there in an inset-grouped list with a large title. Account has editable Name/Email fields and a Sign Out alert (the signed-out state persists and offers Sign In). Reading has a slider with small/large A, a pushed font list with five fonts, a segmented control and an inset preview box. Theme is a pushed list (System/Light/Dark/Sepia). Library has Sort By (5 options) and two switches. Turning Notifications on reveals a compact time picker and 3 more switches. Storage shows used space and cache, and Clear Cache has an alert that clears to Zero KB and disables the row. About has the version, Privacy and Terms pushed text screens, and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort By push native checkmark lists, each font name drawn in its own face. The reminder uses the native compact time picker."},
+      {"n": 3, "status": "pass", "note": "The preview changes live with font, slider size (up to 32 pt) and line spacing. Sepia and Dark tint the preview box."},
+      {"n": 4, "status": "pass", "note": "After relaunch it kept name edits, signed-out state, font, size, spacing, theme, sort, switches, reminder and the cleared cache."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings sits at the bottom with an alert (Cancel/Reset). It restored 17 pt, Georgia, Normal, theme and notifications off, and the defaults survived a relaunch. The account is kept, as the footer says."}
+    ],
+    "bugs": [
+      "The line-spacing segmented control does not update its accessibility 'selected' state: after tapping Compact or Normal it still reports Relaxed as selected (it looks right on screen), so VoiceOver would announce the wrong segment",
+      "Turning on Allow Notifications never asks iOS for notification permission"
+    ],
+    "tells": [
+      "Rate the App shows a home-made 'Enjoying Paperback?' alert instead of the system App Store review prompt",
+      "The preview is a grey rounded box nested inside a grouped cell (a double inset), which looks slightly odd in a Settings-style list",
+      "Font, Theme and Sort lists stay open after a choice (standard iOS behaviour, but there is no auto-pop)",
+      "Plain text-only rows with no SF Symbol icons: correct but plainer than an iOS Settings screen",
+      "At the largest text size the email field truncates with a trailing ellipsis and 'Show Fin-ished Books' is hyphenated (excused)"
+    ],
+    "scroll": "Native list scrolling: slow drags, flings, scrolling back to the top and pulling past the top all bounce and decelerate like UIKit, with the large title collapsing into the soft scroll-edge bar. Scroll position is kept when returning from pushed pickers.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are there in an inset-grouped list with a large title and Settings-style coloured SF Symbol icons. Account is an avatar row pushing a Profile editor, and Sign Out shows a confirmation popover (the signed-out state persists, with 'Sign In as…'). Reading has a slider, a pushed font list with five fonts, a segmented control and a separate Preview section with a caption. Theme is an inline checkmark list with Aa swatches. Library has Sort Order (4 options) and two switches. Turning Notifications on reveals a time picker and 3 switches. Storage has a used bar (books vs cache) and Clear Cache with a confirmation. About has the version, Privacy/Terms pushed screens, and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font and Sort push native checkmark lists. Theme is an inline checkmark picker (also an iOS idiom). The reminder uses the native compact time picker popover."},
+      {"n": 3, "status": "pass", "note": "The preview reflects font, size (to 32 pt) and spacing live, and the caption reads e.g. 'Palatino, 32 pt, Relaxed spacing'. Sepia and Dark retheme the whole screen."},
+      {"n": 4, "status": "pass", "note": "After relaunch it kept the profile name, signed-out state, font, size, spacing, theme, sort, notifications, the 10:00 PM reminder and the cleared cache."},
+      {"n": 5, "status": "pass", "note": "A full-width centred Reset All Settings button with a confirmation dialog. It restored New York, 18 pt, Normal, System theme and notifications off, persisted across relaunch, and kept the account."}
+    ],
+    "bugs": [
+      "Tapping a theme row (System/Light/Dark/Sepia) jumps the whole list back to the top, so you lose your place in the Appearance section on every theme change"
+    ],
+    "tells": [
+      "Sign Out, Clear Cache and Reset confirmations appear as anchored popover action sheets with no Cancel button (the iOS 26-style confirmationDialog). Native, but some may expect a bottom sheet",
+      "At the largest text size the Notifications label hyphenates ('Notifica-tions') and the email middle-truncates (excused)"
+    ],
+    "scroll": "Native and smooth: drags, flings, back to top and the rubber-band at the top all behave like a UIKit list, with the large title collapsing into a standard bar. Position is kept when returning from pushed pickers, but changing the theme snaps the list to the top.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both are complete, native-feeling settings screens that meet every requirement and persist correctly. B feels more like an iPhone Settings screen: coloured symbol icons, a real notification-permission request, the system App Store review prompt, a storage usage bar, and Sepia/Dark theming the whole UI. Its one visible flaw is the list jumping to the top when you change theme, while A is plainer and uses a home-made rating alert."
+}

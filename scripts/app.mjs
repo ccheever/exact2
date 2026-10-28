@@ -41,6 +41,7 @@ import { startSweep } from './sweep.mjs';
 import { knownWorkspace, rememberWorkspace } from './cargo-check.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
+import { shareTargetProblems, webShareTarget } from './share-target.mjs';
 /** rustup puts cargo in `~/.cargo/bin` and a login profile puts that on PATH;
  * a non-interactive shell (an agent's, a launchd job's) often skips the
  * profile, and every cargo spawn below then fails as ENOENT. Every script that
@@ -326,13 +327,15 @@ if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe
 
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
 // Groups preserve capability-based shipping; none of these imports enters boot.
+// A group's files import statically only from it or base (web-host-groups.test.mjs): base's documents-glue.js
+// reads storage-environment.js, so it ships in base, not only with storage.
 const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'frame-messages.js', 'frame-navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
-    'http-body.js', 'grant-admission.js', 'faults.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
+    'http-body.js', 'grant-admission.js', 'faults.js', 'address-space.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
     'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js'],
+    'documents-glue.js', 'storage-environment.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-binary.js', 'module-prelude.js'],
-  storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
+  storage: ['storage-request.js', 'storage.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
   gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js', 'gpu-pads.js', 'gpu-tier.js', 'gpu-refusal.js'],
@@ -623,7 +626,7 @@ export function readManifest(dir, name) {
     : /^game\.presentation: /.test(p)
       ? 'game.presentation is now game.render: rename the key, move presentation/ to render/, name the crate <name>-render and rename its "type" to "hooks" (LLP 1046.008, amendment of 2026-10-04)'
       : p);
-  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...protocolHandlerProblems(parsed), ...appleIconProblems(parsed, dir));
+  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...shareTargetProblems(parsed), ...protocolHandlerProblems(parsed), ...appleIconProblems(parsed, dir));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   macResourceMappings(parsed);
   return { host: {}, deploy: {}, ...parsed };
@@ -707,13 +710,14 @@ function protocolHandlerProblems({ protocol_handlers = [], host }) {
  * (LLP 1030 D2/D10; 1030.000 D7). A browser opens files only, so
  * `inode/directory` (the Apple bake's word for a folder) goes, and it
  * registers neither `http` nor `https`, so those handlers go too. */
-export function webAppManifest(manifest, name) {
+export function webAppManifest(manifest, name, notes = []) {
   const keys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'display_override', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler', 'shortcuts'];
   const web = Object.fromEntries(keys.filter((k) => manifest[k] !== undefined).map((k) => [k, manifest[k]]));
   if (web.file_handlers) web.file_handlers = web.file_handlers.filter((h) => !Object.keys(h.accept ?? {}).includes('inode/directory'));
   if (web.protocol_handlers) web.protocol_handlers = web.protocol_handlers.filter((h) => !isWebScheme(h.protocol));
   // A shortcut's `apple` and `android` words are the native bakes' (LLP 1133.023 D11).
   if (web.shortcuts) web.shortcuts = web.shortcuts.map(({ apple, android, ...item }) => item);
+  if (manifest.share_target) web.share_target = webShareTarget(manifest.share_target, notes);
   for (const key of ['file_handlers', 'protocol_handlers', 'shortcuts']) if (!web[key]?.length) delete web[key];
   web.name ??= name;
   web.start_url ??= '/';
@@ -747,7 +751,7 @@ export function validate(value, node, at, root) {
   if (node.enum && !node.enum.includes(value)) problems.push(`${where}: ${JSON.stringify(value)} is not one of ${node.enum.map((e) => JSON.stringify(e)).join(', ')}`);
   if (typeof value === 'string') {
     if (node.minLength != null && value.length < node.minLength) problems.push(`${where}: shorter than ${node.minLength}`);
-    if (node.pattern && !new RegExp(node.pattern).test(value)) problems.push(`${where}: ${JSON.stringify(value)} does not match ${node.pattern}`);
+    if (node.pattern && !new RegExp(node.pattern).test(value)) problems.push(`${where}: ${JSON.stringify(value)} does not match ${node.pattern}${node['x-hint'] ? `: ${node['x-hint']}` : ''}`);
   }
   if (actual === 'number' && (!Number.isFinite(value) || (node.minimum != null && value < node.minimum) || (node.exclusiveMinimum != null && value <= node.exclusiveMinimum) || (node.maximum != null && value > node.maximum))) problems.push(`${where}: outside the allowed numeric range`);
   if (actual === 'array' && node.minItems != null && value.length < node.minItems) problems.push(`${where}: fewer than ${node.minItems} items`);

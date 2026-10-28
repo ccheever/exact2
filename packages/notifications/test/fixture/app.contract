@@ -1,0 +1,72 @@
+// The conformance fixture of @exact/notifications (LLP 1133.004 stage 1):
+// what the T3 Code clone does with notifications, one button each.
+use showNotification, closeNotification, setAppBadge, clearAppBadge, notificationStatus, requestNotificationPermission, notificationclick, NotificationStatus, NotificationEvent from "@exact/notifications"
+
+shape Said
+  text: string
+
+shape Time
+  epochAtZero: number
+
+component App
+  state opened = "none"
+  resource status = notificationStatus() as shape NotificationStatus
+  resource time = exactTime() as shape Time
+  mutation asked as shape NotificationStatus
+  mutation data as shape Said
+  action clicked(tag: string, e: NotificationEvent)
+    match e.data
+      case some(d)
+        opened = `${tag} ${d}`
+      case none
+        opened = tag
+  action post
+    showNotification(title="Build finished", body="Thread 3 is done", tag="thread-3", silent=true, data="/thread/3")
+  action sound
+    showNotification(title="Input needed", tag="thread-4", data="/thread/4")
+  action later
+    showNotification(title="Stretch", tag="stretch", showTrigger=time.epochAtZero + performanceNow() + 60000)
+  action close
+    closeNotification(tag="thread-3")
+  action count
+    setAppBadge(contents=3)
+  action flag
+    setAppBadge()
+  action clear
+    clearAppBadge()
+  action ask
+    send asked = requestNotificationPermission()
+  action postData
+    send data = fromData()
+  action closeData
+    send data = closeData()
+  view
+    column notificationclick=clicked
+      text testId="status" status.state
+      text testId="badge-kind" `${status.badge}`
+      text testId="opened" opened
+      match data
+        case some(d)
+          text testId="data" d.text
+        case none
+          text testId="data" "none"
+      button testId="post" press=post
+        text "Post silent"
+      button testId="sound" press=sound
+        text "Post with sound"
+      button testId="later" press=later
+        text "Post in a minute"
+      button testId="close" press=close
+        text "Close thread 3"
+      button testId="count" press=count
+        text "Badge 3"
+      button testId="flag" press=flag
+        text "Badge flag"
+      button testId="clear" press=clear
+        text "Clear badge"
+      button testId="ask" press=ask
+        text "Ask permission"
+      button testId="post-data" press=postData
+        text "Post from data"
+      button testId="close-data" press=closeData
+        text "Close from data"

@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day in inset-grouped cards. Each header shows Today/Yesterday/weekday+date with the day total on the right. Totals update after add, edit and delete."},
+      {"n": 2, "status": "pass", "note": "Large green 'Monthly spending' card: October 2026, $5,269.70, 86 expenses. Updates live after changes."},
+      {"n": 3, "status": "pass", "note": "Sheet with large $ amount field on a decimal pad, merchant, category picker (pushed list of the 7 categories with icons and a checkmark), date that defaults to today, and a note. Empty, 0 and 'abc-1' amounts and an empty merchant are rejected with alerts. Future dates can be picked."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens a prefilled edit sheet. Changing amount and date moves the row to the right day. Swipe left shows a native Delete action that works. Edit and delete both survive relaunch."},
+      {"n": 5, "status": "pass", "note": "Categories tab: this month per category, largest first, with dollar amount, % of total, count, progress bar and a stacked share bar. The figures add up to the month total. Tapping a category pushes its transactions grouped by day."},
+      {"n": 6, "status": "pass", "note": "US currency everywhere ($1,544.59). Adds, edits and deletes survive relaunch."}
+    ],
+    "bugs": [
+      "Category detail screen (e.g. Fun) shows an empty gap where its large title should be. The title is in the accessibility tree but never drawn, so the screen has no visible heading besides the card label.",
+      "The date picker lets you pick future dates for an expense."
+    ],
+    "tells": [
+      "Custom cream/green brand palette instead of system grouped backgrounds and the system tint. Reads as a designed app rather than stock iOS.",
+      "The navigation bar is an opaque solid strip that clips the list with a hard edge. iOS 26/27's soft scroll-edge blur, where content passes under the bar, is missing.",
+      "Validation happens only after tapping Save, through alerts. Save is never disabled and there is no inline error.",
+      "At the largest text size the 'Amount · USD' section header breaks so that the second line starts with '·'.",
+      "Category detail duplicates the big hero card and adds a second '+' button, so it feels repetitive."
+    ],
+    "scroll": "Smooth flings, natural deceleration and rubber-banding. No blank or popping rows across 33 pages, and scroll position is kept after opening and cancelling an edit. Rows clip hard under the opaque nav bar instead of blurring under it.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first in inset-grouped sections. Each header is one string 'Oct 25, 2026 · $222.02' (no Today/Yesterday, total not right-aligned). Totals update correctly."},
+      {"n": 2, "status": "pass", "note": "'This month' card at the top of the list: $5,269.70, October 2026 · 86 expenses. Updates live."},
+      {"n": 3, "status": "pass", "note": "Stock Form sheet with X/checkmark glyph buttons. Amount on a decimal pad, merchant, a Menu picker with the 7 categories, a compact date picker defaulting to today, and a note. Save stays disabled until the amount is >0 and a merchant is entered, with inline footer hints ('Enter an amount greater than zero.', 'Enter a merchant.')."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens a prefilled edit sheet. Amount and date edits move the row and fix totals. Native swipe-to-delete works. Both survive relaunch."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists the 7 categories largest first, with amount, % share and a bar. Tapping one pushes its transactions grouped by day, with notes as subtitles and the category total, share and count."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. Changes survive relaunch."}
+    ],
+    "bugs": [
+      "Category share bars have track widths that follow each row's label length, so bar lengths can't be compared between categories (Bills' track is shorter than Shopping's).",
+      "The date picker lets you pick future dates for an expense (not checked further)."
+    ],
+    "tells": [
+      "Rows are buttons, so a swiped row stays grey/highlighted while the Delete action shows.",
+      "Day headers are a single grey 'date · total' string rather than a date on the left and total on the right. No relative 'Today'/'Yesterday'.",
+      "Category rows have no disclosure chevron, though they push a screen.",
+      "Very plain: no category icons or colours, and amounts in secondary grey. It looks like a template app."
+    ],
+    "scroll": "Native list feel: smooth flings and deceleration, content blurs under the nav bar with the system scroll-edge effect, no blank or popping rows across 24 pages, and position kept after editing.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist correctly. A is the richer, more finished product: category icons, a clear monthly hero card, relative day headers and a better Categories screen. B is closer to stock SwiftUI (disabled-Save validation, scroll-edge blur) but is plain, and its share bars can't be compared. A's missing large title on category detail and its opaque nav bar cost it platform points, but I would still rather ship A."
+}

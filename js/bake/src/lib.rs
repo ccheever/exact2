@@ -1078,6 +1078,7 @@ fn bake_in(
         "__exact_backend_source.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
+        "__exact_binding.mjs",
         "__exact_paths.json",
         "__exact_declarations.json",
         "__exact_packages.json",
@@ -1178,7 +1179,15 @@ fn bake_in(
     if development {
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
-    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
+    // A development build's `local-network` lines admit loopback too (LLP 1133.036 D5), as
+    // `developmentLocalNetwork` in typescript.mjs writes them for the web.
+    let trust = std::env::var("EXACT_UPDATE_TRUST");
+    let grants = if trust.as_deref().is_ok_and(|t| t != "development") {
+        "app.grants"
+    } else {
+        r"app.grants.replace(/^([ \t]*net\.(?:fetch|websocket)[ \t]+local-network)[ \t]*$/gm, '$1 development')"
+    };
+    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = {grants};\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
     // An overlay shows writes over what they change; `tools`, the handlers a package calls (LLP 1133.016 D9).
     if exports(&app_ts, "overlay") {
         entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
@@ -1190,13 +1199,11 @@ fn bake_in(
         entry.push_str(CANVAS_ENTRY);
     }
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
-    write_changed(
-        &stage.join("__exact_config.mjs"),
-        resident::CONFIG.as_bytes(),
-    )?;
+    resident::write_config(stage)?;
+    let target = resident::binding_target();
     write_changed(
         &stage.join("__exact_paths.json"),
-        serde_json::json!({"app": app, "mounts": mounts(&app)?})
+        serde_json::json!({"app": app, "mounts": mounts(&app)?, "target": target})
             .to_string()
             .as_bytes(),
     )?;
@@ -1395,10 +1402,7 @@ catch (error) { process.stderr.write(String(error?.message ?? error)); process.e
 "#;
 
 fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
-    write_changed(
-        &stage.join("__exact_config.mjs"),
-        resident::CONFIG.as_bytes(),
-    )?;
+    resident::write_config(stage)?;
     // Configure, then check as the resident and web producers check: the
     // compiler's resolved graph, package declarations included, stays inside
     // the capture and the configured libraries (`typescript.mjs` `check`).

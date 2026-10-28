@@ -150,10 +150,10 @@ for (const engine of engines) {
 
     await tap(page, 'pause');
     const paused = await until(page, 'rec', t => t.startsWith('paused'));
-    check(engine, 'pause', /^paused \d+ requested$/.test(paused), paused);
+    check(engine, 'pause', /^paused \d+(\.\d+)? requested$/.test(paused), paused);
     await tap(page, 'resume');
     const resumed = await until(page, 'rec', t => t.startsWith('recording'));
-    check(engine, 'resume', /^recording \d+ -$/.test(resumed), resumed);
+    check(engine, 'resume', /^recording \d+(\.\d+)? -$/.test(resumed), resumed);
     await page.waitForTimeout(1200);
     await tap(page, 'stop');
     const saved = await until(page, 'saved', t => t !== 'none');
@@ -163,7 +163,7 @@ for (const engine of engines) {
     const played = await page.waitForFunction(() => { const a = document.querySelector('[data-testid="playback"]'); return a && (a.readyState >= 1 || a.error) ? { ready: a.readyState, duration: a.duration, error: a.error?.code ?? null } : null; }, null, { timeout: 10000 }).then(h => h.jsonValue()).catch(e => ({ error: e.message }));
     if (writes) check(engine, 'the file plays (an audio element loads its metadata)', played.ready >= 1 && !played.error, JSON.stringify(played));
     const inactive = await until(page, 'rec', t => t.startsWith('inactive'));
-    check(engine, 'a stopped recorder is sticky and inactive', /^inactive \d+ requested$/.test(inactive), inactive);
+    check(engine, 'a stopped recorder is sticky and inactive', /^inactive \d+(\.\d+)? requested$/.test(inactive), inactive);
     await tap(page, 'pause');
     const invalid = await until(page, 'info-error', t => t !== '');
     check(engine, 'pause after stop is InvalidStateError', invalid === 'InvalidStateError', invalid);
@@ -192,7 +192,7 @@ for (const engine of engines) {
     await until(page, 'rec', t => t.startsWith('recording'));
     await tap(page, 'end-track');
     const ended = await until(page, 'rec', t => t.startsWith('inactive'));
-    check(engine, 'a track that ends stops its recorder', /^inactive \d+ track-ended$/.test(ended), ended);
+    check(engine, 'a track that ends stops its recorder', /^inactive \d+(\.\d+)? track-ended$/.test(ended), ended);
     const endedTrack = await until(page, 'track', t => t.startsWith('ended'));
     check(engine, 'stopTrack ends the track', endedTrack.startsWith('ended'), endedTrack);
 

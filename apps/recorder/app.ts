@@ -11,7 +11,7 @@ export const appId = 'com.exact.recorder';
 const DIR = 'app:/data/takes';
 const INDEX = `${DIR}/index.json`;
 const TRANSCRIPTS = `${DIR}/transcripts.json`;
-export const grants = `device.microphone purpose.microphone\ndevice.speech-recognition purpose.transcribe\nfs.read ${DIR}\nfs.write ${DIR}`;
+export const grants = `device.microphone purpose.microphone\ndevice.microphone-background purpose.recordingInBackground\ndevice.speech-recognition purpose.transcribe\nfs.read ${DIR}\nfs.write ${DIR}`;
 
 type Kept = { name: string; seconds: number; level: number };
 type Info = { id: string; transcript: string | null; finalCount: number; files: number; error: string | null };

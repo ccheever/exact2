@@ -11,7 +11,8 @@ export function conforms(v, t, i = [0], o) {
   if (c === "N") return typeof v === "number"; // any number: a hidden parameter's (emit.rs)
   if (c === "b") return typeof v === "boolean";
   if (c === "e") { const end = t.indexOf(":", i[0]), n = Number(t.slice(i[0], end)); i[0] = end + 1; const values = JSON.parse(t.slice(i[0], i[0] + n)); i[0] += n; return typeof v === "string" && values.includes(v); }
-  if (c === "s") return typeof v === "string";
+  // A lone surrogate is no string a native host holds (Rust's `String`; js/src/engine.rs refuses one), so none here either (LLP 1146 D6).
+  if (c === "s") return typeof v === "string" && v.isWellFormed();
   if (c === "u") return v == null;
   if (c === "?") { if (v == null) { skip(t, i); return true; } return conforms(v, t, i, o); }
   if (c === "[") {
@@ -23,6 +24,8 @@ export function conforms(v, t, i = [0], o) {
   if (c === "{") { let k = 0; const was = Array.isArray(o) ? o : null; for (; t[i[0]] !== "}"; k++) if (!Array.isArray(v) || !conforms(v[k], t, i, was?.[k])) return false; i[0]++; return v.length === k; }
   return true;
 }
+/** Whether a string anywhere in `v` holds a lone UTF-16 surrogate. */
+export const loneSurrogate = v => typeof v === "string" ? !v.isWellFormed() : Array.isArray(v) && v.some(loneSurrogate);
 function skip(t, i) { const c = t[i[0]++]; if (c === "e") { const end = t.indexOf(":", i[0]); i[0] = end + 1 + Number(t.slice(i[0], end)); } else if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
 /** Contract's `==`, and what the runner compares a resource's arguments
  * with (runner/src/compare.rs `equal`, `Value`'s `PartialEq`): numbers as

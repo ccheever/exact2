@@ -731,81 +731,6 @@ fn share_files(value: &Expr, t: &Ty) -> Result<(), TypeError> {
     Ok(())
 }
 
-/// `showNotification(title=, body=, tag=, showTrigger=, navigate=)`: the Notification
-/// API's title and options by name, named only, `title` required; strings,
-/// and `showTrigger` a number (when to show it, in epoch milliseconds: the
-/// Notification Triggers draft's `TimestampTrigger`). `closeNotification(tag)`:
-/// one string. Whether the grants name `device.notifications` is the host's
-/// to refuse, as `fetch`'s grants are.
-fn notification_args(
-    name: &str,
-    args: &[Expr],
-    scope: &Scope,
-    shapes: &Shapes,
-    span: Span,
-) -> Result<(), TypeError> {
-    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)`";
-    if name == "closeNotification" {
-        let one = matches!(args, [tag] if !matches!(tag, Expr::NamedArg(..)));
-        if !one || Ty::String.unify(&infer(&args[0], scope, shapes)?).is_none() {
-            return err(
-                "type-notification-argument",
-                "`closeNotification` takes the tag it closes: `closeNotification(\"reminder-1\")`",
-                span,
-            );
-        }
-        return Ok(());
-    }
-    let mut seen = BTreeSet::new();
-    for arg in args {
-        let Expr::NamedArg(arg_name, value, at) = arg else {
-            return err(
-                "type-notification-argument",
-                format!("`showNotification` takes named arguments: {USAGE}"),
-                arg.span(),
-            );
-        };
-        let want = match arg_name.as_str() {
-            "title" | "body" | "tag" | "navigate" => Ty::String,
-            "showTrigger" => Ty::Number,
-            other => {
-                return err(
-                    "type-notification-argument",
-                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag=, showTrigger= and navigate="),
-                    *at,
-                )
-            }
-        };
-        if !seen.insert(arg_name.as_str()) {
-            return err(
-                "type-notification-argument",
-                format!("`{arg_name}=` is given twice"),
-                *at,
-            );
-        }
-        let t = infer(value, scope, shapes)?;
-        if want.unify(&t).is_none() {
-            let what = match want {
-                Ty::Number => "a number: epoch milliseconds",
-                _ => "a string",
-            };
-            return err(
-                "type-notification-argument",
-                format!("`{arg_name}=` is {what}, not `{t}`"),
-                value.span(),
-            );
-        }
-    }
-    if !seen.contains("title") {
-        return err(
-            "type-notification-argument",
-            format!("`showNotification` needs `title=`: {USAGE}"),
-            span,
-        );
-    }
-    Ok(())
-}
-
 /// `scrollIntoView("list-id", key, block=, inline=, behavior=, row=)` (LLP
 /// 1070.000 §1): a virtualized list's `id` as a literal, a row key, and the
 /// web's `ScrollIntoViewOptions` by name with literal values; `row=` names an
@@ -943,6 +868,9 @@ pub(super) fn check_command(
             Some(owner) if owner != component => format!(
                 "`{name}` is an action of `{owner}`, not in `{component}`'s scope; pass it as an `action` prop or `provide` it"
             ),
+            None if matches!(name, "showNotification" | "closeNotification" | "setAppBadge" | "clearAppBadge") => format!(
+                "`{name}` is `@exact/notifications`' (LLP 1133.004): `exact add notifications`, then `use {name} from \"@exact/notifications\"` (`closeNotification` takes `tag=`)"
+            ),
             _ => format!(
                 "`{name}` is not a host command; the hosts answer {}",
                 HOST_COMMANDS.join(", ")
@@ -985,9 +913,6 @@ pub(super) fn check_command(
     }
     if name == "saveFile" {
         return save_file_args(args, scope, shapes, span);
-    }
-    if name == "showNotification" || name == "closeNotification" {
-        return notification_args(name, args, scope, shapes, span);
     }
     if name == "requestPermission" {
         return permission::args(args, scope, shapes, span);

@@ -57,6 +57,12 @@ export function associatedDomains(auth, debuggable) {
   return (auth?.associatedDomains ?? []).map((d) => debuggable && passkeys.has(d) ? `${d}?mode=developer` : d);
 }
 
+/** Sign in with Apple's entitlement, which follows the signing, not the grant (LLP 1133.014 D7): a simulator takes it;
+ * a device's profile must authorize it, and reading that from the profile is not built, so a device build signs none. */
+export function signInEntitlement(auth, simulator) {
+  return (auth?.signIn?.apple ?? []).length && simulator ? { 'com.apple.developer.applesignin': ['Default'] } : {};
+}
+
 /** A grant's entitlement's value (`reach.entitlements`): `true`, or the string the build chooses (LLP 1133.028 D15
  * item 1). App Attest's environment is `development` for a debuggable build and `production` for a release; Apple
  * uses production for TestFlight and App Store builds whatever it says. */
@@ -94,4 +100,13 @@ export function macPasskeys(app, ceiling, { release = false, log = console.log }
   const why = `the Associated Domains entitlement needs a macOS provisioning profile for ${app.id}, and signing a Mac build with one is not built yet (LLP 1133.010 D7)`;
   if (release) throw new Error(`grant-needs-profile: ${lines}: ${why}.`);
   log(`Passkeys: this build signs no associated domain, since ${why}: getClientCapabilities().available is false and create and get fail NotSupportedError.`);
+}
+
+/** @ref LLP 1133.034 D13 — the `payment.apple-pay` grants' merchant IDs, where they can be signed: on a simulator, or
+ * with a profile whose entitlements (`allows`) include Apple Pay's. Elsewhere (an ad hoc Mac build) Apple Pay is
+ * unavailable, and a profile without it would refuse the build. */
+export function merchantEntitlement(reach, { simulator = false, team = null, allows = [] } = {}) {
+  const merchants = reach?.payments?.merchantIds ?? [];
+  const signable = (simulator && !team) || allows.includes('com.apple.developer.in-app-payments');
+  return merchants.length && signable ? { 'com.apple.developer.in-app-payments': merchants } : {};
 }

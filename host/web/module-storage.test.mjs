@@ -77,7 +77,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
 // The real prelude and host turns, with storage backends that land at once.
 // `done` closes either placement even when an answer is still parked.
 async function moduleRealm(script, { placement = 'worker', key = 'k' } = {}) {
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-worker-storage-'));
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-worker-storage-')), captured = {};
   const saved = Object.fromEntries(['fetch', 'document', 'location', 'exact'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   let realm;
   const done = () => {
@@ -116,6 +116,10 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
       win.document = { createElement: () => ({}), head: { append: el => vm.runInContext(el.textContent, win) } };
       const frame = { contentWindow: win, setAttribute() {}, remove() {} };
       Object.defineProperty(globalThis, 'document', { configurable: true, value: { createElement: () => frame, body: { append() {} } } });
+      // The realm's door, kept as module-glue installs it (the prelude takes and deletes it at load).
+      Object.defineProperty(win, '__exact_host', { configurable: true, set(door) {
+        captured.door = door; Object.defineProperty(win, '__exact_host', { configurable: true, writable: true, value: door });
+      } });
     }
     const { createGrantSet } = await import(resolve(dir, 'grant-admission.js'));
     const glue = await import(resolve(dir, 'module-glue.js'));
@@ -124,7 +128,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     realm = await glue.prepare({ receipt, script: bytes }, { appId: 'test.storage', grants, grantSet: createGrantSet(GRANTS), placement });
     const request = (op, source, extra = {}) => ({ op, id: realm.id, target: source, source, args: [], store: [['recovery-owner', source]], grants: [], ...extra });
     return {
-      done,
+      done, door: () => captured.door,
       ask: source => glue.run(glue.call(request('answer', source)).continuation),
       resume: source => glue.run(glue.call(request('resume', source, { outcome: { response: { status: 200, headers: [], body: 'fresh' } } })).continuation),
       forget: inFlight => glue.call({ op: 'forget', id: realm.id, inFlight: inFlight.map(s => request('answer', s)) }),
@@ -240,3 +244,18 @@ for (const placement of ['main', 'worker']) test(`${placement}: an answer that y
     expect((await race(realm.ask('walk'))).value).toBe('yielded 5');
   } finally { realm.done(); }
 });
+
+// The prelude asks at load whether the host has a local listener (LLP 1133.005), outside any answer: the page's
+// realm answers that ask, no (''), the one call newly let through; what it refused outside an answer it still
+// refuses (a journal line, 13, and the clock, 21, were already answered there).
+test('outside an answer the realm newly answers only the load-time listen ask', async () => {
+  const w = await moduleRealm(`return 'loaded';`, { placement: 'main' });
+  try {
+    expect((await race(w.ask('any'))).value).toBe('loaded');
+    const door = w.door();
+    expect(door(12, 'listen', '')).toBe('');
+    expect(() => door(12, 'callback', '')).toThrow('host call outside an answer');
+    expect(() => door(2, 'name', '')).toThrow('host call outside an answer');
+    expect(() => door(1, '1', '{}')).toThrow('host call outside an answer');
+  } finally { w.done(); }
+}, 20000);

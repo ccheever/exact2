@@ -634,6 +634,11 @@ final class NativeViews {
     }
 
     private var pendingHatches: (() -> Void)?
+    /// Whether this session's hatches may still connect with `word` handled (a hatched frame waits, ElementHatches.swift).
+    func hatchesMayConnect(_ word: String) -> Bool {
+        guard hasAppModule, !hatchesConnected, !Self.hatchesOff, instanceFailure == nil, instance == nil || pendingHatches != nil else { return false }
+        switch NativeProcess.table { case .success(let t)?: return t.connect != nil && t.elementHatch != nil && t.hatchWords?.contains(word) != false; case .failure?: return false; case nil: return true }
+    }
     /// Connects the hatches of a module made before first pixel.
     private func activateHatches() {
         guard let pending = pendingHatches else { return }
@@ -673,7 +678,7 @@ final class NativeViews {
         session.runtime.on { exact_set_app_module(rt, nativeLaterCallback, nativeCallCallback, UnsafeMutableRawPointer(bitPattern: UInt(rt))) }
     }
 
-    private var hasAppModule = false
+    var hasAppModule = false
 
     /// After first pixel, before data activates: load the artifact and make
     /// the session's instance, so the first `native.call` pays for neither.
@@ -681,6 +686,7 @@ final class NativeViews {
     /// 100 ms budget (the sample host, 2026-09-27).
     func prepareAppModule() {
         activateHatches()
+        defer { if !hatchesConnected, pendingHatches == nil { session?.presenter.elements.releaseFrames() } } // they never will
         guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
         _ = module(table)
         // Its extensions answer their names from now on, outside the agent.
@@ -1301,6 +1307,7 @@ extension NodeView {
         #else
         w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         #endif
+        w.isHidden = cssVisibilityHidden
         addSubview(w)
         web = w
     }

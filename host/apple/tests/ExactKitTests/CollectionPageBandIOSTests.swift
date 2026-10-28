@@ -26,6 +26,7 @@ final class CollectionPageBandIOSTests: XCTestCase {
         XCTAssertEqual(facts.paddingStart, 80)
         XCTAssertEqual(facts.paddingEnd, 30)
         XCTAssertEqual(facts.offset, -80)
+        XCTAssertEqual(p.collections.covered(1), [60, 30], "what the runner aligns rows clear of: the bands, not the list's padding")
         p.collections.keepStart(1, at: -80)
         XCTAssertEqual(scroll.contentOffset.y, rest)
         p.collections.shift(1, by: 40, extent: 1000, from: -80)

@@ -7,7 +7,7 @@
 **Date:** 2026-10-22
 **Implementer:** Claude (Opus 5.5) orchestrating; code by GPT-6 Astra and GPT-6.1 Sol in lanes, reviewed by Grok 4.7 and Sol (`skills/orchestrate`). Stage 1 starts 2026-10-22.
 **Corpus:** Excord's own, in `apps/excord/llp/`; numbers here are Excord's, and "LLP NNNN" with four digits above 1000 is exact2's.
-**Related:** LLP 1140 (how Discord's own Rust clients are built: the comparison Excord invites); LLP 1114 (the Bluesky clone: a real service's client as the source of Exact's asks); `apps/messages`, `apps/messages-stress` (the transcript work this builds on); `docs/recipes/chat-thread.md`
+**Related:** LLP 1114 (the Bluesky clone: a real service's client as the source of Exact's asks); `apps/messages`, `apps/messages-stress` (the transcript work this builds on); `docs/recipes/chat-thread.md`
 
 ## R. The panel, and what r2 changed
 

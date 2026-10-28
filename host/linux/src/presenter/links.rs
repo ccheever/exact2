@@ -227,6 +227,31 @@ impl<D: DataSource> Presenter<D> {
             "openURL {target}: the Linux host has no browser to open it in"
         ));
     }
+
+    /// A URL arriving from outside while the app runs (LLP 1133.023 D15
+    /// item 3: Android's `onNewIntent`, a shortcut): its location, as a
+    /// link's, goes to the navigation root's `navigate` when the root routes
+    /// it. The refusal, else `None`.
+    pub fn open_location(&mut self, href: &str, now_ms: f64) -> Option<String> {
+        let location = exact_route::location_of(href);
+        if !self.host.runner().route_matches(&location) {
+            return Some(format!("open {location}: no route matches it"));
+        }
+        let root = self.navigation_root().filter(|root| {
+            self.host
+                .runner()
+                .handlers_of(*root)
+                .contains(&EventKind::Navigate)
+        });
+        let Some(root) = root else {
+            return Some(format!(
+                "open {location}: no navigation root takes `navigate`"
+            ));
+        };
+        self.host
+            .dispatch_at(root, Event::Navigate(location), now_ms)
+            .or(self.after_commit())
+    }
 }
 
 fn inline_sources(node: &exact_kernel::NodeRef<'_>) -> Vec<ViewId> {
@@ -324,6 +349,38 @@ component App
                 .any(|l| l.contains("openURL https://example.com")),
             "{:?}",
             p.host.runner().journal().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_url_from_outside_goes_to_the_root_when_it_routes_it() {
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(SRC),
+            (),
+            (400., 300.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        // A scheme's URL as Android's intent data carries it: its location, as a link's.
+        assert_eq!(p.open_location("shelf://note/7", 10.), None);
+        assert!(!p.host.kernel().find_by_test_id("route-note").is_empty());
+        let notes = p.host.kernel().find_by_test_id("route-note").len();
+        assert_eq!(p.open_location("/note/8?from=shortcut", 20.), None);
+        assert_eq!(
+            p.host.kernel().find_by_test_id("route-note").len(),
+            notes + 1
+        );
+        // A path no route matches is refused, and nothing moves.
+        assert_eq!(
+            p.open_location("/elsewhere", 30.).as_deref(),
+            Some("open /elsewhere: no route matches it")
+        );
+        assert_eq!(
+            p.host.kernel().find_by_test_id("route-note").len(),
+            notes + 1
         );
     }
 

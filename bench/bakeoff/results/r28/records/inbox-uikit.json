@@ -1,0 +1,26 @@
+{
+  "spec": "inbox",
+  "arm": "uikit",
+  "model": "gpt",
+  "appId": "dev.bakeoff.inbox.b631359",
+  "assignedId": "dev.bakeoff.inbox.b631359",
+  "appName": "Inbox",
+  "sim": "498D6D1F-C21C-4B31-90F4-5D857216E256",
+  "pin": "d7ed471d11",
+  "minutes": 10.11,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 1784610,
+    "fresh": 100140,
+    "input": 1757100,
+    "cached": 1656960,
+    "output": 27510,
+    "cost": null,
+    "calls": 7,
+    "toolCalls": 37
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r28/built/inbox-uikit.app",
+  "notes": true,
+  "finished": "2026-10-27T20:44:29.023Z"
+}

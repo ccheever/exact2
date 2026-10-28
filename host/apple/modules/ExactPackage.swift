@@ -41,6 +41,14 @@ public final class ExactPackageEvents {
     public func submit() { send(6, "") }
     public func load() { send(7, "") }
     public func message(_ text: String) { send(8, text) }
+    /// An event the view declares beyond the nine (LLP 1133.021 §9 item 2),
+    /// `args` in the declared types' JSON: the handler named for it runs
+    /// with them decoded. Sent as a message the runner recognises.
+    public func emit(_ name: String, _ args: [Any]) {
+        let body: [String: Any] = ["exact:event": name, "args": args]
+        guard let data = try? JSONSerialization.data(withJSONObject: body), let text = String(data: data, encoding: .utf8) else { return }
+        send(8, text)
+    }
     /// Preferred content size in points; an authored size wins; nil forgets it.
     public func intrinsicSize(_ s: CGSize?) { size(s) }
 }
@@ -75,6 +83,10 @@ public final class ExactPackageContext {
     /// The session's id, unique in the process: what a process object
     /// shared by sessions (a capture, a photo output) keys its consumers by.
     public let session: String
+    /// The host's own id for the session, which what the host keeps for it
+    /// is named by: under the agent, the private pasteboard its `copyText`
+    /// and @exact/clipboard write (LLP 1133.006 §7).
+    public let hostSession: String
     /// Who made the call being answered now (`app`, `tool`, `wake`): set by
     /// the host before each `later`, read by an implementation at its entry,
     /// as a capture's first lease is refused to a tool's read (LLP 1133.009 D6).
@@ -97,14 +109,26 @@ public final class ExactPackageContext {
     private let viewFn: () -> ExactPackagePlatformView?
     private let invokeFn: (String, String, [String: Any], @escaping ([String: Any]) -> Void) -> Void
     private let emitFn: (String, [Any]) -> Void
+    private let stateFn: ([String: Any]) -> Void
     private let activationFn: (String, [Any], String?) -> [AnyHashable: Any]
     private let wakeFn: (String, [Any], String, @escaping (String) -> Void) -> Void
+    private let expireWakeFn: (String) -> Void
     /// The host's wake requests (LLP 1133.017 D8).
     public let wakes: ExactWakes
     /// The host's transfer carrier (LLP 1133.017 D8, D10).
     public let transfers: ExactTransfers
+    /// The host's list of the app icon's shortcuts (LLP 1133.023 D15 item 2).
+    public let shortcuts = ExactShortcutStore()
+    /// The host's content index mirror (LLP 1133.023 D4, D15 item 2).
+    public let contentIndex = ExactContentIndexStore()
+    /// The process's pad slots (LLP 1133.022 D10 item 1); nil on a host
+    /// older than them, where a pad module reads no pads (item 4).
+    public let pads: ExactPads?
+    private let afterFn: (Double, @escaping () -> Void) -> () -> Void
+    /// The host's region carrier (LLP 1133.021 D14).
+    public let regions: ExactRegions
 
-    public init(agent: Bool, session: String, changed: @escaping (String) -> Void,
+    public init(agent: Bool, session: String, hostSession: String = "", changed: @escaping (String) -> Void,
                 log: @escaping (String) -> Void, now: @escaping () -> Double,
                 tracks: ExactTracks = ExactTracks(), file: @escaping (String) -> URL? = { _ in nil },
                 audioSession: ExactAudioSession = ExactAudioSession { _, _, _, _ in nil },
@@ -116,13 +140,29 @@ public final class ExactPackageContext {
                 activation: @escaping (String, [Any], String?) -> [AnyHashable: Any] = { _, _, _ in [:] },
                 wake: @escaping (String, [Any], String, @escaping (String) -> Void) -> Void = { _, _, _, _ in },
                 wakes: ExactWakes = ExactWakes { _, _ in },
-                transfers: ExactTransfers = ExactTransfers { _, _ in nil }) {
-        self.agent = agent; self.session = session
+                transfers: ExactTransfers = ExactTransfers { _, _ in nil },
+                pads: ExactPads? = nil,
+                after: @escaping (Double, @escaping () -> Void) -> () -> Void = { ms, body in
+                    let work = DispatchWorkItem(block: body)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: work)
+                    return work.cancel
+                },
+                regions: ExactRegions = ExactRegions { _, _ in nil },
+                expireWake: @escaping (String) -> Void = { _ in },
+                state: @escaping ([String: Any]) -> Void = { _ in }) {
+        self.agent = agent; self.session = session; self.hostSession = hostSession
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; viewFn = view; invokeFn = invoke
         emitFn = emit; activationFn = activation; wakeFn = wake; self.wakes = wakes; self.transfers = transfers
+        self.pads = pads; afterFn = after; self.regions = regions; expireWakeFn = expireWake; stateFn = state
     }
+
+    /// `body` once, `ms` later on the session's clock: the agent's under the
+    /// agent, where a seek runs it at its own instant, so a drive repeats.
+    /// Call what it returns to cancel it first. Main thread.
+    @discardableResult
+    public func after(_ ms: Double, _ body: @escaping () -> Void) -> () -> Void { afterFn(ms, body) }
 
     /// Raise the interface's wake event `name` with `args` for the platform
     /// object `id` (LLP 1133.017 D8): the events of one id are one wake, run
@@ -133,6 +173,12 @@ public final class ExactPackageContext {
     public func wake(_ name: String, _ args: [Any], id: String, ended: @escaping (String) -> Void = { _ in }) {
         wakeFn(name, args, id, ended)
     }
+
+    /// The platform expired the wake raised as `id` before its budget ran
+    /// out: it expires now, or ends `expired` unrun if it had not begun, and
+    /// its `ended` hears `expired`. `ExactWake` says this itself when the
+    /// host's task expires. Main thread.
+    public func expireWake(id: String) { expireWakeFn(id) }
 
     /// Raise the interface's event `name` with `args` (LLP 1133.004 D6):
     /// delivered in order, once, with the device's origin. Any thread.
@@ -188,12 +234,31 @@ public final class ExactPackageContext {
     /// Admission has checked the path against the calling source's grants.
     public func file(_ path: String) -> URL? { fileFn(path) }
 
+    /// Under the agent, what the implementation discloses of its own objects
+    /// for `state.extensions` (LLP 1133.008 D8 item 9): listed as its
+    /// `implementation`, each field replacing the one of its name said
+    /// before. Nothing outside the agent. Main thread.
+    public func state(_ fields: [String: Any]) { stateFn(fields) }
+
     /// The readers of `topic` are asked again (LLP 1016.002).
     public func changed(_ topic: String) { changedFn(topic) }
     /// A journal line in a development build; nothing in a production one.
     public func log(_ line: String) { logFn(line) }
     /// The session's clock, ms: the agent's under the agent.
     public func now() -> Double { nowFn() }
+
+    /// Whether the embedder lets the app leave for `url` (LLP 1133.024 D22
+    /// item 7), `how` one of `browser` (a page shown over the app) and
+    /// `external` (another app): asked before a page or a hand-off by URL
+    /// opens, as `ExactSession.follow` hands a link to the delegate. The
+    /// session's delegate decides (`ExactLeaveDelegate`); one that does not
+    /// say lets it go. Main thread.
+    public func leave(_ url: String, how: String) -> Bool {
+        let ask = NSMutableDictionary(dictionary: ["url": url, "how": how])
+        if let view = viewFn() { ask["view"] = view }
+        NotificationCenter.default.post(name: Notification.Name("exact.leave"), object: ask)
+        return ask["allow"] as? Bool ?? true
+    }
 }
 
 /// The session's window (`ExactPackageContext.presentation`).
@@ -227,8 +292,8 @@ public protocol ExactPackage: AnyObject {
     /// arguments the call wrote; `reply` once. Under the agent, `preferred`
     /// is the agent's value for the name, which the runner also lays over
     /// the answer (LLP 1133.009 D10 item 11). An answer that is not an
-    /// object (a list) is replied as `["exact:answer": value]`, a key no
-    /// shape's field can take.
+    /// object (a list, a `bool`, or `NSNull()` for an absent `option`) is
+    /// replied as `["exact:answer": value]`, a key no shape's field can take.
     func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void)
     /// A synchronous form, answered now (LLP 1133.002 D14).
     func call(_ name: String, _ args: [String: Any]) throws -> [String: Any]
@@ -331,6 +396,36 @@ public final class ExactWakes {
     public func cancel(key: String) { requestFn(key, nil) }
 }
 
+/// The app's own shortcuts on its icon's menu, after the manifest's (LLP
+/// 1133.023 D3), which the host keeps and shows: iOS's quick actions, the
+/// Mac's Dock menu. It survives a launch with no package loaded.
+public final class ExactShortcutStore {
+    /// The list replaced by `items`, each as the interface's `ShortcutItem`.
+    public func set(_ items: [[String: Any]]) {
+        NotificationCenter.default.post(name: Notification.Name("exact.shortcuts.set"), object: ["items": items] as NSDictionary)
+    }
+}
+
+/// The content index's mirror, which the host keeps in the app's container
+/// and tells Spotlight the difference of (LLP 1133.023 D4). Each entry is the
+/// interface's `ContentDescription`. A change answers nil, or the web's
+/// name for its refusal (`QuotaExceededError`, `TypeError`).
+public final class ExactContentIndexStore {
+    private func post(_ name: String, _ body: [String: Any]) -> NSMutableDictionary {
+        let body = NSMutableDictionary(dictionary: body)
+        NotificationCenter.default.post(name: Notification.Name("exact.contentIndex." + name), object: body)
+        return body
+    }
+    /// The entries of `kind` replaced by `entries`, in their order.
+    public func set(kind: String?, entries: [[String: Any]]) -> String? {
+        post("set", ["kind": kind as Any, "entries": entries])["error"] as? String
+    }
+    public func add(_ entry: [String: Any]) -> String? { post("add", ["entry": entry])["error"] as? String }
+    public func delete(id: String) { _ = post("delete", ["id": id]) }
+    /// Every entry, in the order the app set them.
+    public var entries: [[String: Any]] { post("entries", [:])["entries"] as? [[String: Any]] ?? [] }
+}
+
 /// The host's background `URLSession`s and their durable records (LLP
 /// 1133.017 D10), which outlive the process: a registration's requests run
 /// while the app is suspended or terminated, and when they have all ended
@@ -341,25 +436,57 @@ public final class ExactTransfers {
     private let callFn: (String, [String: Any]) -> Any?
     public init(_ call: @escaping (String, [String: Any]) -> Any?) { callFn = call }
     /// Start registration `id`: each request `{url, method, headers,
-    /// bodyFrom}`, `bodyFrom` a file path the host copies first. Nil, or the
-    /// error's name (`TypeError` for an id in flight or a bad request).
-    public func start(id: String, requests: [[String: Any]], discretionary: Bool = false) -> String? {
-        callFn("start", ["id": id, "requests": requests, "discretionary": discretionary]) as? String
+    /// bodyFrom, saveTo}`, `bodyFrom` a file path the host copies first,
+    /// `saveTo` kept as given; past `downloadTotal` bytes received it fails.
+    /// Nil, or the error's name (`TypeError` for an id in flight or a bad
+    /// request). The host posts `exact.transfers.changed` `{package, id}` as
+    /// its bytes move and when it ends.
+    public func start(id: String, requests: [[String: Any]], discretionary: Bool = false, downloadTotal: Int64? = nil) -> String? {
+        var args: [String: Any] = ["id": id, "requests": requests, "discretionary": discretionary]
+        if let downloadTotal { args["downloadTotal"] = downloadTotal }
+        return callFn("start", args) as? String
     }
     /// Cancel its requests in flight; false when none is.
     public func abort(id: String) -> Bool { callFn("abort", ["id": id]) as? Bool ?? false }
     /// Delete its record and the response files the host kept.
     public func retire(id: String) { _ = callFn("retire", ["id": id]) }
-    /// `{id, result, failureReason, records: [{index, url, status,
-    /// contentType, path?, location?, bodyLost}]}`, never a header or a query.
+    /// `{id, uploadTotal, uploaded, downloadTotal, downloaded, result,
+    /// failureReason, records: [{index, url, status, contentType, path?,
+    /// location?, saveTo?, bodyLost}], apple?}`, never a header or a query.
     public func record(id: String) -> [String: Any]? { callFn("record", ["id": id]) as? [String: Any] }
     /// This implementation's registrations not retired.
     public var ids: [String] { callFn("ids", [:]) as? [String] ?? [] }
 }
 
+/// The host's region carrier (LLP 1133.021 D14): one `CLMonitor` the host
+/// makes again at launch, before a package loads, whenever its store holds
+/// a region, and the store, which is the truth. A crossing is written to
+/// the store as the region's undelivered transition, then offered to the
+/// implementation that added the region as `woke(_:)` of kind `region`, its
+/// keys the regions' names; a transition stays until `delivered(name:)`,
+/// and is offered again at each later launch. macOS hears crossings only
+/// while the app runs.
+public final class ExactRegions {
+    private let callFn: (String, [String: Any]) -> Any?
+    public init(_ call: @escaping (String, [String: Any]) -> Any?) { callFn = call }
+    /// Watch a circle of `radius` metres around the coordinate as `name`,
+    /// replacing a region of that name. Nil, or the error's name.
+    public func add(name: String, latitude: Double, longitude: Double, radius: Double) -> String? {
+        callFn("add", ["name": name, "latitude": latitude, "longitude": longitude, "radius": radius]) as? String
+    }
+    /// Stop watching `name`, and forget its undelivered transition.
+    public func remove(name: String) { _ = callFn("remove", ["name": name]) }
+    /// This implementation's regions: `{name, latitude, longitude, radius, inside?}`.
+    public func list() -> [[String: Any]] { callFn("list", [:]) as? [[String: Any]] ?? [] }
+    /// The undelivered transition of `name`: `{event: "enter"|"leave", timestamp}`, ms since the epoch.
+    public func pending(name: String) -> [String: Any]? { callFn("pending", ["name": name]) as? [String: Any] }
+    /// The transition of `name` was delivered: the store forgets it.
+    public func delivered(name: String) { _ = callFn("delivered", ["name": name]) }
+}
+
 /// A wake the host was given for an implementation's due requests.
 public final class ExactWake {
-    /// `refresh`, `processing`, or `transfer`.
+    /// `refresh`, `processing`, `transfer`, or `region`.
     public let kind: String
     /// The keys of the requests now due.
     public let keys: [String]
@@ -379,11 +506,29 @@ public final class ExactWake {
     /// Every event this wake raised has ended: the host completes the
     /// platform's task once each implementation it woke is done. Once.
     public func done(success: Bool) { let d = doneFn; doneFn = nil; d?(success) }
-    /// The host's due wake as the composed adapter hears it; each event raised is a wake of its own id.
+    /// The host's due wake as the composed adapter hears it; each event
+    /// raised is a wake of its own id. When the host says the platform
+    /// expired its task (`exact.wakes.expired` with this wake's token), each
+    /// event raised that has not ended expires.
     public convenience init(_ wake: [String: Any], context: ExactPackageContext, done: @escaping (Bool) -> Void) {
+        var open: Set<String> = []
+        var observer: NSObjectProtocol?
         self.init(kind: wake["kind"] as? String ?? "refresh", keys: wake["keys"] as? [String] ?? [], deadline: wake["deadline"] as? Double,
                   platform: wake["task"] as AnyObject?,
-                  raise: { [context] event, args, ended in context.wake(event, args, id: UUID().uuidString, ended: ended) }, done: done)
+                  raise: { [context] event, args, ended in
+                      let id = UUID().uuidString
+                      open.insert(id)
+                      context.wake(event, args, id: id) { outcome in open.remove(id); ended(outcome) }
+                  },
+                  done: { success in
+                      if let o = observer { NotificationCenter.default.removeObserver(o); observer = nil }
+                      done(success)
+                  })
+        guard let token = wake["token"] as? String else { return }
+        observer = NotificationCenter.default.addObserver(forName: Notification.Name("exact.wakes.expired"), object: nil, queue: .main) { [context] note in
+            guard (note.object as? [String: Any])?["token"] as? String == token else { return }
+            for id in open { context.expireWake(id: id) }
+        }
     }
 }
 
@@ -568,6 +713,63 @@ public final class ExactTracks {
     }
 }
 
+// MARK: pads (LLP 1133.022 D4, D10 item 1)
+
+/// The process's one pad slot table: by index, the pad's controller object
+/// (`GCController`) or `NSNull`. A canvas's pads (ExactSurfaces'
+/// `CanvasPads`, which cannot import this module) and a pad module both
+/// number pads from it, so an index names one pad to each. It lives in the
+/// main thread's dictionary, which the host and the app's module share; a
+/// pad that connects takes the slot it holds, else the lowest free one, and
+/// one that goes frees it. Main thread.
+public final class ExactPads {
+    /// Under the agent, bound or not: a pad module lists only `injected`, and
+    /// never reads or moves a pad attached to the machine.
+    public let driven: Bool
+    /// The drive's pads (`EXACT_AGENT_PADS`, a JSON list), each `{index, id,
+    /// category, vendor, pressed}`: empty outside the agent. Their motors
+    /// and light are a recorder (LLP 1133.022 §10).
+    public let injected: [[String: Any]]
+    /// The slot table's key in `Thread.main.threadDictionary`.
+    public static let key = "exact.pads"
+    /// GameController's own limit is lower; this bounds a misbehaving source.
+    public static let most = 16
+    public init(driven: Bool = false, injected: [[String: Any]] = []) { self.driven = driven; self.injected = driven ? injected : [] }
+
+    private static var table: NSMutableArray {
+        let d = Thread.main.threadDictionary
+        if let t = d[key] as? NSMutableArray { return t }
+        let t = NSMutableArray()
+        d[key] = t
+        return t
+    }
+
+    /// `pad`'s slot, if it holds one.
+    public func index(of pad: AnyObject) -> Int? {
+        let t = Self.table
+        return (0..<t.count).first { t[$0] as AnyObject === pad }
+    }
+    /// `pad`'s slot: the one it holds, else `at` when free, else the lowest
+    /// free one; nil when all are taken.
+    public func take(_ pad: AnyObject, at wanted: Int? = nil) -> Int? {
+        if let held = index(of: pad) { return held }
+        let t = Self.table
+        let free = (0..<t.count).filter { t[$0] is NSNull }
+        let index = wanted.flatMap { w in w >= t.count || t[w] is NSNull ? w : nil } ?? free.first ?? t.count
+        guard index < Self.most else { return nil }
+        while t.count <= index { t.add(NSNull()) }
+        t[index] = pad
+        return index
+    }
+    /// `pad` leaves its slot: the slot it held.
+    @discardableResult
+    public func free(_ pad: AnyObject) -> Int? {
+        guard let index = index(of: pad) else { return nil }
+        Self.table[index] = NSNull()
+        return index
+    }
+}
+
 // MARK: the audio session (LLP 1133.009 D7, D10 item 5)
 
 /// The process's audio session, which the host owns: a capture claims it
@@ -589,5 +791,18 @@ public final class ExactAudioSession {
     /// hears the same events; `options` are not read.
     public func claim(mode: String?, options: [String], background: Bool, events: @escaping (String) -> Void) -> ExactSubscription? {
         claimFn(mode, options, background, events).map(ExactSubscription.init)
+    }
+    /// A call's claim (LLP 1133.033 D10): the session takes the call's
+    /// configuration and is never activated by the app while any is held;
+    /// the system activates it. Captures and the app's sound join it. Held
+    /// for as long as any call lasts. Nil where the host has no audio
+    /// session owner to compose.
+    public func claimCall(video: Bool, events: @escaping (String) -> Void) -> ExactSubscription? {
+        claimFn(video ? "call-video" : "call-voice", [], true, events).map(ExactSubscription.init)
+    }
+    /// CallKit activated (`provider(_:didActivate:)`) or deactivated the
+    /// calls' session.
+    public func callAudio(_ active: Bool) {
+        _ = claimFn(active ? "call-activated" : "call-deactivated", [], false, { _ in })
     }
 }

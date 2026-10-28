@@ -172,7 +172,12 @@ struct HeaderShape: Equatable {
         /// view follows it in place (`showReadouts`).
         var source: String {
             if readout != nil { return "readout:\(toolbarGroup.map(String.init) ?? ""):\(id):\(testId ?? "")" }
-            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(font.map { "\($0.fontName) \($0.pointSize) \(TextEngine.controlWeight($0))" } ?? ""):\(testId ?? "")"
+            return "\(face):\(disabled):\(accessibilityDisabled)"
+        }
+        /// `source` but for whether the item is enabled.
+        var face: String {
+            if readout != nil { return source }
+            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(font.map { "\($0.fontName) \($0.pointSize) \(TextEngine.controlWeight($0))" } ?? ""):\(testId ?? "")"
         }
     }
     let header: NodeView
@@ -332,6 +337,8 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
     weak var host: NavigationHost?
     /// The field's placeholder is drawn in an authored colour, not UIKit's.
     var paintsPlaceholder = false
+    /// The field's `value` the bar last showed: one that differs is the app's write.
+    var value: String?
     /// The field's text is drawn in its own colour or the design's FieldText; its fill is the design's Field, not UIKit's capsule.
     var paintsInk = false, paintsGround = false
     /// The scope bar's tabs, and the segment last chosen or set (LLP 1134 D3).
@@ -447,6 +454,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         textDelegate?.responds(to: selector) == true ? textDelegate : nil
     }
     func searchBarTextDidBeginEditing(_ bar: UISearchBar) {
+        host?.presenter.searchEditingChanged()
         guard let field else { return }
         host?.presenter.fieldSelections.focused(field)
         host?.presenter.focus(field.id)
@@ -462,6 +470,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         bar.resignFirstResponder()
     }
     func searchBarTextDidEndEditing(_ bar: UISearchBar) {
+        host?.presenter.searchEditingChanged()
         let completion = editingCompletion
         editingCompletion = nil
         if let field, let presenter = host?.presenter, presenter.views[field.id] === field {
@@ -725,7 +734,7 @@ extension NavigationHost {
         stack.hatched = true
         guard barShows(nav) != before else { return }
         showBar(nav, animated: false)
-        for case let c as RouteController in nav.viewControllers { c.projectedSource = nil }
+        for case let c as RouteController in nav.viewControllers { c.projectedSource = nil; c.projectedFaces = nil }
         presenter.session?.log("hatch navigation \(stack.label): showsBar changed after the first frame; the content moves once")
     }
 
@@ -760,8 +769,11 @@ extension NavigationHost {
             let canGoBack = index > 0 && canInvokeBack && shape?.authoredBack != true
             let scroller = contentScroller(of: c), scroll = scroller?.scrollView
             let dataset = c.node.props["dataset"]
-            let source = BarSource(bar: bar, authored: shape?.authored.map(\.id) ?? [], placed: shape?.placed.map(\.id) ?? [], header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
-                                   trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
+            func barSource(_ key: (HeaderShape.Item) -> String) -> BarSource {
+                BarSource(bar: bar, authored: shape?.authored.map(\.id) ?? [], placed: shape?.placed.map(\.id) ?? [], header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(key) ?? [],
+                          trailing: shape?.trailing.map(key) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
+            }
+            let source = barSource(\.source)
             // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
@@ -769,7 +781,13 @@ extension NavigationHost {
                                        scroll: scroll.map(ObjectIdentifier.init))
             if c.projectedSource != source {
                 c.projectedSource = source
-                project(shape, into: c, canGoBack: canGoBack, shows: shows)
+                // A button that only turned enabled or disabled (Refresh while it refreshes) is its item, changed
+                // as UIKit's own would be: new items lay the whole navigation controller out again.
+                let faces = barSource(\.face)
+                if !(shows && c.projectedFaces == faces && shape.map { enable($0, in: c) } == true) {
+                    c.projectedFaces = faces
+                    project(shape, into: c, canGoBack: canGoBack, shows: shows)
+                }
             }
             #if os(iOS)
             scope(c, shape: shows ? shape : nil)
@@ -778,7 +796,7 @@ extension NavigationHost {
             showReadouts(shows ? shape : nil, in: c)
             reachBottom(c, presented: presented)
             c.paintBackdrop()
-            searchField(shows ? shape?.search : nil, in: c)
+            searchField(shows ? shape?.search : nil, in: c, covered: index < routes.count - 1)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
             richTitle(shows ? shape : nil, in: c)
             c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
@@ -838,7 +856,7 @@ extension NavigationHost {
         }
         guard shows else {
             // No stale items: the agent aims at a bar item by its press.
-            c.barPresses = []
+            c.barPresses = []; c.barItemOf = [:]
             item.leftBarButtonItems = nil
             item.rightBarButtonItems = nil
             return
@@ -859,6 +877,7 @@ extension NavigationHost {
         item.leftItemsSupplementBackButton = true
         #endif
         c.barPresses = []
+        c.barItemOf = [:]
         item.leftBarButtonItems = shape.map { barItems($0.leading, c) }
         item.rightBarButtonItems = shape.map { barItems(Array($0.trailing.reversed()), c) }
         if let shape {
@@ -921,11 +940,16 @@ extension NavigationHost {
     /// Where it sits and whether it hides as the content scrolls are
     /// UIKit's own answers for the device and the bar (LLP 1115.000 D11.2):
     /// Exact once pinned it under the title (`.stacked`, never hiding).
-    private func searchField(_ field: NodeView?, in c: RouteController) {
+    private func searchField(_ field: NodeView?, in c: RouteController, covered: Bool) {
         // tvOS navigation items carry no search controller.
         #if !os(tvOS)
         guard let field else {
-            if let search = c.search {
+            // A route another now covers keeps its search until it is shown
+            // again, as UIKit's stays on the screen under a push: dismissed
+            // during the push, it took the push with it when a header wrote
+            // its field only while its route was on top (bake-off r31's
+            // contacts: a tap on a result while typing closed the search).
+            if let search = c.search, !covered {
                 search.controller.searchBar.resignFirstResponder()
                 search.field = nil
                 search.controller.isActive = false
@@ -964,9 +988,13 @@ extension NavigationHost {
             bar.placeholder = placeholder
         }
         search.ink()
-        // The Contract's value wins unless the reader is typing it.
-        let value = field.props["value"] ?? ""
-        if !bar.isFirstResponder, bar.text != value { bar.text = value }
+        // The Contract's value wins, as an input's does (`writeValue`): a
+        // value the app wrote since the last sync is shown even while the
+        // reader types (a Clear Search button empties the field it is typing
+        // in); between such writes, and while text is marked, the typing stands.
+        let value = field.props["value"] ?? "", composing = bar.searchTextField.markedTextRange != nil
+        if bar.text != value, !bar.isFirstResponder || (search.value != value && !composing) { bar.text = value }
+        if !composing { search.value = value }
         // UIKit hides the field as the content scrolls and keeps an active
         // search's in view. A search in effect that UIKit did not start (a
         // value the app or the agent wrote) keeps its field in view too.
@@ -1058,7 +1086,8 @@ extension NavigationHost {
         // A route that turns transparent, or back, keeps its scroller: only
         // whether UIKit insets it follows.
         if let sv = physical, c.collapseScroll === target, c.collapseScrollView === sv {
-            sv.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
+            let adjustment: UIScrollView.ContentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
+            if sv.contentInsetAdjustmentBehavior != adjustment { sv.contentInsetAdjustmentBehavior = adjustment }
         }
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
         let old = c.collapseScroll, oldView = c.collapseScrollView
@@ -1252,8 +1281,22 @@ extension NavigationHost {
         return controllers.values.contains { $0.lifted === node || $0.scoped === node || $0.barNodes.contains { $0 === node } }
     }
 
+    /// Each of `shape`'s items enabled as it says, on the item made for it; false when one has none.
+    private func enable(_ shape: HeaderShape, in c: RouteController) -> Bool {
+        let items = shape.leading + shape.trailing
+        guard items.allSatisfy({ $0.readout != nil || c.barItemOf[$0.id] != nil }) else { return false }
+        for i in items where i.readout == nil {
+            guard let item = c.barItemOf[i.id] else { continue }
+            item.isEnabled = !i.disabled
+            if i.disabled || i.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
+            else { item.accessibilityTraits.remove(.notEnabled) }
+        }
+        return true
+    }
+
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
         let item = barItemMade(i, c)
+        if i.readout == nil { c.barItemOf[i.id] = item }
         #if EXACT_INSPECT
         c.itemNodes[ObjectIdentifier(item)] = i.id // (inspect mode's bar walk, InspectIOS.swift)
         #endif

@@ -1,4 +1,4 @@
-//! `contract verify <file.contract> [--types] [--prove <Module>]`: the app
+//! `contract verify <file.contract> [--runner-only] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]`: the app
 //! against the Lean semantics (semantics/README.md, "Using it day to day").
 //! The work is `difftest verify`'s; this runs it through Cargo from the
 //! exact2 checkout this binary was built from, so the compiler never
@@ -7,29 +7,20 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const USAGE: &str = "usage: contract verify <file.contract> [--types] [--prove <Module>]
+const USAGE: &str = "usage: contract verify <file.contract> [--runner-only] [--js] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]
 
-Runs the app's `test` blocks (its own, and those in `app.test.contract` and
-every other `*.test.contract` beside it) and an explore script on the runner and on the Lean semantics, and names
-where they first differ. --types runs the Lean type checker on it;
---prove <Module> regenerates semantics/Apps/<Module>.lean and builds the
-proofs in semantics/Apps/Proofs/<Module>.lean.";
+Runs delivered test prefixes, an explore script and adaptive walks on the runner,
+including seeded stores. Shrinks findings before Lean confirms the tests, explore,
+findings and a walk sample. Prints property suggestions and a reproducing receipt.
+Defaults: --walks 20 --steps 40 --confirm 2; --walk-seed defaults to the app path.
+Without Lean or with --runner-only, the receipt says the semantics did not run.
+--js also compares every search script on the web JS target and checks always lines.
+--types runs the Lean type checker; --prove <Module> regenerates the embedding
+and builds semantics/Apps/Proofs/<Module>.lean.";
 
 /// The checkout this binary was built in.
 fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// Whether `lake` runs, from elan's default place or `PATH`.
-fn lean_installed() -> bool {
-    let elan = std::env::var_os("HOME").map(|h| Path::new(&h).join(".elan/bin/lake"));
-    if elan.is_some_and(|l| l.is_file()) {
-        return true;
-    }
-    Command::new("lake")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -42,11 +33,11 @@ pub fn run(args: &[String]) -> ExitCode {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
             }
-            "--types" => rest.push(a.clone()),
-            "--prove" => match it.next() {
+            "--types" | "--runner-only" | "--js" => rest.push(a.clone()),
+            "--prove" | "--walks" | "--steps" | "--walk-seed" | "--confirm" => match it.next() {
                 Some(m) if !m.starts_with('-') => rest.extend([a.clone(), m.clone()]),
                 _ => {
-                    eprintln!("--prove needs a module name\n{USAGE}");
+                    eprintln!("{a} needs a value\n{USAGE}");
                     return ExitCode::from(2);
                 }
             },
@@ -73,15 +64,6 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!(
             "contract verify: the semantics are not at {} (this binary was built from a checkout that has moved)",
             root.join("semantics").display()
-        );
-        return ExitCode::from(2);
-    }
-    if !lean_installed() {
-        eprintln!(
-            "contract verify: Lean is not installed. It runs the app on the Lean semantics; install \
-             elan, which fetches the toolchain semantics/lean-toolchain pins on first use:\n  \
-             curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y\n\
-             (semantics/README.md, \"Lean\"). The first run then builds the semantics library (minutes, once)."
         );
         return ExitCode::from(2);
     }

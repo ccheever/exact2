@@ -147,6 +147,7 @@ extension Spec {
         var value = self
         value.color = [0, 0, 0, 255]
         value.ellipsis = false
+        value.antialiased = false
         value.source = SourceMap()
         for i in value.runs.indices {
             value.runs[i].hidden = false
@@ -204,9 +205,11 @@ package struct TextPaint: Hashable {
     package let runs: [Inline]
     private let clamp: Inline?
     package let ellipsis: Bool
+    package let antialiased: Bool
     package init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
+        antialiased = spec.antialiased
         runs = spec.runs.map(Inline.init)
         if spec.lineClamp > 0, var block = spec.strut ?? spec.runs.first {
             if block.shadow == spec.shadow { block.shadow = nil }
@@ -217,6 +220,7 @@ package struct TextPaint: Hashable {
         var spec = identity.geometry
         spec.color = color
         spec.ellipsis = ellipsis
+        spec.antialiased = antialiased
         for i in spec.runs.indices { runs[i].apply(to: &spec.runs[i]) }
         if var block = spec.strut, let clamp {
             clamp.apply(to: &block)

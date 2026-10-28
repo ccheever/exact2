@@ -1,0 +1,40 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present in a native inset-grouped list: Account has editable Name/Email fields, and Sign Out confirms with an alert and switches to a signed-out row with Sign In; Reading, Appearance, Library and Notifications are complete, and the master toggle reveals and hides the time picker plus three toggles; Storage shows used space, and Clear Cache confirms with an alert, zeroes the cache and disables itself; About has the version, pushed Privacy and Terms screens, and Rate the App (opens an external store link)."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort Order push native checkmark lists with a back button, and the reminder time uses the compact system DatePicker with a wheel popover."},
+      {"n": 3, "status": "partial", "note": "Font and size update the preview live, but the Line Spacing segmented control has no visible effect: Compact, Normal and Relaxed render identically with both Georgia and San Francisco."},
+      {"n": 4, "status": "pass", "note": "Font, size, spacing, theme, sort, every toggle, the reminder time, the cleared cache and the signed-out state all survive a relaunch."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings at the bottom shows a confirmation alert and restores every default, and these persist after a relaunch."}
+    ],
+    "bugs": [
+      "The Line Spacing control does not change the preview paragraph at all (Compact, Normal and Relaxed are pixel-identical).",
+      "The Sepia theme only tints the preview text; the rest of the screen stays white or grey, so Sepia barely looks different from Light."
+    ],
+    "tells": [
+      "When scrolled, the inline 'Settings' title sits directly on top of row text (e.g. 'Recommendations' runs into it) with little or no bar material behind it, especially at large text.",
+      "Rate the App leaves the app straight away to a blank external screen with the '◀ Settings' back link, with no in-app rating prompt.",
+      "Plain rows with no icons and the default blue tint: correct, but generic next to an iOS Settings-style screen."
+    ],
+    "scroll": "Native list scrolling: smooth drags, a correct fling with deceleration, rubber-banding past the top, and no blank or popping rows.",
+    "scores": {"features": 7, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present with Settings-style icon tiles. The Account header shows an avatar, name and email; Sign Out confirms in a native popover dialog and changes the header to a Sign In row that pushes a form. Notifications asks for the real iOS permission and reveals the time picker and three toggles. Storage has a usage bar and a per-category breakdown, and Clear Cache confirms with a dialog and then disables. About has the version, pushed Privacy and Terms pages, and Rate the App."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort push native checkmark lists (each font is shown in its own face, each theme has a swatch), and the time uses the compact system DatePicker. At the largest text size, Line Spacing turns into a pushed picker row."},
+      {"n": 3, "status": "pass", "note": "The preview changes live with font, size (the slider has tick marks) and line spacing, with clearly different leading for Compact and Relaxed, and a caption below sums up the current setting."},
+      {"n": 4, "status": "pass", "note": "Every setting, the reminder time, the signed-out state and the cleared cache all survive a relaunch."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings asks for confirmation and restores all defaults, which persist after a relaunch; the button is disabled while everything is already at the defaults."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Rate the App shows a hand-built sheet with stars and a Submit button instead of the system review prompt.",
+      "An orange accent tint across the app (switches, slider, checkmarks): a deliberate brand choice, but not system blue or green."
+    ],
+    "scroll": "Native list scrolling: a smooth fling, rubber-banding at the top, a blurred navigation bar over content, and no jumps or blank rows.",
+    "scores": {"features": 9, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both are native grouped-list settings screens that persist and reset correctly. In A the line-spacing control does nothing to the preview and Sepia barely themes the screen, while B's preview responds to all three controls and its themes recolour the whole app. B adds iOS-Settings polish too: icon tiles, a storage usage bar, a real notification permission prompt, and a Reset button that is disabled when everything is already at the defaults."
+}

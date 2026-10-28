@@ -896,7 +896,11 @@ impl Painter {
                 ts,
             );
         }
-        if let Some(symbol) = &face.symbol {
+        if let Some(symbol) = face
+            .symbol
+            .as_ref()
+            .filter(|_| !self.split_hides_symbol(node))
+        {
             let tint = if layout.symbol_style.mask.has(StyleId::TintColor) {
                 layout
                     .symbol_style

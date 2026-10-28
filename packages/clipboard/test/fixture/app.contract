@@ -1,0 +1,25 @@
+// The conformance fixture (LLP 1133.006 §9, stage 1 item 7): each button's
+// mutation writes the clipboard from data code (app.ts), and shows what the
+// write answered by testId; a drive reads what landed in
+// `state.extensions.clipboard`.
+use ClipboardItem from "@exact/clipboard"
+
+shape Line
+  text: string
+
+component Fixture
+  mutation wrote as shape Line
+  resource supported = supports() as shape Line
+  action copy(kind: string)
+    send wrote = copy(kind)
+  view
+    column padding=24 gap=8
+      text supported.text testId="supports"
+      match wrote
+        case some(w)
+          text w.text testId="wrote"
+        case none
+          text "" testId="wrote"
+      for kind in ["png", "png-bytes", "apng", "text", "both", "bad", "large", "big-bytes", "race", "overflow", "long-text", "refused-first", "empty", "two", "jpeg", "nested"] key=kind
+        button press=copy(kind) testId=kind
+          text kind

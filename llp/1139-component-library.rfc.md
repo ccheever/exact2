@@ -515,13 +515,57 @@ Owners as they free up (the lead's order).
    normal app retention applies to it; and the clone's copies replaced, on a signed-out copy of the clone with no
    account writes.
    **The exports (as of LLP 1121 stage 15 B, 2026-10-26):** `@exact/cards` exports PostCard, AtCard, ProfileHeader
-   (with its ProfileAlert shape), **Avatar** `(src, size)` and **VerifiedBadge** `(badge, size, ink, mark)`;
-   `@exact/actions` ActionRow, PostButton, ComposeFrame, BarItem and HeaderButton; `@exact/lists` ListRow and
-   SwitchRow. Avatar and VerifiedBadge were the cards' shared pieces until stage 15 B exported them with their params
+   (with its ProfileAlert shape), **Avatar** `(src, size)`, **VerifiedBadge** `(badge, size, ink, mark)` and (batch
+   2, 2026-10-27) **PersonRow**;
+   `@exact/actions` ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton and (batch 2, 2026-10-27)
+   **FollowButton**; `@exact/lists` ListRow and SwitchRow. Avatar and VerifiedBadge were the cards' shared pieces until stage 15 B exported them with their params
    unchanged and no defaults: a consumer passes `size`, and VerifiedBadge's `ink` and `mark`, as token or role names
    (`size="cards.avatar"`, `ink="cards.badge"`, `mark="cards.badge-mark"`, or its own), not literal colours, as
    PostCard does, so an app's design restyles them by the tokens' full names. `apps/library-gate` holds each in a
-   box named for its cell (neither has an `id` prop), VerifiedBadge's `""` an empty box.
+   box named for its cell (neither has an `id` prop), VerifiedBadge's `"none"` an empty box. **The exported
+   VerifiedBadge's `badge` type changed in batch 2** (theme2's Q-badge ruling, 2026-10-27): batch 1 exported it as a
+   `string` with `""` for none; it is now `enum<"none", "verified", "verifier">`, ProfileHeader's type, so a
+   consumer passes `"none"`, a dynamic argument must be of that enum (a `string` is refused), and `""` no longer
+   compiles. PostCard's `badge` took the same type, as it passes its own to VerifiedBadge; AtCard draws no badge.
+   `contract gallery` gives an enum prop the view compares with literals in an `if` (by `==` or `!=`) a cell per
+   declared value, as it gave batch 1's string a cell per literal (so VerifiedBadge keeps three cells, PostCard,
+   ProfileHeader and PersonRow show each badge, and ListRow's `accessory`, PostCard's `context` and FollowButton's
+   `icon` gain theirs); library-gate places PostCard with each badge as samples to match.
+   **PersonRow** `(id, label, avatar, name, handle, badge, pill, description, descriptionLines, divider, disabled,
+   press)` with one slot, the header's trailing control (a FollowButton, the app's own, or nothing), is a person in a
+   list: Bluesky's ProfileCard (Header: the 40 avatar, the name with its md badge, the handle; Labels' pill;
+   Description) in ProfileCardWithFollowBtn's row (py_md px_xl). It links to the person, as ProfileCard.Link does, with
+   ONE press target: the link (testId `<id>-link`, `role="link"`, its `label` the app's, `press`) is everything but
+   the slot, the avatar, the names, the pill, the description and the row's padding on its side (theme2's 2b
+   sign-off condition). They are text (the description is a plain string, never rich text with links or mentions
+   of its own), so they fold into the link's spoken `label` and nothing interactive nests in it. The row takes no
+   press, role or Tab stop, and the slot is the link's sibling, never inside it: on iOS an element with a role is
+   one accessibility element and hides what it holds, and a second pressable would be a second Tab stop everywhere
+   and a second control on Linux. The slot's column sits at the trailing edge, its control centred on the
+   avatar's line as in Bluesky's header. What's left outside Bluesky's card tap, and so the explore copy's named
+   change: the slot's own column (its control, the row's trailing padding and the space under the control); and
+   because that column is beside the link, the pill and the description run under the names, not under the
+   control, so a description wraps that much narrower than Bluesky's when a trailing control is placed (with an
+   empty slot the link's text stops a header gap short of the trailing padding, its press area reaching it). `disabled` is the link's
+   `aria-disabled` and dims the link, not the app's trailing control, and doesn't stop `press`, so a copy whose
+   row is a disabled button (the clone's ChatPersonRow) doesn't join (theme2's condition (b)). Its words are the app's: `handle` is the second line as shown, `pill` the pill's
+   text (`""` for none). `divider` is `"bottom"`, `"top"` (Bluesky's border_t) or `"none"`. Its spacing is Bluesky's
+   only: a copy's other padding is a named pixel change in its gate, with no density variant (theme2's 2026-10-27
+   ruling). Its colours (divider, handle, pill, badge and mark) are params over the cards' tokens, its sizes
+   `cards.person-*` tokens. Library-gate places it once per compiler-marked variant value (divider, disabled), with
+   a picture, each badge, the pill and descriptions as samples, each slot holding its marker.
+   **FollowButton** `(id, following, text, label, tone, size, shape, icon, press)` is a person's Follow button, an
+   authored pressable under D9's exception as PostButton is, with Bluesky's variants only (FollowButtonInner's
+   Button): `tone` primary, inverted, subtle or overlay; `size` small or tiny; `shape` pill or round (icon only);
+   `icon` both, follow, following or none. A copy's drift from its nearest variant is a named pixel change in its
+   gate, never a param. Its words are the app's (`text` shown, `label` spoken, `""` speaking `text`); it says
+   following by its label alone, with no `aria-pressed` (theme2's 2026-10-27 ruling), and a round one's `label`,
+   which the compiler can't require, is checked non-empty on every round library-gate cell and by the adopting
+   copy's script. Its tone-by-state colours and three press scales are params over `actions.follow-*` tokens, its
+   sizes tokens (theme2's sign-off: tokens, not per-size params). Stated limit: its label's font weight is fixed per
+   size (500 small, 600 tiny), since there is no weight token kind for an app to restyle it; its icons `actions.follow-add` and `actions.follow-check` carry SF names (`plus`, `checkmark`)
+   beside Bluesky's paths. Library-gate places it once per compiler-marked variant value (following, tone, size,
+   shape) with each icon pattern and each tone and size following as samples.
 
 **The gate** (`~/x2theme/stage12-gate-run.txt`), each line with its oracle. **The required hosts**, for every line
 that runs per host: the web (the JS target and wasm), iOS, macOS, Linux, Android's reader and the terminal. A

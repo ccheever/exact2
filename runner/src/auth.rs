@@ -211,30 +211,34 @@ fn query_pairs(query: &str) -> impl Iterator<Item = (String, String)> + '_ {
     })
 }
 
+/// `%` and two hex digits as a byte (a trailing one too), `+` a space,
+/// anything else as written: the loopback receiver's rule as well
+/// (`exact-listen`'s `loopback.rs`), so the two read one `state`.
 fn decode(text: &str) -> String {
     let bytes = text.as_bytes();
+    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        match bytes[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < bytes.len() => {
-                match text
-                    .get(i + 1..i + 3)
-                    .and_then(|h| u8::from_str_radix(h, 16).ok())
-                {
-                    Some(b) => {
-                        out.push(b);
-                        i += 2;
-                    }
-                    None => out.push(b'%'),
-                }
+        let escaped = (bytes[i] == b'%')
+            .then(|| Some(hex(*bytes.get(i + 1)?)? << 4 | hex(*bytes.get(i + 2)?)?))
+            .flatten();
+        match (bytes[i], escaped) {
+            (_, Some(b)) => {
+                out.push(b);
+                i += 2;
             }
-            b => out.push(b),
+            (b'+', _) => out.push(b' '),
+            (b, _) => out.push(b),
         }
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Whether `a` and `b` are equal, in time that depends on their lengths only.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
 }
 
 /// Whether `url` is on a loopback host (`localhost`, `127.0.0.1`, `[::1]`).
@@ -316,7 +320,11 @@ pub fn carrier_callback(grants: &str, web_origin: Option<&str>) -> Option<String
     let all = callbacks(grants);
     all.iter()
         .find(|c| Url::parse(c).is_some_and(|u| u.authority.is_none()))
-        .or_else(|| all.iter().find(|c| !c.ends_with(WEB_CALLBACK_PATH)))
+        // A loopback grant names no port, so it is no callback by itself.
+        .or_else(|| {
+            all.iter()
+                .find(|c| !c.ends_with(WEB_CALLBACK_PATH) && !c.starts_with("http:"))
+        })
         .cloned()
 }
 
@@ -360,9 +368,23 @@ pub fn check_grants(
     }) {
         return Err(format!("outside the app's grants (auth.session {origin})"));
     }
-    let granted = lines
-        .iter()
-        .any(|l| l.strip_prefix("auth.callback ").map(str::trim) == Some(&session.callback));
+    // A loopback callback (LLP 1133.005 D9) is granted at any port; on a
+    // native host an `http:` callback is one or nothing.
+    let looped = loopback_callback(&session.callback);
+    let http = Url::parse(&session.callback).is_some_and(|u| u.scheme == "http");
+    if web_origin.is_none() && http && looped.is_none() {
+        return Err(format!(
+            "a loopback callback is http://127.0.0.1:<port>/<path> or http://[::1]:<port>/<path>, not {} (RFC 8252 §8.3)",
+            session.callback
+        ));
+    }
+    let granted = lines.iter().any(|l| {
+        l.strip_prefix("auth.callback ")
+            .map(str::trim)
+            .is_some_and(|g| {
+                g == session.callback || looped.is_some() && loopback_admits(g, &session.callback)
+            })
+    });
     let development = web_origin.is_some_and(|o| {
         session.callback == format!("{}{WEB_CALLBACK_PATH}", o.trim_end_matches('/'))
             && Url::parse(o).is_some_and(|u| loopback(&u))
@@ -374,6 +396,43 @@ pub fn check_grants(
         ));
     }
     Ok(())
+}
+
+/// A loopback callback's host (`127.0.0.1` or `[::1]`), port and path
+/// (LLP 1133.005 D9): `http://127.0.0.1:<port>/<path>` with a port of 1 to
+/// 65535 as a browser writes it in `Host` (no sign or leading zero, not the
+/// default 80, which `Host` leaves out), no query and no fragment.
+/// `localhost` is none: RFC 8252 §8.3.
+pub fn loopback_callback(callback: &str) -> Option<(&'static str, u16, String)> {
+    let url = Url::parse(callback)?;
+    if url.scheme != "http" || url.query.is_some() || url.fragment.is_some() {
+        return None;
+    }
+    let (host, port) = url.authority?.rsplit_once(':')?;
+    let host = match host {
+        "127.0.0.1" => "127.0.0.1",
+        "[::1]" => "[::1]",
+        _ => return None,
+    };
+    let port = port
+        .parse::<u16>()
+        .ok()
+        .filter(|p| *p > 0 && *p != 80 && p.to_string() == port)?;
+    (url.path.starts_with('/') && url.path.len() > 1).then(|| (host, port, url.path.to_string()))
+}
+
+/// Whether the grant `http://127.0.0.1/<path>` (or `[::1]`, with no port)
+/// admits the loopback `callback`: the same host and path, at any port, as
+/// RFC 8252 §7.3 asks of an authorization server.
+fn loopback_admits(grant: &str, callback: &str) -> bool {
+    let (Some(g), Some((host, _, path))) = (Url::parse(grant), loopback_callback(callback)) else {
+        return false;
+    };
+    g.scheme == "http"
+        && g.authority == Some(host)
+        && g.path == path
+        && g.query.is_none()
+        && g.fragment.is_none()
 }
 
 /// D3's match, on every host: `got`'s scheme, host and path equal
@@ -401,7 +460,7 @@ pub fn accept(session: &Session, got: &str) -> Result<(), String> {
         .map(|(_, v)| v)
         .collect();
     match states.as_slice() {
-        [one] if *one == session.state => Ok(()),
+        [one] if same(one, &session.state) => Ok(()),
         [] => Err("the callback carries no state".into()),
         [_] => Err("the callback's state is not the request's".into()),
         _ => Err("the callback carries state more than once".into()),
@@ -534,6 +593,15 @@ pub fn arm<D: DataSource>(
     }
     if browser == Browser::None {
         settle(runner, ticket, 501, "no system browser on this host");
+        return Arm::Settled;
+    }
+    // A loopback callback (LLP 1133.005 D9) other than the page's own.
+    let page = web_origin.map(|o| format!("{}{WEB_CALLBACK_PATH}", o.trim_end_matches('/')));
+    if browser == Browser::Web
+        && loopback_callback(&session.callback).is_some()
+        && page.as_deref() != Some(session.callback.as_str())
+    {
+        settle(runner, ticket, 501, "a page cannot listen");
         return Arm::Settled;
     }
     // One session per window: a request for the same target superseded its
@@ -707,6 +775,52 @@ mod tests {
         assert!(check_grants(&dev, grants, None, Some("http://127.0.0.1:4173")).is_ok());
         let far = session("https://other.example/.exact/auth/callback");
         assert!(check_grants(&far, grants, None, Some("https://other.example")).is_err());
+    }
+
+    #[test]
+    fn a_loopback_callback_is_granted_at_any_port_on_its_ip_literal() {
+        let grants =
+            "auth.session https://auth.openai.com\nauth.callback http://127.0.0.1/auth/callback";
+        let mut s = session("http://127.0.0.1:1455/auth/callback");
+        s.url = "https://auth.openai.com/oauth/authorize?state=s1".into();
+        assert!(check_grants(&s, grants, None, None).is_ok());
+        assert_eq!(
+            loopback_callback(&s.callback),
+            Some(("127.0.0.1", 1455, "/auth/callback".into()))
+        );
+        s.callback = "http://127.0.0.1:2/auth/callback".into();
+        assert!(check_grants(&s, grants, None, None).is_ok(), "any port");
+        for bad in [
+            "http://127.0.0.1:1455/auth/other",
+            "http://[::1]:1455/auth/callback",
+            "http://localhost:1455/auth/callback",
+            "http://127.0.0.1/auth/callback",
+            "http://127.0.0.1:0/auth/callback",
+            "http://127.0.0.1:80/auth/callback",
+            "http://127.0.0.1:01455/auth/callback",
+            "http://127.0.0.1:+1455/auth/callback",
+            "http://127.0.0.1:1455/auth/callback?x=1",
+        ] {
+            s.callback = bad.into();
+            assert!(check_grants(&s, grants, None, None).is_err(), "{bad}");
+        }
+        s.callback = "http://localhost:1455/auth/callback".into();
+        assert!(check_grants(&s, grants, None, None)
+            .unwrap_err()
+            .contains("RFC 8252"));
+        let s = session("http://127.0.0.1:1455/auth/callback");
+        assert!(accept(&s, "http://127.0.0.1:1455/auth/callback?code=c&state=s1").is_ok());
+        assert!(accept(&s, "http://127.0.0.1:1456/auth/callback?state=s1").is_err());
+        // The receiver's rule: a name is decoded too, a trailing escape
+        // decodes, a signed one does not.
+        let mut t = session("http://127.0.0.1:1455/auth/callback");
+        t.state = "s A".into();
+        assert!(accept(&t, "http://127.0.0.1:1455/auth/callback?st%61te=s+%41").is_ok());
+        assert_eq!(decode("%+4"), "% 4");
+        assert_eq!(
+            carrier_callback("auth.callback http://127.0.0.1/cb", None),
+            None
+        );
     }
 
     #[test]

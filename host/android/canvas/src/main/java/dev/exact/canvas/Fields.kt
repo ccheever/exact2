@@ -17,6 +17,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
@@ -882,6 +883,9 @@ internal class Fields(context: Context) : FrameLayout(context) {
             if (Looper.myLooper() == null) Looper.prepare()
             val v = measurer.get() ?: bare(EditText(unadjusted(context))).also {
                 it.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+                // Never attached, so no parent gives it these; once it has a layout, setText reads them
+                // (TextView.checkForResize) and would throw without them.
+                it.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 measurer.set(it)
             }
             val multiline = flags and 2 != 0

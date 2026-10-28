@@ -101,6 +101,7 @@ pub(crate) fn stacks(
 
 #[derive(Default)]
 pub(crate) struct Navigation {
+    pub(crate) split: crate::presenter::split::State,
     routes: BTreeMap<ViewId, (bool, bool)>,
     /// The tabpanels a root last hid or showed: one it stops naming shows again.
     panels: BTreeSet<ViewId>,
@@ -112,6 +113,7 @@ pub(crate) struct Navigation {
     /// 1115.000 D4.2); a key that matches no route leaves it as it was.
     pub(crate) stack: Option<Vec<ViewId>>,
     popovers: bool,
+    pub(crate) shown_popover: Option<ViewId>,
     /// A shell presents the top layer (LLP 1115.001 D10: Android's reader,
     /// as windows): a press on an invoker is then the presenter's to act on
     /// (`presenter/top.rs`), not refused here.
@@ -302,10 +304,14 @@ impl Navigation {
         let mut at = Some(id);
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
-            let (hidden, inert) = self.routes.get(&id).copied().unwrap_or_default();
-            // Linux has no top-layer presenter yet. Closed popovers retain
-            // their logical tree but must never paint or intercept input.
-            let closed = self.popovers && node.props.str(PropId::Popover).is_some();
+            let (hidden, inert) = self
+                .split
+                .visibility(id)
+                .unwrap_or_else(|| self.routes.get(&id).copied().unwrap_or_default());
+            // Closed popovers retain their tree but neither paint nor take input.
+            let closed = self.popovers
+                && Some(id) != self.shown_popover
+                && node.props.str(PropId::Popover).is_some();
             // What a shell's bar stands for shows in the bar, not the page.
             let gone = closed || lifted && self.lifted.contains(&id);
             result.0 |= hidden || gone;
@@ -325,14 +331,12 @@ impl<D: exact_runner::DataSource> crate::Host<D> {
         kernel
             .node(view)
             .and_then(|node| exact_kernel::Invocation::of(kernel, &node))
-            .filter(|invocation| dialog_command(invocation.action))
             .and_then(|invocation| kernel.node_by_key(invocation.target))
             .is_some_and(|n| {
-                crate::presenter::top::shape::neutral_alert(kernel, n.id, &|id| {
-                    self.runner()
-                        .handlers_of(id)
-                        .contains(&exact_plan::EventKind::Press)
-                })
+                crate::paint::look::neutral()
+                    && (n.props.str(PropId::SemanticTag) == Some("dialog")
+                        || n.props.str(PropId::Popover).is_some()
+                            && n.props.str(PropId::AccessibilityRole) != Some("menu"))
             })
     }
 }

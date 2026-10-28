@@ -1,0 +1,26 @@
+{
+  "spec": "moodboard",
+  "arm": "swiftui",
+  "model": "gpt",
+  "appId": "dev.bakeoff.moodboard.b977a41",
+  "assignedId": "dev.bakeoff.moodboard.b977a41",
+  "appName": "Moodboard",
+  "sim": "486FD498-0E3E-4B64-8E4B-152BD8265EE7",
+  "pin": "82fdd765d4",
+  "minutes": 13.82,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 2646739,
+    "fresh": 82534,
+    "input": 2620902,
+    "cached": 2538368,
+    "output": 25837,
+    "cost": null,
+    "calls": 8,
+    "toolCalls": 34
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r31/built/moodboard-swiftui.app",
+  "notes": true,
+  "finished": "2026-10-28T07:48:57.367Z"
+}

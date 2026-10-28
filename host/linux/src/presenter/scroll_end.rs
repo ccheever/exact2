@@ -161,6 +161,21 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// A pending position's bookkeeping changed (`advance_pending_base`): the copy kept to
+    /// recognize its acknowledgement follows it, so its `scrollend` still comes.
+    pub(super) fn scroll_end_model_moved(
+        &mut self,
+        view: ViewId,
+        was: collection::ModelScroll,
+        now: collection::ModelScroll,
+    ) {
+        if let Some((model, _)) = self.scroll_end.model.get_mut(&view) {
+            if model.same_target(&was) {
+                *model = now;
+            }
+        }
+    }
+
     // Layout may clamp an unacknowledged request without starting another scroll.
     pub(super) fn scroll_end_retargeted(
         &mut self,
@@ -172,12 +187,12 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         if let Some((model, _)) = self.scroll_end.model.get_mut(&view) {
-            if Some(*model) == before
+            if before.is_some_and(|b| model.same_target(&b))
                 && (model.key, model.sequence) == (current.key, current.sequence)
             {
                 *model = current;
             }
-            if *model != current {
+            if !model.same_target(&current) {
                 self.scroll_end.model.remove(&view);
             }
         }
@@ -186,7 +201,10 @@ impl<D: DataSource> Presenter<D> {
     fn retire_model_scroll_ends(&mut self) {
         // Cursor advances and sequence changes can invalidate an unpainted request.
         let mut models = std::mem::take(&mut self.scroll_end.model);
-        models.retain(|view, (model, _)| self.pending_model_scroll(*view) == Some(*model));
+        models.retain(|view, (model, _)| {
+            self.pending_model_scroll(*view)
+                .is_some_and(|p| p.same_target(model))
+        });
         self.scroll_end.model = models;
     }
 
@@ -202,7 +220,7 @@ impl<D: DataSource> Presenter<D> {
             .model
             .get(&view)
             .copied()
-            .filter(|(model, _)| *model == accepted)
+            .filter(|(model, _)| model.same_target(&accepted))
         {
             self.scroll_end.model.remove(&view);
             if moved {

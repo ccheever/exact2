@@ -45,7 +45,7 @@ function openBodyTarget(path, grantSet) {
   if (!coversPath(grantSet, 'fs.write', path)) return Promise.reject(Object.assign(new FetchError('Refused', `exactBodyTo ${path}: denied: fs.write ${path}: no grant covers it; grant \`fs.write ${path}\``), { code: 'denied' }));
   return storageFs().then(m => m.bodyTarget(files.appId, grantSet, path)).catch(error => { throw storageFailure(error); });
 }
-export async function fromFile(input, init, redirect, started) {
+export async function fromFile(input, init, redirect, started, origin = 'app') {
   const from = init.exactBodyFrom !== undefined, to = init.exactBodyTo !== undefined;
   const refusal = (from ? bodyFromRefusal(input, init) : null) ?? (to ? bodyToRefusal(input, init) : null);
   if (refusal) throw new TypeError(refusal);
@@ -83,7 +83,7 @@ export async function fromFile(input, init, redirect, started) {
     if (ms !== undefined && spent >= ms) throw new FetchError('Timeout', `the request timed out after ${ms} ms`);
     const left = ms === undefined ? undefined : Math.max(1, Math.ceil(ms - spent));
     const sent = { ...rest, ...(from ? { body } : {}), ...(left === undefined ? {} : { exactTimeout: left }) }, expires = ms === undefined ? null : { at: started + ms, ms };
-    if (!to) return await fetchWith(tsGrantSet, input, sent, expires, redirect);
+    if (!to) return await fetchWith(tsGrantSet, input, sent, expires, redirect, undefined, origin);
     // A 2xx body goes to the file, counted as it arrives, within the deadline;
     // any other reply is read as usual, at most 1 MiB, and the file is untouched.
     const ceiling = init.exactIndependentHttp?.maxResponseBytes ?? 1073741824;
@@ -92,7 +92,7 @@ export async function fromFile(input, init, redirect, started) {
       if (!reply.ok) return within(reply, Math.min(ceiling, 1048576));
       try { written = await target.put(reply, ceiling); }
       catch (error) { throw error?.kind === 'Refused' || error?.kind === 'Unavailable' ? new FetchError('Refused', error.message) : error; }
-    });
+    }, origin);
     if (written === undefined) return response;
     // The body is the file's now: this response has none, and says what was written.
     const done = new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });

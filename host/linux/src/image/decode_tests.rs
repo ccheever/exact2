@@ -107,6 +107,61 @@ fn windows_decodes_photos_and_animation_first_frames_at_the_requested_size() {
     }
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_scaling_ignores_hidden_colour_and_keeps_valid_premultiplied_pixels() {
+    let (w, h) = (16, 8);
+    let raw: Vec<u8> = (0..h)
+        .flat_map(|_| {
+            (0..w).flat_map(|x| {
+                if x < w / 2 {
+                    [255, 0, 0, 255]
+                } else {
+                    [0, 255, 0, 0]
+                }
+            })
+        })
+        .collect();
+    let mut bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut bytes, w, h);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&raw)
+        .unwrap();
+    let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+    // Exercise WIC's converter/scaler chain independently of the PNG row decoder.
+    let plan = DecodePlan::new(header, (3, 2)).unwrap();
+    let pixels = super::jpeg_decode::decode(Cursor::new(&bytes), &plan, || false).unwrap();
+    assert!(pixels
+        .data()
+        .chunks_exact(4)
+        .any(|p| p[3] > 0 && p[3] < 255));
+    for p in pixels.data().chunks_exact(4) {
+        assert_eq!(p, [p[3], 0, 0, p[3]]);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_half_scale_averages_opaque_red_and_hidden_green() {
+    let mut bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut bytes, 2, 1);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&[255, 0, 0, 255, 0, 255, 0, 0])
+        .unwrap();
+    let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+    let plan = DecodePlan::new(header, (1, 1)).unwrap();
+    let pixels = super::jpeg_decode::decode(Cursor::new(&bytes), &plan, || false).unwrap();
+    for (actual, expected) in pixels.data().iter().zip([128, 0, 0, 128]) {
+        assert!(actual.abs_diff(expected) <= 1, "{:?}", pixels.data());
+    }
+}
+
 fn pixel(x: u32, y: u32) -> [u8; 4] {
     [(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8, 128]
 }
@@ -153,6 +208,10 @@ fn header(width: u32, height: u32, interlaced: bool) -> Vec<u8> {
 // A small genuine Adam7 PNG, using a stored deflate block; no image-library
 // full-frame deinterlacing is involved in constructing the expected samples.
 pub(super) fn adam7(width: u32, height: u32) -> Vec<u8> {
+    adam7_pixels(width, height, pixel)
+}
+
+fn adam7_pixels(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
     let mut raw = Vec::new();
     for (x, y, dx, dy) in [
         (0, 0, 8, 8),
@@ -173,11 +232,15 @@ pub(super) fn adam7(width: u32, height: u32) -> Vec<u8> {
             }
         }
     }
-    let n = u16::try_from(raw.len()).unwrap();
-    let mut zlib = vec![0x78, 0x01, 0x01];
-    zlib.extend_from_slice(&n.to_le_bytes());
-    zlib.extend_from_slice(&(!n).to_le_bytes());
-    zlib.extend_from_slice(&raw);
+    let mut zlib = vec![0x78, 0x01];
+    let mut blocks = raw.chunks(u16::MAX as usize).peekable();
+    while let Some(block) = blocks.next() {
+        let n = block.len() as u16;
+        zlib.push(u8::from(blocks.peek().is_none()));
+        zlib.extend_from_slice(&n.to_le_bytes());
+        zlib.extend_from_slice(&(!n).to_le_bytes());
+        zlib.extend_from_slice(block);
+    }
     let (mut a, mut b) = (1u32, 0u32);
     for byte in raw {
         a = (a + u32::from(byte)) % 65521;
@@ -190,19 +253,9 @@ pub(super) fn adam7(width: u32, height: u32) -> Vec<u8> {
     out
 }
 
-fn expected(width: u32, height: u32, out_w: u32, out_h: u32) -> Vec<u8> {
-    (0..out_h)
-        .flat_map(|y| {
-            (0..out_w).flat_map(move |x| {
-                let sx =
-                    ((2 * u64::from(x) + 1) * u64::from(width) / (2 * u64::from(out_w))) as u32;
-                let sy =
-                    ((2 * u64::from(y) + 1) * u64::from(height) / (2 * u64::from(out_h))) as u32;
-                let [r, g, b, a] = pixel(sx, sy);
-                [r / 2, g / 2, b / 2, a]
-            })
-        })
-        .collect()
+fn premultiplied([r, g, b, a]: [u8; 4]) -> [u8; 4] {
+    let channel = |c| (u16::from(c) * u16::from(a) / 255) as u8;
+    [channel(r), channel(g), channel(b), a]
 }
 
 #[test]
@@ -218,17 +271,36 @@ fn large_source_uses_bounded_rows_and_preserves_natural_dimensions() {
     );
     let bitmap = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
     assert_eq!((bitmap.width(), bitmap.height()), (100, 50));
-    assert_eq!(bitmap.data(), expected(4000, 2000, 100, 50));
+    let oracle = area_reference(4000, 2000, 100, 50, |x, y| premultiplied(pixel(x, y)));
+    assert_eq!(bitmap.data(), oracle);
 }
 
 #[test]
-fn adam7_rows_sample_every_pass_without_full_frame_fallback() {
-    for (w, h, dw, dh) in [(19, 11, 7, 5), (8, 8, 8, 8), (1, 9, 1, 4)] {
+fn adam7_rows_average_every_pass_without_full_frame_fallback() {
+    for (w, h, dw, dh) in [
+        (19, 11, 7, 5),
+        (8, 8, 8, 8),
+        (1, 9, 1, 4),
+        (9, 1, 4, 1),
+        (1, 1, 1, 1),
+    ] {
         let bytes = adam7(w, h);
         let metadata = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
         let plan = DecodePlan::new(metadata, (dw, dh)).unwrap();
         let bitmap = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
-        assert_eq!(bitmap.data(), expected(w, h, dw, dh));
+        assert_eq!(
+            bitmap.data(),
+            area_reference(w, h, dw, dh, |x, y| premultiplied(pixel(x, y)))
+        );
+        for (x, y, cw, ch) in [(0, 0, dw, 1), (dw - 1, 0, 1, dh), (dw - 1, dh - 1, 1, 1)] {
+            let part = plan.part(x, y, (cw, ch)).unwrap();
+            let cut = decode_rows(Cursor::new(&bytes), &part, || false).unwrap();
+            for iy in 0..ch {
+                for ix in 0..cw {
+                    assert_eq!(cut.pixel(ix, iy), bitmap.pixel(x + ix, y + iy));
+                }
+            }
+        }
     }
 }
 
@@ -294,19 +366,220 @@ fn normalized_color_formats_match_the_full_frame_oracle() {
             .write_image_data(&raw)
             .unwrap();
         let metadata = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
-        let plan = DecodePlan::new(metadata, (7, 5)).unwrap();
-        let actual = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
         let (full, _, _) = decode_reference(&bytes).unwrap();
-        let mut oracle = Vec::new();
-        for y in 0..5u32 {
-            for x in 0..7u32 {
-                let sx = ((2 * x + 1) * w) / (2 * 7);
-                let sy = ((2 * y + 1) * h) / (2 * 5);
-                let i = ((sy * w + sx) * 4) as usize;
-                oracle.extend_from_slice(&full[i..i + 4]);
+        for (dw, dh) in [(7, 5), (w, 5), (7, h), (w, h)] {
+            let plan = DecodePlan::new(metadata, (dw, dh)).unwrap();
+            let actual = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
+            let oracle = area_reference(w, h, dw, dh, |x, y| {
+                let at = ((y * w + x) * 4) as usize;
+                full[at..at + 4].try_into().unwrap()
+            });
+            assert_eq!(actual.data(), oracle, "{color:?} {depth:?} {dw}x{dh}");
+        }
+    }
+}
+
+fn area_reference(
+    width: u32,
+    height: u32,
+    out_w: u32,
+    out_h: u32,
+    pixel: impl Fn(u32, u32) -> [u8; 4],
+) -> Vec<u8> {
+    let (w, h, dw, dh) = (
+        u64::from(width),
+        u64::from(height),
+        u64::from(out_w),
+        u64::from(out_h),
+    );
+    let mut out = Vec::new();
+    for y in 0..dh {
+        let (top, bottom) = (y * h, (y + 1) * h);
+        for x in 0..dw {
+            let (left, right) = (x * w, (x + 1) * w);
+            let mut sum = [0; 4];
+            for iy in top / dh..bottom.div_ceil(dh) {
+                for ix in left / dw..right.div_ceil(dw) {
+                    let weight = (right.min((ix + 1) * dw) - left.max(ix * dw))
+                        * (bottom.min((iy + 1) * dh) - top.max(iy * dh));
+                    let p = pixel(ix as u32, iy as u32);
+                    for c in 0..4 {
+                        sum[c] += u64::from(p[c]) * weight;
+                    }
+                }
+            }
+            out.extend(sum.map(|v| ((v + w * h / 2) / (w * h)) as u8));
+        }
+    }
+    out
+}
+
+#[test]
+fn shrinking_averages_premultiplied_area_and_crops_the_same_pixels() {
+    let (w, h) = (30, 30);
+    let pixel = |x: u32, y: u32| match (x + y * 3) % 5 {
+        0 => [255, 20, 10, 255],
+        1 => [10, 255, 250, 0],
+        2 => [230, 40, 170, 83],
+        3 => [20, 100, 255, 171],
+        _ => [0, 0, 0, 255],
+    };
+    let raw: Vec<u8> = (0..h)
+        .flat_map(|y| (0..w).flat_map(move |x| pixel(x, y)))
+        .collect();
+    let mut bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut bytes, w, h);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&raw)
+        .unwrap();
+    for (interlaced, bytes) in [(false, bytes), (true, adam7_pixels(w, h, pixel))] {
+        let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+        let natural = DecodePlan::new(header, (w, h)).unwrap();
+        for (dw, dh) in [
+            (15, 15),
+            (12, 12),
+            (10, 10),
+            (30, 12),
+            (12, 30),
+            (30, 30),
+            (7, 11),
+            (29, 29),
+            (1, 1),
+        ] {
+            let plan = DecodePlan::new(header, (dw, dh)).unwrap();
+            let actual = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
+            let oracle = area_reference(w, h, dw, dh, |x, y| premultiplied(pixel(x, y)));
+            assert_eq!(actual.data(), oracle, "{dw}x{dh} interlaced={interlaced}");
+            assert!(actual
+                .data()
+                .chunks_exact(4)
+                .all(|p| p[..3].iter().all(|c| *c <= p[3])));
+            if (dw, dh) == (w, h) {
+                let exact: Vec<u8> = raw
+                    .chunks_exact(4)
+                    .flat_map(|p| {
+                        [
+                            (u16::from(p[0]) * u16::from(p[3]) / 255) as u8,
+                            (u16::from(p[1]) * u16::from(p[3]) / 255) as u8,
+                            (u16::from(p[2]) * u16::from(p[3]) / 255) as u8,
+                            p[3],
+                        ]
+                    })
+                    .collect();
+                assert_eq!(actual.data(), exact);
+            } else {
+                assert_eq!(
+                    plan.cost.scratch_bytes - natural.cost.scratch_bytes,
+                    u64::from(dw) * if interlaced { u64::from(dh) * 32 } else { 64 }
+                );
+            }
+            for (x, y, cw, ch) in [
+                (dw / 3, dh / 3, dw - dw / 3, dh - dh / 3),
+                (dw - 1, dh - 1, 1, 1),
+            ] {
+                let part = plan.part(x, y, (cw, ch)).unwrap();
+                let cut = decode_rows(Cursor::new(&bytes), &part, || false).unwrap();
+                for iy in 0..ch {
+                    for ix in 0..cw {
+                        assert_eq!(cut.pixel(ix, iy), actual.pixel(x + ix, y + iy));
+                    }
+                }
             }
         }
-        assert_eq!(actual.data(), oracle, "{color:?} {depth:?}");
+    }
+}
+
+#[test]
+fn fractional_area_decodes_and_crops_have_known_bytes() {
+    let raw = [
+        240, 0, 0, 255, 0, 255, 0, 0, 0, 0, 240, 255, 120, 60, 30, 255, 240, 120, 60, 85, 60, 120,
+        240, 170,
+    ];
+    let mut bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut bytes, 3, 2);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&raw)
+        .unwrap();
+    let interlaced = adam7_pixels(3, 2, |x, y| {
+        let at = (y * 3 + x) as usize * 4;
+        raw[at..at + 4].try_into().unwrap()
+    });
+    for bytes in [bytes, interlaced] {
+        let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+        let plan = DecodePlan::new(header, (2, 1)).unwrap();
+        let pixels = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
+        assert_eq!(pixels.data(), [133, 27, 13, 184, 27, 33, 137, 156]);
+        let part = plan.part(1, 0, (1, 1)).unwrap();
+        let pixels = decode_rows(Cursor::new(&bytes), &part, || false).unwrap();
+        assert_eq!(pixels.data(), [27, 33, 137, 156]);
+        let plan = DecodePlan::new(header, (1, 1)).unwrap();
+        let pixels = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
+        assert_eq!(pixels.data(), [80, 30, 75, 170]);
+    }
+}
+
+#[test]
+fn scaled_adam7_storage_is_bounded_without_reducing_decode_size() {
+    let bytes = adam7(514, 513);
+    let metadata = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+    let natural = DecodePlan::new(metadata, (514, 513)).unwrap();
+    for (width, sums) in [(512, exact_raster::SESSION_BYTES / 4), (513, 0)] {
+        let plan = DecodePlan::new(metadata, (width, 512)).unwrap();
+        assert_eq!(plan.cost.scratch_bytes - natural.cost.scratch_bytes, sums);
+        let pixels = decode_rows(Cursor::new(&bytes), &plan, || false).unwrap();
+        if width == 512 {
+            assert_eq!(
+                pixels.data(),
+                area_reference(514, 513, 512, 512, |x, y| { premultiplied(pixel(x, y)) })
+            );
+        } else {
+            for (x, y, expected) in [
+                (0, 0, [0, 0, 0, 128]),
+                (256, 256, [3, 8, 18, 128]),
+                (512, 511, [5, 15, 34, 128]),
+            ] {
+                let at = (y * width + x) as usize * 4;
+                assert_eq!(&pixels.data()[at..at + 4], expected);
+            }
+        }
+        for part in [plan, plan.part(256, 256, (1, 1)).unwrap()] {
+            let key = exact_raster::RasterKey {
+                source: 1,
+                generation: 1,
+                pixels: part.pixels,
+                variant: 1,
+                crop: part.crop,
+            };
+            let again = DecodePlan::of_key(metadata, &key).unwrap();
+            assert_eq!(
+                (again.pixels, again.crop, again.cost),
+                (part.pixels, part.crop, part.cost)
+            );
+            let decoded = decode_rows(Cursor::new(&bytes), &again, || false).unwrap();
+            if part.crop.whole() {
+                assert_eq!(decoded.data(), pixels.data());
+            } else {
+                assert_eq!(decoded.pixel(0, 0), pixels.pixel(256, 256));
+            }
+        }
+    }
+    let mut bytes = header(4096, 4096, true);
+    chunk(&mut bytes, b"IDAT", &[]);
+    let header = inspect(&mut Cursor::new(&bytes), bytes.len() as u64).unwrap();
+    for (desired, available, side) in [
+        (2048., exact_raster::SESSION_BYTES, 2048),
+        (2048., 16 * 1024 * 1024, 1024),
+        (1000., exact_raster::SESSION_BYTES, 1024),
+    ] {
+        let planned = super::plan(header, (desired, desired), available).unwrap();
+        assert_eq!((planned.pixels.width, planned.pixels.height), (side, side));
+        assert!(planned.peak_bytes() <= available);
     }
 }
 

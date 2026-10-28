@@ -80,6 +80,44 @@ pub fn handled(manifest: &Manifest) -> Vec<String> {
     out
 }
 
+/// Why the manifest's `share_target.action` cannot be delivered (LLP
+/// 1133.024 D1): a share arrives as that location, so its path must be one
+/// the app's routes match, as a route literal's must.
+fn share_target_route(file: &File, manifest: &Manifest) -> Option<String> {
+    let action = manifest.json.get("share_target")?.get("action")?.as_str()?;
+    let path: Vec<&str> = action
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("")
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let patterns: Vec<&str> = file
+        .routes
+        .iter()
+        .flat_map(|r| &r.rows)
+        .filter(|r| !r.notfound)
+        .map(|r| r.pattern.as_str())
+        .collect();
+    let matches = |pattern: &&str| {
+        let want: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+        want.len() == path.len()
+            && want
+                .iter()
+                .zip(&path)
+                .all(|(w, h)| w.starts_with(':') || w == h)
+    };
+    if patterns.iter().any(matches) {
+        return None;
+    }
+    let routes = if patterns.is_empty() {
+        "it declares none".to_owned()
+    } else {
+        patterns.join(", ")
+    };
+    Some(format!("share_target.action `{action}` matches none of the app's routes ({routes}): a share arrives as that location"))
+}
+
 /// Every file input's `accept` in `file` against the app at `app_root`
 /// (media alone when there is none).
 pub(super) fn check(file: &File, app_root: Option<&Path>) -> Result<(), Vec<CompileError>> {
@@ -92,13 +130,18 @@ pub(super) fn check(file: &File, app_root: Option<&Path>) -> Result<(), Vec<Comp
         file: None,
         related: Box::new([]),
     };
-    let declared = match app_root.filter(|root| root.join("app.json").is_file()) {
-        Some(root) => Manifest::read(root)
-            .map(|m| handled(&m))
-            .map_err(|message| vec![refusal("app-manifest", message, Span::default())])?,
-        None => Vec::new(),
+    let manifest = match app_root.filter(|root| root.join("app.json").is_file()) {
+        Some(root) => Some(
+            Manifest::read(root)
+                .map_err(|message| vec![refusal("app-manifest", message, Span::default())])?,
+        ),
+        None => None,
     };
+    let declared = manifest.as_ref().map(handled).unwrap_or_default();
     let mut errors = missing_targets(file);
+    if let Some(message) = manifest.as_ref().and_then(|m| share_target_route(file, m)) {
+        errors.push(refusal("bake-share-target", message, Span::default()));
+    }
     for (list, span) in used {
         for token in contract_lower::controls::accept_tokens(&list) {
             if token == "*/*"

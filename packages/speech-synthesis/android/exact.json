@@ -30,7 +30,11 @@
   },
   "artifacts": [],
   "class": "exact.speechsynthesis.SpeechSynthesisModule",
-  "queries": [
-    "android.intent.action.TTS_SERVICE"
-  ]
+  "manifest": {
+    "queries": [
+      {
+        "action": "android.intent.action.TTS_SERVICE"
+      }
+    ]
+  }
 }

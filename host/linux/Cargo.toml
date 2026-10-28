@@ -95,6 +95,10 @@ fontconfig-parser = "0.5"
 drm = "0.15"
 evdev = "0.13"
 
+[target.'cfg(unix)'.dependencies]
+# The local listener (LLP 1133.005), linked here as the SVG rasterizer is.
+exact-listen = { path = "../listen" }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Graphics_Imaging", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_UI_Controls_RichEdit", "Win32_UI_WindowsAndMessaging", "UI_ViewManagement"] }
 chrono = "0.4"

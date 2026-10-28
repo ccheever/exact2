@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed with author, handle, relative time, full text, rounded full-width images at native aspect, and paged carousels of titled image cards that run edge to edge."},
+      {"n": 2, "status": "pass", "note": "Heart toggles filled/red and the count goes 872→873 and back; reply count is shown."},
+      {"n": 3, "status": "partial", "note": "Tapping a post pushes a Post screen with a timestamp. The image there is only slightly larger (382 vs 362 pt wide). Tapping an image opens a black full-screen viewer that closes on swipe down (feed, detail and carousel cards)."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top, with different authors and texts each time."},
+      {"n": 5, "status": "pass", "note": "Compose sheet has Cancel/Post. Post is disabled for empty or whitespace-only text, and the new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "A like, the refreshed posts and the composed post all survived relaunch. Relative times keep advancing."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Branded editorial look in place of the system navigation: centred serif 'Feed' title (no large title), a cream background, and a hero header ('YOUR DAILY SCROLL / A little closer.' / 'LATEST' divider) that feels like a web landing page.",
+      "Decorative leaf button in the nav bar whose only effect is scroll-to-top.",
+      "At the largest text size the heart and bubble icons stay small next to huge counts, and the bullet dot sits apart from the wrapped 'YOUR DAILY SCROLL' label.",
+      "The image on the post detail screen is barely larger than in the feed."
+    ],
+    "scroll": "Smooth and native. Slow drags, flings and fling-to-top showed no blank or popping rows, the carousels page cleanly, and scroll position is kept after opening and closing a post.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed with author, handle, time, full text, rounded images at native aspect, and paged titled carousels. The carousels are clipped to the text margins instead of running edge to edge."},
+      {"n": 2, "status": "pass", "note": "Heart toggles pink-filled and the count goes 872→873; reply count is shown."},
+      {"n": 3, "status": "partial", "note": "Tapping a post pushes a Post screen, but the image is only slightly larger (378 vs 370 pt wide). The full-screen viewer opens from feed, detail and carousel images and closes on swipe down."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh (and an extra refresh button) adds three new posts at the top. They come from a small pool, so the same 'Maya Chen / Sam Rivera' posts repeat."},
+      {"n": 5, "status": "pass", "note": "Compose sheet has Cancel/Post. Post is disabled for empty or whitespace-only text, and the new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "A like, the refreshed posts and the composed post all survived relaunch."}
+    ],
+    "bugs": [
+      "New posts (composed or refreshed) say 'Just now' forever; still 'Just now' 5+ minutes later and after a relaunch.",
+      "At the largest text size the carousel card grows to about 795 pt wide, so only a slice of its image shows and the title 'Chili Cauliflower' is clipped mid-letter."
+    ],
+    "tells": [
+      "One-line post texts sit in a two-line-tall frame, leaving a visible empty gap above the image or action row.",
+      "Avatars turn from circles into large rounded squares at the largest text size.",
+      "Carousels are clipped at the 16 pt content inset instead of scrolling to the screen edge.",
+      "In dark mode the disabled Post button in compose looks enabled (bright label).",
+      "The image on the post detail screen is barely larger than in the feed.",
+      "Refreshed posts repeat the same few texts and authors."
+    ],
+    "scroll": "Smooth: no blank rows, stutter or popping during slow drags and flings, the large title collapses into the scroll-edge blur properly, and scroll position is kept after returning from a post.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement at about the same level, and B's system large title and plain styling look more stock. But B has visible layout faults: a gap after one-line posts, a broken carousel and square avatars at large text, and 'Just now' timestamps that never age. A's custom editorial styling is a stylistic tell, but it is consistent and holds up at every text size and in dark mode."
+}

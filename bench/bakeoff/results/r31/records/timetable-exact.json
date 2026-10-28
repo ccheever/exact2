@@ -1,0 +1,26 @@
+{
+  "spec": "timetable",
+  "arm": "exact",
+  "model": "gpt",
+  "appId": "dev.bakeoff.timetable.bf65f68",
+  "assignedId": "dev.bakeoff.timetable.bf65f68",
+  "appName": "Timetable",
+  "sim": "498D6D1F-C21C-4B31-90F4-5D857216E256",
+  "pin": "82fdd765d4",
+  "minutes": 21.3,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 6094198,
+    "fresh": 103158,
+    "input": 6066678,
+    "cached": 5963520,
+    "output": 27520,
+    "cost": null,
+    "calls": 9,
+    "toolCalls": 61
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r31/built/timetable-exact.app",
+  "notes": true,
+  "finished": "2026-10-28T08:23:46.238Z"
+}

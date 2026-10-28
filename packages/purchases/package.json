@@ -1,0 +1,11 @@
+{
+  "name": "@exact/purchases",
+  "version": "1.0.0",
+  "private": true,
+  "description": "In-app purchases through the platform's store, with the Digital Goods API's names (LLP 1133.015).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json"
+  }
+}

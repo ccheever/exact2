@@ -422,24 +422,67 @@ extension Agent {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let from = box(v)
         var scrolled = false
-        for case let clip as NSClipView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) {
-            let frame = v.convert(v.bounds, to: clip), port = clip.bounds
+        // (A second pass: centred by the first, a target may land under a sticky box it then clears.)
+        for _ in 0..<2 { for case let clip as NSClipView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) {
+            let frame = v.convert(v.bounds, to: clip), bounds = clip.bounds, port = clearPort(clip, of: v)
             let mid = CGPoint(x: frame.midX, y: frame.midY)
-            if port.contains(mid) { continue }
-            var origin = port.origin
-            if mid.y < port.minY || mid.y >= port.maxY { origin.y = mid.y - port.height / 2 }
+            if port.contains(mid) || port.height <= 0 { continue }
+            var origin = bounds.origin
+            if mid.y < port.minY || mid.y >= port.maxY { origin.y = bounds.minY + mid.y - port.midY }
             if mid.x < port.minX || mid.x >= port.maxX { origin.x = frame.maxX > port.maxX ? frame.maxX - port.width : frame.minX }
-            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: port.size)).origin
-            if to == port.origin { continue }
+            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: bounds.size)).origin
+            if to == bounds.origin { continue }
             clip.scroll(to: to)
             (clip.superview as? NSScrollView)?.reflectScrolledClipView(clip)
             scrolled = true
+        }
+            presenter.settlePump()
         }
         guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
         presenter.settlePump()
         let to = box(v)
         return ["revealed": Int(v.id), "scrolled": true,
                 "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    }
+
+    /// `clip`'s bounds, less the sticky (or fixed) box of its document a click at `v`'s middle lands on, by the window's own hit
+    /// test (as the tap's), that doesn't hold `v` (the design tool's edit dock; theme2's 14:49 ruling): the band it
+    /// leaves, above one in the lower half, below one in the upper, as a person scrolls a row out from under it. Never
+    /// a popover's, nor one of a scroller inside `clip`.
+    private func clearPort(_ clip: NSClipView, of v: NSView) -> CGRect {
+        var port = clip.bounds
+        func cover(at: NSPoint) -> NodeView? { stickyCover(clip, of: v, at: at) }
+        // The cover at the target's middle, then each one at the middle of the band that leaves (a header across
+        // from a dock): above one in the lower half, below one in the upper.
+        let x = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: clip).x, mid = port.midY
+        var at = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
+        for _ in 0..<4 {
+            guard port.height > 0, let n = cover(at: at) else { break }
+            let r = n.convert(n.bounds, to: clip).intersection(port)
+            guard !r.isNull, r.height > 0, r.width > 0 else { break }
+            if r.midY < mid { port = CGRect(x: port.minX, y: r.maxY, width: port.width, height: max(0, port.maxY - r.maxY)) }
+            else { port.size.height = max(0, r.minY - port.minY) }
+            at = clip.convert(NSPoint(x: x, y: port.midY), to: nil)
+        }
+        return port
+    }
+
+    /// The sticky (or fixed) box a click at `at` (in the window) lands in, within `clip` (none of a scroller inside it,
+    /// none in a popover), not holding `v`.
+    private func stickyCover(_ clip: NSClipView, of v: NSView, at: NSPoint) -> NodeView? {
+        guard let content = v.window?.contentView, let frame = content.superview,
+              let hit = content.hitTest(frame.convert(at, from: nil)), hit !== v, !hit.isDescendant(of: v) else { return nil }
+        var up: NSView? = hit, found: NodeView?
+        while let u = up, u !== clip {
+            if u is NSScrollView { return nil }
+            if let n = u as? NodeView {
+                if n.props["popover"] != nil { return nil }
+                if found == nil, ["sticky", "fixed"].contains(n.layoutPosition) { found = n }
+            }
+            up = u.superview
+        }
+        guard up === clip, let found, !v.isDescendant(of: found) else { return nil }
+        return found
     }
 
     /// A contact held across requests (LLP 1035.003 D1): the mouse button
@@ -576,6 +619,9 @@ extension Agent {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSAlert"] : ["error": "alert button #\(id) is unavailable"]
         }
         if let node = view(req), presenter.dialogs.blocks(node) { return ["error": "view \(node.id) is blocked by a modal dialog"] }
+        // A status item and the menu its tap opened are AppKit's (LLP 1133.025 §11).
+        if req["phase"] == nil, req["wheel"] == nil, let node = view(req),
+           let clicked = presenter.statusItems.agentClick(node) ?? presenter.statusItems.agentChoose(node) { return clicked }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
            let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.toolbar.suppresses(node), !presenter.sidebar.suppresses(node) {
@@ -706,6 +752,20 @@ extension Agent {
             // and outside the session clock; `layout` reports the overscroll
             // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["malformed": true, "error": "wheel deltas must be finite"] }
+            if req["platform"] as? Bool == true {
+                // `fling`, `hold` and `release` (LLP 1142 D3): the driver posts
+                // a trackpad's events to this process through the window
+                // server, since AppKit tracks a gesture from its queue and
+                // applies one event of a gesture handed to it here. This says
+                // where, and what the driver's events have done so far.
+                let screen = win.convertPoint(toScreen: p)
+                let owner = ChainingScrollView.driverOwner
+                var r: [String: Any] = ["tapped": Int(v.id), "at": at, "pid": Int(getpid()), "window": win.windowNumber,
+                                        "point": [p.x, win.frame.height - p.y], "screen": [screen.x, (NSScreen.screens.first?.frame.height ?? 0) - screen.y],
+                                        "mark": ChainingScrollView.driverMark, "delivered": ChainingScrollView.driverWheels]
+                if let owner, let id = owner.pointerOwner?.id { r["scroller"] = Int(id); r["offset"] = [owner.contentView.bounds.origin.x, owner.contentView.bounds.origin.y] }
+                return r
+            }
             // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
             guard let flags = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
             // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too):
@@ -754,6 +814,12 @@ extension Agent {
         var avoided: PressReach?
         if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
            (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
+            // A middle a sticky (or fixed) box of its scroller still covers (one no scroll could clear, theme2's 14:49
+            // ruling): refused, naming it, as the web's and Linux's taps are; a click there would land on the box.
+            if let clip = sequence(first: v.superview, next: { $0?.superview }).first(where: { $0 is NSClipView }) as? NSClipView,
+               let cover = stickyCover(clip, of: v, at: p) {
+                return ["error": "tap #\(v.id): #\(cover.id) (\(cover.layoutPosition)) covers its middle, and no scroll clears it", "covered": Int(cover.id)]
+            }
             let window = { [self] (q: CGPoint) in pointerPoint(q, in: win) }
             switch Agent.addressedAim(v, middle: center, area: apart ? b : b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
             case .refused(let refusal): return refusal.reply
@@ -779,6 +845,7 @@ extension Agent {
         // What the click will reach, by the window's own hit test: a part's landing reads it (AgentParts.swift).
         PartLanding.view = win.contentView?.superview?.hitTest(p) ?? win.contentView?.hitTest(p)
         PartLanding.delivered = true
+        PartLanding.point = p
         for clicks in 1...count {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()

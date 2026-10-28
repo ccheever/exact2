@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Blue bubbles of mine on the right and grey bubbles of Sam's on the left, oldest first. Small centred date headings in iOS Messages style ('Wed, Jul 1 at 3:20 AM', 'Today 8:29 PM'). Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send adds the bubble at the bottom and clears the field. Send stays disabled when the field is empty or holds only spaces. Leading whitespace and newlines are trimmed from what is sent."},
+      {"n": 3, "status": "pass", "note": "The composer sits right above the keyboard and the newest messages stay visible. Dragging the thread dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "A grey bubble with three dots plus 'Sam is typing…' appears, and the nav bar subtitle shows 'typing…'. About 2 s later 👍 arrives. Both of my tests got 👍, so I saw no canned text, though the spec allows either."},
+      {"n": 5, "status": "pass", "note": "Long-press opens the system context menu with Copy and Delete, lifting the bubble as a preview. Copy pastes correctly. Delete removes the message, and it stays deleted after relaunch."},
+      {"n": 6, "status": "pass", "note": "Repeated flings reach the first message (Jul 1) with no blank rows. A glass round ↓ button appears when far up and returns to the newest message."},
+      {"n": 7, "status": "pass", "note": "Sent messages and Sam's replies survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Sam's reply was 👍 every time I tested, never a canned text reply, so it feels a little canned (not a spec violation).",
+      "Return inserts a newline rather than sending; Messages does the same, so this is acceptable.",
+      "The jump-to-newest button floats over the last bubbles and partly covers a bubble's text."
+    ],
+    "scroll": "Smooth and native: slow drags track exactly, with no jumps or rows popping in. Flings reach the top cleanly. Content scrolls under a blurred, iOS 26-style scroll-edge effect at the nav bar and behind the glass composer.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Bubbles are on the correct sides, oldest first. Date headings appear on day changes, but they always include the year ('Jul 1, 2026 at 3:20 AM'), unlike Messages. Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send works, the field clears, and the thread stays at the bottom. Send stays disabled for an empty or whitespace-only field."},
+      {"n": 3, "status": "pass", "note": "The composer rides above the keyboard and the newest messages stay visible. Dragging the thread dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "A dots bubble with 'Sam is typing…' appears, then a varied canned reply ('Haha, nice') arrives about 2 s later."},
+      {"n": 5, "status": "pass", "note": "The system context menu has a 'Message' title plus Copy and Delete. Copy and Delete both work, and the deletion persists."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches the first message with no blank rows. A small ↓ 'Newest messages' button appears when scrolled up and works."},
+      {"n": 7, "status": "pass", "note": "Sent messages persist across relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "No scroll-edge blur: bubbles are cut off by a hard line under the nav bar and above the composer, which reads as a clipped web-like frame rather than content flowing under the bars.",
+      "On long-press, the lifted preview of Sam's bubble loses its grey fill and shows on a white card.",
+      "Date headings always include the year ('Jul 1, 2026 at 3:20 AM') and lack the weekday, unlike Messages.",
+      "At the largest text size the ↓ jump button stays tiny and does not scale.",
+      "The send button is drawn inside the text field's border instead of as a separate glass button; acceptable, but less like current Messages."
+    ],
+    "scroll": "Smooth and consistent: slow drags track exactly, flings to the top show no blank rows, and the scroll indicator's page count shifts slightly as rows are measured. The hard clipping at the nav bar and the composer makes it feel less native than A.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement, including typing indicator, long-press copy/delete, jump-to-newest and persistence. A looks and behaves like a current iOS app, with scroll-edge blur under the nav bar, a glass composer and send button, and Messages-style date headings. B clips the thread with hard edges, whitens the preview bubble on long-press and formats dates less natively, though its replies vary more."
+}

@@ -1,0 +1,24 @@
+dev.bakeoff.chat.b77d1bd: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 22.62 s of motion
+  ok    hitch ratio (ms/s)                     0
+  ok    longest frame (ms)                     16.7
+  ok    main thread p95 (ms/frame)             4.59
+  ok    tracking ratio                         1.007
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       504
+  ok    momentum hand-off (content/asked)      1.08
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  n/a   edge bounce settle (s)                 –
+  n/a   rubber band (overscroll/finger)        –
+  n/a   rubber band settle (s)                 –
+  tell  status-bar scroll to top (s)           1
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  tell  scrub: hitch ratio (ms/s)              8.2
+  tell  scrub: longest frame (ms)              40.7
+  tell  scrub: blank samples (share)           0.016
+  ok    scrub: blanks while held (share)       0
+  13 ok, 4 tell, 0 bad
+  where the scrub's late frames' main-thread time went:
+    scrub: 2 late frames (0 on a timer's tick), 33 ms late; Exact host 34 ms (in UIKit 16) · Exact host (main waits on exact.owner) 3 ms; in display links and ports 26 ms, events 5 ms, the main queue 5 ms

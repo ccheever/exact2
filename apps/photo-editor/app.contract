@@ -16,8 +16,14 @@
 // library. The strip of recent photos is read only once the person shows it
 // or the read is granted; a photo opened from it is a copy in app:/tmp, and
 // its picture stays in the header for as long as the app may read it.
+//
+// Order a Print is @exact/payments's (LLP 1133.034 §10): shown while the
+// wallet can pay, a sheet of sizes over the editor whose payment button opens
+// the wallet's sheet. app.ts's `tools` answer the sheet while it is up;
+// leaving the print sheet lets the payment go. Orders is the lab's record.
 use getUserMedia, applyConstraints, stopTrack, mediaStreamTrack, enumerateDevices, cameraStatus, MediaStream, MediaStreamTrack, MediaDeviceList, CameraStatus, MediaTrackConstraints from "@exact/media-capture"
 use takePhoto, Photo from "@exact/camera"
+use showPaymentRequest, paymentRequestStatus, PaymentResult, PaymentRequestStatus, PaymentMethodData, PaymentDetailsInit, PaymentOptions from "@exact/payments"
 use photoLibraryStatus, copyPhotoAsset, managePhotoSelection, PhotoLibraryStatus, PhotoAssetList, PhotoCopy from "@exact/photos"
 
 shape Saved
@@ -28,9 +34,34 @@ shape Saved
   // What the saved file kept of the photo's metadata (`transformImage`'s report).
   metadata: string
 
+// A print's checkout at the lab, with what the wallet's sheet is shown.
+shape PrintCheckout
+  id: string
+  size: string
+  price: string
+  methodData: PaymentMethodData[]
+  details: PaymentDetailsInit
+  options: PaymentOptions
+  // The checkout as JSON text, for the payment button.
+  button: string
+  error: string
+
+shape PrintOrder
+  id: string
+  size: string
+  price: string
+  shipping: string
+  state: string
+  orderId: string
+
+shape PrintOrders
+  orders: PrintOrder[]
+  error: string
+
 routes nav
   editor "/"
     camera "/camera"
+    print "/print"
 
 component PhotoEditor
   state turns = 0
@@ -48,6 +79,10 @@ component PhotoEditor
   state openedPicture = ""
   state pictureGone = false
   state saveLine = ""
+  state printing = false
+  state printSize = "5x7"
+  state printLine = ""
+  state ordersRead = 0
   resource camera = cameraStatus() as shape CameraStatus else empty()
   resource devices = enumerateDevices() as shape MediaDeviceList else empty()
   resource live = mediaStreamTrack(track=track) as shape MediaStreamTrack else empty()
@@ -60,6 +95,10 @@ component PhotoEditor
   mutation saved as shape Saved then wasSaved
   mutation copied as shape PhotoCopy then openCopy
   mutation managed as shape PhotoLibraryStatus
+  resource checkout = printCheckout(printing, printSize) as shape PrintCheckout else empty()
+  resource wallet = paymentRequestStatus(methodData=checkout.methodData) as shape PaymentRequestStatus else empty()
+  resource orders = printOrders(ordersRead) as shape PrintOrders else empty()
+  mutation ordered as shape PaymentResult then paid
   // A track the app holds that has not ended: Take Photo shows it again rather than asking for another.
   derive holding = track != "" and live.readyState == "live"
   derive canFlip = devices.devices.map(d => d.facingMode == some("user")).includes(true) and devices.devices.map(d => d.facingMode == some("environment")).includes(true)
@@ -68,6 +107,8 @@ component PhotoEditor
   // The camera that faces `facing`; every other constraint the platform's (LLP 1133.008 D2).
   derive facingOnly = MediaTrackConstraints(deviceId=none, groupId=none, facingMode=some(facing), width=none, height=none, aspectRatio=none, frameRate=none, resizeMode=none, zoom=none, torch=none, sampleRate=none, sampleSize=none, channelCount=none, echoCancellation=none, autoGainControl=none, noiseSuppression=none, latency=none)
   derive shotError = match failure(shot) { case some(f) => f.code, case none => "" }
+  // A failed send runs no `then`, so its failure is read here; a cancel is no failure to the person.
+  derive payFailure = match failure(ordered) { case some(f) => (f.code == "AbortError" ? "" : "Couldn’t pay (" + f.code + ")."), case none => "" }
   // A photo of the app's own (the camera's or a copy) can be transformed; the bundled sample cannot.
   derive canSave = library.available and library.addState != "denied" and photo.slice(0, 5) == "app:/"
   action rotate
@@ -117,8 +158,30 @@ component PhotoEditor
   action cancel
     send stopped = stopTrack(track=track)
     nav = back(nav)
+  // Leaving the print sheet lets its payment go (`ordered = none`).
   action back
+    if printing
+      ordered = none
+      printing = false
     nav = back(nav)
+  action orderPrint
+    printing = true
+    printLine = ""
+    ordersRead = ordersRead + 1
+    nav = push(nav, "/print")
+  action chooseSize(size: string)
+    printSize = size
+    printLine = ""
+  action pay
+    printLine = ""
+    send ordered = showPaymentRequest(methodData=checkout.methodData, details=checkout.details, options=checkout.options, onmerchantvalidation="validateMerchant", onshippingaddresschange="quoteShipping", onshippingoptionchange="quoteShipping", onpaymentauthorized="placeOrder")
+  action paid
+    ordersRead = ordersRead + 1
+    match ordered
+      case some(r)
+        printLine = r.result == "success" ? "Ordered. Your print is on its way." : (r.result == "unknown" ? "Your payment is being checked. Orders shows how it went." : "The payment didn’t go through.")
+      case none
+        printLine = ""
   action follow(url: string)
     nav = go(nav, url)
   action openSettings
@@ -180,6 +243,9 @@ component PhotoEditor
                 if camera.available and camera.state != "denied"
                   button press=takePicture testId="take-photo" aria-label="Take a photo to edit" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
                     text "Take Photo" font-size=15 font-weight=600
+                if wallet.canMakePayment
+                  button press=orderPrint testId="order-print" aria-label="Order a print of this photo" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
+                    text "Order a Print" font-size=15 font-weight=600
                 if canSave
                   button press=save testId="save" aria-label="Save the edited photo to Photos" disabled=pending(saved) padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="-exact-fill" color="-exact-label"
                     text "Save to Photos" font-size=15 font-weight=600
@@ -228,3 +294,31 @@ component PhotoEditor
                 button press=flip testId="flip" aria-label="Switch camera" appearance="none" color="#ffffff" padding=12
                   text "Flip"
               button press=shutter testId="shutter" aria-label="Take Photo" width=72 height=72 border-radius="50%" background-color="#ffffff" border="4px solid #8a8a8a"
+        if e.name == "print"
+          column navigationKey=`${e.id}` navigationPresentation="modal" testId="print" position="absolute" inset=0 display="flex" flex-direction="column" background-color="-exact-background" color="-exact-label"
+            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+              button press=back testId="close-print" aria-label="Close"
+                text "Close"
+              text "Order a Print" role="heading" aria-level=2
+            column flex=1 min-height=0 overflow-y="auto" gap=12 padding=16
+              row gap=8 role="radiogroup" aria-label="Print size"
+                for size in ["4x6", "5x7", "8x10"] key=size
+                  button press=chooseSize(size) testId=`size-${size}` role="radio" aria-checked=(printSize == size) padding-left=14 padding-right=14 padding-top=8 padding-bottom=8 border-radius=8 background-color=(printSize == size ? "AccentColor" : "-exact-fill") color=(printSize == size ? "light-dark(#ffffff, #000000)" : "-exact-label")
+                    text size.replaceAll("x", "×") font-size=15 font-weight=600
+              if checkout.error != ""
+                text checkout.error testId="print-error" font-size=13 color="-exact-secondary-label"
+              if checkout.id != ""
+                text `${checkout.size.replaceAll("x", "×")} print: $${checkout.price}, plus shipping` testId="print-price" font-size=15 font-variant-numeric="tabular-nums"
+                if wallet.canMakePayment
+                  exact-payment-button buttonType="order" checkout=checkout.button press=pay testId="pay" disabled=pending(ordered) height=44
+              if printLine != ""
+                text printLine testId="print-line" aria-live="polite" font-size=13 color="-exact-secondary-label"
+              if payFailure != ""
+                text payFailure testId="print-failure" aria-live="polite" font-size=13 color="-exact-secondary-label"
+              if orders.orders.length > 0
+                column gap=6 testId="orders"
+                  text "Orders" role="heading" aria-level=3 font-size=12 font-weight=600 color="-exact-secondary-label"
+                  for o in orders.orders key=o.id
+                    row gap=8 testId=`order-${o.id}`
+                      text `${o.size.replaceAll("x", "×")} print` flex=1 font-size=13
+                      text (o.state == "paid" ? `Paid · ${o.orderId}` : o.state) font-size=13 color="-exact-secondary-label" font-variant-numeric="tabular-nums"

@@ -1,0 +1,377 @@
+{
+ "app": "dev.bakeoff.settings.bded73b",
+ "verdict": "probed",
+ "smooth": {
+  "frames": 1217,
+  "motionS": 20.33,
+  "fps": 60,
+  "hitchRatio": 2.6,
+  "longestFrameMs": 35.9,
+  "hitches": 3,
+  "hitchAt": [
+   {
+    "gesture": "slow-drag",
+    "ms": 35.9,
+    "mainMs": 22.9,
+    "late": 19.2,
+    "where": {
+     "SwiftUI": 5.1,
+     "app code · SwiftUI": 7.7,
+     "app code · text & drawing": 2.6,
+     "app code · accessibility": 2.6,
+     "app code · UIKit": 5.1
+    },
+    "via": {
+     "the main queue": 10.2,
+     "display links and ports": 5.1,
+     "events": 2.6
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "slow-drag",
+    "ms": 33.3,
+    "mainMs": 14.9,
+    "late": 16.7,
+    "where": {
+     "SwiftUI": 5.3,
+     "app code · UIKit": 2.6,
+     "app code · SwiftUI": 10.6
+    },
+    "via": {
+     "the main queue": 10.6,
+     "display links and ports": 2.6
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "fling-1500",
+    "ms": 33.7,
+    "mainMs": 16.6,
+    "late": 17,
+    "where": {
+     "SwiftUI": 4.9,
+     "app code · UIKit": 12.3,
+     "app code · text & drawing": 2.5
+    },
+    "via": {
+     "the main queue": 4.9,
+     "display links and ports": 7.4,
+     "events": 2.5
+    },
+    "cause": "scroll"
+   }
+  ],
+  "mainMs": 2.12,
+  "mainP95Ms": 5.16,
+  "tickHitchRatio": 0,
+  "scrollHitchRatio": 2.6,
+  "where": [
+   {
+    "gesture": "slow-drag",
+    "frames": 2,
+    "lateMs": 35.9,
+    "ticks": 0,
+    "by": [
+     {
+      "who": "app code",
+      "ms": 31.2,
+      "what": [
+       [
+        "SwiftUI",
+        18.3
+       ],
+       [
+        "UIKit",
+        7.7
+       ],
+       [
+        "text & drawing",
+        2.6
+       ],
+       [
+        "accessibility",
+        2.6
+       ]
+      ]
+     },
+     {
+      "who": "SwiftUI",
+      "ms": 10.4,
+      "what": []
+     }
+    ],
+    "via": {
+     "the main queue": 20.8,
+     "display links and ports": 7.7,
+     "events": 2.6
+    }
+   },
+   {
+    "gesture": "fling-1500",
+    "frames": 1,
+    "lateMs": 17,
+    "ticks": 0,
+    "by": [
+     {
+      "who": "app code",
+      "ms": 14.8,
+      "what": [
+       [
+        "UIKit",
+        12.3
+       ],
+       [
+        "text & drawing",
+        2.5
+       ]
+      ]
+     },
+     {
+      "who": "SwiftUI",
+      "ms": 4.9,
+      "what": []
+     }
+    ],
+    "via": {
+     "the main queue": 4.9,
+     "display links and ports": 7.4,
+     "events": 2.5
+    }
+   }
+  ],
+  "verdict": {
+   "hitch": "ok",
+   "stall": "tell",
+   "main": "ok"
+  }
+ },
+ "tracking": {
+  "ratio": 1.008,
+  "lagFrames": 0,
+  "maxErrorPt": 4.3,
+  "slopPt": 13.3,
+  "glidePt": 0,
+  "verdict": {
+   "ratio": "ok",
+   "lag": "ok",
+   "glide": "ok"
+  }
+ },
+ "flings": [
+  {
+   "name": "fling-1500",
+   "asked": 1500,
+   "fingerV": 702,
+   "tauMs": 508,
+   "ratePerMs": 0.99803,
+   "r2": 0.9946,
+   "contentV": 1260,
+   "handoff": 0.84,
+   "frames": 92,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 607,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 4.4,
+   "contentSizeChanges": 5,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-4000",
+   "asked": 4000,
+   "fingerV": 1640,
+   "contentSizeChanges": 1,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-6000",
+   "asked": 6000,
+   "fingerV": 4787,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 5,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-1",
+   "asked": 8000,
+   "fingerV": -5946,
+   "tauMs": 450,
+   "ratePerMs": 0.99778,
+   "r2": 0.8874,
+   "contentV": -4492,
+   "handoff": 0.56,
+   "frames": 40,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1503,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-partway",
+   "asked": 3000,
+   "fingerV": 2140,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9997,
+   "contentV": 3131,
+   "handoff": 1.04,
+   "frames": 54,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1259,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 3.4,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-for-tap",
+   "asked": 4000,
+   "fingerV": 1681,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": 3860,
+   "handoff": 0.96,
+   "frames": 21,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 925,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 3.8,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  }
+ ],
+ "momentum": {
+  "tauMs": 508,
+  "handoff": 1.04,
+  "jumps": 0,
+  "contentSizeChanges": 6,
+  "contentShifts": 0,
+  "liftDrops": 0,
+  "lifts": 4,
+  "liftMainMs": 5,
+  "verdict": {
+   "lift": "ok",
+   "tau": "ok",
+   "handoff": "ok",
+   "jumps": "ok"
+  }
+ },
+ "edgeBounce": {
+  "name": "fling-partway",
+  "overshootPt": 16.5,
+  "entryV": 480,
+  "settleS": 0.58,
+  "verdict": {
+   "settle": "ok"
+  }
+ },
+ "rubberBand": {
+  "overscrollPt": 131.7,
+  "fingerPt": null,
+  "ratio": null,
+  "settleS": 0.56,
+  "bounces": true,
+  "verdict": {
+   "ratio": "n/a",
+   "settle": "ok"
+  }
+ },
+ "scrollToTop": {
+  "fromPt": 1506,
+  "reached": true,
+  "startS": 0.13,
+  "durationS": 0.8,
+  "scrollsToTop": true,
+  "verdict": {
+   "reached": "ok"
+  }
+ },
+ "tapToStop": {
+  "beforeV": 1800,
+  "stopFrames": 1,
+  "travelPt": 0,
+  "activated": false,
+  "verdict": {
+   "stop": "ok"
+  }
+ },
+ "blank": {
+  "samples": 50,
+  "uniformSamples": 13,
+  "checked": 12,
+  "lateChecked": 0,
+  "verified": true,
+  "blankSamples": 0,
+  "share": 0,
+  "maxPt": 0,
+  "sampleMs": 4.41,
+  "verdict": {
+   "blank": "ok"
+  }
+ },
+ "scrub": {
+  "took": true,
+  "crossed": 1.15,
+  "maxStepPt": 83,
+  "smooth": {
+   "frames": 224,
+   "motionS": 3.73,
+   "fps": 60,
+   "hitchRatio": 0,
+   "longestFrameMs": 16.7,
+   "hitches": 0,
+   "hitchAt": [],
+   "mainMs": 2.2,
+   "mainP95Ms": 4.96,
+   "where": []
+  },
+  "blank": {
+   "samples": 55,
+   "uniformSamples": 13,
+   "checked": 10,
+   "lateChecked": 0,
+   "verified": true,
+   "blankSamples": 0,
+   "share": 0,
+   "maxPt": 0,
+   "sampleMs": 4.37,
+   "verdict": {
+    "blank": "ok"
+   }
+  },
+  "heldBlank": {
+   "samples": 28,
+   "uniformSamples": 12,
+   "checked": 9,
+   "lateChecked": 0,
+   "verified": true,
+   "blankSamples": 0,
+   "share": 0,
+   "maxPt": 0,
+   "sampleMs": 4.27,
+   "verdict": {
+    "blank": "ok"
+   }
+  },
+  "verdict": {
+   "hitch": "ok",
+   "stall": "ok",
+   "blank": "ok",
+   "held": "ok"
+  }
+ },
+ "list": {
+  "cls": "SwiftUI.UpdateCoalescingCollectionView",
+  "decelerationRate": 0.998,
+  "bounces": true,
+  "scrollsToTop": true,
+  "delaysContentTouches": true,
+  "contentHeight": 2229.5
+ }
+}

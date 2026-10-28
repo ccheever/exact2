@@ -11,6 +11,7 @@ import { emojiChoices, resolveMentions, suggest, switchTargets } from './compose
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { avatarUrl, clip, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
 import { messageLanguage } from './language';
+import { mentionLights, setMentionLight } from './light';
 
 export const appId = 'com.exact.excord';
 // Where Discord is: the fixture (app.json's `commands.server`) unless the bake says otherwise.
@@ -24,12 +25,12 @@ export const origin = 'http://127.0.0.1:4790';
 const DISCORD: string = 'https://discord.com';
 export const grants = {
   'http://127.0.0.1:4790': ['net.fetch http://127.0.0.1:4790', 'net.websocket ws://127.0.0.1:4790',
-    'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range',
+    'secret.keep fixture-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range', 'device.hid',
     'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload', 'fs.read doc:/',
     'fs.read app:/data/fixture-identifies.json', 'fs.write app:/data/fixture-identifies.json'],
   // The gateway resumes on other subdomains (`resume_gateway_url`).
   'https://discord.com': ['net.fetch https://discord.com', 'net.websocket wss://gateway.discord.gg',
-    'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range',
+    'net.websocket wss://*.discord.gg', 'secret.keep discord-token user-presence optional', 'device.local-auth purpose.lock', 'device.age-range', 'device.hid',
     // A message's files go to Discord's upload bucket (`upload` below), with no credentials.
     'net.fetch https://discord-attachments-uploads-prd.storage.googleapis.com',
     'fs.read app:/tmp/picked', 'fs.read app:/tmp/upload', 'fs.write app:/tmp/upload', 'fs.read doc:/',
@@ -131,7 +132,7 @@ function roleColors(roles: Record<string, any>[]): Map<string, { position: numbe
   return found;
 }
 const render = createRenderer(dirs);
-const LIMIT = 200, HALF = 100;
+const LIMIT = S.WINDOW_CAP, HALF = 100;
 
 // What is unread after `since`: counted in the cached run that holds it, a lower bound (`more`) when
 // that run does not reach the newest message or `since` is not cached; its time is then the read
@@ -158,7 +159,6 @@ function channelRecord(id: string): Channel {
   const read = S.unread(store, id);
   const known = read.unread ? unreadAfter(id, read.lastReadId) : { count: 0, more: false, at: 0 };
   const first = S.firstUnread(store, id);
-  const typing = S.typingUsers(store, id, clock.now).map(t => t.user.global_name || t.user.username || displayName(t.user.id));
   const name = c?.name || (c?.recipients ?? []).map((u: { id: string }) => displayName(u.id)).join(', ');
   const recipients: { id: string }[] = c?.recipients ?? [];
   const avatar = c?.type === 1 && recipients[0] ? avatarUrl(live.origins.cdn, S.user(store, recipients[0].id) ?? recipients[0])
@@ -168,8 +168,7 @@ function channelRecord(id: string): Channel {
     unread: read.unread ? Math.max(1, known.count) : 0, mentions: read.mentionCount,
     firstUnread: first ?? '', firstUnreadAt: read.unread ? known.at : 0,
     lastRead: read.lastReadId ?? (read.unread ? NEVER : ''),
-    arrived: live.arrived.get(id) ?? 0,
-    typing: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…` };
+    arrived: live.arrived.get(id) ?? 0 };
 }
 let pastes = 0;
 const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
@@ -271,12 +270,15 @@ const readable = (guild: string) => S.guildChannelList(store, guild).filter(c =>
 const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anchor, rows: [], hasBefore: false,
   hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0, need: '', cursor: '' });
 
-// The window: one run of at most 200 cached messages, the live tail or around an anchor, of the rows
-// a page has confirmed since the last fresh READY (the rest are left out until a page confirms them).
-// It names the one page it lacks (`need`, `cursor`), which the view asks for: the newest 50 for a
-// tail with none, 50 around an anchor not held, and 50 beyond an anchor within EDGE rows of the
-// window's edge, since the view moves its anchor there only as the reader nears that edge (§2: one
-// page on opening a channel, the next as the reader moves toward the edge).
+// The window: one run of at most 300 cached messages (S.WINDOW_CAP), the live tail or around an anchor,
+// of the rows a page has confirmed since the last fresh READY (the rest are left out until a page
+// confirms them). It names the one page it lacks (`need`, `cursor`), which the view asks for: the
+// newest 50 for a tail with none, 50 around an anchor not held, and 50 beyond an anchor within EDGE
+// rows of the window's edge, since the view moves its anchor there only as the reader nears that edge
+// (§2: one page on opening a channel, the next as the reader moves toward the edge). Toward the top
+// the view keeps a lead: while fewer than 100 rows stand above the reader it moves the anchor to the
+// window's first row again each time a page lands, so the pages are asked one after another until the
+// lead stands (x2-perf4's fling plan, F1; still 50 a page and one page in flight per channel).
 const EDGE = 15;
 export function loadWindow(channel: string, asked: string, since: string): Window {
   if (!channel) return emptyWindow(channel, asked);
@@ -343,6 +345,8 @@ function newest(channel: string): string | null {
 const sources: Sources = {
   loadSession: (_args, secrets, storage) => loadSession(live, secrets, storage),
   messageLanguage: ([text]) => messageLanguage(text),
+  mentionLights: ([attachedList]) => mentionLights(attachedList),
+  setMentionLight: ([device, on]) => setMentionLight(device, on),
   signIn: ([text], secrets) => { const error = signIn(live, secrets, text); return error ? { ok: false, error } : OK; },
   signOut: (_args, secrets) => { signOut(live, secrets); return OK; },
   unlockSession: (_args, secrets) => unlockSession(live, secrets),
@@ -472,7 +476,7 @@ const sources: Sources = {
   },
   postMessage: async ([channel, key], _secrets, storage) => {
     const send = live.sends.get(key);
-    if (!send) return refused('That message is no longer waiting to send.');
+    if (!send) return { ...refused('That message is no longer waiting to send.'), key, channel };
     try {
       const reply = send.replyTo ? { messageId: send.replyTo, guildId: S.channel(store, channel)?.guild_id, mention: send.mention } : undefined;
       const attachments = send.files.length ? await upload(channel, key, send.files, send.uploaded ??= [], storage) : undefined;
@@ -480,11 +484,11 @@ const sources: Sources = {
         { content: send.content, nonce: key, replyTo: reply, attachments }));
       live.sends.delete(key);
       applyEvent(live, 'MESSAGE_CREATE', sent);
-      return OK;
+      return { ...OK, key, channel };
     } catch (error) {
       S.failPending(store, channel, key, error instanceof Error ? error.message : String(error));
       touched(live, channel);
-      return refused(error);
+      return { ...refused(error), key, channel };
     }
   },
   retrySend: ([channel, key]) => {
@@ -559,7 +563,12 @@ const sources: Sources = {
     live.typedAt.set(channel, clock.now);
     await call(live, rest.typing(context(live), channel));
   }),
-  expireTyping: ([now]) => { S.expireTyping(store, at(now)); return OK; },
+  loadTyping: ([channel, , time]) => {
+    const now = at(time);
+    S.expireTyping(store, now);
+    const typing = S.typingUsers(store, channel, now).map(t => t.user.global_name || t.user.username || displayName(t.user.id));
+    return { line: typing.length === 0 ? '' : typing.length === 1 ? `${typing[0]} is typing…` : `${typing.join(' and ')} are typing…` };
+  },
   inject: ([channel, what, near, now]) => write(async () => {
     if (!live.origins.fixture) throw new Error('Only the fixture takes injected traffic.');
     const response = await fetch(`${live.origins.rest}/control/inject`, { method: 'POST',

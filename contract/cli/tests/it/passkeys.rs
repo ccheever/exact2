@@ -1,6 +1,6 @@
 //! `@exact/passkeys` under its declared substitute (LLP 1133.011 §9), the
 //! package's own `exact.json`: a ceremony is data code's alone, admitted by
-//! its RP ID's grant, held under a `passkey` ticket whose args a software
+//! its RP ID's grant, held under a `credential` ticket whose args a software
 //! authenticator signs over, one sheet at a time, its PRF output withheld,
 //! and a registration dropped before data code had it disposed of (D11).
 
@@ -194,10 +194,10 @@ impl Host {
         }
     }
 
-    /// The `passkey` tickets held, oldest first: each ticket and its args.
+    /// The `credential` tickets held, oldest first: each ticket and its args.
     fn tickets(&self) -> Vec<(u64, Json)> {
         (self.r.device_holds().iter())
-            .filter(|h| h.capability == "passkey")
+            .filter(|h| h.capability == "credential")
             .map(|h| (h.ticket, serde_json::from_str(&h.args).unwrap()))
             .collect()
     }
@@ -239,7 +239,7 @@ fn a_contract_call_of_a_ceremony_is_refused() {
     assert!(errors.contains("app.ts"), "{errors}");
 }
 
-/// §9: a ceremony holds a `passkey` ticket naming what an authenticator
+/// §9: a ceremony holds a `credential` ticket naming what an authenticator
 /// signs over; a typed response answers it with its PRF output withheld.
 #[test]
 fn a_ceremony_is_a_ticket_and_its_answer_keeps_no_prf_output() {

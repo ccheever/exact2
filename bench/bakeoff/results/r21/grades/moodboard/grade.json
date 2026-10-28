@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Edge-to-edge 3-column grid of square HSL tiles with centred emoji, 600 tiles, newest first, with 1pt gutters like Photos."},
+      {"n": 2, "status": "pass", "note": "System pull-down menu with All Boards plus ten boards and a checkmark. The tile count updates (Night: 58)."},
+      {"n": 3, "status": "pass", "note": "Push to a large view with title, board and date. Swiping left/right changes the tile and stays inside the active filter ('1 of 58'). Prev/next buttons too; Previous is disabled on the first tile."},
+      {"n": 4, "status": "pass", "note": "Heart in the nav bar and a 'Like Tile' button both toggle. The Liked tab shows the same grid with heart badges and its own filter and count."},
+      {"n": 5, "status": "pass", "note": "Select/Done mode with circle checkmarks, Select All, a selection count, bulk Like, and Delete behind a confirmation alert."},
+      {"n": 6, "status": "pass", "note": "Bulk likes, a single unlike and a 2-tile deletion all survived relaunch (598 tiles, Liked count correct)."}
+    ],
+    "bugs": [
+      "At the largest text size the filter label breaks inside the word: 'All Board / s' wraps across three lines.",
+      "At the largest text size the detail screen's prev/next row falls apart: the Next button wraps onto its own line under Previous."
+    ],
+    "tells": [
+      "Generic 'Tile' nav title on the detail screen instead of the tile's name.",
+      "The tab bar stays visible on the pushed detail screen, and the large view has a redundant heart in the nav bar plus a full-width 'Like Tile' button.",
+      "Select-mode actions are a hand-built grey panel stacked above the tab bar ('3 Selected / Select All / Like / Delete'), not a system toolbar. The grid is cut off abruptly above it.",
+      "No large title on the main screens; inline titles only.",
+      "Swiping on the detail swaps content instead of paging horizontally with the finger like Photos.",
+      "Explanatory 'Swipe the tile to browse' hint text under the controls.",
+      "Nav bar titles don't grow with Dynamic Type, while body text grows to the point of breaking."
+    ],
+    "scroll": "The 600-tile grid scrolls smoothly under slow drags and hard flings, with no blank or popping rows. The scroll position is kept after opening a tile and after switching tabs, and it bounces normally at both ends.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "3-column grid of rounded square tiles with centred emoji, newest first, filling the width with small margins. A branded header ('Find your mood.') sits above it."},
+      {"n": 2, "status": "pass", "note": "A pill button opens a system menu with All boards plus ten boards and a checkmark. The count updates (Night: 58)."},
+      {"n": 3, "status": "pass", "note": "Large view with board, title and 'Added <date>'. A real horizontal paging collection follows the finger and stays inside the active filter. Prev/next arrows and a position count."},
+      {"n": 4, "status": "pass", "note": "A large 'Like this tile' button toggles to 'Liked'. The Liked tab shows the same grid with heart badges, a filter and a count."},
+      {"n": 5, "status": "pass", "note": "Select/Done mode with checkmarks and tinted borders, a selection count, Select all, bulk Like and Delete. Delete asks for confirmation and then offers an Undo banner."},
+      {"n": 6, "status": "pass", "note": "Bulk likes, a single unlike and a 2-tile deletion all survived relaunch (598 tiles, Liked count correct)."}
+    ],
+    "bugs": [
+      "Entering select mode inserts a '3 selected / Select all' row above the grid, which shoves every tile down about 58pt as soon as the first tile is tapped."
+    ],
+    "tells": [
+      "Heavily branded, web-like hero header on each tab: a letter-spaced eyebrow ('A PLACE FOR INSPIRATION'), a serif display headline, a subtitle and section labels in place of a system large title.",
+      "A decorative app-icon image in a glass circle at the nav bar's leading edge looks like a button but does nothing.",
+      "Custom-drawn filter pill and custom capsule bulk-action buttons rather than a toolbar.",
+      "The detail nav title is a generic 'Inspiration'.",
+      "Custom terracotta accent and cream background instead of system colours. The unselected Liked tab icon is a filled black heart.",
+      "Decorative hint and footer copy ('Swipe to find your next favorite', 'A little color goes a long way.').",
+      "Nav bar titles don't grow with Dynamic Type, though the content reflows cleanly (the eyebrow and subtitle are dropped at the largest size)."
+    ],
+    "scroll": "The grid scrolls smoothly under drags and hard flings, with no blank or popping rows. It bounces at both ends and keeps its position across a detail push and tab switches. The detail pager snaps page by page like a native paging collection.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet all six requirements and persist correctly. A looks more like a stock Photos-style app, but it breaks at the largest text size (a word split in the filter label, a collapsed prev/next row) and its detail view swaps tiles rather than paging. B is more branded and less system-like, but it handles Dynamic Type cleanly, hides the tab bar on detail, has a true paging large view and adds undo after delete, so it feels more finished to use and ship."
+}

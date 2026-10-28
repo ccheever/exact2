@@ -1,0 +1,103 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Edge-to-edge grid, three per row with hairline gaps, newest first, 600 tiles, symbol centred on an HSL square."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "A filter button in the nav bar opens a native pull-down menu with All Boards plus 10 boards. Board name and count shown above the grid."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Pushed detail shows a large tile, title, board and date. Swiping the tile left/right moves through neighbours within the current filter (Previous is disabled on the first tile), plus Previous/Next buttons and an 'n of N' counter."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Heart in the nav bar likes and unlikes. The Liked tab uses the same grid with heart badges. Unliking from Liked removes the tile from the list."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Select turns the title into 'N Selected' and adds Cancel, Select All, check circles, and a bottom Like/Delete bar. Delete asks for confirmation in a system alert. Bulk like works."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "3 deletions and the bulk likes were still there after relaunch."
+      }
+    ],
+    "bugs": [
+      "After leaving select mode (after a bulk delete or like), the large 'Moodboard' title is drawn on top of the 'All Boards' header text: the content inset doesn't reset when the title returns to large."
+    ],
+    "tells": [
+      "Grid tiles are exposed to accessibility as Switches rather than buttons or cells.",
+      "The detail nav title is the generic 'Tile' rather than the tile's name.",
+      "Previous/Next pill buttons and a 'Swipe the tile to explore' hint under the detail duplicate the swipe gesture. A hand-built app would rely on a paging scroll view.",
+      "The Like heart in the detail nav bar fills black instead of tinted red, while the grid badges are red.",
+      "At the largest text size the tile emoji scale with Dynamic Type until they nearly fill the tiles, and 'All Boards' wraps onto two lines."
+    ],
+    "scroll": "A smooth system collection view: the large title collapses into an inline title with a scroll-edge blur, flings and returns to the top cleanly, no blank or popping tiles, and scroll position is kept after returning from detail.",
+    "scores": {
+      "features": 9,
+      "platform": 7,
+      "polish": 6,
+      "overall": 7
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Three per row, newest first, rounded tiles with 12pt margins and gaps that fill the width. Not edge-to-edge, but acceptable."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "A native menu behind an 'All boards' pill button lists all 10 boards plus All boards, with a checkmark on the current one. Tile count updates."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Detail is a true horizontal paging view (swipe follows the finger) with board, serif title and 'Added <date>'. The nav title is the board name. Also has a 'n of N' bar with chevrons."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "A full-width 'Like tile' button toggles to 'Liked'. The Liked tab uses the same grid with heart badges, and unliking there removes the tile."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Select mode has Select all and Cancel, check circles, a selection ring, a 'N selected' bar with Like/Delete, and a system confirmation alert. Both bulk actions work."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Deletions (597 tiles) and bulk likes were still there after relaunch, and the liked count was correct."
+      }
+    ],
+    "bugs": [],
+    "tells": [
+      "The header (large title, tagline, filter pill, count) is pinned outside the grid's scroll view, so the large title never collapses and the grid scrolls in a clipped window under a fixed header. Only about 2/3 of the screen shows tiles, and less than half at the largest text size.",
+      "Custom branding (red accent, serif detail title, tagline 'A little inspiration, collected.') reads more like a designed web or React page than a stock iOS app.",
+      "At the largest text size the detail's 'Added October…' date runs under the bottom 'n of N' bar, which overlaps the content.",
+      "A heavy full-width filled 'Like tile' button where iOS would put a nav-bar or toolbar heart."
+    ],
+    "scroll": "Flings smoothly with no blank or popping tiles, and scroll position is kept after returning from detail. But the grid scrolls inside a box under a fixed header, so the large title never collapses and there is no scroll-edge effect, which doesn't feel like an iPhone list.",
+    "scores": {
+      "features": 9,
+      "platform": 6,
+      "polish": 7,
+      "overall": 6
+    }
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements and persist correctly. A behaves more like a native iOS app: edge-to-edge grid, a large title that collapses on scroll, filter in the nav bar. B has a nicer paging detail view and no functional bugs, but its fixed, non-collapsing header takes up a third of the screen on every scroll, which an iOS user notices right away. A's title-overlap glitch after select mode is a real flaw, but a transient one, so A edges ahead."
+}

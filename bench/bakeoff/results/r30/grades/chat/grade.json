@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Bubbles: mine blue on the right, Sam's grey on the left, oldest at top. Messages-style date headings ('Sun, Oct 18 3:16 AM', 'Today 11:04 PM'). Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send works and the thread stays at the bottom; the composer clears. Send stays disabled for empty or whitespace-only text. The Return key also sends."},
+      {"n": 3, "status": "pass", "note": "The composer sits on the keyboard and the newest messages stay visible. Dragging the thread dismisses the keyboard. At the largest text size the composer grows to about 6 lines and covers most of the thread."},
+      {"n": 4, "status": "pass", "note": "A 'Sam is typing…' bubble appears in the thread and 'typing…' under the title. About 2 s later Sam replies 'Love that'."},
+      {"n": 5, "status": "pass", "note": "Long-press opens the system context menu with Copy and Delete. Copy pasted correctly; Delete removed the message and the deletion survived a relaunch."},
+      {"n": 6, "status": "pass", "note": "Scrolls smoothly to the first message (Jul 1). A round jump-to-newest button appears when scrolled up and returns to the bottom."},
+      {"n": 7, "status": "pass", "note": "Sent messages and Sam's replies survive a relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size with the keyboard up, the jump-to-newest button is pushed up over the navigation bar, next to the title."
+    ],
+    "tells": [
+      "The 'S' avatar sits in a glass button at the left of the nav bar, where a back button goes, and it does nothing. Messages centres the avatar above the name.",
+      "The send button is a separate glass circle outside the text field; iOS Messages puts it inside the field.",
+      "At the largest text size the composer grows without limit, to about 6 lines, and covers the thread.",
+      "The jump-to-newest button overlaps message bubbles; minor."
+    ],
+    "scroll": "Native-feeling scrolling: no blank rows, pop-in or tearing in mid-fling frames. Reached the first message cleanly and the scroll indicator stayed steady (39 pages throughout).",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Bubbles on the correct sides, oldest at top, date headings where the day changes. Headings include the year ('Oct 18, 2026 at 3:16 AM'). Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send works and the thread stays at the bottom; the composer clears. Send stays disabled for whitespace-only text. Return inserts a new line, which is acceptable."},
+      {"n": 3, "status": "pass", "note": "The composer stays above the keyboard and the newest messages stay visible. Dragging the thread dismisses the keyboard. At the largest text size the composer is capped at 2 lines and scrolls."},
+      {"n": 4, "status": "pass", "note": "A 'Sam is typing…' bubble appears, then Sam replies ('👍' or 'Sounds good!') about 2 s later."},
+      {"n": 5, "status": "pass", "note": "Long-press opens the system context menu with Copy and Delete. Copy pasted correctly; Delete removed the message and the deletion survived a relaunch."},
+      {"n": 6, "status": "pass", "note": "Reaches the first message (Jul 1). A chevron jump-to-newest button appears when scrolled up and works."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive a relaunch."}
+    ],
+    "bugs": [
+      "A frame captured mid-fling showed a rendering tear: fragments of a blue bubble drawn as broken horizontal strips above a message."
+    ],
+    "tells": [
+      "Date headings always include the current year ('Oct 21, 2026 at 5:56 AM'); Messages shows 'Wed, Oct 21 at 5:56 AM' or 'Today'.",
+      "History loads in chunks while scrolling up: the scroll indicator's page count grew from 26 to 40, so the scroll thumb shifts as you go.",
+      "The jump-to-newest chevron button is a small hand-drawn circle that overlaps bubbles.",
+      "The nav bar shows no avatar and no 'typing' status; plainer than Messages."
+    ],
+    "scroll": "Mostly smooth, and it reaches the first message. However, history loads in chunks while scrolling, so the scroll thumb shifts, and one mid-fling frame showed a torn bubble.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet every requirement with system context menus, typing indicators, persistence and a jump-to-newest button, and they look nearly the same. A's scrolling was steadier: no chunked loading and no rendering tear. Its date headings and 'typing…' status in the title look more like Messages. A's large-text composer overgrowth, which pushes the jump button over the nav bar, is a smaller cost than B's scrolling glitches."
+}
