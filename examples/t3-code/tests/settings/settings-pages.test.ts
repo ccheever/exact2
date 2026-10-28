@@ -195,6 +195,13 @@ const pages: Record<string, [file: string, component: string, props: Env]> = {
   'connections (one machine)': ['connections.contract', 'ConnectionsPanel', { view: 'connections', busy: false, error: '', still: true, menu: '', width: 640,
     page: some({ updateCount: 0, environments: [], machines: [] }) }],
   access: ['connections.contract', 'ConnectionsPanel', { view: 'access', busy: false, error: '', still: true, menu: '', width: 640, page: any }],
+  // Appearance's library over its sections as settings-appearance.ts builds them (Separate fonts on draws every font row).
+  appearance: ['settings-core-body.contract', 'SettingsCoreBody', { route: 'appearance', busy: false, menu: '', core: { notice: '', message: '', showScope: false,
+    tiles: [any], themes: [some({ id: 'custom-1', collection: false, custom: true, orbs: [any] }), some({ id: 'collection-1', collection: true, custom: true })],
+    sections: appearanceSections(decodeClientPrefs({ typographyAdvanced: true }), true, []) } }],
+  // SnapShots with capture on and a new shortcut waiting: every row, and the shortcut's Save and Cancel.
+  'snap-shot': ['snapshot.contract', 'SnapshotPanel', { busy: false, setupOpen: false, data: some({ error: '', setupLabel: 'Open System Settings', enabled: true, captureAvailable: true,
+    recording: false, changed: true, canSave: true }) }],
 };
 
 describe('every Settings page stop carries `page`', () => {
@@ -218,6 +225,11 @@ describe("Shift+Tab from the first stop wraps to the page's last control (RouteF
     ['connections (one machine)', 'manage-connection'],
     ['connections', 'CnSelect'],
     ['access', 'NetXs'],
+    // Appearance: Typography's last row (its Advanced fold open); SnapShots: Capture animations; Browser: Show mouse
+    // presses in recordings.
+    ['appearance', 'ScopedSwitch'],
+    ['snap-shot', 'SnapSwitch'],
+    ['browser', 'SwitchControl'],
   ] as const)("%s lands on its last control", (route, last) => {
     const [file, component, props] = pages[route]!;
     // The page's stops in tree order, named by their view line, as querySelectorAll names them by id.
@@ -263,17 +275,12 @@ describe('every result lands on an element its own page draws, in that page stat
     worktrees: [...core('worktrees'), ...walked('worktrees'), ...targets(branchNamingRows({}, '', 'Local', true))],
     'source-control': [...walked('source-control'), ...targets([...sourceControl.repositories, ...sourceControl.writing, ...sourceControl.writingAdvanced])],
     browser: [...walked('browser'), ...targets(integrationRows({}, '', 'Local', true).browser)],
-    devices: walked('devices'), providers: walked('providers'), projects: walked('projects'),
+    devices: walked('devices'), providers: walked('providers'), projects: walked('projects'), access: walked('access'), 'snap-shot': walked('snap-shot'),
     keybindings: [...walked('keybindings'), ...anchors],
     archived: [...archive([{ id: 'g1', first: true, threads: [any] }, { id: 'g2', first: false, threads: [any] }])],
   };
-  // Results whose element their page's owner has yet to draw: Sharing & access waits for the shell's mount; the
-  // sidebar's Environments ids; SnapShots' rows; Typography's Separate fonts row.
-  const waiting: Record<string, string[]> = {
-    access: ['environment-icon', 'network-access', 'tailscale-https', 'connections-environment'],
-    'snap-shot': ['snap-shot-enabled', 'snap-shot-accessibility', 'snap-shot-shortcut', 'snap-shot-sound', 'snap-shot-flash', 'snap-shot-animations'],
-    appearance: ['separate-fonts'],
-  };
+  // Results whose element their page's owner has yet to draw, by route.
+  const waiting: Record<string, string[]> = {};
   const items = settingsCatalog({ connected: true, autoSettle: true, scopeKind: 'all', keybindings, localBackend: true, localEnvironment: true });
   const lands = (item: { route: string; target: string }) => (ids[item.route] ?? []).includes(item.target)
     || item.route === 'connections' && walkPage('connections.contract', 'ConnectionsPanel', { view: 'connections', busy: false, error: '', page: any }).ids.has(item.target);

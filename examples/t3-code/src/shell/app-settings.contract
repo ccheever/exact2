@@ -222,6 +222,8 @@ component SettingsWindow
       settingsEscapeHeld = settingsQuery != ""
     if k == "Enter" and settingsNavigation.firstRoute != "" and settingsNavigation.firstId.startsWith("search-result-legacy-")
       settingsLegacyOpen = true
+    if k == "Enter" and settingsNavigation.firstRoute != ""
+      revealSeparateFonts(settingsNavigation.firstTarget)
     coreSearchKeyRoot(k)
   action coreNavigate(route: string)
     settingsEscapeHeld = false
@@ -231,7 +233,13 @@ component SettingsWindow
     if id.startsWith("search-result-legacy-")
       settingsLegacyOpen = true
     modelAdding = ""
+    revealSeparateFonts(target)
     corePickRoot(route, target, scope, id)
+  // revealSettingsSearchTarget: the Prompt and Terminal font rows exist only with Separate fonts on, so a result that
+  // names one turns the setting on, and it stays on after the jump (the terminal reads it too).
+  action revealSeparateFonts(target: string)
+    if (target == "prompt-font" or target == "terminal-font") and not settingsCore.typographyAdvanced
+      coreChange("separate-fonts", "typographyAdvanced", "true")
   // The Providers page's `ui`: "model-adding" opens (the block's key) or closes ("") an "Add custom model" field;
   // "slug-focus" is its slug field taking ("true") or losing ("") the focus. A provider chosen in the list unmounts
   // the open field, as the reference's section does. The rest is the root's.
@@ -320,9 +328,6 @@ component SettingsWindow
                 // Worktrees: the scope sentence, then the storage panel with Start from remote and Submodules in its Creation section.
                 if settingsRoute == "worktrees"
                   StoragePanel(data=storageSettings, view="worktrees", busy=commandPending, error=modalError, rest=rest, restInput=restInput)
-                    for section in settingsCore.sections key=section.id
-                      for row in section.rows key=row.id
-                        CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section=section.id, pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
                 if settingsRoute == "archived"
                   ArchivedPanel(data=archives, busy=commandPending, error=(restEditor == "" ? modalError : ""), menu=restMenu, raw=restRaw, open=restOpen, showMenu=restMenuOpen, close=restClose)
                 if settingsRoute == "open-source-licenses"
@@ -331,7 +336,7 @@ component SettingsWindow
                   DiagnosticsPanel(data=diagnostics, busy=commandPending, selectPeriod=selectDiagnosticPeriod, reload=refreshSettings, copy=copyDiagnostic, rest=rest, local=restLocal)
                 // Both panels get the content column's width: the sheet less its border, the 15rem nav and the scroller's sides,
                 // held to the 56rem cap less its 1.5rem sides (readable SettingsPageContainer).
-                if settingsRoute == "connections"
+                if settingsRoute == "connections" or settingsRoute == "access"
                   ConnectionsPanel(view=settingsRoute, page=connectionsPage, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
                 if settingsRoute == "providers"
                   ProvidersPanel(page=providerPage, scheme=scheme, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, addingUi=modelAddingUi, modelAdding=modelAddingLive)

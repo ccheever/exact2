@@ -64,6 +64,13 @@ members T3Code
   action returnTitleFocus
     titleDialog = false
     focus("thread-title")
+  // TypographySection's effect (revealSettingsSearchTarget): a jump to a Prompt or Terminal font row from outside
+  // Settings search (⌘K) turns Separate fonts on too, so its row stays once the jump is done; the terminal reads it.
+  task separateFontsJump when settingsOpen and (settingsFocusTarget == "prompt-font" or settingsFocusTarget == "terminal-font") and not settingsCore.typographyAdvanced and not commandPending
+    after(1, separateFontsOn)
+  action separateFontsOn
+    if (settingsFocusTarget == "prompt-font" or settingsFocusTarget == "terminal-font") and not settingsCore.typographyAdvanced and not commandPending
+      settingsCommand("settings-core", `separate-fonts:typographyAdvanced|${settingsCore.scopeKey}`, "true")
   state annotationSendHandled = 0
   task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend
     after(1, annotationSendNow)
