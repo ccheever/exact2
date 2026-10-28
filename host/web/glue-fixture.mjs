@@ -42,7 +42,7 @@ export function fixture(agentMode = true) {
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),
-    agentClock: 0, imageHold: null /* no animated image loaded (image-glue.js, LLP 1011.000) */, SETTLE_DEADLINE_MS: 20000, REPLACE_SETTLE_MS: 1000, inflight: new Set(), mediaAttaching: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
+    agentClock: 0, imageHold: null /* no animated image loaded (image-glue.js, LLP 1011.000) */, SETTLE_DEADLINE_MS: 20000, REPLACE_SETTLE_MS: 1000, GLIDE_BOUND_MS: 4000, glidesSettled: undefined, scrollsSeen: undefined /* the agent's input helpers, not loaded here (input-glue.js) */, inflight: new Set(), mediaAttaching: new Set(), forgettable: new Map(), waiting: () => [...context.inflight],
     heldAsks: new Map(), holds: ticket => !context.letGoTickets?.has(ticket), // requests the server holds (LLP 1016.000 D9), and whether the runner still holds a ticket
     // The page's own wait (http-body.js) races the deadline; here a request marked `stuck` is what a passed deadline finds.
     waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
