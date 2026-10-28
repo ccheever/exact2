@@ -12,6 +12,9 @@ package final class Presenter {
     var autofocusProcessed: Set<ObjectIdentifier> = []
     weak var autofocusedThisTurn: NodeView? // taken out of the window this turn, it has not had its autofocus (NodeViewIOS)
     var pressHandoff: PressHandoff? // the press whose work may hand its control's focus on (PressHandoffIOS)
+    /// While a batch a person's input caused is presented, when it was marked
+    /// (`Batch.input`): a glass that joins a group then materializes.
+    var inputStarted: CFTimeInterval?
     /// A booted session's autofocus waits for its first activation.
     var launchAutofocusReleased = false
     private var projectionSyncOwed = false
@@ -753,6 +756,8 @@ package final class Presenter {
         session?.fieldChrome.presented(batch.layoutProvisional)
         let outerWaiting = fieldsWaiting; fieldsWaiting = menus.waitingFields(batch)
         defer { fieldsWaiting = outerWaiting }
+        let outerInput = inputStarted; inputStarted = batch.input
+        defer { inputStarted = outerInput }
         defer { applyLanguage(batch); applyWakeLock(batch); applyOrientationLock(batch) }
         if applySnapshots(batch) { return }
         PaintOrder.begin(); let schemes = ColorSchemes.begin(); defer { schemes.end() }

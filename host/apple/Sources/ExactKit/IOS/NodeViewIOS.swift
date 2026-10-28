@@ -107,7 +107,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // UIKit's setter walks the subtree's backdrop masks and accessibility
             // even when the value stands (a list hiding its hidden sections every batch).
             guard super.isHidden != hidden else { return }
-            super.isHidden = hidden
+            super.isHidden = hidden; if !hidden { materializeAppearingGlass() }
             if scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
@@ -694,7 +694,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if window == nil, pressContact?.routesBubbledPress == true { cancelPressContact() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush() }
+        if window != nil { presenter?.flushPendingFocus(); presenter?.elementScrolls.flush(); materializeJoiningGlass() }
         if window == nil, textRaster != nil { DispatchQueue.main.async { [weak self] in self?.dropTextRasterOffWindow() } }
     }
     /// Still off every window a turn later (a tab not shown, a covered
@@ -1096,7 +1096,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         guard let materialView else { rehomeMaterialChildren(); return }
         if cssVisibilityHidden { materialView.effect = nil }
         else if materialView.effect == nil || materialInteractive != interactive || backdropStale {
-            materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
+            showMaterialEffect(backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive))
             materialInteractive = interactive
         }
         applyMaterialRadius()
