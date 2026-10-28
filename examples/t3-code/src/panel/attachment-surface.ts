@@ -175,10 +175,13 @@ export async function attachmentView(client: T3Client, native: Native | null | u
       else state.contentError = str(reply.message, 'Could not load this file.');
     }
   }
-  // A PDF or a rendered page is a frame. A signed PDF is framed at its URL, which WebKit's PDF view reads, as Files'
-  // is; a draft's staged PDF is copied under a `.pdf` name (media-frame.ts), which can fail.
+  // A PDF or a rendered page is a frame. A PDF the server serves inline is framed at its URL, which WebKit's PDF view
+  // reads, as Files' is. One it serves as a download, a sent file stored as `-bin` (no usable extension; AssetAccess's
+  // `download` claim), and a draft's staged PDF are copied under a `.pdf` name (media-frame.ts) and shown from the copy,
+  // as PDF.js reads the bytes whatever the server's disposition; the copy can fail.
   const framed = !needsText && (kind === 'pdf' || kind === 'html') && state.url && !state.urlError && !state.mediaError;
-  const frame = !framed ? null : kind === 'pdf' && !stagedCopyName(state.url) ? { src: state.url, error: '' } : await mediaFrameSource(kind, state.url);
+  const atUrl = kind === 'pdf' && !stagedCopyName(state.url) && (!!source.resource || /-pdf$/i.test(meta.id));
+  const frame = !framed ? null : atUrl ? { src: state.url, error: '' } : await mediaFrameSource(kind, state.url);
   if (frame?.error) state.mediaError = frame.error;
   // FontViewer: the specimen once its bytes are read; its frame says whether the face loaded.
   const font = kind === 'font' && state.url && !state.urlError && !state.fontError ? await fontPage(source.key, state.url, meta.sizeBytes) : null;
@@ -226,12 +229,13 @@ export const attachmentToken = (name: string) => fileIconToken(name);
 /** Drops a preview's state (a draft's preview opens afresh, as its dialog mounts a new AttachmentFilePreview). */
 export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); forgetFontPage(key); }
 /**
- * A sent file's preview shown again after another surface: the reference mounts only the active surface, so its
- * failures (a refused URL, a read, the media's or the font's) end with the preview that had them, and it tries again.
+ * A sent file's preview shown again after another surface: the reference mounts only the active surface, which signs
+ * its URL afresh (a signature lives an hour), so the next view signs it again, and its failures (a refused URL, a read,
+ * the media's or the font's) end with the preview that had them.
  */
 export function previewShownAgain(client: T3Client, key: string): void {
   const state = states.get(client)?.get(key);
-  if (state) { state.urlError = ''; state.contentError = ''; state.mediaError = ''; state.fontError = ''; }
+  if (state) { state.url = ''; state.urlAt = 0; state.urlError = ''; state.contentError = ''; state.mediaError = ''; state.fontError = ''; }
 }
 
 /** `surface-linked-att-*`: the header's controls. */

@@ -71,7 +71,7 @@ component FilesSurface
       row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch"
         if files.path != "" and files.preview != ""
           column flex=1 min-width=0 min-height=0 overflow="hidden"
-            FilePreview(family=family, files=files, documents=documents, scheme=scheme, local=local)
+            FilePreview(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
         if files.showExplorer
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" testId="files-explorer"
             FilesExplorer(files=files, sheet=sheet, still=still, local=local, searchFocus=searchFocus)
@@ -303,6 +303,8 @@ component FilePreview
     files: FilesView
     documents: ChatDocument[]
     scheme: string
+    // In a sheet the attachment body's row is FILE_SURFACE_SUBHEADER_CLASS's 40pt over a hairline, not the inline 28pt.
+    sheet: bool
     local: action
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
@@ -401,7 +403,7 @@ component FilePreview
           FilesAudio(url=files.url, label=files.path, failed=local("surface-files-audio-error", files.url))
     // FilePreviewPanel's AttachmentFilePreview under "File": a document, or a file read as binary.
     if files.preview == "attachment"
-      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=false, local=attLocal, actionIds="")
+      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=sheet, local=attLocal, actionIds="")
     if files.preview == "audio-error"
       FileSurfaceFailure(message="Unable to load audio.", canRetry=true, retry=local("surface-files-audio-retry", files.absolutePath, ""), testId="file-audio-failed")
     // A rendered HTML page or a PDF (always rendered), as an attachment's (BrowserDocumentFrame, media-frame.contract).

@@ -9,7 +9,8 @@ import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
 
 const files: AttachmentMeta[] = [
-  { id: 'p1', name: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 956 },
+  // A stored attachment's id names its extension (attachmentStore.ts): a PDF's ends in `-pdf`.
+  { id: 'p1-pdf', name: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 956 },
   { id: 'h1', name: 'page.html', mimeType: 'text/html', sizeBytes: 491 },
   { id: 'a1', name: 'tone.wav', mimeType: 'audio/wav', sizeBytes: 132_344 },
   { id: 'v1', name: 'clip.mp4', mimeType: 'video/mp4', sizeBytes: 5452 },
@@ -58,7 +59,7 @@ describe('attachment media bodies', () => {
     expect(server.calls).toEqual([]);
     // A PDF is framed at its signed URL, which WebKit's PDF view reads, as Files' is: nothing is downloaded or written.
     const pdf = await attachmentView(c, native, files[0]!, 1000);
-    expect([pdf.preview, pdf.url, pdf.error, pdf.canRender, pdf.canCopy, pdf.canSave, pdf.noPreview]).toEqual(['pdf', 'http://127.0.0.1:1/api/assets/p1?sig=1', '', false, false, true, '']);
+    expect([pdf.preview, pdf.url, pdf.error, pdf.canRender, pdf.canCopy, pdf.canSave, pdf.noPreview]).toEqual(['pdf', 'http://127.0.0.1:1/api/assets/p1-pdf?sig=1', '', false, false, true, '']);
     expect([server.calls, written.size]).toEqual([[], 0]);
     expect(calls.map(call => (call.resource as Obj | undefined)?.disposition)).toEqual(['inline', 'inline', 'inline']);
   });
@@ -74,7 +75,7 @@ describe('attachment media bodies', () => {
     refused = false;
     await attachmentLocal(c, native, 'retry', files[0]!.id, 1000);
     const again = await attachmentView(c, native, files[0]!, 1000);
-    expect([again.preview, again.error, again.url]).toEqual(['pdf', '', 'http://127.0.0.1:1/api/assets/p1?sig=1']);
+    expect([again.preview, again.error, again.url]).toEqual(['pdf', '', 'http://127.0.0.1:1/api/assets/p1-pdf?sig=1']);
   });
 
   test('a rendered page frames its signed asset URL itself', async () => {

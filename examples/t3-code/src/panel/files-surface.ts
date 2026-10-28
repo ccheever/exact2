@@ -33,6 +33,8 @@ import { openInlineDocumentImage } from '../timeline/timeline-attachments'; // t
 import { openFileInPreview } from '../browser/browser-links'; // "Open file in preview browser"
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
+import { announce } from '../shell/announce'; // "Opened in <editor>"
+import { editorLabel } from '../shared/editors';
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './files-crumbs-mount'; // a mounting preview settles at the end
 import { loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from '../connections/remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from '../diff/diff-file-comments'; // diff-review: line comments on the preview
@@ -114,6 +116,8 @@ type FilesState = {
   audioFailed: Set<string>;
   /** The document or binary file shown in the attachment body, whose controls its `att-*` ops reach. */
   attachment: { meta: AttachmentMeta; source: PreviewSource } | null;
+  /** Counts the explorer's Refresh presses (FilePreviewPanel's fileRefreshRevision): the attachment body is keyed on it. */
+  refreshRevision: number;
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
 // persisted in the client's preference file (files-prefs.ts).
@@ -129,7 +133,9 @@ export function filesState(client: T3Client): FilesState {
   const { cwd } = workspaceOf(client), key = `${client.environmentId}|${cwd}`;
   let state = states.get(client);
   if (!state || state.key !== key) {
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), editorRevision: 0, audioFailed: new Set(), attachment: null };
+    // Another environment or workspace: the body shown in the last one unmounts.
+    if (state?.attachment) forgetPreview(client, state.attachment.source.key);
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, loadingDirs: new Set(), hosts: new Map(), searching: false, query: '', search: null, queryOwner: '', reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', crumb: null, mutation: undefined, readRevisions: new Map(), editorRevision: 0, audioFailed: new Set(), attachment: null, refreshRevision: 0 };
     states.set(client, state);
   }
   return state;
@@ -219,7 +225,12 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
     // A failed refresh keeps the contents last read (useProjectFileQuery's retained value), so the preview and its
     // Open in (`isFile`) stay as they were; only "not a file" replaces them.
     const previous = state.reads.get(path);
-    if (!notFile && previous && !previous.error) return;
+    if (!notFile && previous && !previous.error) {
+      // It still exposes the error (projectFilesQueryState's readError): a file now read as binary is the attachment
+      // body's, whose branch comes before the text's.
+      if (context.failure === 'binary_file') state.reads.set(path, { ...previous, binary: true });
+      return;
+    }
     state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: text, notFile, attempted: context.resolvedPath || context.operationPath || '', errorCwd: context.cwd || cwd, binary: context.failure === 'binary_file' });
   } finally { loadEnd(state, `read:${path}`); }
 }
@@ -396,7 +407,9 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     for (let index = 0; index < visited.length; index += 4) await Promise.all(visited.slice(index, index + 4).map(path => loadDirectory(client, native, path, true, host)));
     if (!host && state.query.trim()) await search(client, native, state.query);
     const active = panelState(client).surfaces.find(entry => entry.id === panelState(client).active);
-    if (active?.kind === 'file' && !state.edits.get(active.path)?.saving) await readFile(client, native, active.path);
+    // FilePreviewPanel's Refresh: the body mounts afresh (fileRefreshRevision); a document is not read as text.
+    state.refreshRevision++;
+    if (active?.kind === 'file' && !isWorkspaceDocumentPath(active.path) && !state.edits.get(active.path)?.saving) await readFile(client, native, active.path);
     return '';
   }
   if (op === 'expand-all') {
@@ -439,7 +452,8 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     if (choices.editorUnavailable) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: choices.editorUnavailable }); return ''; }
     const editor = value || choices.editorId;
     if (!editor || !choices.editors.some(choice => choice.id === editor)) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: `No available editor can open ${id}.` }); return ''; }
-    if (await openInEditorHere(client, native, id, editor, openTarget(client, state))) rememberEditor(client, editor); // remote Open as the details card does (remote-open.ts)
+    // OpenInPicker: an editor that opened is announced ("Opened in <editor>"), the shortcut's as the button's.
+    if (await openInEditorHere(client, native, id, editor, openTarget(client, state))) { rememberEditor(client, editor); announce(client, `Opened in ${editorLabel(editor)}`); } // remote Open as the details card does (remote-open.ts)
     return '';
   }
   return '';
@@ -715,6 +729,8 @@ function clearSearch(state: FilesState): void {
 export function filesHidden(client: T3Client): void {
   const state = states.get(client);
   if (state && state.queryOwner) { clearSearch(state); state.queryOwner = ''; }
+  // Only the active surface is mounted: the attachment body goes with it, and mounts afresh when Files shows again.
+  if (state?.attachment) { forgetPreview(client, state.attachment.source.key); state.attachment = null; }
 }
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
   const state = filesState(client), preferences = prefsOf(client), { cwd, projectName } = workspaceOf(client);
@@ -843,13 +859,16 @@ function readStale(client: T3Client, state: FilesState, path: string, mutation: 
 /**
  * FilePreviewPanel's AttachmentFilePreview for a document, or a file read as binary (origin "File"): signed as a
  * `media-file`, a binary one as an attachment, and a draft's document as its `draft-workspace-file`. Keyed on the
- * workspace revision, as the reference's is, so a change mounts it afresh and the one before goes.
+ * workspace revision and the explorer's Refresh, as the reference's is, so either mounts it afresh and the one before goes.
  */
 async function filesAttachment(client: T3Client, native: Native, state: FilesState, path: string, absolute: string, isDocument: boolean, mutation: string | null, now: number): Promise<AttachmentView> {
   const meta: AttachmentMeta = { id: absolute, name: path.split(/[\\/]/).pop() || path, mimeType: 'application/octet-stream', sizeBytes: 0 };
-  const resource = !client.threadId && isDocument ? { _tag: 'draft-workspace-file', cwd: workspaceOf(client).cwd, path: absolute }
-    : { _tag: 'media-file', threadId: client.threadId, path: absolute, ...(isDocument ? {} : { disposition: 'attachment' }) };
-  const key = `files:${panelKey(client)}:${absolute}:${mutation ?? ''}`;
+  const draft = !client.threadId;
+  // A draft signs a binary file under its own thread id (threadRef.threadId), which the server needs non-empty.
+  if (draft && !isDocument && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native).catch(error => { if (letGo(error)) throw error; });
+  const resource = draft && isDocument ? { _tag: 'draft-workspace-file', cwd: workspaceOf(client).cwd, path: absolute }
+    : { _tag: 'media-file', threadId: client.threadId || activeRef(client)?.threadId || '', path: absolute, ...(isDocument ? {} : { disposition: 'attachment' }) };
+  const key = `files:${panelKey(client)}:${absolute}:${mutation ?? ''}:${state.refreshRevision}`;
   if (state.attachment && state.attachment.source.key !== key) forgetPreview(client, state.attachment.source.key);
   const source: PreviewSource = { id: `file:${path}`, key, origin: 'File', dialog: false, local: null, resource };
   state.attachment = { meta, source };

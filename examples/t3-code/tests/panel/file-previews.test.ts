@@ -8,7 +8,8 @@ import type { Obj } from '../../src/client/domain';
 import { binaryPreviewKind, filePreviewDelimiter, filePreviewKind, isMarkdownPreviewFile, isMermaidPreviewFile, isWorkspaceAudioPreviewPath, isWorkspaceDocumentPath, isWorkspaceFontPreviewPath, maskMarkdownFrontmatter, officePreviewKind } from '../../src/panel/file-preview-kind';
 import { attachmentLocal, attachmentView, previewBody, type AttachmentMeta } from '../../src/panel/attachment-surface';
 import { linkedViews } from '../../src/panel/pr-attachment-surfaces';
-import { filesLocal, filesState, filesView, setMarkdownTaskChecked } from '../../src/panel/files-surface';
+import { filesHidden, filesLocal, filesState, filesView, setMarkdownTaskChecked } from '../../src/panel/files-surface';
+import { panelState } from '../../src/panel/panel-surfaces';
 import { filesPrefs } from '../../src/panel/files-prefs';
 import { MERMAID_REFUSED } from '../../src/panel/mermaid-file';
 import { base64, fontSpecimen, forgetFontPages } from '../../src/panel/font-preview';
@@ -239,6 +240,24 @@ describe('a sent file\'s preview (AttachmentFilePreview at 7c3b3b3605ef)', () =>
     expect(server.calls).toHaveLength(2);
   });
 
+  test('a sent PDF is signed again when its tab is shown again; one stored as -bin is shown from a copy', async () => {
+    const files = memoryAppFiles();
+    body = '%PDF-1.4';
+    const pdf = { id: 'p1-pdf', name: 'report.pdf', mimeType: 'application/pdf', sizeBytes: 8 };
+    const stored = { id: 'p2-bin', name: 'report', mimeType: 'application/pdf', sizeBytes: 8 };
+    const calls: Obj[] = [];
+    const c = attachmentClient([pdf, stored], calls);
+    const first = await showTab(c, pdf);
+    expect([first.preview, first.url]).toEqual(['pdf', 'http://127.0.0.1:1/api/assets/p1-pdf?sig=1']);
+    // An hour on, the signature has lapsed: shown again, the tab signs it afresh, as the reference's mount does.
+    await showOther(c);
+    await showTab(c, pdf, 1000 + 61 * 60_000);
+    expect(calls.filter(call => (call.resource as Obj).attachmentId === 'p1-pdf')).toHaveLength(2);
+    // Served as a download (no usable extension), it is read as bytes and shown from a copy.
+    const bin = await showTab(c, stored);
+    expect([bin.preview, bin.url.startsWith('app:/cache/media-preview/'), files.has(bin.url)]).toEqual(['pdf', true, true]);
+  });
+
   test('an image opens the expanded image dialog on its signed URL; a document without its viewer has no preview; a notebook is its source', async () => {
     const image = { id: 'i1', name: 'shot.png', mimeType: 'image/png', sizeBytes: 9 };
     const docx = { id: 'd1', name: 'report.docx', mimeType: '', sizeBytes: 9 };
@@ -278,7 +297,7 @@ function filesClient() {
   const projection = { visibleTurnItems: [] as Obj[], checkpoints: [] as Obj[] };
   const client = {
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, origin: 'http://127.0.0.1:9', presentation: {}, available: true, connection: 'connected',
-    config: {}, local: { clientSettings: { wordWrap: true, fontFamilyCode: '' } }, projection,
+    config: {}, local: { clientSettings: { wordWrap: true, fontFamilyCode: '' }, composerControls: {} }, projection, draftKey: 'draft:1',
     shell: { projects: [{ id: 'p1', title: 'demo', workspaceRoot: '/repo' }], threads: [{ id: 't1', projectId: 'p1' }] },
     rpc: async (_native: Native, method: string, payload: Record<string, unknown>) => {
       calls.push({ method, payload });
@@ -286,6 +305,7 @@ function filesClient() {
       return { relativeUrl: `/api/assets/signed/${calls.length}?sig=1`, ...(revision ? { fileRevision: revision } : {}) };
     },
     restAccess: () => ({
+      ids: async (count: number) => Array.from({ length: count }, (_, index) => `draft-thread-${index + 1}`),
       request: async (method: string, payload: Record<string, unknown>) => {
         calls.push({ method, payload });
         if (method === 'projects.listEntries') { if (failListing) throw new Error('Listing failed.'); return { entries: listings[String(payload.directoryPath)] ?? [] }; }
@@ -311,6 +331,8 @@ const surface = (path: string) => ({ id: `file:${path}`, kind: 'file', path, rev
 const mints = (calls: Call[]) => calls.filter(call => call.method === 'assets.createUrl').map(call => call.payload.resource);
 
 describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
+  // A font's specimen is kept per preview across views, so each test starts with none.
+  beforeEach(() => forgetFontPages());
   test('a .markdown file renders, frontmatter blanked, and offers "Show rendered markdown" while Markdown shows as source', async () => {
     const { client } = filesClient();
     const source = await filesView(client, native, surface('guide.markdown'), 1000);
@@ -442,6 +464,66 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
       expect(mints(calls).at(-1)).toEqual({ _tag: 'media-file', threadId: 't1', path: '/repo/tool.exe', disposition: 'attachment' });
       expect(lastSave(client, files)?.name).toBe('tool.exe');
     } finally { server.restore(); }
+  });
+
+  test('a draft signs a binary file under its own thread id; a document\'s Save file asks for it as an attachment', async () => {
+    const { client, calls, binaries } = filesClient();
+    binaries.add('tool.exe');
+    const files = memoryAppFiles();
+    const server = serveAssets(() => ({ body: new Uint8Array([1, 2]) }));
+    try {
+      const report = await filesView(client, native, surface('report.docx'), 1000);
+      await filesLocal(client, native, 'att-save', report.attachment.id, '');
+      expect(mints(calls).at(-1)).toEqual({ _tag: 'media-file', threadId: 't1', path: '/repo/report.docx', disposition: 'attachment' });
+      expect(lastSave(client, files)?.name).toBe('report.docx');
+      (client as unknown as { threadId: string }).threadId = '';
+      const exe = await filesView(client, native, surface('tool.exe'), 1000);
+      expect([exe.attachment.preview, exe.attachment.canSave, exe.attachment.error]).toEqual(['none', true, '']);
+      expect(mints(calls).at(-1)).toEqual({ _tag: 'media-file', threadId: 'draft-thread-1', path: '/repo/tool.exe', disposition: 'attachment' });
+    } finally { server.restore(); }
+  });
+
+  test('a document is not read as text after a change or a Refresh, and Refresh mounts its body afresh', async () => {
+    const { client, calls, projection } = filesClient();
+    memoryAppFiles();
+    const server = serveAssets(() => ({ body: new Uint8Array([0, 1, 0, 0]) }));
+    try {
+      const reads = () => calls.filter(call => call.method === 'projects.readFile' && call.payload.relativePath === 'Inter.ttf').length;
+      await filesView(client, native, surface('Inter.ttf'), 1000);
+      const before = reads();
+      projection.visibleTurnItems.push({ item: { id: 'cmd-d', type: 'command_execution', status: 'completed' } });
+      await filesView(client, native, surface('Inter.ttf'), 1000);
+      await filesLocal(client, native, 'att-font-failed', '', '');
+      expect((await filesView(client, native, surface('Inter.ttf'), 1000)).attachment.preview).toBe('none');
+      const tabs = panelState(client), font = surface('Inter.ttf') as unknown as { id: string };
+      tabs.surfaces = [font as never]; tabs.active = font.id; tabs.visible = true;
+      await filesLocal(client, native, 'refresh', '', '');
+      expect(reads()).toBe(before);
+      expect((await filesView(client, native, surface('Inter.ttf'), 1000)).attachment.preview).toBe('font');
+    } finally { server.restore(); }
+  });
+
+  test('Files hidden unmounts the body; shown again, it tries again', async () => {
+    const { client } = filesClient();
+    memoryAppFiles();
+    const server = serveAssets(() => ({ body: new Uint8Array([0, 1, 0, 0]) }));
+    try {
+      await filesView(client, native, surface('Inter.ttf'), 1000);
+      await filesLocal(client, native, 'att-font-failed', '', '');
+      expect((await filesView(client, native, surface('Inter.ttf'), 1000)).attachment.preview).toBe('none');
+      filesHidden(client);
+      expect((await filesView(client, native, surface('Inter.ttf'), 1000)).attachment.preview).toBe('font');
+    } finally { server.restore(); }
+  });
+
+  test('a file the agent turns binary after a good read is the attachment body\'s, as its read error now says', async () => {
+    const { client, contents, projection, binaries } = filesClient();
+    contents['out.json'] = '{"ok": true}';
+    expect((await filesView(client, native, surface('out.json'), 1000)).preview).toBe('code');
+    binaries.add('out.json');
+    projection.visibleTurnItems.push({ item: { id: 'cmd-gz', type: 'command_execution', status: 'completed' } });
+    const view = await filesView(client, native, surface('out.json'), 1000);
+    expect([view.preview, view.editable, view.attachment.name]).toEqual(['attachment', false, 'out.json']);
   });
 
   test('a font in Files shows its specimen in the attachment body; a draft\'s document is its draft-workspace-file', async () => {
@@ -578,6 +660,18 @@ describe('the image size and zoom bar (PreviewImageContent)', () => {
     expect([state.zoom, derived(state).percent]).toEqual([1, '100%']);
     run(state, 'fitImage');
     expect([state.zoom, derived(state).percent]).toEqual([-1, '13%']);
+  });
+});
+
+// FilePreview's attLocal: the attachment body's controls go to Files' own ops; the rest go on to the window.
+describe('the attachment body in Files (files-surface.contract)', () => {
+  test('its controls become surface-files-att-* ops; the rest pass through', () => {
+    const preview = contractComponent('files-surface.contract', 'FilePreview');
+    const sent: string[][] = [];
+    const run = (op: string) => preview.call('attLocal', preview.state(), { local: (...args: string[]) => sent.push(args) }, [op, 'id', 'v']);
+    run('surface-linked-att-save');
+    run('chatlocal:copy-code');
+    expect(sent).toEqual([['surface-files-att-save', 'id', 'v'], ['chatlocal:copy-code', 'id', 'v']]);
   });
 });
 
