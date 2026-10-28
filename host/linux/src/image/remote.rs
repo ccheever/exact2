@@ -226,8 +226,8 @@ impl Downloads {
     /// Load `url`: from the cache at once, else on a download thread, which
     /// calls `wake` once the outcome is set. Refused while as many downloads
     /// wait or run as the raster pipeline lets sources wait for a header.
-    /// An `urgent` one (a picture that fills the screen) goes ahead of those
-    /// waiting, the others keeping their order, and has the longer whole-load
+    /// An `urgent` one (a picture that fills the screen) goes ahead of the
+    /// ordinary ones waiting, behind any urgent one, and has the longer whole-load
     /// bound ([`Policy`]).
     pub fn load(
         self: &Arc<Self>,
@@ -273,7 +273,7 @@ impl Downloads {
             urgent,
         };
         if urgent {
-            queue.push_front(job);
+            queue_urgent(&mut queue, job);
         } else {
             queue.push_back(job);
         }
@@ -281,7 +281,7 @@ impl Downloads {
         Ok(load)
     }
     /// `load`, already asked for, is now a picture that fills the screen:
-    /// while it still waits for a thread it goes ahead of the others, and
+    /// while it still waits for a thread it goes ahead of the ordinary ones, and
     /// its whole-load bound becomes the urgent one counted from its ask (a
     /// download under way keeps its own; if that fails, the picture asks
     /// again as urgent). Whether it was moved.
@@ -294,7 +294,7 @@ impl Downloads {
         };
         let mut job = queue.remove(at).expect("found");
         job.urgent = true;
-        queue.push_front(job);
+        queue_urgent(&mut queue, job);
         let mut whole = load.whole.lock().unwrap();
         *whole = (*whole).max(load.asked + self.policy.urgent);
         drop(whole);
@@ -474,6 +474,14 @@ impl Downloads {
         }
         Ok(Arc::new(body))
     }
+}
+
+/// `job` goes after the urgent jobs already waiting and ahead of the
+/// ordinary ones: urgent ones are taken in the order they became so, so a
+/// newer one never starves an older one.
+fn queue_urgent(queue: &mut VecDeque<Job>, job: Job) {
+    let at = queue.iter().position(|j| !j.urgent).unwrap_or(queue.len());
+    queue.insert(at, job);
 }
 
 /// A download thread's count in `running`, given back however it ends.

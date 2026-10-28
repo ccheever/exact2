@@ -688,6 +688,7 @@ fn a_waiting_download_moves_up_when_its_picture_comes_to_fill_the_screen() {
             .recv_timeout(SETTLED)
             .expect("each thread takes one");
     }
+    let u = downloads.load(&format!("{origin}/u"), true, || {}).unwrap();
     let a = downloads
         .load(&format!("{origin}/a"), false, || {})
         .unwrap();
@@ -697,6 +698,7 @@ fn a_waiting_download_moves_up_when_its_picture_comes_to_fill_the_screen() {
     let ordinary = b.whole();
     assert!(downloads.promote(&b));
     assert!(!downloads.promote(&b), "once");
+    let v = downloads.load(&format!("{origin}/v"), true, || {}).unwrap();
     let order: Vec<String> = downloads
         .queue
         .lock()
@@ -704,11 +706,12 @@ fn a_waiting_download_moves_up_when_its_picture_comes_to_fill_the_screen() {
         .iter()
         .map(|j| j.url.rsplit('/').next().unwrap().to_owned())
         .collect();
-    assert_eq!(order, ["b", "a"]);
+    // Behind the urgent one already waiting: urgent ones keep the order they became so.
+    assert_eq!(order, ["u", "b", "v", "a"]);
     // Its bound is now the urgent one, counted from its ask.
     assert_eq!(b.whole(), b.asked + Policy::default().urgent);
     assert!(b.whole() > ordinary);
-    drop((busy, a, b));
+    drop((busy, u, a, b, v));
 }
 
 #[test]
@@ -745,12 +748,13 @@ fn urgent_downloads_never_starve_the_others() {
                 .unwrap()
         })
         .collect();
-    // One thread freed at a time: two urgent ones, then the ordinary one waiting, then the last urgent one.
+    // One thread freed at a time: two urgent ones in the order asked, then
+    // the ordinary one waiting, then the last urgent one.
     for n in 1..=4 {
         drop(busy.pop_front());
         wait_for(THREADS + n);
     }
-    assert_eq!(seen.lock().unwrap()[THREADS..], ["u3", "u2", "o1", "u1"]);
+    assert_eq!(seen.lock().unwrap()[THREADS..], ["u1", "u2", "o1", "u3"]);
     drop((busy, held));
 }
 
