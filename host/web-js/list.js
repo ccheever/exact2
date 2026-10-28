@@ -776,9 +776,16 @@ class Collection {
     if (p === undefined) return this.end("cancelled");
     if (!g) return;
     const desired = this.aligned(p, t.align, reported, t.offset);
-    const first = Math.min(this.mounted[0]?.position ?? p, p);
+    // The run of mounted rows that reaches it, and each mounted row before
+    // that run alone: the rows between a kept row and the window are never
+    // measured (into_view.rs `settle_target`).
+    let first = p, joined = true, others = true;
+    for (const q of this.mounted.map(m => m.position).filter(q => q < p).sort((a, b) => b - a)) {
+      if (joined && q + 1 === first) first = q;
+      else { joined = false; others &&= this.index.measured(this.index.order[q]); }
+    }
     if (Math.abs(desired - reported) <= 0.5) {
-      t.aligned = this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
+      t.aligned = others && this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
       if (t.aligned >= 2) this.end("done");
       return;
     }

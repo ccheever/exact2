@@ -330,12 +330,19 @@ impl Collection {
         let desired = self.aligned(u, position, target.align, reported, target.offset);
         // Every mounted row up to it: one above the port, laid out at its
         // real size but still an estimate here, puts the target elsewhere.
-        let first = self
-            .mounted
-            .first()
-            .map_or(position, |m| m.position)
-            .min(position);
-        let measured = self.index.range_measured(first..position + 1);
+        // The rows between a kept row and the window are not mounted and
+        // never measured, so the range is the run of mounted rows that
+        // reaches the target, and a mounted row before that run counts alone.
+        let (mut first, mut joined, mut others) = (position, true, true);
+        for m in self.mounted.iter().rev().filter(|m| m.position < position) {
+            if joined && m.position + 1 == first {
+                first = m.position;
+            } else {
+                joined = false;
+                others &= self.index.is_measured_at(m.position);
+            }
+        }
+        let measured = others && self.index.range_measured(first..position + 1);
         if (desired - reported).abs() <= 0.5 {
             // Done when it holds for two reports: filling around it measures
             // rows that can still move it.

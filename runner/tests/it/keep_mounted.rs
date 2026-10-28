@@ -135,3 +135,26 @@ fn none_names_no_row_and_a_refused_value_keeps_none() {
         r.journal().collect::<Vec<_>>()
     );
 }
+
+/// A kept row before a jump's target is mounted, and the rows between it and
+/// the window are not: the jump settles on the run of rows that reaches the
+/// target, as it does with nothing kept.
+#[test]
+fn a_jump_past_a_kept_row_settles() {
+    for keep in ["[]", "[0]"] {
+        let mut r = boot(keep);
+        send(&mut r, 0.);
+        send(&mut r, 0.);
+        let view = r.collections()[0].view;
+        r.scroll_into_view_at(view, "150", "start", "nearest")
+            .unwrap();
+        for _ in 0..20 {
+            let c = &r.collections()[0];
+            let offset = c.correction.as_ref().map_or(4800., |c| c.offset);
+            send(&mut r, offset);
+        }
+        let status = r.into_view_json();
+        assert!(status.contains("\"done\""), "{keep}: {status}");
+        assert!(!r.collections()[0].seeking, "{keep}");
+    }
+}
