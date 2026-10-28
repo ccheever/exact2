@@ -4,7 +4,6 @@
 //! after `dark`. Each case's box is compared within the border parity's band.
 
 use crate::borders::{boot, held_to_chrome, view};
-use exact_linux::presenter::PainterChoice;
 
 const CASES: [&str; 18] = [
     "linear",
@@ -33,12 +32,7 @@ fn every_gradient_case_matches_chrome_light_then_dark() {
     let mut failures = Vec::new();
     for choice in choices {
         let name = format!("{choice:?}");
-        // C3: this crop requires clip-path, separate from gradient geometry.
-        let cases: Vec<_> = CASES
-            .iter()
-            .copied()
-            .filter(|case| choice != PainterChoice::Ink || *case != "clip")
-            .collect();
+        let cases = CASES;
         let mut p = boot(choice, "gradients.contract");
         let _ = p.resize(390.0, 650.0);
         failures.extend(held_to_chrome(&mut p, "gradients.web.png", &name, &cases));

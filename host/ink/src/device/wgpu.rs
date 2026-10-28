@@ -39,6 +39,7 @@ pub struct Wgpu {
     device: ::wgpu::Device,
     queue: ::wgpu::Queue,
     pipeline: ::wgpu::RenderPipeline,
+    replace_pipeline: ::wgpu::RenderPipeline,
     layout: ::wgpu::BindGroupLayout,
     sampler: ::wgpu::Sampler,
     viewport: ::wgpu::Buffer,
@@ -126,7 +127,7 @@ impl Wgpu {
             },
             count: None,
         }];
-        for binding in 1..=5 {
+        for binding in [1, 2, 3, 4, 5, 7, 8] {
             entries.push(::wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: ::wgpu::ShaderStages::FRAGMENT,
@@ -153,38 +154,42 @@ impl Wgpu {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&::wgpu::RenderPipelineDescriptor {
-            label: Some("ink"),
-            layout: Some(&pipeline_layout),
-            vertex: ::wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(::wgpu::VertexBufferLayout {
-                    array_stride: size_of::<Instance>() as u64,
-                    step_mode: ::wgpu::VertexStepMode::Instance,
-                    attributes: &ATTRIBUTES,
-                })],
-            },
-            primitive: ::wgpu::PrimitiveState {
-                topology: ::wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: Default::default(),
-            fragment: Some(::wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(::wgpu::ColorTargetState {
-                    format: ::wgpu::TextureFormat::Rgba8Unorm,
-                    blend: Some(::wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: ::wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: cache.as_ref(),
-        });
+        let make_pipeline = |blend| {
+            device.create_render_pipeline(&::wgpu::RenderPipelineDescriptor {
+                label: Some("ink"),
+                layout: Some(&pipeline_layout),
+                vertex: ::wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(::wgpu::VertexBufferLayout {
+                        array_stride: size_of::<Instance>() as u64,
+                        step_mode: ::wgpu::VertexStepMode::Instance,
+                        attributes: &ATTRIBUTES,
+                    })],
+                },
+                primitive: ::wgpu::PrimitiveState {
+                    topology: ::wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: Default::default(),
+                fragment: Some(::wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(::wgpu::ColorTargetState {
+                        format: ::wgpu::TextureFormat::Rgba8Unorm,
+                        blend,
+                        write_mask: ::wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: cache.as_ref(),
+            })
+        };
+        let pipeline = make_pipeline(Some(::wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING));
+        let replace_pipeline = make_pipeline(None);
         if let Some(e) = errors.pop().await {
             return Err(Error::Device(e.to_string()));
         }
@@ -227,6 +232,7 @@ impl Wgpu {
             device,
             queue,
             pipeline,
+            replace_pipeline,
             layout,
             sampler,
             viewport,
@@ -299,6 +305,13 @@ impl Wgpu {
                 resource: ::wgpu::BindingResource::TextureView(view),
             });
         }
+        for (binding, id, format) in [(7, b.mask, Format::Alpha), (8, b.destination, Format::Rgba)]
+        {
+            entries.push(::wgpu::BindGroupEntry {
+                binding,
+                resource: ::wgpu::BindingResource::TextureView(self.slot(id, format)?),
+            });
+        }
         entries.push(::wgpu::BindGroupEntry {
             binding: 6,
             resource: ::wgpu::BindingResource::Sampler(&self.sampler),
@@ -356,6 +369,11 @@ impl Wgpu {
             if s.width == 0 || s.height == 0 || batch.instances.is_empty() {
                 continue;
             }
+            pass.set_pipeline(if batch.bindings.destination.0 != 0 {
+                &self.replace_pipeline
+            } else {
+                &self.pipeline
+            });
             pass.set_scissor_rect(s.x, s.y, s.width, s.height);
             pass.set_bind_group(0, bindings, &[]);
             pass.draw(0..4, batch.instances.clone());
@@ -632,15 +650,6 @@ impl Device for Wgpu {
         if frame
             .instances
             .iter()
-            .any(|i| i.flags & flags::BLEND_MASK != 0)
-        {
-            return Err(Error::Unsupported(
-                "blend modes require the compose target (LLP 1149 D2.5)",
-            ));
-        }
-        if frame
-            .instances
-            .iter()
             .any(|i| i.kind_brush & 65535 == Kind::Shadow as u32 && i.flags & flags::CLIP1 == 0)
         {
             return Err(Error::Invalid(
@@ -661,7 +670,17 @@ impl Device for Wgpu {
                 )?;
             }
             let b = batch.bindings;
-            if [b.glyph, b.color, b.path, b.ramp, b.image].contains(&target) {
+            if [
+                b.glyph,
+                b.color,
+                b.path,
+                b.ramp,
+                b.image,
+                b.mask,
+                b.destination,
+            ]
+            .contains(&target)
+            {
                 return Err(Error::Invalid(
                     "a render target cannot sample itself".into(),
                 ));

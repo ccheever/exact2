@@ -9,6 +9,8 @@ struct Viewport { size: vec2<f32>, pad: vec2<f32> }
 @group(0) @binding(4) var ramp: texture_2d<f32>;
 @group(0) @binding(5) var picture: texture_2d<f32>;
 @group(0) @binding(6) var filtering: sampler;
+@group(0) @binding(7) var clip_atlas: texture_2d<f32>;
+@group(0) @binding(8) var destination: texture_2d<f32>;
 
 struct Attributes {
     @location(0) rect: vec4<f32>,
@@ -173,7 +175,26 @@ fn brush(v: Vertex) -> vec4<f32> {
                     t = dot(v.local - v.param.xy, d) / max(dot(d, d), 0.00001);
                 }
             }
+            if (flags & 134217728u) != 0u {
+                let dc = v.param.xy - v.radii.xy;
+                let p = v.local - v.radii.xy;
+                let dr = v.param.z - v.param.w;
+                let a = dot(dc, dc) - dr * dr;
+                let b = -2.0 * (dot(p, dc) + v.param.w * dr);
+                let c = dot(p, p) - v.param.w * v.param.w;
+                if abs(a) < 0.00001 { t = -c / b; }
+                else {
+                    let d = b * b - 4.0 * a * c;
+                    if d < 0.0 { return vec4<f32>(0.0); }
+                    let t0 = (-b - sqrt(d)) / (2.0 * a);
+                    let t1 = (-b + sqrt(d)) / (2.0 * a);
+                    t = max(t0, t1);
+                    if v.param.w + t * dr < 0.0 { t = min(t0, t1); }
+                    if v.param.w + t * dr < 0.0 { return vec4<f32>(0.0); }
+                }
+            }
             if (flags & 8u) != 0u { t = fract(t); }
+            if (flags & 268435456u) != 0u { t = 1.0 - abs(fract(t * 0.5) * 2.0 - 1.0); }
             let size = vec2<f32>(textureDimensions(ramp));
             let uv = vec2<f32>((0.5 + clamp(t, 0.0, 1.0) * (size.x - 1.0)) / size.x,
                                (f32((flags >> 16u) & 1023u) + 0.5) / size.y);
@@ -186,16 +207,102 @@ fn brush(v: Vertex) -> vec4<f32> {
             if (v.data.x >> 16u) == 3u {
                 uv = fract((v.local - v.param.xy) / max(v.param.zw, vec2<f32>(0.00001)));
             }
+            if (flags & 1073741824u) != 0u {
+                uv = v.position.xy / vec2<f32>(textureDimensions(picture));
+            }
             var c = textureSample(picture, filtering, uv);
             if (flags & 16u) != 0u {
                 let size = vec2<i32>(textureDimensions(picture));
                 c = textureLoad(picture, clamp(vec2<i32>(uv * vec2<f32>(size)), vec2<i32>(0), size - vec2<i32>(1)), 0);
             }
             if (flags & 1u) != 0u { c = v.color * c.a; }
+            if (v.data.x >> 16u) == 3u { c *= v.color.a; }
             return c;
         }
         default: { return v.color; }
     }
+}
+
+fn mirror_index(value: i32, size: i32) -> i32 {
+    let period = size * 2;
+    let index = ((value % period) + period) % period;
+    return select(period - 1 - index, index, index < size);
+}
+
+fn blur_pixel(v: Vertex) -> vec4<f32> {
+    let lo = vec2<i32>(v.rect.xy);
+    let size = vec2<i32>(v.rect.zw);
+    let at = vec2<i32>(v.position.xy) - lo;
+    var sum = vec4<f32>(0.0);
+    var total = 0.0;
+    for (var k = -i32(v.param.x); k <= i32(v.param.y); k++) {
+        var p = at;
+        if v.param.z == 0.0 { p.x += k; } else { p.y += k; }
+        p = lo + vec2<i32>(mirror_index(p.x, size.x), mirror_index(p.y, size.y));
+        var weight = 1.0;
+        if v.param.w > 0.0 { weight = exp(-0.5 * f32(k * k) / (v.param.w * v.param.w)); }
+        sum += textureLoad(picture, p, 0) * weight;
+        total += weight;
+    }
+    return sum / total;
+}
+
+fn luminosity(c: vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.3, 0.59, 0.11)); }
+fn saturation(c: vec3<f32>) -> f32 { return max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b)); }
+fn set_luminosity(c: vec3<f32>, lum: f32) -> vec3<f32> {
+    var v = c + vec3<f32>(lum - luminosity(c));
+    let low = min(v.r, min(v.g, v.b));
+    let high = max(v.r, max(v.g, v.b));
+    if low < 0.0 { v = vec3<f32>(lum) + (v - vec3<f32>(lum)) * lum / max(lum - low, 0.000001); }
+    if high > 1.0 { v = vec3<f32>(lum) + (v - vec3<f32>(lum)) * (1.0 - lum) / max(high - lum, 0.000001); }
+    return v;
+}
+fn set_saturation(c: vec3<f32>, sat: f32) -> vec3<f32> {
+    return (c - vec3<f32>(min(c.r, min(c.g, c.b)))) * sat / max(saturation(c), 0.000001);
+}
+fn blend_channel(b: f32, s: f32, mode: u32) -> f32 {
+    switch mode {
+        case 1u: { return b * s; }
+        case 2u: { return b + s - b * s; }
+        case 3u: { return select(1.0 - 2.0 * (1.0 - b) * (1.0 - s), 2.0 * b * s, b <= 0.5); }
+        case 4u: { return min(b, s); }
+        case 5u: { return max(b, s); }
+        case 6u: {
+            if b <= 0.0 { return 0.0; }
+            if s >= 1.0 { return 1.0; }
+            return min(1.0, b / (1.0 - s));
+        }
+        case 7u: {
+            if b >= 1.0 { return 1.0; }
+            if s <= 0.0 { return 0.0; }
+            return 1.0 - min(1.0, (1.0 - b) / s);
+        }
+        case 8u: { return select(1.0 - 2.0 * (1.0 - b) * (1.0 - s), 2.0 * b * s, s <= 0.5); }
+        case 9u: {
+            if s <= 0.5 { return b - (1.0 - 2.0 * s) * b * (1.0 - b); }
+            let d = select(sqrt(b), ((16.0 * b - 12.0) * b + 4.0) * b, b <= 0.25);
+            return b + (2.0 * s - 1.0) * (d - b);
+        }
+        case 10u: { return abs(b - s); }
+        case 11u: { return b + s - 2.0 * b * s; }
+        default: { return s; }
+    }
+}
+
+// CSS Compositing 1: the blend operates on straight colours, then source-over.
+fn blended(back: vec4<f32>, source: vec4<f32>, mode: u32) -> vec4<f32> {
+    let b = back.rgb / max(back.a, 0.000001);
+    let s = source.rgb / max(source.a, 0.000001);
+    var mix_color = vec3<f32>(blend_channel(b.r, s.r, mode), blend_channel(b.g, s.g, mode), blend_channel(b.b, s.b, mode));
+    switch mode {
+        case 12u: { mix_color = set_luminosity(set_saturation(s, saturation(b)), luminosity(b)); }
+        case 13u: { mix_color = set_luminosity(set_saturation(b, saturation(s)), luminosity(b)); }
+        case 14u: { mix_color = set_luminosity(s, luminosity(b)); }
+        case 15u: { mix_color = set_luminosity(b, luminosity(s)); }
+        default: {}
+    }
+    return vec4<f32>((1.0 - source.a) * back.rgb + (1.0 - back.a) * source.rgb + back.a * source.a * mix_color,
+                     source.a + back.a * (1.0 - source.a));
 }
 
 @fragment
@@ -215,7 +322,7 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
         }
         case 3u: {
             let uv = mapped(v.local, v.rect, v.uv);
-            if (flags & 32u) != 0u { color = textureSample(color_atlas, filtering, uv); }
+            if (flags & 32u) != 0u { color = textureSample(color_atlas, filtering, uv) * v.color.a; }
             else { alpha = textureSample(glyph_atlas, filtering, uv).r; }
         }
         case 4u: { alpha = textureSample(path_atlas, filtering, mapped(v.position.xy, v.rect, v.uv)).r; }
@@ -223,7 +330,16 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
             color = textureSample(picture, filtering, mapped(v.local, v.rect, v.uv));
             alpha = v.param.x;
         }
+        case 6u: { color = blur_pixel(v); }
+        case 7u: {
+            let c = textureLoad(picture, vec2<i32>(v.position.xy), 0);
+            let gray = dot(c.rgb, vec3<f32>(0.213, 0.715, 0.072));
+            color = vec4<f32>(clamp(vec3<f32>(gray) + v.param.x * (c.rgb - vec3<f32>(gray)), vec3<f32>(0.0), vec3<f32>(c.a)), c.a);
+        }
         default: { alpha = 0.0; }
+    }
+    if (flags & 536870912u) != 0u {
+        alpha *= textureLoad(color_atlas, vec2<i32>(v.position.xy), 0).a;
     }
     if (flags & 64u) != 0u {
         alpha *= shape_coverage(v.position.xy, v.clip0, unpack_radii(v.clip_radii.xy));
@@ -237,8 +353,16 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
         alpha *= clip;
     }
     if (flags & 256u) != 0u {
-        alpha *= textureSample(path_atlas, filtering, mapped(v.position.xy, v.mask_rect, v.mask_uv)).r
+        alpha *= textureSample(clip_atlas, filtering, mapped(v.position.xy, v.mask_rect, v.mask_uv)).r
                  * inside(v.position.xy, v.mask_rect);
     }
-    return color * clamp(alpha, 0.0, 1.0);
+    alpha = clamp(alpha, 0.0, 1.0);
+    if (flags & 1073741824u) != 0u {
+        return mix(textureLoad(destination, vec2<i32>(v.position.xy), 0), color, alpha);
+    }
+    let mode = (flags >> 11u) & 15u;
+    if mode != 0u {
+        return blended(textureLoad(destination, vec2<i32>(v.position.xy), 0), color * alpha, mode);
+    }
+    return color * alpha;
 }

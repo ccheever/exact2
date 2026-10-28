@@ -3,6 +3,8 @@
 //! and a group opacity, a scroll container clips, a screenshot is the
 //! viewport.
 
+mod coverage;
+
 use crate::pin_font;
 use exact_linux::presenter::PainterChoice;
 use exact_linux::Presenter;
@@ -10,7 +12,6 @@ use exact_runner::DataSource;
 use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
-mod geometry;
 
 fn assets() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"))
@@ -196,13 +197,10 @@ fn text_and_images_leave_ink_in_their_boxes() {
         let mut p = boot(choice);
         let frame = p.frame();
         let name = rect(&mut p, "station-name");
-        // C3: Ink's glyph atlas is not implemented yet.
-        if choice != PainterChoice::Ink {
-            assert!(
-                darkest(&frame, name) < 120,
-                "24 pt bold text is dark ink ({choice:?})"
-            );
-        }
+        assert!(
+            darkest(&frame, name) < 120,
+            "24 pt bold text is dark ink ({choice:?})"
+        );
         let logo = rect(&mut p, "logo");
         assert!(
             darkest(&frame, logo) < 700,
@@ -234,13 +232,10 @@ fn motion_presents_as_a_transform_and_a_group_opacity() {
         // the button above it, whose text is at full opacity.
         let lower = (after.0, after.1 + after.3 / 2.0, after.2, after.3 / 2.0);
         let ink_after = darkest(&p.frame(), lower);
-        // C3: this fixture measures the opacity of text.
-        if choice != PainterChoice::Ink {
-            assert!(
-                ink_after > ink_before + 60,
-                "opacity 0.5 lightens the ink: {ink_before} → {ink_after} ({choice:?})"
-            );
-        }
+        assert!(
+            ink_after > ink_before + 60,
+            "opacity 0.5 lightens the ink: {ink_before} → {ink_after} ({choice:?})"
+        );
     }
 }
 
@@ -280,13 +275,10 @@ fn a_scroll_container_clips_what_it_scrolled_out() {
         let above = rect(&mut p, "above");
         let _ = p.wheel(view(&p, "row-1"), 0.0, 100.0);
         let frame = p.frame();
-        // C3: Ink's glyph atlas is not implemented yet.
-        if choice != PainterChoice::Ink {
-            assert!(
-                darkest(&frame, above) < 200,
-                "text above the container still shows"
-            );
-        }
+        assert!(
+            darkest(&frame, above) < 200,
+            "text above the container still shows"
+        );
         let row0 = rect(&mut p, "row-0");
         assert!(row0.1 < rows.1, "row 0 is above the container's top");
         // Between the container's top and the first visible row there is only
@@ -313,10 +305,7 @@ fn a_device_scale_paints_more_pixels_for_the_same_points() {
         );
         let above = rect(&mut p, "above");
         let scaled = (above.0 * 2.0, above.1 * 2.0, above.2 * 2.0, above.3 * 2.0);
-        // C3: Ink's glyph atlas is not implemented yet.
-        if choice != PainterChoice::Ink {
-            assert!(darkest(&frame, scaled) < 200, "ink where the box is, at 2×");
-        }
+        assert!(darkest(&frame, scaled) < 200, "ink where the box is, at 2×");
     }
 }
 
@@ -384,13 +373,7 @@ fn the_cpu_and_ink_painters_agree_within_a_band() {
     if !ink_available() {
         return;
     }
-    // C3: compare geometry with the CPU's glyph painting omitted too.
-    let mut reference = boot(PainterChoice::Cpu);
-    reference.reader_replaced(Box::new(geometry::WithoutText(
-        exact_linux::raster::Raster::new(),
-    )));
-    reference.repaint();
-    let cpu = reference.frame();
+    let cpu = boot(PainterChoice::Cpu).frame();
     let mut painter = boot(PainterChoice::Ink);
     let ink = painter.frame();
     assert_eq!(
