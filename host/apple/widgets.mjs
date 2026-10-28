@@ -307,7 +307,9 @@ export function packageAlarmExtension({ app, bundle, directory, sdk, triple, dev
   writeFileSync(entitlementPath, entitlements);
   writeFileSync(resolve(extension, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!',
     CFBundleVersion: appInfo.CFBundleVersion, CFBundleShortVersionString: appInfo.CFBundleShortVersionString, MinimumOSVersion: appInfo.MinimumOSVersion, UIDeviceFamily: appInfo.UIDeviceFamily,
-    CFBundleSupportedPlatforms: appInfo.CFBundleSupportedPlatforms, NSExtension: { NSExtensionPointIdentifier: 'com.apple.widgetkit-extension' } }));
+    CFBundleSupportedPlatforms: appInfo.CFBundleSupportedPlatforms, ...(appInfo.DTPlatformName ? { DTPlatformName: appInfo.DTPlatformName } : {}),
+    ...(appInfo.UIRequiredDeviceCapabilities ? { UIRequiredDeviceCapabilities: appInfo.UIRequiredDeviceCapabilities } : {}),
+    NSExtension: { NSExtensionPointIdentifier: 'com.apple.widgetkit-extension' } }));
   runApple('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-O', ...appexArgs, ...keepMain, '-target', triple, '-sdk', sdk,
     '-module-cache-path', resolve(directory, 'cache'), ...(!device ? ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', entitlementPath] : []),
     ...alarmArgs(alarm), source, '-o', resolve(extension, 'ExactWidgets')]);
