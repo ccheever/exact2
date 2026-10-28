@@ -34,6 +34,14 @@ export async function mobileToggleShelf(section: string, native?: Native | null)
   return { revision: 0, message: reply.ok ? '' : reply.error!.message };
 }
 
+export function mobileHomeArrangeView(active: boolean, now: number, workingEnabled: boolean,
+  client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
+  if (!active) return { version: '', blocked: true, workingEnabled, pinned: [], active: [], snoozed: [], settled: [] };
+  const sources = mobileHomeSources(client, background);
+  const order = mobileHomeOrder(client, sources, now, { workingEnabled, observeReturns: true });
+  return homeArrangeSnapshot(client, sources, now, order);
+}
+
 /** Select only the declared Contract shape; the full projection also has internal counts. */
 export function mobileHomeView(args: unknown[], client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
   const [_revision, now, query, settledCount, loaded, workingEnabled, workingExpanded, snoozedExpanded, settledExpanded, environmentId, projectKey, selectedThreadKey, groupingMode, requestRoute, homeVisible, sidebarVisible, environments, surface, catalogLoaded] = args;
@@ -76,7 +84,7 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
   const sidebarEmpty = result.items.length ? '' : catalogLoaded === false ? 'Loading threads…'
     : needle ? searching ? 'Searching thread messages…' : 'No matching threads'
     : project ? `No threads in ${project.title}` : 'No threads yet';
-  return { nextSwipeRefreshAt, arrangement: homeArrangeSnapshot(client, mobileHomeSources(client, background), Number(now), order), items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
+  return { nextSwipeRefreshAt, items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
     ...(sidebar ? { emptyTitle: sidebarEmpty, emptyDetail: '', loading: false, addEnvironment: false, fullPageEmpty: false }
       : { loading: result.loading, addEnvironment: result.addEnvironment, fullPageEmpty: result.fullPageEmpty }) };
 }

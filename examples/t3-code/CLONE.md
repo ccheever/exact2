@@ -43,13 +43,17 @@ planner probes fixes Home navigation on the live catalogue. The app opens a
 project, creates a thread, sends a message, and displays the real provider reply.
 The environment and that conversation remain available after an ordinary restart.
 
-The POC remains blocked by a Hermes heap exhaustion while typing a follow-up.
-Streaming, Stop, sustained editing, and the completed restart flow still need
-acceptance. Diagnose allocation and retention before another production release.
-The Home fix is pushed in PR216 at `122646f95` and independently reviewed.
+A separate root resource now loads complete Arrange data only while Arrange is
+open. Ordinary Home replies no longer include its rows or catalogue version.
+The normal iPhone build sends a follow-up, displays growing streamed output, and
+stops it; the server confirms an interrupted run. The earlier Hermes abort has
+not recurred in this drive, but sustained editing and restart still need acceptance.
+A fresh 124-character edit saved only 117 characters after queued work drained.
+The POC remains blocked until the latest native edit reliably reaches storage.
+The first Home fix is pushed in PR216 at `122646f95` and independently reviewed.
 
 All six root repository checks pass at the mobile checkpoint. After the Home fix,
-the full mobile suite passes 3,694 tests, strict app TypeScript passes, and the
+the full mobile suite passes 3,696 tests, strict app TypeScript passes, and the
 native simulator build succeeds. These checks do not override the observed crash.
 
 The app uses Exact Contract, TypeScript/Hermes, and UIKit, with no React Native

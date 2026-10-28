@@ -4,7 +4,7 @@ use ComposerRootView from "./composer-root.contract"
 use ThreadSubmission, ThreadLocalColors, ThreadSubmissionRecoveryNotice from "./thread-send-root.contract"
 use ThreadLocalFeedback, ThreadLocalUsage from "./thread-local-dock.contract"
 use ArchiveChrome, ArchiveChromeSnapshot from "./archive-chrome.contract"
-use HomeArrangement, HomeArrangementColors from "./home-arrangement.contract"
+use HomeArrangement, HomeArrangementColors, HomeArrangementData from "./home-arrangement.contract"
 use MobileAddProject, AddProjectSnapshot, AddProjectColors from "./add-project.contract"
 use MobileWorkingControl, WorkingControlData from "./working-control.contract"
 use MobileQueueView, MobileQueueSnapshot from "./queue.contract"
@@ -155,6 +155,7 @@ component MobileRouteContent
     agents: AgentActivityData
     homeLook: HomeColors
     home: HomeView
+    arrangement: HomeArrangementData
     informationQuery: string
     projectSavedRevision: number
     composerFocused: bool
@@ -373,7 +374,7 @@ component MobileRouteContent
               button id="not-found-return-home" press=returnHome border-radius=999 padding-left=20 padding-right=20 padding-top=14 padding-bottom=14 background-color=look.colors.primary
                 text "Return home" font-size=16 line-height="23px" font-weight=700 color=look.colors.primaryForeground
         else if routeName == "homeArrange"
-          HomeArrangement(requestRoute=routeId, data=home.arrangement, colors=HomeArrangementColors(screen=look.screen, foreground=homeLook.foreground, muted=homeLook.muted, primaryText=homeLook.primaryText, borderSubtle=homeLook.borderSubtle), safeTop=0, safeBottom=0, drop=homeArrangeDrop, close=back)
+          HomeArrangement(requestRoute=routeId, data=arrangement, colors=HomeArrangementColors(screen=look.screen, foreground=homeLook.foreground, muted=homeLook.muted, primaryText=homeLook.primaryText, borderSubtle=homeLook.borderSubtle), safeTop=0, safeBottom=0, drop=homeArrangeDrop, close=back)
         else if routeName == "home"
           Home(routeId=routeId, active=focused, refreshAt=home.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=viewport.prefersReducedMotion, listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, emptyTitleRole=settingsData.root.roles.headline, emptyDetailRole=settingsData.root.roles.footnote, plainTitleRole=settingsData.root.roles.title, plainDetailRole=settingsData.root.roles.body, plainActionRole=settingsData.root.roles.footnote, loading=home.loading, addEnvironment=home.addEnvironment, fullPageEmpty=home.fullPageEmpty, liquidGlass=layout.liquidGlass, windowHeight=(layout.windowHeight > 0 ? layout.windowHeight : viewport.height), safeTop=layout.safeTop, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
           HomeChrome(routeKey=routeId, configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0))

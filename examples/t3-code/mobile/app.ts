@@ -72,7 +72,7 @@ import { fleet } from './shared/settings-b-fleet';
 import { machineKind } from './shared/connections';
 import { mobileClearClientCaches } from './mobile-cache-controls';
 import { mobileCacheFleetDisplays } from './mobile-client-cache-fleet';
-import { mobileShelves, mobileToggleShelf, mobileHomeView } from './home-state';
+import { mobileShelves, mobileToggleShelf, mobileHomeView, mobileHomeArrangeView } from './home-state';
 import { mobileHtmlRenderTheme, mobileThreadLocalColors, mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
 import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance, overlayMobilePreferenceChoices } from './settings-preferences';
 import { settingsAppearanceView, settingsChoices } from './settings-appearance';
@@ -720,6 +720,7 @@ const sources: Sources = {
     const native = sourceNative('homeView', args, nativeInput);
     return mobileHomeView(args);
   },
+  homeArrangeView: args => mobileHomeArrangeView(args[0], args[2], args[3]),
   snapshotRead: (args, _store, storage, nativeInput) => mobileSnapshotRead(sourceNative('snapshotRead', args, nativeInput), storage!),
   snapshot: (args) => {
     const now = Number(args[3]);

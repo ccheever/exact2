@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mobileHomeView } from './home-state';
+import { mobileHomeView, mobileHomeArrangeView } from './home-state';
 import { mobileHomeAction, mobileHomeSnoozePresets } from './home-actions';
 import { homeOrderState } from './home-order';
 import { mobileNewTaskDraftList } from './mobile-new-task-drafts';
@@ -92,7 +92,9 @@ test('two Home projections read local drafts without mutation and sidebar menu n
   expect(first.items).toEqual(second.items); expect(JSON.stringify(f.client.local)).toBe(before);
   const draft = first.items[0]!; expect(draft.environmentLabel).toBe('Saved Mac'); expect(first.nextSwipeRefreshAt).toBe(0);
   expect(JSON.parse(draft.nativeMenu)).toEqual({ identity: 'draft-task:new-task:A', requestRoute: 'visit', enabled: true, items: draft.menuItems });
-  expect(draft.swipe.primary).toBe(''); expect(first.arrangement.pinned).toEqual([]); expect(first.arrangement.active).toEqual([]);
+  expect(draft.swipe.primary).toBe('');
+  expect(mobileHomeArrangeView(true, now, false, f.client, f.background)).toMatchObject({ pinned: [], active: [] });
+  expect(first).not.toHaveProperty('arrangement');
 });
 
 function emptyView(client: T3Client, background: EnvironmentFleet, input: {
@@ -275,8 +277,9 @@ test('Home row action projection resolves catalogue entries in linear work', () 
         ...plain.client.shell.threads.map(row => `one:${row.id}`), ...plain.remote.shell.threads.map(row => `two:${row.id}`),
       ]));
       expect(rows).toHaveLength(count);
-      expect((['pinned', 'active', 'snoozed', 'settled'] as const).flatMap(section => actual.arrangement[section]).length).toBe(count);
-      expect(actual.arrangement.workingEnabled).toBe(workingEnabled);
+      const arrangement = mobileHomeArrangeView(true, now, workingEnabled, counted.client, counted.background);
+      expect((['pinned', 'active', 'snoozed', 'settled'] as const).flatMap(section => arrangement[section]).length).toBe(count);
+      expect(arrangement.workingEnabled).toBe(workingEnabled);
       const rank = { pinned: 0, active: 1, working: 2, snoozed: 3, settled: 4 };
       expect(rows.every((row, index) => index === 0 || rank[rows[index - 1]!.section] <= rank[row.section])).toBe(true);
       expect(rows.some(row => row.section === 'working')).toBe(workingEnabled);
@@ -307,3 +310,19 @@ test('Home row action projection resolves catalogue entries in linear work', () 
     measuring = false; Date.prototype.toLocaleTimeString = timeFormat; Date.prototype.toLocaleDateString = dateFormat;
   }
 }, 45_000);
+
+
+test('closed Arrange reads no catalogue and reopens with current complete rows', () => {
+  const unavailable = new Proxy(new T3Client(), { get() { throw new Error('Inactive Arrange read its client'); } });
+  expect(mobileHomeArrangeView(false, now, true, unavailable)).toEqual({ version: '', blocked: true,
+    workingEnabled: true, pinned: [], active: [], snoozed: [], settled: [] });
+  const f = fixture();
+  const first = mobileHomeArrangeView(true, now, false, f.client, f.background);
+  expect(first.active.map(row => row.key)).toEqual(['one:same', 'two:same']);
+  mobileHomeArrangeView(false, now + 1, false, f.client, f.background);
+  f.client.shell.threads[0]!.settledOverride = 'settled';
+  const reopened = mobileHomeArrangeView(true, now + 2, false, f.client, f.background);
+  expect(reopened.active.map(row => row.key)).toEqual(['two:same']);
+  expect(reopened.settled.map(row => row.key)).toEqual(['one:same']);
+  expect(reopened.version).not.toBe(first.version);
+});

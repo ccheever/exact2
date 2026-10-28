@@ -5,7 +5,7 @@ import { EnvironmentFleet } from './shared/settings-b-fleet';
 import { initialShell, type Obj } from './shared/domain';
 import { mobileHomeOrder, homeOrderState } from './home-order';
 import { mobileHomeSources } from './home';
-import { mobileHomeView } from './home-state';
+import { mobileHomeView, mobileHomeArrangeView } from './home-state';
 import { homeArrangeSnapshot } from './home-arrange';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
@@ -24,7 +24,8 @@ function fixture() {
     thread('newer', { latestRunId: null, activeRunId: null, status: 'idle', createdAt: '2026-10-01T00:00:00Z' })] };
   const view = (at: number, query = '', env = '', project = '', enabled = true) => mobileHomeView([0, at, query, 10, true, enabled, true, true, true,
     env, project, '', 'repository', 'home-visit', true, true], client, background);
-  return { client, background, view };
+  const arrange = (at: number) => mobileHomeArrangeView(true, at, true, client, background);
+  return { client, background, view, arrange };
 }
 
 test('return owner initializes without stamps, records repeated returns once and resets/prunes by full scoped identity', () => {
@@ -50,11 +51,12 @@ test('phone Home, sidebar and Arrange share raw V2 observed returns across filte
   const phone = f.view(now + 12_346), sidebar = f.view(now + 12_347, 'returned');
   expect(phone.items.filter(row => row.kind === 'thread').map(row => row.threadId)).toEqual(['returned', 'newer']);
   expect(sidebar.items.filter(row => row.kind === 'thread').map(row => row.threadId)).toEqual(['returned']);
-  expect(phone.arrangement.active.map(row => row.threadId)).toEqual(['returned', 'newer']);
-  expect(sidebar.arrangement.active).toEqual(phone.arrangement.active);
+  const arrangement = f.arrange(now + 12_348);
+  expect(arrangement.active.map(row => row.threadId)).toEqual(['returned', 'newer']);
+  expect(f.arrange(now + 12_349).active).toEqual(arrangement.active);
   expect(homeOrderState(f.client).inboxReturns.returnedAt['one:returned']).toBe(now + 12_345);
-  expect(phone.arrangement.active.every(row => !row.canMoveUp && !row.canMoveDown)).toBe(true);
-  expect(Object.keys(phone.arrangement)).not.toContain('returnedAt');
+  expect(arrangement.active.every(row => !row.canMoveUp && !row.canMoveDown)).toBe(true);
+  expect(Object.keys(arrangement)).not.toContain('returnedAt');
 });
 
 test('separate clients, toggled beta and deleted navigation rows do not retain another observation history', () => {
@@ -72,12 +74,13 @@ test('separate clients, toggled beta and deleted navigation rows do not retain a
 test('two returns within one minute reorder all projections and invalidate an Arrange version', () => {
   const f = fixture(); f.client.shell.threads = [thread('a'), thread('b')]; f.view(now);
   f.client.shell.threads[0]!.pendingRuntimeRequest = { kind: 'approval' };
-  const first = f.view(now + 12_345);
+  f.view(now + 12_345); const first = f.arrange(now + 12_345);
   f.client.shell.threads[1]!.pendingRuntimeRequest = { kind: 'user_input' };
   const second = f.view(now + 23_456);
   expect(second.items.filter(row => row.kind === 'thread').map(row => row.threadId)).toEqual(['b', 'a']);
-  expect(second.arrangement.active.map(row => row.threadId)).toEqual(['b', 'a']);
-  expect(second.arrangement.version).not.toBe(first.arrangement.version);
+  const secondArrangement = f.arrange(now + 23_456);
+  expect(secondArrangement.active.map(row => row.threadId)).toEqual(['b', 'a']);
+  expect(secondArrangement.version).not.toBe(first.version);
   const order = mobileHomeOrder(f.client, mobileHomeSources(f.client, f.background), now + 23_457);
   f.client.shell.threads = []; f.view(now + 23_458);
   expect(order.returnedAt).toEqual({ 'one:a': now + 12_345, 'one:b': now + 23_456 });
@@ -101,4 +104,18 @@ test('async move checks cannot consume an unrelated return with an older action-
   expect(homeOrderState(f.client).inboxReturns.returnedAt['one:returned']).toBeUndefined();
   f.view(now + 45_000);
   expect(homeOrderState(f.client).inboxReturns.returnedAt['one:returned']).toBe(now + 45_000);
+});
+
+
+test('Home and Arrange evaluation order preserves one observed return stamp', () => {
+  const homeFirst = fixture(), arrangeFirst = fixture();
+  for (const f of [homeFirst, arrangeFirst]) f.arrange(now);
+  for (const f of [homeFirst, arrangeFirst]) f.client.shell.threads[0]!.pendingRuntimeRequest = { kind: 'approval' };
+  homeFirst.view(now + 1); const left = homeFirst.arrange(now + 1);
+  const right = arrangeFirst.arrange(now + 1); arrangeFirst.view(now + 1);
+  expect(left).toEqual(right);
+  for (const f of [homeFirst, arrangeFirst]) {
+    f.view(now + 2); f.arrange(now + 3);
+    expect(homeOrderState(f.client).inboxReturns.returnedAt).toEqual({ 'one:returned': now + 1 });
+  }
 });
