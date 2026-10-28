@@ -12,7 +12,7 @@ for (const name of ['prompt-glue', 'alert-message']) {
   if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
   inputSource = stripped;
 }
-const inputCode = inputSource.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+const inputCode = inputSource.replace(/^export (async function|function|const) /gm, '$1 ');
 const inputScript = new Script(`${inputCode}\ncreateInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });`, { filename: 'input-glue.js' });
 // `shown`: the buttons have boxes; `marked`: each is a Back control its route's bar stands for (navigation.js).
 function page(chords, { shown = true, marked = false } = {}) {
