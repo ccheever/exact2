@@ -55,9 +55,58 @@ function made(path, blob, version) {
 }
 globalThis.exact.appURL = appURL;
 
+// A bundled page's given files (LLP 1020.001 D7): for a page under `assets/`
+// or `deck/` (an .html or .htm file), each query value that begins `app:/`,
+// read as URLSearchParams reads it; null for any other source. WebModule.swift
+// `givenPaths` reads a source the same way.
+function pageFiles(src) {
+  if (/^([a-z][a-z\d+.-]*:|[\\/]{2})/i.test(src)) return null;
+  let url;
+  try { url = new URL(src, 'https://app.invalid/'); } catch { return null; }
+  const query = src.indexOf('?'), hash = src.indexOf('#'), end = hash < 0 ? src.length : hash;
+  if (!/^\/(assets|deck)\/[^?#]*\.html?$/i.test(url.pathname) || query < 0 || hash >= 0 && hash < query) return null;
+  const pairs = src.slice(query + 1, end).split('&').map(pair => {
+    const at = pair.indexOf('=');
+    let value = null;
+    try { value = at < 0 ? null : decodeURIComponent(pair.slice(at + 1).replace(/\+/g, ' ')); } catch { /* a malformed escape names no file */ }
+    return { name: at < 0 ? pair : pair.slice(0, at), path: value?.startsWith('app:/') ? value : null, pair };
+  });
+  if (!pairs.some(p => p.path)) return null;
+  return { paths: [...new Set(pairs.filter(p => p.path).map(p => p.path))],
+    rewrite: urlFor => src.slice(0, query + 1) + pairs.map(p => p.path ? `${p.name}=${encodeURIComponent(urlFor(p.path))}` : p.pair).join('&') + src.slice(end) };
+}
+const GIVEN = /^app:\/(cache|tmp)(\/(?!\.\.?(\/|$))[^/\0]+)+$/;
+
+// Each file the page's query names becomes an object URL the frame owns, made
+// from the store as the source commits and revoked with it.
+async function framePage(el, state, appId, given, committed) {
+  const store = await fileStore(appId), blobs = new Map();
+  for (const path of given.paths) {
+    if (!GIVEN.test(path)) throw new Error(`${path}: a page is given app:/cache and app:/tmp files only`);
+    try { blobs.set(path, picked.get(path) ?? (await store.blob(path, typeFor(path))).blob); } catch { throw new Error(`${path}: file unavailable`); }
+  }
+  if (!state.live) return;
+  const urls = new Map([...blobs].map(([path, blob]) => [path, URL.createObjectURL(blob)])), dispose = state.dispose;
+  state.dispose = function () { dispose.call(this); for (const url of urls.values()) URL.revokeObjectURL(url); };
+  state.url = given.rewrite(path => urls.get(path));
+  el.setAttribute('src', state.url);
+  committed();
+}
+
 // An iframe owns its URL: changing its source or ending its node releases
 // it without revoking another element's view of the same file (LLP 1020 §10).
 export async function appFrame(el, state, appId, committed = () => {}) {
+  if (!state.path.startsWith('app:/')) {
+    const given = pageFiles(state.path);
+    // The boot glue's test is looser: a source it sent here that gives no
+    // page a file (one outside assets/ and deck/, say) loads as written.
+    if (!given) { state.url = state.path; el.setAttribute('src', state.path); return committed(); }
+    return framePage(el, state, appId, given, committed).catch(error => {
+      if (!state.live) return;
+      state.failed = true;
+      el.dispatchEvent(new CustomEvent('error', { detail: `iframe: ${state.path}: ${error.message}` }));
+    });
+  }
   try {
     const path = state.path.split(/[?#]/, 1)[0];
     const store = await fileStore(appId);

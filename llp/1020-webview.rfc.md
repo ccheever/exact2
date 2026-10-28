@@ -546,7 +546,9 @@ LLP 1020.001 D4 amends this table for a bundled HTML page under `assets/` or `de
   precede data activation are delivered once the executor is ready.
   This is the scoped local-file failure rule, not a change to network
   iframe failures. A fitted PDF element and Chrome's PDF viewer fragments
-  remain outside this scope.
+  remain outside this scope. A bundled page is given an `app:/cache` or
+  `app:/tmp` file by naming it in its own query, under the same failure rule
+  (LLP 1020.001 D7).
 - **Direct** is the web view's own document. A local one is served at the
   synthetic origin above, with `sandbox` sent as a `Content-Security-Policy: sandbox …`
   header, which WebKit enforces on a top-level document, opaque origin

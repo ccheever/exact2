@@ -105,7 +105,7 @@ private var assetReader: ReadFn?
 /// origin is a scheme of its own; WebKit treats it as a secure context.
 /// One per web view: the configuration retains it, and it holds its arm
 /// weakly.
-private final class AssetScheme: NSObject, WKURLSchemeHandler {
+final class AssetScheme: NSObject, WKURLSchemeHandler {
     static let scheme = "exact-app"
     static let origin = "exact-app://app"
     static let base = URL(string: "exact-app://app/")!
@@ -142,6 +142,11 @@ private final class AssetScheme: NSObject, WKURLSchemeHandler {
         let range = task.request.value(forHTTPHeaderField: "Range")
         let id = ObjectIdentifier(task)
         let name = String(url.path.drop(while: { $0 == "/" }))
+        // A file the app gave this page (@ref LLP 1020.001 D7).
+        if url.host == "app", name.hasPrefix(FrameFiles.prefix) {
+            guard let file = arm.files.file(name) else { return refuse(task, url, given: "is not a file this frame was given") }
+            return serveGiven(task, url, file)
+        }
         guard url.host == "app", AssetScheme.trees.contains(where: name.hasPrefix) else { return refuse(task, url, logging: true) }
         AssetScheme.reads.async {
             let bytes = AssetScheme.read(name)
@@ -168,11 +173,12 @@ private final class AssetScheme: NSObject, WKURLSchemeHandler {
         stopped.insert(ObjectIdentifier(task))
     }
 
-    func refuse(_ task: WKURLSchemeTask, _ url: URL, logging: Bool) {
+    func refuse(_ task: WKURLSchemeTask, _ url: URL, logging: Bool = false, given: String? = nil) {
         if logging {
             let trees = AssetScheme.trees.joined(separator: " or ")
             FileHandle.standardError.write(Data("exact: iframe \(arm?.src ?? ""): \(url.absoluteString) is not an app asset under \(trees)\n".utf8))
         }
+        if let given { FileHandle.standardError.write(Data("exact: iframe \(arm?.src ?? ""): \(url.absoluteString) \(given)\n".utf8)) }
         task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])!)
         task.didFinish()
     }
@@ -308,6 +314,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     var localGuest = false
     /// A bundled HTML page's URL under `AssetScheme`, while one is served.
     var assetPage: URL?
+    /// The app files that page was given (@ref LLP 1020.001 D7).
+    let files = FrameFiles()
     /// The wrapper `AssetScheme` serves around such a page on iOS.
     var wrapperDocument: String?
     /// A bundled page's origin: loopback HTTP, a secure context (as the web
@@ -592,6 +600,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func invalidate() {
         guard !invalidated else { return }
         invalidated = true
+        files.end()
         automation?.end("iframe \(element) unmounted")
         Automations.arms.remove(self)
         pdf?.close()
@@ -643,7 +652,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         documentNonce = nil
         revoked = false
         direct = true
-        assetPage = nil
+        assetPage = files.give(nil)
         localGuest = false
         expectedOrigin = nil
         let refusal: String?
@@ -780,7 +789,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             : web?.scheme?.lowercased() == "http" ? "http://exact.invalid" : "https://exact.invalid"
         wrapperURL = URL(string: "\(origin)/frame/\(id)/index.html")!
         localGuest = local != nil && error == nil
-        assetPage = localGuest ? src.flatMap(WebArm.assetURL) : nil
+        // Every serve gives the page's files anew, so the last serve's end.
+        assetPage = files.give(localGuest ? src.flatMap(WebArm.assetURL) : nil)
         if assetPage != nil { wrapperURL = URL(string: "\(AssetScheme.origin)/.exact/frame/\(id)/index.html")! }
         #if os(iOS)
         // iOS lays a top-level document out by its viewport `<meta>` (980
@@ -827,7 +837,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let url = URL(string: "\(WebArm.localOrigin)/frame/\(id)/index.html")!
         wrapperURL = url
         localGuest = true
-        assetPage = nil
+        assetPage = files.give(nil)
         direct = true
         setPageBridge(false)
         expectedOrigin = guestOrigin(remote: nil, local: true)
@@ -1317,6 +1327,14 @@ public func exactWebSetConfiguring(_ handle: UnsafeMutableRawPointer?, _ hook: C
 @_cdecl("exact_web_set_document")
 public func exactWebSetDocument(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
     arm(handle)?.suppliedDocument = present == 0 ? nil : Data(UnsafeBufferPointer(start: bytes, count: Int(length)))
+}
+
+/// Before `exact_web_set_src`: `{"app:/cache/a.pdf": "/…/a.pdf"}`, each file
+/// the host resolved for the page's query, or absent for none (@ref LLP 1020.001 D7).
+@_cdecl("exact_web_set_files")
+public func exactWebSetFiles(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
+    let files = present == 0 ? [:] : json(bytes, length).compactMapValues { ($0 as? String).map { URL(fileURLWithPath: $0) } }
+    arm(handle)?.files.supplied = files
 }
 
 @_cdecl("exact_web_set_sandbox")

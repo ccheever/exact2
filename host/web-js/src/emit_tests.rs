@@ -46,6 +46,20 @@ fn keep_mounted_is_a_list_option_read_again() {
 }
 
 #[test]
+fn a_page_given_app_files_is_no_source_until_the_glue_gives_them() {
+    let plan = contract::compile(
+        "component App\n  view\n    iframe src=\"assets/viewer.html?file=app:/cache/a.pdf\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("\"data-app-src\":\"assets/viewer.html?file=app:/cache/a.pdf\""),
+        "{js}"
+    );
+    assert!(!js.contains("\"src\":\"assets/viewer.html"), "{js}");
+}
+
+#[test]
 fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     let plan = contract::compile(
         "component App\n  view\n    iframe src=\"app:/data/doc.pdf\" sandbox=\"allow-scripts\"\n",

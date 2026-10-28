@@ -678,9 +678,9 @@ if (typeof addEventListener === "function") for (const [type, on] of [["composit
 const navigable = (v, e) => { try { const p = new URL(v, document.baseURI).protocol; return ["http:", "https:", "mailto:", "tel:"].includes(p) || p === "data:" && e?.localName === "iframe" && opaque(e); } catch { return false; } }, opaque = e => e.hasAttribute("sandbox") && !e.getAttribute("sandbox").toLowerCase().split(/[\t\n\f\r ]+/).includes("allow-same-origin"); // a frame also shows a `data:` document in an opaque sandbox (navigation.js `frameURL`)
 function frame(e, v) {
   commitGuestOrigin(e);
-  if (v?.startsWith("app:/")) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return !!v?.startsWith("app:/");
+  const app = !!v?.startsWith("app:/") || /^(?![a-z][a-z\d+.-]*:|[\\/]{2})[^#?]*\?([^#]*&)?[^#&=]*=app(:|%3a)/i.test(v ?? ""); /* an app file, or a bundled page whose query may name one (LLP 1020.001 D7; picker-glue.js decides) */ if (app) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return app;
   if (!e.$frame) { e.$frame = true; e.addEventListener("load", ev => { if (e.exactAppFrame && !e.exactAppFrame.url) ev.stopImmediatePropagation(); else e.exactLoaded = e.getAttribute("src"); /* the src that loaded, for the agent's tree, which loads after boot and cannot read another origin's readiness */ }, true); onEnd(() => e.exactAppFrame?.dispose()); }
-  if (e.exactAppFrame?.path === v) return true; e.exactAppFrame?.dispose(); e.exactAppFrame = null; if (!v?.startsWith("app:/")) return false;
+  if (e.exactAppFrame?.path === v) return true; e.exactAppFrame?.dispose(); e.exactAppFrame = null; if (!app) return false;
   const s = e.exactAppFrame = { path: v, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; e.removeAttribute("src"); inflight.n++;
   globalThis.exact ??= {}; import(new URL("./picker-glue.js", import.meta.url).href).then(m => m.appFrame(e, s, data.appId, () => commitGuestOrigin(e))).finally(() => inflight.n--); return true;
 }

@@ -1174,10 +1174,13 @@ cleartext `http` reaches only a local host, and only with `app.json`'s
 `host.ios.localNetworking` set; a device on the local network the person names or
 the app finds is `net.fetch local-network` with `device.local-network purpose.<key>`,
 whose text is the platform's prompt on macOS and iOS ([recipe](recipes/local-network.md));
-an `iframe` of `http://` from a named host needs
-`host.macos.appTransportSecurity` or `host.ios.appTransportSecurity` set to
-`{ "allowsArbitraryLoadsInWebContent": true }`, which relaxes web views only and
-not an `http:` sub-resource of the app's own `assets/` page),
+an `iframe` of `http://` from a named host, or such a sub-resource of the app's
+own `assets/` page, needs `host.macos.appTransportSecurity` or
+`host.ios.appTransportSecurity` set to `{ "allowsArbitraryLoadsInWebContent": true }`,
+which relaxes web views only (an IP address or a `.local` name loads without it,
+LLP 1020.001 §4 Q6); a page under `assets/` reads an `app:/cache` or `app:/tmp`
+file its `src` names in its query, `?file=app:/cache/a.pdf`, as a URL in that value
+([LLP 1020.001 D7](../llp/1020.001-a-multi-file-bundled-page-in-an-iframe.rfc.md)),
 and how to drive it with storage. The macOS driver launches the assembled app
 bundle, so its ATS policy also applies during drives. A path grant covers its path and what is below
 it, by whole names: `sqlite.open app:/data` covers `app:/data/inbox-amy.sqlite`,

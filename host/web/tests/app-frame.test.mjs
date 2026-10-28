@@ -7,6 +7,7 @@ async function browserTest(run) {
     const path = new URL(request.url).pathname;
     if (path === '/') return new Response('<main id="exact-root"></main>', { headers: { 'content-type': 'text/html' } });
     if (path === '/names.js') return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
+    if (path === '/assets/given.html' || path === '/deck/given.htm' || path === '/other/given.html') return new Response(GIVEN_PAGE, { headers: { 'content-type': 'text/html' } });
     const name = path.slice(1);
     for (const dir of ['host/web-js', 'host/web']) {
       const file = Bun.file(resolve(dir, name));
@@ -292,4 +293,79 @@ test('opaque sandbox loads app text like Chrome, while sandboxed PDFs report err
       await page.evaluate(() => { rt.end(scope); frame.remove(); const oracle = document.querySelector('#oracle'); URL.revokeObjectURL(oracle.src); oracle.remove(); });
     }
   }
+}), 90000);
+
+// A page that reports what it can read of each `file` its query names (LLP 1020.001 D7).
+const GIVEN_PAGE = `<!doctype html><script>(async () => {
+  const out = { search: location.search, files: [] };
+  for (const file of new URLSearchParams(location.search).getAll('file')) {
+    try { const r = await fetch(file); out.files.push({ file, status: r.status, type: r.headers.get('content-type'), bytes: (await r.arrayBuffer()).byteLength }); }
+    catch (e) { out.files.push({ file, error: String(e) }); }
+  }
+  parent.postMessage(JSON.stringify(out), '*');
+})()</script>`;
+
+test('a bundled page is given the app files its query names, and only while its source lasts', () => browserTest(async (page, server) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(server.url.href);
+  await page.evaluate(async () => {
+    globalThis.rt = await import('/rt.js'); globalThis.exact = {};
+    rt.data.appId = 'given-files';
+    const { createFileStore } = await import('/storage-fs.js');
+    const files = createFileStore(rt.data.appId);
+    await files.writeFile('app:/cache/big.bin', new Uint8Array(20 * 1024 * 1024 + 1));
+    await files.writeFile('app:/tmp/note.txt', new TextEncoder().encode('a note'));
+    await files.writeFile('app:/data/secret.txt', new TextEncoder().encode('secret'));
+    globalThis.reports = []; globalThis.events = [];
+    addEventListener('message', e => reports.push(JSON.parse(e.data)));
+    globalThis.source = rt.sig('assets/given.html?file=app:/cache/big.bin&file=app%3A%2Ftmp%2Fnote.txt&keep=a+b#top');
+    globalThis.scope = rt.scope(() => {
+      globalThis.frame = rt.h(document.querySelector('main'), 'iframe', 0, {}, 0);
+      rt.P(frame, 'src', () => source());
+      rt.on(frame, 'load', () => events.push('load'));
+      rt.on(frame, 'error', message => events.push(message));
+    });
+  });
+  await page.waitForFunction(() => reports.length === 1, {}, { timeout: 10000 });
+  const first = await page.evaluate(() => reports[0]);
+  expect(first.files).toEqual([
+    { file: expect.stringMatching(/^blob:/), status: 200, type: 'application/octet-stream', bytes: 20 * 1024 * 1024 + 1 },
+    { file: expect.stringMatching(/^blob:/), status: 200, type: 'text/plain', bytes: 6 },
+  ]);
+  // The other values, and the fragment, stay as written.
+  expect(first.search).toEndWith('&keep=a+b');
+  expect(await page.evaluate(() => new URL(frame.src).hash)).toBe('#top');
+  // A new source revokes the old one's URLs.
+  await page.evaluate(() => rt.commit(() => rt.W(source, 'assets/given.html?file=app:/tmp/note.txt')));
+  await page.waitForFunction(() => reports.length === 2, {}, { timeout: 10000 });
+  expect(await page.evaluate(async urls => Promise.all(urls.map(u => fetch(u).then(() => 'read', () => 'refused'))), first.files.map(f => f.file))).toEqual(['refused', 'refused']);
+  // app:/data, another root, a missing file: an error and no page.
+  for (const [src, why] of [
+    ['assets/given.html?file=app:/data/secret.txt', 'app:/data/secret.txt: a page is given app:/cache and app:/tmp files only'],
+    ['assets/given.html?file=app:/cache/../data/secret.txt', 'app:/cache/../data/secret.txt: a page is given app:/cache and app:/tmp files only'],
+    ['assets/given.html?file=app:/cache/missing.bin', 'app:/cache/missing.bin: file unavailable'],
+  ]) {
+    const count = await page.evaluate(() => events.length);
+    await page.evaluate(src => rt.commit(() => rt.W(source, src)), src);
+    await page.waitForFunction(n => events.length === n + 1, count, { timeout: 10000 });
+    expect(await page.evaluate(() => events.at(-1))).toBe(`iframe: ${src}: ${why}`);
+  }
+  // A page outside assets/ and deck/ is loaded as written: it is given nothing.
+  await page.evaluate(() => rt.commit(() => rt.W(source, 'other/given.html?file=app:/cache/big.bin')));
+  await page.waitForFunction(() => reports.length === 3, {}, { timeout: 10000 });
+  expect(await page.evaluate(() => [frame.getAttribute('src'), reports[2].files[0].error !== undefined])).toEqual(['other/given.html?file=app:/cache/big.bin', true]);
+  // In an opaque sandbox the page cannot fetch the app's object URL.
+  await page.evaluate(() => { frame.setAttribute('sandbox', 'allow-scripts'); rt.commit(() => rt.W(source, 'assets/given.html?file=app:/tmp/note.txt&opaque=1')); });
+  await page.waitForFunction(() => reports.length === 4, {}, { timeout: 10000 });
+  expect(await page.evaluate(() => reports[3].files[0].error)).toBeDefined();
+  // Unmounted, the frame's URLs are revoked.
+  const last = await page.evaluate(() => new URLSearchParams(new URL(frame.src).search).get('file'));
+  await page.evaluate(() => { rt.end(scope); frame.remove(); });
+  expect(await page.evaluate(async u => fetch(u).then(() => false, () => true), last)).toBe(true);
+  // A literal source arrives as `data-app-src` (rows.rs), and is given its file the same way.
+  await page.evaluate(() => { rt.h(document.querySelector('main'), 'iframe', 0, { 'data-app-src': 'deck/given.htm?file=app:/tmp/note.txt' }, 0); });
+  await page.waitForFunction(() => reports.length === 5, {}, { timeout: 10000 });
+  expect(await page.evaluate(() => reports[4].files)).toEqual([{ file: expect.stringMatching(/^blob:/), status: 200, type: 'text/plain', bytes: 6 }]);
+  expect(errors).toEqual([]);
 }), 90000);
