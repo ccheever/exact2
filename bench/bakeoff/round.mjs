@@ -56,7 +56,9 @@ const run = (cmd, argv, logName) => new Promise((ok) => {
 
 /** The exact2 the builders use: a detached checkout without the bake-off's own files. */
 function pinCheckout() {
-  const rev = spawnSync('git', ['-C', REPO, 'rev-parse', '--short=10', opt.rev ?? 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+  // A round keeps the commit it was first pinned to: a phase run again later builds against the same exact2.
+  const recorded = !opt.rev && existsSync(resolve(ROUND, 'pin.txt')) ? readFileSync(resolve(ROUND, 'pin.txt'), 'utf8').split('\n')[0].trim() : null;
+  const rev = recorded || spawnSync('git', ['-C', REPO, 'rev-parse', '--short=10', opt.rev ?? 'HEAD'], { encoding: 'utf8' }).stdout.trim();
   const pin = resolve(homedir(), 'bakeoff/pins', rev);
   if (!existsSync(pin)) {
     spawnSync('git', ['-C', REPO, 'worktree', 'add', '--detach', pin, rev], { stdio: 'inherit' });
