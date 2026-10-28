@@ -474,8 +474,7 @@ component Excord
     highlight = ""
     away = false
     historyStart = false
-    // A New divider only for what was unread on opening: what arrives while the
-    // reader watches is not new to them.
+    // A New divider only for what was unread on opening: what arrives while the reader watches is not new to them.
     since = c.unread > 0 ? c.lastRead : ""
     unreadBar = c.unread > 0
     unreadLabel = ""
@@ -485,7 +484,7 @@ component Excord
       anchor = p.anchor
       target = p.key
       restoreOffset = p.offset
-      targetBlock = "offset"
+      targetBlock = "place"
     else
       anchor = ""
       target = ""
@@ -677,17 +676,18 @@ component Excord
         target = ""
       else
         if keys.includes(key)
-          if targetBlock == "offset"
+          if targetBlock != "center"
             scrollIntoView("transcript", key, offset=restoreOffset, behavior="instant")
             leadHeld = true
+            // A saved place not at the end, placed, is away from it, whether or not the list reports a move.
+            away = away or targetBlock == "place"
           else
             scrollIntoView("transcript", key, block="center", behavior="instant")
           target = ""
         else
-          // The target is not in history (deleted since its reply was drawn):
-          // the reader goes back to where they were.
+          // The target is not in history (deleted since its reply was drawn): the reader goes back to where they were.
           highlight = ""
-          if targetBlock == "offset"
+          if targetBlock != "center"
             target = ""
           else
             anchor = jumpFromAnchor

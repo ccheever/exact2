@@ -49,11 +49,13 @@ export async function inject(world: World, request: Injection, controls: Control
     return;
   }
   // A message with a link to each of two channels and to a direct message: what an address change by an
-  // in-app link opens (the warm-navigation tests).
+  // in-app link opens (the warm-navigation tests); and a link to a message #general never had, which leaves
+  // the reader at that channel's end (the restore tests).
   if (what === 'links') {
     const named = (name: string) => world.channels.find(c => c.name === name)!.id;
     const dm = world.private_channels[0].id;
-    const content = `Moved to <#${named('help')}>, also <#${named('random')}>, back in <#${named('general')}>, and https://discord.com/channels/@me/${dm}`;
+    const content = `Moved to <#${named('help')}>, also <#${named('random')}>, back in <#${named('general')}>, and https://discord.com/channels/@me/${dm}`
+      + `, or [a message never sent](https://discord.com/channels/@me/${named('general')}/1)`;
     const created = controls.create(channelId, content, world.users[1].id, at);
     await controls.broadcast('MESSAGE_CREATE', created);
     return;

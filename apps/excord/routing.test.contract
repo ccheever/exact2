@@ -1,8 +1,8 @@
 // Excord's routing on the fixture server (llp/0001 §3.12): the launch's restore and warm navigation, one
-// request at a time (routing.contract). The fixture and its launches are app.test.contract's: the run starts
-// it with --world transcript --reset-on-identify, so each launch's IDENTIFY starts from the same world, and
-// each launch runs `clock settle` (IDENTIFY's task), waits for the gateway's READY with the clock frozen
-// (`clock until state`), then `clock settle` again.
+// request at a time (routing.contract), and the place a reopened channel restores (§3.3). The fixture and its
+// launches are app.test.contract's: the run starts it with --world transcript --reset-on-identify, so each
+// launch's IDENTIFY starts from the same world, and each launch runs `clock settle` (IDENTIFY's task), waits for
+// the gateway's READY with the clock frozen (`clock until state`), then `clock settle` again.
 epoch "2026-10-22T18:00:00Z"
 time-zone "America/Los_Angeles"
 
@@ -105,3 +105,115 @@ test "a link to a direct message selects the direct messages and opens it"
   clock settle
   expect state server == "@me"
   expect state chan.direct == true
+
+// A restore that moves nothing (reopened at the saved row and offset, or the open channel chosen again) still
+// leaves the reader away from the end, so the next leaving keeps the place rather than saving the end.
+test "a place restored without a scroll stays the reader's place, not the end"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == "1562033782335219374"
+  expect state away == true
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state away == true
+  type "composer" key "Meta+k"
+  clock settle
+  type "switcher-search" "gen"
+  clock data
+  type "switcher-search" key "Enter"
+  clock data
+  clock settle
+  expect state chan.name == "general"
+  expect state anchor == "1562033782335219374"
+  expect state away == true
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == "1562033782335219374"
+  expect state away == true
+  expect tree has "message-1562755578936174328"
+
+// The other branch: a channel left at its end opens at its end, live, however it is opened again.
+test "a channel left at its end reopens at its end, live"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  clock settle
+  expect state away == false
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  type "composer" key "Meta+k"
+  clock settle
+  type "switcher-search" "gen"
+  clock data
+  type "switcher-search" key "Enter"
+  clock data
+  clock settle
+  expect state chan.name == "general"
+  expect state anchor == ""
+  expect state away == false
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect state endGap == 0
+
+// A link to a message the channel never had leaves the reader at its end: a saved place it replaced is not
+// kept, so the reader is not away, and the next leaving saves the end.
+test "a link to a missing message in a channel with a saved place lands at its end, live"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  tap "transcript" into "1562755578936174328"
+  clock settle
+  expect state away == true
+  back
+  clock settle
+  tap "channel-random"
+  clock settle
+  tap "fixture"
+  tap "inject-links"
+  clock data
+  clock settle
+  tap "a message never sent"
+  clock data
+  clock settle
+  expect state chan.name == "general"
+  expect state target == ""
+  expect state anchor == ""
+  expect state away == false
+  back
+  clock settle
+  back
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect state anchor == ""
+  expect state away == false
+  expect state endGap == 0
