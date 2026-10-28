@@ -221,6 +221,12 @@ impl Batch {
     }
 
     /// A terminal admission refusal, delivered after the enclosing DOM batch.
+    /// A request the app aborted: the page cancels it, whatever its method.
+    pub(crate) fn abort(&mut self, ticket: u64) {
+        self.ops
+            .push(text!("{{\"op\":\"abort\",\"ticket\":{}}}", ticket));
+    }
+
     pub(crate) fn refuse(&mut self, ticket: u64, message: &str) {
         let mut out = text!("{{\"op\":\"refuse\",\"ticket\":{},\"message\":", ticket);
         quote(message, &mut out);
