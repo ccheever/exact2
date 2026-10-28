@@ -6,6 +6,9 @@ import { commandDisplayText, commandProgramName, displayFailed, formatDuration, 
 import type { Files, Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
 import { availableRevertTurnCounts, revertTurnCounts, type Entry } from '../../src/timeline/timeline-rows';
+import { threadFindState } from '../../src/timeline/thread-find-runtime';
+import { liveEvent } from '../../src/client/live-streams';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const base = Date.parse('2026-10-03T00:00:00.000Z');
 const at = (seconds: number) => new Date(base + seconds * 1000).toISOString();
@@ -98,6 +101,35 @@ describe('settled turns', () => {
     const cut = client([user('u', 0, 'go'), { ...answer('old', 1, 'Partial', { completedAt: at(3) }), nodeId: 'n1' }, user('s', 2, 'steer', { inputIntent: 'steer' })], {
       attempts: [{ id: 'a1', runId: 'r1', rootNodeId: 'n1', status: 'superseded', completedAt: at(2) }] });
     expect(rows(cut).find(row => row.kind === 'attempt')).toMatchObject({ detail: 'Cut off by a steer' });
+  });
+
+  test('a steer splits the settled turn: the total time above it, "Continued for" over each segment after (#22783)', async () => {
+    const value = client([user('u', 0, 'go'), command('a', 4, 'ls'), user('s', 10, 'steer', { inputIntent: 'steer' }), command('b', 15, 'pwd'), answer('x', 30, 'Done')],
+      { runs: [{ id: 'r1', status: 'completed', startedAt: at(0), completedAt: at(30) }] });
+    const segment = `r1:steer:${key('s')}`;
+    let result = rows(value);
+    expect(kinds(result)).toEqual(['user', 'work', 'user', 'work', 'assistant']);
+    expect(result[1]).toMatchObject({ title: 'Worked for 30s', groupId: 'r1' });
+    expect(result[3]).toMatchObject({ title: 'Continued for 20s', groupId: segment, createdAt: at(10) });
+    await toggle(value, 'fold', segment);
+    result = rows(value);
+    expect(kinds(result)).toEqual(['user', 'work', 'user', 'work', 'entry', 'assistant']);
+    expect(result[4]!.activities![0]).toMatchObject({ label: 'pwd' });
+    // Back-to-back steers split once, after the last of them.
+    const twice = rows(client([user('u', 0, 'go'), command('a', 4, 'ls'), user('s', 10, 'one', { inputIntent: 'steer' }),
+      user('t', 11, 'two', { inputIntent: 'promoted_queued_to_steer' }), command('b', 15, 'pwd'), answer('x', 30, 'Done')]));
+    expect(kinds(twice)).toEqual(['user', 'work', 'user', 'user', 'work', 'assistant']);
+    expect(twice[4]).toMatchObject({ title: 'Continued for 19s', groupId: `r1:steer:${key('t')}` });
+  });
+
+  test('a todo update is a quiet row where the agent wrote it, opening to every step (#25401)', async () => {
+    const todo = item('todo', 'todo_list', 2, { steps: [{ text: 'Read', status: 'completed' }, { text: 'Write tests', status: 'running' }, { text: 'Ship', status: 'pending' }] });
+    const value = client([user('u', 0, 'go'), todo, answer('x', 3, 'Done')]);
+    await toggle(value, 'fold', 'r1');
+    const group = rows(value).find(row => row.kind === 'group')!;
+    expect(group).toMatchObject({ title: 'Tasks 1/3 · Write tests' });
+    await toggle(value, 'group', group.groupId!);
+    expect(rows(value).find(row => row.kind === 'details')!.activities![0]).toMatchObject({ label: 'Tasks 1/3 · Write tests', icon: 'list-todo', body: '✓ Read\n◉ Write tests\n○ Ship' });
   });
 
   test('a running subagent card stays out of its settled turn\'s fold (#16878)', async () => {
@@ -278,7 +310,7 @@ describe('events and messages', () => {
       item('f', 'fork', 2, { runId: null, source: { type: 'run', threadId: 'source' }, targetThreadId: 't1' }),
       item('e', 'error', 3, { status: 'failed', failure: { message: 'Intentional fixture failure.', class: 'provider_error' } })],
       { runs: [{ id: 'r1', status: 'failed', startedAt: at(0), completedAt: at(3) }] }));
-    expect(result.find(row => row.kind === 'event')).toMatchObject({ title: 'Run interrupted', detail: 'Stopped by user', tone: 'danger', icon: 'x' });
+    expect(result.find(row => row.kind === 'event')).toMatchObject({ title: 'Run interrupted', detail: 'Stopped by user', tone: 'neutral', icon: 'circle-stop' });
     expect(result.find(row => row.kind === 'fork')).toMatchObject({ body: 'Forked from conversation', actionLabel: 'Open source conversation', targetId: 'source' });
     expect(result.find(row => row.kind === 'entry')!.activities![0]).toMatchObject({ label: 'Provider error', tone: 'provider-error', detail: 'Intentional fixture failure.' });
   });
@@ -303,6 +335,68 @@ describe('events and messages', () => {
       user('p', 2, 'hi', { createdBy: 'agent', creationSource: 'mcp' })]));
     expect(result.filter(row => row.kind === 'user').map(row => [row.attribution, row.body, row.detail])).toEqual([
       ['t3code', 'Continue.', ''], ['automation', 'Run it', 'task-1'], ['agent', 'hi', '']]);
+  });
+
+  test('automation and other agents\' messages fold to one line under their author (#22638, #23135)', () => {
+    const value = client([user('s', 0, `Nightly digest\n\nRead yesterday's commits.\n${'Summarize them.\n'.repeat(12)}`, { scheduledTaskId: 'task-9' }),
+      user('a', 1, '\n\n  Please review [notes.md](t3-context://v1/file/file_1)  \nThey need a second read.', { createdBy: 'agent', creationSource: 'mcp', senderThreadId: 'sender' }),
+      user('b', 2, 'hello', { createdBy: 'agent', creationSource: 'mcp', senderThreadId: 'gone' }), user('u', 3, 'mine')]);
+    value.shell.threads = [{ id: 'sender', title: '  Release prep  ' }] as typeof value.shell.threads;
+    const users = rows(value).filter(row => row.kind === 'user');
+    expect(users.map(row => [row.attribution, row.title, row.summary, row.collapsible])).toEqual([
+      ['automation', 'Automation', 'Nightly digest', false], ['agent', 'Release prep', 'Please review notes.md', false],
+      ['agent', 'Agent', 'hello', false], ['', 'You', '', false]]);
+  });
+
+  test('a folded message opens while find\'s match is inside it, chevron or not, stays open after, and closes with its thread (findRevealRef)', async () => {
+    const value = client([user('s', 0, 'Nightly digest\n\nRead the commits.', { scheduledTaskId: 'task-9' }), user('u', 1, 'the commits are mine')]);
+    const folded = () => rows(value).find(row => row.attribution === 'automation')!;
+    expect(folded().expanded).toBe(false);
+    const find = threadFindState(value).model, at = (entryId: string) => ({ complete: true, snapshotSequence: 0, totalMatches: 2, activeIndex: 0, match: { entryId, runId: null, occurrence: 0 }, navigation: [] });
+    find.open = true; find.query = 'commits'; find.result = at('m-s');
+    expect(folded().expanded).toBe(true);
+    // The painter reveals the fold on every paint while the active match is inside, so the chevron cannot close it.
+    await toggle(value, 'message', key('s'));
+    expect(folded().expanded).toBe(true);
+    // The match moves on and the fold stays open, until the chevron closes it.
+    find.result = at('m-u');
+    expect(folded().expanded).toBe(true);
+    await toggle(value, 'message', key('s'));
+    expect(folded().expanded).toBe(false);
+    // The row's state is its own: another thread and back, and the fold is closed again.
+    await toggle(value, 'message', key('s'));
+    expect(folded().expanded).toBe(true);
+    value.threadId = 't2'; rows(value); value.threadId = 't1';
+    expect(folded().expanded).toBe(false);
+    // The footer (Open automation, the time, the actions) shows only while the fold is open.
+    const row = contractComponent('timeline.contract', 'UserRow');
+    const footer = (expanded: boolean) => row.drawn('label="Open automation"', row.state(), { message: { ...folded(), expanded }, threadFind: { open: true, query: 'commits', entry: '' } });
+    expect([footer(true), footer(false)]).toEqual([true, false]);
+  });
+
+  test('a sent sound plays in its audio chip, and its reference leaves the prompt (renderContextReference returns null)', () => {
+    const sound = (text: string, id: string, seconds: number) => user(id, seconds, text, { attachments: [{ type: 'file', id: `att-${id}`, name: 'memo.wav', mimeType: 'audio/wav' }],
+      context: { version: 1, records: [{ version: 1, kind: 'file', contextId: `file_${id}`, label: 'memo.wav', attachmentId: `att-${id}`, name: 'memo.wav' }] } });
+    const shown = rows(client([sound('Listen to [memo.wav](t3-context://v1/file/file_a) now', 'a', 0), sound('[memo.wav](t3-context://v1/file/file_b)', 'b', 1)]))
+      .filter(row => row.kind === 'user');
+    expect(shown.map(row => [row.body, row.audio?.length, row.chips?.length])).toEqual([['Listen to  now', 1, 0], ['', 1, 0]]);
+  });
+
+  test('an automation is named by its live task, reads its context references as labels, and copies without the old prefix', async () => {
+    const value = client([user('s', 0, 'Run [notes_v2.md](t3-context://v1/file/file_1) and ![](t3-context://v1/image/image_2) now', { scheduledTaskId: 'task-9',
+      context: { version: 1, records: [{ version: 1, kind: 'file', contextId: 'file_1', label: 'notes_v2.md', attachmentId: 'att', name: 'notes_v2.md' }] } }),
+    user('l', 1, '[Triggered by schedule task: Daily]\n\nRun it', { messageId: 'scheduled-task-message:task-1:3:scheduled' })]);
+    Object.assign(value, { environmentId: 'env-1', generation: 1 });
+    const fallback = rows(value).find(row => row.attribution === 'automation')!;
+    expect(fallback.summary).toBe('Run [notes_v2.md](t3-context://v1/file/file_1) and ![](t3-context://v1/image/image_2) now');
+    liveEvent(value, { key: 'scheduled-tasks', subscriptionId: 'sub-1', value: { tasks: [{ id: 'task-9', title: 'Nightly digest of the repository' }] } });
+    const [task, legacy] = rows(value).filter(row => row.attribution === 'automation');
+    expect([task!.summary, task!.body, task!.chips.length]).toEqual(['Nightly digest of the repository', 'Run notes\\_v2.md and image\\_2 now', 0]);
+    expect(legacy!.body).toBe('Run it');
+    const copied: string[] = [];
+    Object.assign(value, { restAccess: () => ({ call: async (request: { text: string }) => { copied.push(request.text); return {}; } }) });
+    await chatLocal(value, native, 'copy', key('l'), '');
+    expect(copied).toEqual(['Run it']);
   });
 
   test('short messages with links or quotes do not collapse; the visible text counts (#16624)', () => {

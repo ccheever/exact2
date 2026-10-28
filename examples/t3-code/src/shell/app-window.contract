@@ -56,7 +56,7 @@ use PrBreakdownCard from "../pull-requests/pr-breakdown.contract"
 use PrCardView from "../details/pr-row.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
 use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
-use CiteAction, CiteOffer, citeLineFrame, citeLineShown, citeRestored from "../timeline/diff-cite.contract" // Cite over the timeline
+use CiteAction, CiteOffer, citeHeldOffer, citeLineFrame, citeLineShown, citeRestored from "../timeline/diff-cite.contract" // Cite over the timeline
 use AppConfirm from "./shell-panels.contract"
 use DialogFocusFrame, dialogFrame, dialogReturn, dialogLineage from "../shared/dialog-trap.contract"
 use PromptLinkPage, PromptLinkView from "../prompt-links/prompt-links.contract"
@@ -738,7 +738,9 @@ component T3Window
     citeParked = ""
   action citePress
     let end = frame(citeOffer.end)
-    command("diffreview", `cite:${citeOffer.source}`, `${citeOffer.ranges}|${citeLineFrame(citeOffer, end)}|${citeOffer.stream}`, 0)
+    // The comment's anchor, held to the answer's width as the press reads it (AssistantCitationChip's popupAnchor).
+    let answer = frame(`cite-${citeOffer.source}`)
+    command("diffreview", `cite:${citeOffer.source}`, `${citeOffer.ranges}|${citeLineFrame(citeHeldOffer(citeOffer, end, answer), end)}|${citeOffer.stream}`, 0)
     removeAllRanges()
     citeFor = ""
     citeParked = ""

@@ -60,7 +60,15 @@ export function workspaceRelativeFilePath(path: string, root: string | null | un
   const fold = isWindowsAbsolutePath(strip(root)) ? (value: string) => value.toLowerCase() : (value: string) => value;
   if (fold(normalizedPath).replace(/\/+$/, '') === fold(normalizedRoot)) return '.';
   if (!fold(normalizedPath).startsWith(`${fold(normalizedRoot)}/`)) return null;
-  return normalizedPath.slice(normalizedRoot.length + 1);
+  const relativePath = normalizedPath.slice(normalizedRoot.length + 1);
+  // `/repo/../x` starts with the root but leaves it: a host path, which the server refuses as a workspace one.
+  let depth = 0;
+  for (const segment of relativePath.split('/')) {
+    if (segment === '..') depth -= 1;
+    else if (segment.length > 0 && segment !== '.') depth += 1;
+    if (depth < 0) return null;
+  }
+  return relativePath;
 }
 /** resolveWorkspaceFilePath: a workspace-relative path on the host, in the workspace's own separators. */
 export function resolveWorkspaceFilePath(path: string, root: string): string {

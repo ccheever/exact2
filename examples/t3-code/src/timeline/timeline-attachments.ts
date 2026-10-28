@@ -22,10 +22,11 @@ import { draftThreadId } from '../composer/draft-thread-id';
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
 export interface MessageFile { id: string; name: string; icon: string }
 
-/** A user message's images (annotation previews stay out, as the reference filters them) and files.
- *  A sent video is a grid tile after the images (UserVideoAttachment), never a file row. */
-export function messageAttachments(item: Obj): { images: MessageImage[]; attachFiles: MessageFile[] } {
-  const images: MessageImage[] = [], attachFiles: MessageFile[] = [], videos: MessageImage[] = [];
+/** A user message's images (annotation previews stay out, as the reference filters them), audio and files.
+ *  A sent video is a grid tile after the images (UserVideoAttachment), a downloadable sound an audio chip
+ *  (InlineAudioPreview), never a file row. */
+export function messageAttachments(item: Obj): { images: MessageImage[]; attachFiles: MessageFile[]; audio: MessageFile[] } {
+  const images: MessageImage[] = [], attachFiles: MessageFile[] = [], videos: MessageImage[] = [], audio: MessageFile[] = [];
   for (const attachment of arr(item.attachments)) {
     const id = str(attachment.id), name = str(attachment.name);
     if (!id) continue;
@@ -36,12 +37,36 @@ export function messageAttachments(item: Obj): { images: MessageImage[]; attachF
       images.push({ id, name, snapshot, appName, appInitial: appName.slice(0, 1).toUpperCase(), windowTitle: snapshot ? str(source.windowTitle) || 'Captured window' : '',
         accessible: snapshot && (!!source.accessibility || !!str(source.accessibleText).trim()), video: false });
     } else if (attachment.type === 'file' && isSentVideo(attachment)) videos.push({ id, name, snapshot: false, appName: '', appInitial: '', windowTitle: '', accessible: false, video: true });
+    else if (attachment.type === 'file' && isSentAudio(attachment)) audio.push({ id, name, icon: fileIconToken(name) });
     else if (attachment.type === 'file') attachFiles.push({ id, name, icon: fileIconToken(name) });
   }
-  return { images: [...images, ...videos], attachFiles };
+  return { images: [...images, ...videos], attachFiles, audio };
 }
 
 const isSentVideo = (attachment: Obj) => videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) !== null;
+/**
+ * filePreviewKind "audio" (shared/filePreview.ts): an audio MIME type, or a sound's extension under a generic one (none,
+ * application/octet-stream or text/plain), the MIME type read without its parameters.
+ */
+export function isSentAudio(attachment: Obj): boolean {
+  const mime = str(attachment.mimeType).split(';', 1)[0]!.trim().toLowerCase();
+  const generic = !mime || mime === 'application/octet-stream' || mime === 'text/plain';
+  return attachment.downloadable !== false && (mime.startsWith('audio/') || generic && /\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff|weba)$/i.test(str(attachment.name)));
+}
+const CONTEXT_FILE_REFERENCE = /!?\[[^\]\n]{0,512}\]\(t3-context:\/\/v1\/file\/([a-z0-9_-]{1,128})\)/gi;
+/**
+ * A sent sound's reference leaves the prompt: TimelineUserMessageRow's renderContextReference returns null for a file
+ * reference whose attachment plays in its audio chip, so only the text around it draws.
+ */
+export function withoutSoundReferences(text: string, item: Obj): string {
+  const sounds = new Set(arr(item.attachments).filter(attachment => attachment.type === 'file' && isSentAudio(attachment)).map(attachment => str(attachment.id)));
+  if (!sounds.size || !text.includes('](t3-context://v1/file/')) return text;
+  const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
+  return text.replace(CONTEXT_FILE_REFERENCE, (reference, id: string) => {
+    const record = records.get(id);
+    return record && str(record.kind) === 'file' && sounds.has(str(record.attachmentId)) ? '' : reference;
+  });
+}
 const urls = new Map<string, { url: string; expiresAt: number }>();
 /** Signed preview URLs for the selected thread's sent images (useAssetUrls), cached until shortly before they expire. */
 type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };
@@ -56,6 +81,8 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
     for (const attachment of arr(item.attachments)) if (attachment.type === 'image' && str(attachment.id) && !str(attachment.name).startsWith('preview-annotation-')) wanted.push(attachment);
     // buildAttachmentVideoAsset signs a sent video under its video MIME type.
     for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && isSentVideo(attachment)) wanted.push({ ...attachment, mimeType: videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) });
+    // InlineAudioPreview: a sent sound plays from its inline attachment resource.
+    for (const attachment of arr(item.attachments)) if (attachment.type === 'file' && str(attachment.id) && !isSentVideo(attachment) && isSentAudio(attachment)) wanted.push(attachment);
   }
   // Queued messages' images (the queued rows' thumbnails and the edit's kept attachments).
   const queuedMessages = new Set(arr(client.projection.runs).filter(run => run.status === 'queued').map(run => str(run.userMessageId)));

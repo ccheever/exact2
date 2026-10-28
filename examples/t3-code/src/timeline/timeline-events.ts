@@ -152,7 +152,8 @@ export function subagentGroupTiming(agents: ReadonlyArray<{ status: string; star
 export function eventRow(item: Obj, group: Obj[], row: Obj, context: SubagentContext = NO_CONTEXT): Partial<Message> & { kind: string } {
   const type = str(item.type);
   switch (type) {
-    case 'run_interrupt_result': return { kind: 'event', title: 'Run interrupted', detail: str(item.message), tone: 'danger', icon: 'x', runId: str(item.runId) };
+    // A stopped run is no error: a neutral divider with CircleStop.
+    case 'run_interrupt_result': return { kind: 'event', title: 'Run interrupted', detail: str(item.message), tone: 'neutral', icon: 'circle-stop', runId: str(item.runId) };
     // HandoffRow: the endpoints (from…, then to) draw beside the label; `detail` is their text for the row's accessible name.
     case 'handoff': {
       const { from, to } = handoffEndpoints(item, context.runs ?? []);
