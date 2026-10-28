@@ -796,7 +796,7 @@ extension NavigationHost {
             showReadouts(shows ? shape : nil, in: c)
             reachBottom(c, presented: presented)
             c.paintBackdrop()
-            searchField(shows ? shape?.search : nil, in: c)
+            searchField(shows ? shape?.search : nil, in: c, covered: index < routes.count - 1)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
             richTitle(shows ? shape : nil, in: c)
             c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
@@ -940,11 +940,16 @@ extension NavigationHost {
     /// Where it sits and whether it hides as the content scrolls are
     /// UIKit's own answers for the device and the bar (LLP 1115.000 D11.2):
     /// Exact once pinned it under the title (`.stacked`, never hiding).
-    private func searchField(_ field: NodeView?, in c: RouteController) {
+    private func searchField(_ field: NodeView?, in c: RouteController, covered: Bool) {
         // tvOS navigation items carry no search controller.
         #if !os(tvOS)
         guard let field else {
-            if let search = c.search {
+            // A route another now covers keeps its search until it is shown
+            // again, as UIKit's stays on the screen under a push: dismissed
+            // during the push, it took the push with it when a header wrote
+            // its field only while its route was on top (bake-off r31's
+            // contacts: a tap on a result while typing closed the search).
+            if let search = c.search, !covered {
                 search.controller.searchBar.resignFirstResponder()
                 search.field = nil
                 search.controller.isActive = false
