@@ -77,6 +77,8 @@ test('the rename field hands each edit to the data module, which reads its direc
   field.call('edit', state, { t: { id: 'a', title: 'Fix the build' }, releaseUndoClaim: () => { calls.push(['release']); }, local: (...args: unknown[]) => { calls.push(args); } }, ['مرحبا']);
   expect(calls).toEqual([['release'], ['rename-input', 'a', 'مرحبا']]);
   expect(state.title).toBe('مرحبا');
+  // The field aligns to the start of its direction: macOS's field reads `start` with `direction`, and aligns left without it.
+  expect(line('sidebar-row.contract', 'input id=`sidebar-rename-')).toContain('text-align="start" direction=t.renameDir');
 });
 
 test('the Working shelf\'s grace runs on two root timers, with the sidebar open or not', () => {
