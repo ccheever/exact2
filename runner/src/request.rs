@@ -351,6 +351,26 @@ impl Request {
             && self.surface.is_none()
     }
 
+    /// Whether the request may change something at its server: an `http:`
+    /// or `https:` request whose method is not safe (RFC 9110 §9.2.1), and
+    /// no stream, socket, long poll or held request. One its answer lets go
+    /// runs to its end (LLP 1146 D2): cancelling it would not undo it.
+    pub fn has_effects(&self) -> bool {
+        let url = self.url.get(..8).unwrap_or(&self.url).to_ascii_lowercase();
+        (url.starts_with("http://") || url.starts_with("https://"))
+            && !matches!(
+                self.method.to_ascii_uppercase().as_str(),
+                "GET" | "HEAD" | "OPTIONS" | "TRACE"
+            )
+            && self.continuation.is_none()
+            && self.storage.is_none()
+            && self.surface.is_none()
+            && !self.stream
+            && !self.socket
+            && self.long_poll.is_none()
+            && !self.held
+    }
+
     /// Native ordered lane is mandatory for storage and continuations, even
     /// when an invalid HTTP annotation will cause their admission to refuse.
     pub fn is_ordered(&self) -> bool {
@@ -1431,5 +1451,34 @@ mod tests {
             body: Vec::new(),
         };
         assert_eq!(written.body_written(), Some(17));
+    }
+
+    /// LLP 1146 D2: what may change its server runs to its end once its
+    /// answer is let go; what cannot (a safe method), or what is Exact's own
+    /// work, a stream or a held request, does not.
+    #[test]
+    fn a_request_has_effects_only_when_its_method_is_unsafe_over_http() {
+        /// Whether a POST so changed has effects.
+        fn with(change: impl FnOnce(&mut Request)) -> bool {
+            let mut r = Request::post_json("https://example.test/x", "{}");
+            change(&mut r);
+            r.has_effects()
+        }
+        assert!(with(|_| {}));
+        assert!(with(
+            |r| (r.method, r.url) = ("delete".into(), "HTTP://example.test/x".into())
+        ));
+        for safe in ["GET", "HEAD", "OPTIONS", "TRACE"] {
+            assert!(!with(|r| r.method = safe.into()), "{safe}");
+        }
+        assert!(!with(|r| r.url = crate::auth::AUTH_URL.into()));
+        assert!(!with(|r| r.url = NATIVE_URL.into()));
+        assert!(!with(|r| r.stream = true));
+        assert!(!with(|r| r.held = true));
+        assert!(!with(|r| r.continuation = Some(1)));
+        assert!(!with(|r| r.socket = true));
+        assert!(!with(|r| r.storage = Some(Vec::new())));
+        assert!(!with(|r| r.surface = Request::capture_surface("x").surface));
+        assert!(!Request::continuation(7).has_effects());
     }
 }

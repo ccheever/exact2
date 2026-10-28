@@ -498,7 +498,8 @@ impl<D: DataSource> Runner<D> {
                                 && !exact_plan::runner_owned_source(self.plan.str(row.source))
                                 && !forced
                                 && (!self.store_readers[i]
-                                    || s.store_revision == self.store.revision())
+                                    || s.store_revision == self.store.revision()
+                                    || self.asks_again_after_reply(i))
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
                                 && (!s.placeholder || pending_res[i] || awaiting[i]))
@@ -925,6 +926,7 @@ impl<D: DataSource> Runner<D> {
             // does not refresh itself.
             let stale_store_reader = states.iter().enumerate().any(|(i, state)| {
                 self.store_readers[i]
+                    && !self.asks_again_after_reply(i)
                     && state
                         .as_ref()
                         .is_none_or(|state| state.store_revision != revision)

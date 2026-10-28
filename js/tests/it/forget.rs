@@ -88,15 +88,28 @@ fn a_request_replaced_by_newer_arguments_lets_its_call_go() {
     }
     let requests = r.take_requests();
     assert_eq!(requests.len(), 3);
-    assert_eq!(r.pending().len(), 1, "the runner holds the newest");
+    // The runner holds the newest for `session` and keeps the two it
+    // replaced: each is a POST, which runs to its end (LLP 1146 D2).
+    let pending = r.pending();
+    assert_eq!(
+        pending.iter().filter(|(name, _)| name == "session").count(),
+        1,
+        "the runner holds the newest: {pending:?}"
+    );
+    assert_eq!(pending.len(), 3, "and keeps the two let go: {pending:?}");
     assert_eq!(r.data().in_flight(), 1, "the executor parks only its call");
-    // The newest reply settles; the older replies are dropped.
+    // The newest reply settles; the older replies reach their let-go calls'
+    // continuations, which answer nothing. What those write to the store
+    // stands, as on the web: the session kept is the last reply's.
     r.fulfill(requests[2].ticket, login("abc")).unwrap();
     assert_eq!(text_of(&r, "user").as_deref(), Some("abc"));
     for q in &requests[..2] {
-        assert!(r.fulfill(q.ticket, login("old")).unwrap().is_none());
+        r.fulfill(q.ticket, login("old")).unwrap();
     }
     assert_eq!(text_of(&r, "user").as_deref(), Some("abc"));
+    let kept = r.store().get("castle.session").unwrap_or_default();
+    assert!(kept.contains("\"username\":\"old\""), "{kept}");
+    assert!(r.pending().is_empty());
     assert_eq!(r.data().in_flight(), 0);
 }
 
@@ -118,4 +131,106 @@ fn a_refused_commit_puts_back_the_request_it_replaced_and_lets_its_own_call_go()
     r.fulfill(ada[0].ticket, login("ada")).unwrap();
     assert_eq!(text_of(&r, "user").as_deref(), Some("ada"));
     assert_eq!(r.data().in_flight(), 0);
+}
+
+const TAGGED_HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/outlive.hbc"));
+
+const TAGGED: &str = r#"
+shape Row
+  text: string
+
+component App
+  mutation tagged as shape Row
+  mutation probe as shape Row
+
+  action send
+    send tagged = tagged()
+  action resend
+    send tagged = tagged()
+    send probe = unknown()
+
+  view
+    column
+      match tagged
+        case some(t)
+          text t.text testId="tagged"
+        case none
+          text "none" testId="none"
+"#;
+
+/// A send replaced by an equal one in a commit that is then refused: the
+/// first call is put back with its request, and its reply reaches it, not
+/// the call that replaced it (LLP 1146 D2).
+#[test]
+fn a_refused_commit_puts_back_a_call_an_equal_one_replaced() {
+    let mut module = Module::loaded(
+        TAGGED_HBC.to_vec(),
+        "test.outlive",
+        "net.fetch https://outlive.test\nsecret.keep outlive.token\n",
+    )
+    .unwrap();
+    module.set_budget_ms(f64::INFINITY);
+    let mut r = Runner::boot(
+        contract::compile(TAGGED).expect("the fixture's Contract compiles"),
+        module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("send", vec![]).unwrap();
+    let sent = r.take_requests();
+    assert_eq!(sent.len(), 1);
+    assert!(
+        r.act("resend", vec![]).is_err(),
+        "the unknown source refuses it"
+    );
+    assert!(r.take_requests().is_empty());
+    assert_eq!(r.pending(), [("tagged".to_string(), sent[0].ticket)]);
+    assert_eq!(r.data().in_flight(), 1, "one call is parked");
+    let reply = Outcome::Response(Response {
+        status: 200,
+        headers: vec![],
+        body: b"ok".to_vec(),
+    });
+    r.fulfill(sent[0].ticket, reply).unwrap();
+    assert_eq!(text_of(&r, "tagged").as_deref(), Some("call 1 ok"));
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+/// Three equal sends, each replacing the last, then a refused commit that
+/// puts the first one's request back: only the first call is parked again,
+/// and the reply reaches it (LLP 1146 D2).
+#[test]
+fn a_refused_commit_puts_back_only_the_first_of_several_equal_calls() {
+    use exact_plan::Value;
+    use exact_runner::{Answer, DataSource, InFlight, Store, Target};
+    let grants = "net.fetch https://outlive.test\nsecret.keep outlive.token\n";
+    let mut m = Module::loaded(TAGGED_HBC.to_vec(), "test.outlive", grants).unwrap();
+    m.set_budget_ms(f64::INFINITY);
+    m.bind(&contract::compile(TAGGED).expect("the fixture's Contract compiles"));
+    let mut s = Store::new(grants, Vec::<(String, Vec<u8>)>::new());
+    for _ in 0..3 {
+        let a = m.answer_for(Target::Mutation(0), &mut s, "tagged", &[]);
+        assert!(matches!(a, Ok(Answer::Later(_))), "{a:?}");
+    }
+    let back = InFlight {
+        target: Target::Mutation(0),
+        source: "tagged",
+        args: &[],
+        continuation: None,
+    };
+    m.forgotten(&s, &[back]);
+    assert!(m.keep_sent(&s, &[], true).is_empty());
+    assert_eq!(m.in_flight(), 1, "one call is parked");
+    let reply = Outcome::Response(Response {
+        status: 200,
+        headers: vec![],
+        body: b"ok".to_vec(),
+    });
+    let a = m.parse_for(Target::Mutation(0), &mut s, "tagged", &[], reply);
+    assert!(
+        matches!(&a, Ok(Answer::Now(v)) if *v == Value::record(vec![Value::str("call 1 ok")])),
+        "{a:?}"
+    );
 }

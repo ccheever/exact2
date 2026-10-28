@@ -428,14 +428,14 @@ export const lowered={target:'es2016'};
 const ASYNC_HELPER=/@oxc-project\+runtime@[^/]*\/helpers\/esm\/asyncToGenerator\.js$/;
 export const asyncContextHelper=`export default function _asyncToGenerator(fn) {
   return function () {
-    var self = this, args = arguments, context = globalThis.__exact_async_context;
-    var at = context ? context.current() : undefined;
+    var self = this, args = arguments, context = globalThis.__exact_async_context, at = context ? context.current() : undefined;
     return new Promise(function (resolve, reject) {
       var gen = fn.apply(self, args);
       function step(key, arg) {
+        // A live answer's step that a module turn settled runs in that answer's own turn (LLP 1146 D2)
+        if (context && context.route && context.route(at, step, key, arg)) return;
         var before = context ? context.swap(at) : undefined, info;
-        try { info = gen[key](arg); }
-        catch (error) { if (context) context.swap(before); reject(error); return; }
+        try { info = gen[key](arg); } catch (error) { if (context) context.swap(before); reject(error); return; }
         if (context) context.swap(before);
         if (info.done) resolve(info.value);
         else Promise.resolve(info.value).then(function (v) { step("next", v); }, function (e) { step("throw", e); });

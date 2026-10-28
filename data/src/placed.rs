@@ -864,6 +864,32 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         }
     }
 
+    /// Work that outlives its answer is the inline module's alone (LLP 1146
+    /// D2): a worker's let-go requests are cancelled, as before.
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.keep_sent(store, let_go, refused),
+            _ => vec![None; let_go.len()],
+        }
+    }
+
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.module_landed(store, token, outcome),
+            _ => Ok(()),
+        }
+    }
+
     fn background_state(&self) -> Option<exact_runner::BackgroundState> {
         match self.inner.as_ref() {
             Some(inner) if self.owner.is_none() => inner.background_state(),

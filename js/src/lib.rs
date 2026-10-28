@@ -60,6 +60,7 @@ mod background;
 mod crypto;
 mod door;
 mod engine;
+mod module_work;
 mod native;
 mod paired;
 #[cfg(all(test, exact_js_engine))]
@@ -165,6 +166,9 @@ type Key = (Option<Target>, String, Vec<u8>);
 struct Parked {
     call: u64,
     ticket: u64,
+    /// The fetch it awaits may change its server (`Request::has_effects`):
+    /// let go, it runs to its end (LLP 1146 D2).
+    effects: bool,
     work_taken: bool,
     /// The module's progress when it parked: an answer waiting on another
     /// answer's work is asked again once something has landed since.
@@ -269,6 +273,10 @@ struct HostState {
     /// steps): there is no store, and storage is not refused as at bake.
     between_answers: bool,
     storage_changed: bool,
+    /// How much of module work may yet settle a waiting answer: kept
+    /// requests in flight and live answers' steps they left (op 21,
+    /// `module_work.rs`, LLP 1146 D2).
+    module_outstanding: usize,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -298,6 +306,8 @@ pub struct Module {
     keeps_plan: bool,
     sigs: HashMap<String, Sig>,
     parked: Vec<(Key, Parked)>,
+    /// Module work's let-go calls (`module_work.rs`, LLP 1146 D2).
+    work: module_work::Letting,
     /// Each dispatched waiter's flag, by its call: set when the call is let
     /// go, so a waiter whose outcome will be discarded takes no
     /// compression's right to write (LLP 1069.002 A1.5).
@@ -388,6 +398,7 @@ impl Module {
             keeps_plan: true,
             sigs: HashMap::new(),
             parked: Vec::new(),
+            work: Default::default(),
             retired: std::collections::HashMap::new(),
             streams: Vec::new(),
             waiters: Vec::new(),
@@ -709,8 +720,11 @@ impl Module {
         self.host.hosted_call = None;
         self.native_slot.set(None);
         self.parked.clear();
+        self.work = Default::default();
         self.host.requests.clear();
         self.background = Default::default();
+        // Module work ends with the engine (LLP 1146 D2).
+        self.host.module_outstanding = 0;
     }
 
     /// Whether an engine is up.
@@ -1057,16 +1071,7 @@ impl Module {
                 // and the call it would replace may be the one the runner
                 // keeps (files F18: a re-read dropped by a refused pass).
                 let replaced = if target.is_none() || request.continuation.is_none() {
-                    let replaced: Vec<u64> = self
-                        .parked
-                        .iter()
-                        .chain(&self.streams)
-                        .filter(|(k, _)| *k == key)
-                        .map(|(_, parked)| parked.call)
-                        .collect();
-                    self.parked.retain(|(k, _)| *k != key);
-                    self.streams.retain(|(k, _)| *k != key);
-                    replaced
+                    self.replace_on(&key)
                 } else {
                     Vec::new()
                 };
@@ -1243,6 +1248,7 @@ impl Module {
         let clock = TurnClock::start(&self.turn_time);
         let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
+            module_work::begin_turn(engine, call, source)?;
             if ticket == WAITING || ticket == TIMER {
                 // A timer of its own due by now runs: for a wait on others'
                 // work, any; for one on a timer, the one it waited for.
@@ -1347,6 +1353,7 @@ impl Module {
         let parked = Parked {
             call,
             ticket,
+            effects: request.has_effects(),
             work_taken: false,
             progress: self.progress,
             last: false,
