@@ -187,3 +187,15 @@ fn finish_returns_a_group_error_without_hanging() {
         "allocation refused"
     );
 }
+
+#[test]
+fn shadow_exclusion_packs_device_pixel_radii() {
+    let mut ink = Ink::new().unwrap();
+    ink.begin(80., 80., 2.);
+    let shape = Shape::new((10., 10., 40., 40.), [7.34375; 4]);
+    assert!(ink.blurred_shadow(&shape, [0, 0, 0, 255], 2., &shape, Transform::identity()));
+    let frame = ink.encoder.take_frame();
+    let i = frame.instances[0];
+    assert_eq!(i.clip1, [20., 20., 80., 80.]);
+    assert_eq!(i.clip_radii[2] & 65535, 235);
+}

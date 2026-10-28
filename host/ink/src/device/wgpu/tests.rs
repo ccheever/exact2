@@ -268,7 +268,7 @@ fn textures_brushes_clips_mips_and_retirement_reach_the_pixels() {
 fn allocation_errors_are_results_and_the_device_remains_usable() {
     let mut device = Wgpu::new().expect("native adapter");
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        checked(&device.device, || {
+        checked(&device.device, &device.errors, || {
             device.device.create_buffer(&::wgpu::BufferDescriptor {
                 label: Some("invalid allocation fixture"),
                 size: 16,
@@ -285,6 +285,33 @@ fn allocation_errors_are_results_and_the_device_remains_usable() {
     near(
         device.readback(target).unwrap().try_into().unwrap(),
         [64, 0, 0, 255],
+        1,
+    );
+}
+
+#[test]
+fn odd_mip_levels_average_every_source_pixel() {
+    let mut d = Wgpu::new().unwrap();
+    let texture = d
+        .create_texture(TextureDesc {
+            mipmapped: true,
+            ..TextureDesc::rgba(3, 1)
+        })
+        .unwrap();
+    d.upload_texture(
+        texture,
+        [0, 0],
+        [3, 1],
+        &[255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255],
+    )
+    .unwrap();
+    d.generate_mips(texture).unwrap();
+    near(
+        block_on(d.readback_async(texture, 1))
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        [85, 85, 85, 255],
         1,
     );
 }

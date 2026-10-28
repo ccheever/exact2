@@ -176,3 +176,36 @@ pub fn clip_union(
     let entry = atlas.insert(device, key, [w, h], &pixels)?;
     Ok(Coverage { rect, entry })
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[test]
+fn large_coverage_survives_repeated_frames_and_retires_when_idle() {
+    let mut device = crate::Wgpu::new().unwrap();
+    let mut atlas = Atlas::paths();
+    let path =
+        tiny_skia::PathBuilder::from_rect(tiny_skia::Rect::from_xywh(0., 0., 600., 520.).unwrap());
+    let mut texture = None;
+    for frame in 0..3 {
+        atlas.begin(&mut device).unwrap();
+        let mask = coverage(
+            &mut atlas,
+            &mut device,
+            &path,
+            FillRule::Winding,
+            &[],
+            Transform::identity(),
+            Some([600, 520]),
+        )
+        .unwrap()
+        .unwrap();
+        if frame > 0 {
+            assert_eq!(Some(mask.entry.texture), texture);
+            assert_eq!(atlas.stats().uploaded_bytes, 0);
+        }
+        texture = Some(mask.entry.texture);
+    }
+    for _ in 0..121 {
+        atlas.begin(&mut device).unwrap();
+    }
+    assert_eq!(atlas.stats().overflow_bytes, 0);
+}

@@ -28,10 +28,18 @@ struct Texture {
     raw: ::wgpu::Texture,
     view: ::wgpu::TextureView,
     desc: TextureDesc,
+    last: Submission,
+}
+
+#[derive(Clone)]
+pub struct Buffer {
+    raw: ::wgpu::Buffer,
+    last: Arc<AtomicU64>,
 }
 
 struct BufferSlot {
-    buffer: ::wgpu::Buffer,
+    buffer: Buffer,
+    viewport: ::wgpu::Buffer,
     capacity: u64,
 }
 
@@ -42,7 +50,7 @@ pub struct Wgpu {
     replace_pipeline: ::wgpu::RenderPipeline,
     layout: ::wgpu::BindGroupLayout,
     sampler: ::wgpu::Sampler,
-    viewport: ::wgpu::Buffer,
+    repeat_sampler: ::wgpu::Sampler,
     buffers: [BufferSlot; 3],
     next_buffer: usize,
     white_alpha: Texture,
@@ -215,24 +223,35 @@ impl Wgpu {
             mipmap_filter: ::wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
-        let viewport = checked(&device, || {
-            device.create_buffer(&::wgpu::BufferDescriptor {
-                label: Some("ink viewport"),
-                size: 16,
-                usage: ::wgpu::BufferUsages::UNIFORM | ::wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        })?;
+        let repeat_sampler = device.create_sampler(&::wgpu::SamplerDescriptor {
+            label: Some("ink pattern"),
+            address_mode_u: ::wgpu::AddressMode::Repeat,
+            address_mode_v: ::wgpu::AddressMode::Repeat,
+            mag_filter: ::wgpu::FilterMode::Linear,
+            min_filter: ::wgpu::FilterMode::Linear,
+            mipmap_filter: ::wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
         let mut initial = Vec::new();
         for _ in 0..3 {
+            let viewport = checked(&device, &failures, || {
+                device.create_buffer(&::wgpu::BufferDescriptor {
+                    label: Some("ink viewport"),
+                    size: 16,
+                    usage: ::wgpu::BufferUsages::UNIFORM | ::wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            })?;
             initial.push(BufferSlot {
-                buffer: instance_buffer(&device, 192)?,
+                viewport,
+                buffer: instance_buffer(&device, &failures, 192)?,
                 capacity: 192,
             });
         }
         let buffers = initial.try_into().ok().unwrap();
         let white_alpha = allocate_texture(
             &device,
+            &failures,
             TextureDesc {
                 width: 1,
                 height: 1,
@@ -240,7 +259,7 @@ impl Wgpu {
                 mipmapped: false,
             },
         )?;
-        let white_color = allocate_texture(&device, TextureDesc::rgba(1, 1))?;
+        let white_color = allocate_texture(&device, &failures, TextureDesc::rgba(1, 1))?;
         upload(&queue, &white_alpha, [0, 0], [1, 1], &[255]);
         upload(&queue, &white_color, [0, 0], [1, 1], &[255; 4]);
         Ok(Self {
@@ -250,7 +269,7 @@ impl Wgpu {
             replace_pipeline,
             layout,
             sampler,
-            viewport,
+            repeat_sampler,
             buffers,
             next_buffer: 0,
             white_alpha,
@@ -334,7 +353,11 @@ impl Wgpu {
         }
         entries.push(::wgpu::BindGroupEntry {
             binding: 6,
-            resource: ::wgpu::BindingResource::Sampler(&self.sampler),
+            resource: ::wgpu::BindingResource::Sampler(if b.repeat {
+                &self.repeat_sampler
+            } else {
+                &self.sampler
+            }),
         });
         Ok(self.device.create_bind_group(&::wgpu::BindGroupDescriptor {
             label: Some("ink"),
@@ -389,7 +412,7 @@ impl Wgpu {
             if s.width == 0 || s.height == 0 || batch.instances.is_empty() {
                 continue;
             }
-            pass.set_pipeline(if batch.bindings.destination.0 != 0 {
+            pass.set_pipeline(if batch.replace {
                 &self.replace_pipeline
             } else {
                 &self.pipeline
@@ -412,7 +435,7 @@ impl Wgpu {
         let row = width * texture.desc.format.channels();
         let padded = row.div_ceil(::wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
             * ::wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let buffer = checked(&self.device, || {
+        let buffer = checked(&self.device, &self.errors, || {
             self.device.create_buffer(&::wgpu::BufferDescriptor {
                 label: Some("ink readback"),
                 size: u64::from(padded) * u64::from(height),
@@ -439,6 +462,7 @@ impl Wgpu {
             extent([width, height]),
         );
         let submitted = self.submit(encoder.finish());
+        self.textures.get_mut(&id).unwrap().last = submitted;
         #[derive(Default)]
         struct Mapped {
             result: Option<std::result::Result<(), ::wgpu::BufferAsyncError>>,
@@ -484,12 +508,15 @@ impl Wgpu {
         }
         drop(mapped);
         buffer.unmap();
+        if let Some(error) = &*self.errors.lock().unwrap() {
+            return Err(Error::Device(error.clone()));
+        }
         Ok(pixels)
     }
 }
 
 impl Device for Wgpu {
-    type Buffer = ::wgpu::Buffer;
+    type Buffer = Buffer;
     fn info(&self) -> &Info {
         &self.info
     }
@@ -498,22 +525,34 @@ impl Device for Wgpu {
         if bytes == 0 || bytes > self.device.limits().max_buffer_size {
             return Err(Error::Invalid("instance buffer size".into()));
         }
-        instance_buffer(&self.device, bytes)
+        instance_buffer(&self.device, &self.errors, bytes)
     }
 
-    fn upload_buffer(&self, buffer: &Self::Buffer, offset: u64, data: &[u8]) -> Result<()> {
+    fn upload_buffer(
+        &mut self,
+        buffer: &Self::Buffer,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<Submission> {
         if !offset.is_multiple_of(4)
             || !data.len().is_multiple_of(4)
             || offset
                 .checked_add(data.len() as u64)
-                .is_none_or(|end| end > buffer.size())
+                .is_none_or(|end| end > buffer.raw.size())
         {
             return Err(Error::Invalid(
                 "instance buffer upload bounds or alignment".into(),
             ));
         }
-        self.queue.write_buffer(buffer, offset, data);
-        Ok(())
+        self.wait(Submission(buffer.last.load(Ordering::Acquire)))?;
+        self.queue.write_buffer(&buffer.raw, offset, data);
+        let submission = self.submit(
+            self.device
+                .create_command_encoder(&Default::default())
+                .finish(),
+        );
+        buffer.last.store(submission.0, Ordering::Release);
+        Ok(submission)
     }
 
     fn create_texture(&mut self, desc: TextureDesc) -> Result<TextureId> {
@@ -527,7 +566,7 @@ impl Device for Wgpu {
         let id = TextureId(self.next_texture);
         self.next_texture += 1;
         self.textures
-            .insert(id, allocate_texture(&self.device, desc)?);
+            .insert(id, allocate_texture(&self.device, &self.errors, desc)?);
         Ok(id)
     }
 
@@ -537,7 +576,8 @@ impl Device for Wgpu {
         origin: [u32; 2],
         size: [u32; 2],
         data: &[u8],
-    ) -> Result<()> {
+    ) -> Result<Submission> {
+        self.wait(self.last_use(id)?)?;
         let texture = self.texture(id)?;
         check_region(texture.desc, origin, size)?;
         let bytes =
@@ -546,7 +586,17 @@ impl Device for Wgpu {
             return Err(Error::Invalid("texture upload length".into()));
         }
         upload(&self.queue, texture, origin, size, data);
-        Ok(())
+        let submission = self.submit(
+            self.device
+                .create_command_encoder(&Default::default())
+                .finish(),
+        );
+        self.textures.get_mut(&id).unwrap().last = submission;
+        Ok(submission)
+    }
+
+    fn last_use(&self, id: TextureId) -> Result<Submission> {
+        Ok(self.texture(id)?.last)
     }
 
     fn generate_mips(&mut self, id: TextureId) -> Result<Submission> {
@@ -569,7 +619,7 @@ impl Device for Wgpu {
                 mip_level_count: Some(1),
                 ..Default::default()
             });
-            let viewport = checked(&self.device, || {
+            let viewport = checked(&self.device, &self.errors, || {
                 self.device
                     .create_buffer_init(&::wgpu::util::BufferInitDescriptor {
                         label: Some("ink mip viewport"),
@@ -578,11 +628,11 @@ impl Device for Wgpu {
                     })
             })?;
             let instance = Instance::new(
-                Kind::Layer,
+                Kind::Downsample,
                 Brush::Solid,
                 [0., 0., width as f32, height as f32],
             );
-            let buffer = checked(&self.device, || {
+            let buffer = checked(&self.device, &self.errors, || {
                 self.device
                     .create_buffer_init(&::wgpu::util::BufferInitDescriptor {
                         label: Some("ink mip quad"),
@@ -592,6 +642,7 @@ impl Device for Wgpu {
             })?;
             let group = self.bindings(Bindings::default(), &viewport, Some(&source))?;
             let batch = Batch {
+                replace: false,
                 instances: 0..1,
                 scissor: Scissor {
                     x: 0,
@@ -610,7 +661,9 @@ impl Device for Wgpu {
                 Some([0.; 4]),
             );
         }
-        Ok(self.submit(encoder.finish()))
+        let submission = self.submit(encoder.finish());
+        self.textures.get_mut(&id).unwrap().last = submission;
+        Ok(submission)
     }
 
     fn resize_target(&mut self, id: TextureId, width: u32, height: u32) -> Result<TextureId> {
@@ -655,7 +708,11 @@ impl Device for Wgpu {
             },
             extent(size),
         );
-        Ok(self.submit(encoder.finish()))
+        let submission = self.submit(encoder.finish());
+        for id in [source, target] {
+            self.textures.get_mut(&id).unwrap().last = submission;
+        }
+        Ok(submission)
     }
 
     fn render(
@@ -712,38 +769,63 @@ impl Device for Wgpu {
         }
         let slot = self.next_buffer;
         self.next_buffer = (slot + 1) % self.buffers.len();
+        self.wait(Submission(
+            self.buffers[slot].buffer.last.load(Ordering::Acquire),
+        ))?;
         let bytes = bytemuck::cast_slice(&frame.instances);
         if bytes.len() as u64 > self.buffers[slot].capacity {
             let capacity = (bytes.len() as u64).next_power_of_two();
             let buffer = self.create_buffer(capacity)?;
-            let old = std::mem::replace(&mut self.buffers[slot], BufferSlot { buffer, capacity });
-            self.retired_buffers.push((self.submitted, old.buffer));
+            let old = std::mem::replace(&mut self.buffers[slot].buffer, buffer);
+            self.buffers[slot].capacity = capacity;
+            self.retired_buffers.push((self.submitted, old.raw));
         }
-        // write_buffer is ordered before this submission and after previous
-        // submissions, including the previous use of this ring slot.
         if !bytes.is_empty() {
-            self.upload_buffer(&self.buffers[slot].buffer, 0, bytes)?;
+            self.queue
+                .write_buffer(&self.buffers[slot].buffer.raw, 0, bytes);
         }
         self.queue.write_buffer(
-            &self.viewport,
+            &self.buffers[slot].viewport,
             0,
             bytemuck::cast_slice(&[desc.width as f32, desc.height as f32, 0., 0.]),
         );
         let groups = frame
             .batches
             .iter()
-            .map(|b| self.bindings(b.bindings, &self.viewport, None))
+            .map(|b| self.bindings(b.bindings, &self.buffers[slot].viewport, None))
             .collect::<Result<Vec<_>>>()?;
         let mut encoder = self.device.create_command_encoder(&Default::default());
         self.encode_pass(
             &mut encoder,
             &self.texture(target)?.view,
-            &self.buffers[slot].buffer,
+            &self.buffers[slot].buffer.raw,
             &frame.batches,
             &groups,
             clear,
         );
-        Ok(self.submit(encoder.finish()))
+        let submission = self.submit(encoder.finish());
+        self.buffers[slot]
+            .buffer
+            .last
+            .store(submission.0, Ordering::Release);
+        self.textures.get_mut(&target).unwrap().last = submission;
+        for batch in &frame.batches {
+            let b = batch.bindings;
+            for id in [
+                b.glyph,
+                b.color,
+                b.path,
+                b.ramp,
+                b.image,
+                b.mask,
+                b.destination,
+            ] {
+                if id.0 != 0 {
+                    self.textures.get_mut(&id).unwrap().last = submission;
+                }
+            }
+        }
+        Ok(submission)
     }
 
     fn readback(&mut self, texture: TextureId) -> Result<Vec<u8>> {
@@ -803,7 +885,7 @@ impl Device for Wgpu {
             .textures
             .remove(&texture)
             .ok_or_else(|| Error::Invalid("retired texture".into()))?;
-        self.retired_textures.push((self.submitted, texture));
+        self.retired_textures.push((texture.last, texture));
         self.completed()?;
         Ok(())
     }
@@ -813,32 +895,46 @@ impl Device for Wgpu {
         for slot in &mut self.buffers {
             if slot.capacity > 192 {
                 let old = std::mem::replace(
-                    slot,
-                    BufferSlot {
-                        buffer: instance_buffer(&self.device, 192)?,
-                        capacity: 192,
-                    },
+                    &mut slot.buffer,
+                    instance_buffer(&self.device, &self.errors, 192)?,
                 );
-                self.retired_buffers.push((self.submitted, old.buffer));
+                slot.buffer
+                    .last
+                    .store(old.last.load(Ordering::Acquire), Ordering::Release);
+                slot.capacity = 192;
+                self.retired_buffers
+                    .push((Submission(old.last.load(Ordering::Acquire)), old.raw));
             }
         }
         Ok(())
     }
 }
 
-fn instance_buffer(device: &::wgpu::Device, size: u64) -> Result<::wgpu::Buffer> {
-    checked(device, || {
+fn instance_buffer(
+    device: &::wgpu::Device,
+    failures: &Arc<Mutex<Option<String>>>,
+    size: u64,
+) -> Result<Buffer> {
+    let raw = checked(device, failures, || {
         device.create_buffer(&::wgpu::BufferDescriptor {
             label: Some("ink instances"),
             size,
             usage: ::wgpu::BufferUsages::VERTEX | ::wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         })
+    })?;
+    Ok(Buffer {
+        raw,
+        last: Arc::new(AtomicU64::new(0)),
     })
 }
 
-fn allocate_texture(device: &::wgpu::Device, desc: TextureDesc) -> Result<Texture> {
-    let raw = checked(device, || {
+fn allocate_texture(
+    device: &::wgpu::Device,
+    failures: &Arc<Mutex<Option<String>>>,
+    desc: TextureDesc,
+) -> Result<Texture> {
+    let raw = checked(device, failures, || {
         device.create_texture(&::wgpu::TextureDescriptor {
             label: Some("ink"),
             size: extent([desc.width, desc.height]),
@@ -858,7 +954,12 @@ fn allocate_texture(device: &::wgpu::Device, desc: TextureDesc) -> Result<Textur
         })
     })?;
     let view = raw.create_view(&Default::default());
-    Ok(Texture { raw, view, desc })
+    Ok(Texture {
+        raw,
+        view,
+        desc,
+        last: Submission(0),
+    })
 }
 
 fn check_region(desc: TextureDesc, origin: [u32; 2], size: [u32; 2]) -> Result<()> {
@@ -921,7 +1022,14 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
     }
 }
 
-fn checked<T>(device: &::wgpu::Device, make: impl FnOnce() -> T) -> Result<T> {
+fn checked<T>(
+    device: &::wgpu::Device,
+    failures: &Arc<Mutex<Option<String>>>,
+    make: impl FnOnce() -> T,
+) -> Result<T> {
+    if let Some(error) = &*failures.lock().unwrap() {
+        return Err(Error::Device(error.clone()));
+    }
     let scopes = [
         ::wgpu::ErrorFilter::OutOfMemory,
         ::wgpu::ErrorFilter::Internal,
@@ -929,36 +1037,33 @@ fn checked<T>(device: &::wgpu::Device, make: impl FnOnce() -> T) -> Result<T> {
     ]
     .map(|filter| device.push_error_scope(filter));
     let value = make();
-    let mut failure = None;
-    for scope in scopes.into_iter().rev() {
-        #[cfg(not(target_arch = "wasm32"))]
-        let error = block_on(scope.pop());
-        #[cfg(target_arch = "wasm32")]
-        let error = {
-            use std::{
-                future::Future,
-                task::{Context, Poll, Waker},
-            };
-            let mut future = std::pin::pin!(scope.pop());
-            match future
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()))
-            {
-                Poll::Ready(error) => error,
-                Poll::Pending => {
-                    failure = Some(Error::Unsupported(
-                        "synchronous WebGPU allocation error scope",
-                    ));
-                    None
-                }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut failure = None;
+        for scope in scopes.into_iter().rev() {
+            if let Some(error) = block_on(scope.pop()) {
+                failure = Some(Error::Device(error.to_string()));
             }
-        };
-        if let Some(error) = error {
-            failure = Some(Error::Device(error.to_string()));
+        }
+        if let Some(error) = failure {
+            return Err(error);
         }
     }
-    match failure {
-        Some(error) => Err(error),
-        None => Ok(value),
+    #[cfg(target_arch = "wasm32")]
+    {
+        // WebGPU reports scopes asynchronously; completion/readback observes the latch.
+        for scope in scopes.into_iter().rev() {
+            let future = scope.pop();
+            let failures = failures.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Some(error) = future.await {
+                    failures
+                        .lock()
+                        .unwrap()
+                        .get_or_insert_with(|| error.to_string());
+                }
+            });
+        }
     }
+    Ok(value)
 }

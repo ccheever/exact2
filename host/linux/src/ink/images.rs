@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 #[derive(Default)]
 pub(super) struct Images {
-    bitmaps: HashMap<usize, (Arc<Bitmap>, TextureId)>,
+    bitmaps: HashMap<(usize, [u32; 2]), (Arc<Bitmap>, TextureId)>,
     pixmaps: HashMap<usize, (Arc<Pixmap>, TextureId)>,
     pins: HashMap<TextureId, usize>,
 }
@@ -28,9 +28,20 @@ impl Images {
     }
 
     pub fn begin(&mut self, device: &mut impl Device) -> Result<()> {
+        let mut counts = HashMap::new();
+        for &(address, _) in self.bitmaps.keys() {
+            *counts.entry(address).or_insert(0) += 1;
+        }
+        let dead: std::collections::HashSet<_> = self
+            .bitmaps
+            .iter()
+            .filter_map(|(&(address, _), (p, _))| {
+                (Arc::strong_count(p) == counts[&address]).then_some(address)
+            })
+            .collect();
         for (_, (_, texture)) in self
             .bitmaps
-            .extract_if(|_, (p, t)| Arc::strong_count(p) == 1 && !self.pins.contains_key(t))
+            .extract_if(|(address, _), (_, t)| dead.contains(address) && !self.pins.contains_key(t))
         {
             device.retire_texture(texture)?;
         }
@@ -43,12 +54,27 @@ impl Images {
         Ok(())
     }
 
-    pub fn bitmap(&mut self, device: &mut impl Device, image: &Arc<Bitmap>) -> Result<TextureId> {
-        let key = Arc::as_ptr(image) as usize;
+    pub fn bitmap(
+        &mut self,
+        device: &mut impl Device,
+        image: &Arc<Bitmap>,
+        size: [u32; 2],
+    ) -> Result<TextureId> {
+        let key = (Arc::as_ptr(image) as usize, size);
         if let Some((_, texture)) = self.bitmaps.get(&key) {
             return Ok(*texture);
         }
-        let texture = upload(device, image.pixels())?;
+        let texture = if size == [image.width(), image.height()] {
+            upload(device, image.pixels())?
+        } else {
+            let pixels = exact_ink::image::reduce(
+                image.pixels().data(),
+                [image.width(), image.height()],
+                size,
+            );
+            let pixels = tiny_skia::PixmapRef::from_bytes(&pixels, size[0], size[1]).unwrap();
+            upload(device, pixels)?
+        };
         self.bitmaps.insert(key, (image.clone(), texture));
         Ok(texture)
     }
@@ -111,5 +137,25 @@ impl Ink {
         for _ in clips {
             self.pop_clip();
         }
+    }
+}
+
+/// A mip chain cannot reduce one axis while retaining detail in the other.
+pub(super) fn sampling_size(size: [u32; 2], dst: Rect4, dev: Transform) -> [u32; 2] {
+    let pixels = [
+        dst.2.abs() * dev.sx.hypot(dev.ky),
+        dst.3.abs() * dev.kx.hypot(dev.sy),
+    ];
+    let ratios = [pixels[0] / size[0] as f32, pixels[1] / size[1] as f32];
+    if ratios[0].max(ratios[1]) > 2. * ratios[0].min(ratios[1]) {
+        std::array::from_fn(|i| {
+            if ratios[i] < 0.5 {
+                (pixels[i].round() as u32).clamp(1, size[i])
+            } else {
+                size[i]
+            }
+        })
+    } else {
+        size
     }
 }

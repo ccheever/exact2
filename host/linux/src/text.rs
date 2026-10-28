@@ -1100,15 +1100,36 @@ impl TextEngine {
     /// points from the paragraph's top-left, the same numbers the raster
     /// path snaps to pixels.
     pub fn glyph_runs(&mut self, paragraph: &Paragraph, palette: &[RunPaint]) -> Vec<GlyphRun> {
+        self.glyph_runs_mapped(paragraph, palette, |g, baseline| (g.x, baseline + g.y))
+    }
+
+    pub(crate) fn physical_glyph_runs(
+        &mut self,
+        paragraph: &Paragraph,
+        palette: &[RunPaint],
+        origin: (f32, f32),
+        scale: f32,
+    ) -> Vec<GlyphRun> {
+        self.glyph_runs_mapped(paragraph, palette, |g, baseline| {
+            exact_ink::glyph::position(g.x, g.y, baseline, origin, scale)
+        })
+    }
+
+    fn glyph_runs_mapped(
+        &mut self,
+        paragraph: &Paragraph,
+        palette: &[RunPaint],
+        position: impl Fn(&LayoutGlyph, f32) -> (f32, f32),
+    ) -> Vec<GlyphRun> {
         type Key = (u16, u32, usize);
         type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
         let mut runs: Runs = Vec::new();
         for (g, baseline, _) in paragraph.paint_glyphs(palette) {
             let key = (g.face, g.font_size.to_bits(), g.run());
-            let y = baseline + g.y;
+            let (x, y) = position(g, baseline);
             match runs.last_mut() {
-                Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id, g.x, y)),
-                _ => runs.push((key, vec![(g.glyph_id, g.x, y)])),
+                Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id, x, y)),
+                _ => runs.push((key, vec![(g.glyph_id, x, y)])),
             }
         }
         let catalog = paragraph.source.catalog.borrow();

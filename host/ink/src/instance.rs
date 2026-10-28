@@ -14,6 +14,7 @@ pub enum Kind {
     Layer,
     Blur,
     ColorPass,
+    Downsample,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,8 +28,7 @@ pub enum Brush {
 
 pub mod flags {
     pub const TINT: u32 = 1;
-    pub const INSET: u32 = 1 << 1;
-    pub const EVEN_ODD: u32 = 1 << 2;
+    pub const STOP_RAMP: u32 = 1 << 2;
     pub const REPEAT: u32 = 1 << 3;
     pub const NEAREST: u32 = 1 << 4;
     pub const COLOR_GLYPH: u32 = 1 << 5;
@@ -43,7 +43,6 @@ pub mod flags {
     pub const BLEND_MASK: u32 = 15 << BLEND_SHIFT;
     pub const RAMP_SHIFT: u32 = 16;
     pub const RAMP_MASK: u32 = 1023 << RAMP_SHIFT;
-    pub const SHADOW_LOCAL: u32 = 1 << 26;
     pub const SVG_RADIAL: u32 = 1 << 27;
     pub const REFLECT: u32 = 1 << 28;
     pub const LAYER_MASK: u32 = 1 << 29;
@@ -88,7 +87,7 @@ pub struct Instance {
 const _: () = assert!(size_of::<Instance>() == 192);
 
 impl Instance {
-    /// Local shadow exclusions stay in brush space; coverage bounds do not.
+    /// Reposition device bounds and clips together with the local affine.
     pub fn translated(mut self, offset: [f32; 2]) -> Self {
         self.xform[4] += offset[0];
         self.xform[5] += offset[1];
@@ -100,7 +99,7 @@ impl Instance {
             self.clip0[0] += offset[0];
             self.clip0[1] += offset[1];
         }
-        if self.flags & flags::CLIP1 != 0 && self.flags & flags::SHADOW_LOCAL == 0 {
+        if self.flags & flags::CLIP1 != 0 {
             self.clip1[0] += offset[0];
             self.clip1[1] += offset[1];
         }
@@ -172,6 +171,7 @@ pub struct TextureId(pub u64);
 /// Zero selects the device's white fallback for that slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Bindings {
+    pub repeat: bool,
     pub glyph: TextureId,
     pub color: TextureId,
     pub path: TextureId,
@@ -212,6 +212,7 @@ impl Scissor {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Batch {
+    pub replace: bool,
     pub instances: Range<u32>,
     pub scissor: Scissor,
     pub bindings: Bindings,
@@ -382,16 +383,17 @@ impl Encoder {
         if scissor.width == 0 || scissor.height == 0 {
             return Ok(());
         }
+        let replace = instance.flags & (flags::REPLACE | flags::BLEND_MASK) != 0;
         let index = u32::try_from(self.frame.instances.len()).expect("instance count fits u32");
-        if let Some(batch) = self
-            .frame
-            .batches
-            .last_mut()
-            .filter(|b| b.scissor == scissor && b.bindings == bindings)
+        if let Some(batch) =
+            self.frame.batches.last_mut().filter(|b| {
+                !replace && !b.replace && b.scissor == scissor && b.bindings == bindings
+            })
         {
             batch.instances.end = index + 1;
         } else {
             self.frame.batches.push(Batch {
+                replace,
                 instances: index..index + 1,
                 scissor,
                 bindings,

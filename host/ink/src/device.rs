@@ -84,13 +84,21 @@ impl TextureDesc {
 pub struct Submission(pub u64);
 
 /// The headless operations used by S0. Buffer uploads and draws are ordered on
-/// one queue. Readback is synchronous on native devices; browser callers must
+/// one queue. Every mutation waits for the resource's last use or chooses fresh
+/// storage. Submissions include uploads; a larger completed value covers all
+/// earlier submissions. Retire keeps storage alive until its last use completes.
+/// Readback is synchronous on native devices; browser callers must
 /// use the device's asynchronous readback instead of blocking its event loop.
 pub trait Device {
     type Buffer;
     fn info(&self) -> &Info;
     fn create_buffer(&self, bytes: u64) -> Result<Self::Buffer>;
-    fn upload_buffer(&self, buffer: &Self::Buffer, offset: u64, data: &[u8]) -> Result<()>;
+    fn upload_buffer(
+        &mut self,
+        buffer: &Self::Buffer,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<Submission>;
     fn create_texture(&mut self, desc: TextureDesc) -> Result<TextureId>;
     fn upload_texture(
         &mut self,
@@ -98,7 +106,9 @@ pub trait Device {
         origin: [u32; 2],
         size: [u32; 2],
         data: &[u8],
-    ) -> Result<()>;
+    ) -> Result<Submission>;
+    /// Latest upload, read or write using this texture.
+    fn last_use(&self, texture: TextureId) -> Result<Submission>;
     fn generate_mips(&mut self, texture: TextureId) -> Result<Submission>;
     fn create_target(&mut self, width: u32, height: u32) -> Result<TextureId> {
         self.create_texture(TextureDesc::rgba(width, height))
@@ -124,3 +134,6 @@ pub trait Device {
     fn retire_texture(&mut self, texture: TextureId) -> Result<()>;
     fn trim(&mut self) -> Result<()>;
 }
+
+#[cfg(test)]
+mod tests;

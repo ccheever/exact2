@@ -6,6 +6,11 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// A carrier's memory-pressure notification releases idle painter targets.
+    pub fn memory_warning(&mut self) {
+        self.brush.trim();
+    }
+
     /// A desktop window's activation preserves the focused allocation for
     /// its return. Explicit focus changes while inactive take precedence.
     pub fn set_window_active(&mut self, active: bool) {
@@ -14,6 +19,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.window_active = active;
         if !active {
+            self.brush.trim();
             self.window_focus = self
                 .focus
                 .and_then(|id| self.host.kernel().node(id).map(|n| n.key));

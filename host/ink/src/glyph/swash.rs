@@ -86,6 +86,12 @@ impl Glyphs {
         phase: u8,
         sigma: f32,
     ) -> Result<Option<Glyph>> {
+        // Animated blur shares quarter-pixel radii. @ref LLP 1149 D3.1.
+        let sigma = if sigma.is_finite() {
+            (sigma.max(0.) * 4.).round() / 4.
+        } else {
+            0.
+        };
         let mut key = vec![
             font.id[0] as u32,
             (font.id[0] >> 32) as u32,
@@ -347,4 +353,34 @@ mod tests {
         assert_eq!(subpixel(-0.125), (-1, 3));
         assert_eq!(subpixel(0.875), (1, 0));
     }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[test]
+fn nearby_blur_sigmas_reuse_the_quantized_glyph() {
+    let mut device = crate::Wgpu::new().unwrap();
+    let data = include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf");
+    let font = Font {
+        id: [1, 0],
+        data,
+        index: 0,
+        coords: &[],
+        skew: false,
+    };
+    let id = swash::FontRef::from_index(data, 0)
+        .unwrap()
+        .charmap()
+        .map('8');
+    let mut glyphs = Glyphs::default();
+    glyphs.begin(&mut device).unwrap();
+    let a = glyphs
+        .get(&mut device, &font, id, 24., 0, 1.501)
+        .unwrap()
+        .unwrap();
+    let b = glyphs
+        .get(&mut device, &font, id, 24., 0, 1.51)
+        .unwrap()
+        .unwrap();
+    assert_eq!((a.entry.texture, a.entry.uv), (b.entry.texture, b.entry.uv));
+    assert_eq!(glyphs.stats().0.misses, 1);
 }

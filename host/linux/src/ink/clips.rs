@@ -123,13 +123,13 @@ impl Ink {
                     height: 0,
                 }))
                 .map_err(|_| Error::Invalid("empty clip".into()))?;
-            self.clips.push(false);
+            self.clips.push(());
             return Ok(());
         }
         let dev = self.device_transform(ts);
         if let Some(clip) = simple(shape, dev, self.size) {
             if self.encoder.push_clip(clip).is_ok() {
-                self.clips.push(false);
+                self.clips.push(());
                 return Ok(());
             }
             self.encoder.pop_clip();
@@ -148,7 +148,7 @@ impl Ink {
         };
         if let Some(mask) = coverage {
             self.open_clip_group(mask)?;
-            self.clips.push(false);
+            self.clips.push(());
         } else {
             self.encoder
                 .push_clip(Clip::Scissor(Scissor {
@@ -158,7 +158,7 @@ impl Ink {
                     height: 0,
                 }))
                 .map_err(|_| Error::Invalid("empty clip".into()))?;
-            self.clips.push(false);
+            self.clips.push(());
         }
         Ok(())
     }

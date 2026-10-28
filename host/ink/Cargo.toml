@@ -16,6 +16,7 @@ wgpu = { version = "30", default-features = false, features = ["wgsl", "metal", 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"] }
 web-time = "1"
+wasm-bindgen-futures = "0.4"
 
 [build-dependencies]
 naga = { version = "30", features = ["wgsl-in", "msl-out", "hlsl-out", "spv-out", "glsl-out"] }

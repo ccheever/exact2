@@ -1,7 +1,8 @@
 //! The instanced painter's adapter. @ref LLP 1149 D1.2, D2, D3.1.
 use crate::image::Bitmap;
-use crate::paint::border::{BorderFill, PathOp};
+use crate::paint::border::BorderFill;
 use crate::paint::{Backend, FrameTarget, GradientPaint, Rect4, Shape, POINTER};
+use crate::raster::tiny_path as path;
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_ink::atlas::Atlas;
 use exact_ink::device::{Device, Error, Info, Result};
@@ -34,7 +35,7 @@ pub struct Ink {
     images: images::Images,
     pool: exact_ink::layer::Pool,
     groups: Vec<clips::Group>,
-    clips: Vec<bool>,
+    clips: Vec<()>,
     target: Option<TextureId>,
     draw_target: Option<TextureId>,
     draw_clear: Option<[f64; 4]>,
@@ -233,6 +234,10 @@ impl Backend for Ink {
     fn needs_geometry_paint(&self) -> bool {
         true
     }
+    fn trim(&mut self) {
+        let result = self.pool.trim(&mut self.device);
+        self.accept(result);
+    }
     fn page(&mut self, color: [u8; 4]) {
         self.page = color;
     }
@@ -314,7 +319,15 @@ impl Backend for Ink {
         outer: &Shape,
         ts: Transform,
     ) -> bool {
-        if !circular(shape) || !circular(outer) {
+        let dev = self.device_transform(ts);
+        if dev.kx != 0.
+            || dev.ky != 0.
+            || dev.sx <= 0.
+            || dev.sx != dev.sy
+            || !circular(shape)
+            || !circular(outer)
+            || crate::paint::border::reduced(shape.radii, shape.rect.2, shape.rect.3) != shape.radii
+        {
             return false;
         }
         let reach = 3. * sigma.max(0.) + 1.;
@@ -326,21 +339,26 @@ impl Backend for Ink {
         );
         i.xform = affine(self.device_transform(ts));
         i.uv = rect(shape.rect);
-        i.radii = shape.radii.map(|r| r.0);
+        i.radii = crate::paint::border::reduced(shape.radii, w, h).map(|r| r.0);
         i.param[0] = sigma;
         i.color = color(c);
         if i.set_clip(
             1,
             RoundedClip {
-                rect: rect(outer.rect),
-                radii: outer.radii.map(|r| r.0),
+                rect: [
+                    outer.rect.0 * dev.sx + dev.tx,
+                    outer.rect.1 * dev.sy + dev.ty,
+                    outer.rect.2 * dev.sx,
+                    outer.rect.3 * dev.sy,
+                ],
+                radii: crate::paint::border::reduced(outer.radii, outer.rect.2, outer.rect.3)
+                    .map(|r| r.0 * dev.sx),
             },
         )
         .is_err()
         {
             return false;
         }
-        i.flags |= flags::SHADOW_LOCAL;
         let result = self.emit(i, Bindings::default());
         self.accept(result);
         true
@@ -354,7 +372,12 @@ impl Backend for Ink {
         ts: Transform,
         tint: Option<[u8; 4]>,
     ) {
-        let result = self.images.bitmap(&mut self.device, image);
+        let size = images::sampling_size(
+            [image.width(), image.height()],
+            dst,
+            self.device_transform(ts),
+        );
+        let result = self.images.bitmap(&mut self.device, image, size);
         if let Some(texture) = self.accept(result) {
             self.picture(texture, dst, clips, ts, tint);
         }
@@ -410,13 +433,8 @@ impl Backend for Ink {
         if self.record(rows::Marker::PopClip) {
             return;
         }
-        if let Some(layer) = self.clips.pop() {
-            if layer {
-                let r = self.close_group();
-                self.accept(r);
-            } else {
-                self.encoder.pop_clip();
-            }
+        if self.clips.pop().is_some() {
+            self.encoder.pop_clip();
         }
     }
     fn push_opacity(&mut self, alpha: f32) {
@@ -483,7 +501,9 @@ impl Backend for Ink {
         let result = (|| {
             if let Some((mut i, b)) = self.path_instance(&path, FillRule::Winding, &[], ts)? {
                 i.color = [1.; 4];
-                self.emit(i, b)?;
+                self.encoder
+                    .push_unclipped(i, b, self.size)
+                    .map_err(|_| Error::Invalid("pointer clip".into()))?;
             }
             if let Some(stroke) = path.stroke(
                 &tiny_skia::Stroke {
@@ -494,7 +514,9 @@ impl Backend for Ink {
             ) {
                 if let Some((mut i, b)) = self.path_instance(&stroke, FillRule::Winding, &[], ts)? {
                     i.color = [0., 0., 0., 1.];
-                    self.emit(i, b)?;
+                    self.encoder
+                        .push_unclipped(i, b, self.size)
+                        .map_err(|_| Error::Invalid("pointer clip".into()))?;
                 }
             }
             Ok(())
@@ -605,16 +627,4 @@ fn shape_path(shape: &Shape) -> Option<Path> {
     let mut ops = Vec::new();
     crate::paint::border::shape_path(&mut ops, shape);
     path(&ops)
-}
-fn path(ops: &[PathOp]) -> Option<Path> {
-    let mut b = PathBuilder::new();
-    for op in ops {
-        match *op {
-            PathOp::Move(x, y) => b.move_to(x, y),
-            PathOp::Line(x, y) => b.line_to(x, y),
-            PathOp::Cubic(a, b0, c, d, x, y) => b.cubic_to(a, b0, c, d, x, y),
-            PathOp::Close => b.close(),
-        }
-    }
-    b.finish()
 }

@@ -4,6 +4,7 @@
 //! viewport.
 
 mod coverage;
+mod reviews;
 
 use crate::pin_font;
 use exact_linux::presenter::PainterChoice;

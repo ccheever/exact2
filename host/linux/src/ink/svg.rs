@@ -83,6 +83,10 @@ impl Ink {
                     i.param = [0., 0., tile.width() as f32, tile.height() as f32];
                     i.color = [*opacity; 4];
                     b.image = self.images.pixmap(&mut self.device, tile)?;
+                    b.repeat = true;
+                    if from_affine(i.xform).is_translate() || from_affine(i.xform).is_identity() {
+                        i.flags |= flags::NEAREST;
+                    }
                 }
                 Paint::Gradient {
                     server,
@@ -94,11 +98,11 @@ impl Ink {
                         .iter()
                         .map(|(p, c)| (*p, exact_kernel::Color::rgba(c[0], c[1], c[2], c[3])))
                         .collect();
-                    let Some(ramp) = self.ramp(&stops)? else {
+                    let Some((ramp, flags)) = self.ramp(&stops)? else {
                         continue;
                     };
                     i.kind_brush = Kind::Coverage as u32 | ((Brush::Gradient as u32) << 16);
-                    i.flags |= ramp.row << flags::RAMP_SHIFT;
+                    i.flags |= flags | (ramp.row << flags::RAMP_SHIFT);
                     i.flags |= match server.spread {
                         Spread::Pad => 0,
                         Spread::Reflect => flags::REFLECT,
@@ -154,13 +158,13 @@ impl Ink {
         };
         if !transformed {
             if self.encoder.push_clip(Clip::Coverage(clip)).is_ok() {
-                self.clips.push(false);
+                self.clips.push(());
                 return Ok(());
             }
             self.encoder.pop_clip();
         }
         self.open_clip_group(coverage)?;
-        self.clips.push(false);
+        self.clips.push(());
         Ok(())
     }
 

@@ -78,6 +78,8 @@ pub trait Backend {
     /// A new frame of this size in points at this scale, cleared to the
     /// page's colour ([`Backend::page`]; white until one is told).
     fn begin(&mut self, width: f32, height: f32, scale: f32);
+    /// Release idle renderer storage on memory pressure or backgrounding.
+    fn trim(&mut self) {}
     /// Storage from a presented frame after its last reader releases it.
     fn recycle_frame(&mut self, _pixels: Pixmap) {}
     /// Seed a clipped repaint from an accepted frame; false means full repaint.
@@ -285,5 +287,12 @@ pub trait Backend {
     /// backend that has them.
     fn last_frame_ms(&self) -> Option<(f64, f64)> {
         None
+    }
+}
+
+impl super::Painter {
+    /// Release idle renderer storage while preserving kept rows.
+    pub fn trim(&mut self) {
+        self.backend.trim();
     }
 }

@@ -12,11 +12,11 @@ impl Ink {
             return Ok(());
         };
         let stops = premultiplied_ramp(&gradient.stops);
-        let Some(ramp) = self.ramp(&stops)? else {
+        let Some((ramp, flags)) = self.ramp(&stops)? else {
             return Ok(());
         };
         instance.kind_brush = (instance.kind_brush & 65535) | ((Brush::Gradient as u32) << 16);
-        instance.flags |= ramp.row << flags::RAMP_SHIFT;
+        instance.flags |= flags | (ramp.row << flags::RAMP_SHIFT);
         if gradient.repeat {
             instance.flags |= flags::REPEAT;
         }
@@ -37,7 +37,7 @@ impl Ink {
     pub(super) fn ramp(
         &mut self,
         stops: &[(f32, exact_kernel::Color)],
-    ) -> Result<Option<exact_ink::atlas::Entry>> {
+    ) -> Result<Option<(exact_ink::atlas::Entry, u32)>> {
         let key: Vec<u32> = stops
             .iter()
             .flat_map(|(at, c)| {
@@ -47,8 +47,20 @@ impl Ink {
                 ]
             })
             .collect();
+        let exact = stops.windows(2).any(|p| p[1].0 - p[0].0 < 1. / 255.);
         let ramp = if let Some(entry) = self.ramps.get(&key) {
             entry
+        } else if exact {
+            let width = (1 + 2 * stops.len()).max(256) as u32;
+            let mut bytes = vec![0; width as usize * 4];
+            bytes[..4].copy_from_slice(&(stops.len() as u32).to_le_bytes());
+            for (n, (at, c)) in stops.iter().enumerate() {
+                let start = (1 + 2 * n) * 4;
+                bytes[start..start + 4].copy_from_slice(&at.to_le_bytes());
+                bytes[start + 4..start + 8].copy_from_slice(&[c.r(), c.g(), c.b(), c.a()]);
+            }
+            self.ramps
+                .insert(&mut self.device, key, [width, 1], &bytes)?
         } else {
             // Sample the oracle's expanded, straight-alpha stops at texel centers.
             let stops = stops
@@ -84,6 +96,6 @@ impl Ink {
             self.ramps
                 .insert(&mut self.device, key, [256, 1], pixels.data())?
         };
-        Ok(Some(ramp))
+        Ok(Some((ramp, if exact { flags::STOP_RAMP } else { 0 })))
     }
 }
