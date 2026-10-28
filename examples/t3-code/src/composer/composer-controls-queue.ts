@@ -32,6 +32,10 @@ export function queueState(projection: Obj) {
   const turns = obj(obj(session?.capabilities).turns);
   const steerable = run?.status === 'running' && !!run.activeAttemptId
     && arr(projection.providerTurns).some(turn => turn.runAttemptId === run.activeAttemptId && turn.status === 'running');
+  // isCompactionCommandMessage: the active run is a compaction, so sending a queued message stops it instead of steering.
+  const activeMessage = run ? messages.find(message => message.id === run.userMessageId) : undefined;
+  const promoteSkipsCompaction = !!activeMessage && activeMessage.role === 'user' && str(activeMessage.text).trim().toLowerCase() === '/compact'
+    && arr(activeMessage.attachments).length === 0;
   return {
     queued: queued.map(entry => {
       const message = messages.find(candidate => candidate.id === entry.userMessageId), guest = obj(obj(message?.context).guest);
@@ -41,7 +45,11 @@ export function queueState(projection: Obj) {
         editable: obj(message?.context).guest === undefined, images: images.length, thumbnails: images.map(image => ({ id: str(image.id), name: str(image.name) })) };
     }),
     activeRunId: str(run?.id),
-    canSteer: steerable && (turns.supportsActiveSteering === true || turns.supportsSteeringByInterruptRestart === true),
+    // deriveThreadQueueWorkflowState: with no active run, a queued message starts one (queued-run.start); during a
+    // compaction it stops the compaction; otherwise it steers a provider that can take one.
+    canSendNow: !run && thread.archivedAt == null && thread.deletedAt == null,
+    canSteer: promoteSkipsCompaction || (steerable && (turns.supportsActiveSteering === true || turns.supportsSteeringByInterruptRestart === true)),
+    promoteSkipsCompaction,
   };
 }
 
