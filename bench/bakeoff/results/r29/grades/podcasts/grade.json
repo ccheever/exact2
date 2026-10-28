@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Library lists all 420 episodes newest first, each with show (artwork tile and caps label), title, date, length and a Played/Unplayed control."},
+      {"n": 2, "status": "pass", "note": "Segmented control 'All episodes / Unplayed' filters the list (420 to 295); marking an episode played while filtered removes it and the count drops."},
+      {"n": 3, "status": "partial", "note": "Shows grid has all 12 shows with episode and unplayed counts, and tapping one opens its episode list. But tapping an episode on that show screen does not visibly open it (see bugs)."},
+      {"n": 4, "status": "pass", "note": "Episode screen has big artwork, show, title, full date, length, played state, summary. Play marks it played and switches to Pause with a 'Playing' waveform label."},
+      {"n": 5, "status": "pass", "note": "Every row has an Unplayed/Played toggle button, and rows also have a trailing swipe action (Add to Up Next)."},
+      {"n": 6, "status": "pass", "note": "+ on rows and on the episode screen; the Up Next tab gets a count badge. Edit uses system list editing: red delete circles with a Delete confirm and drag grips. Reordering by drag works."},
+      {"n": 7, "status": "pass", "note": "Played state, Up Next contents and reordered order all survived relaunch."}
+    ],
+    "bugs": [
+      "Shows > a show > tap an episode: the screen stays on the show page. The nav stack becomes Collection > Episode > Episodes, so the show page is pushed again on top of the episode. Back then reveals the episode screen. Reproduced from a fresh launch every time. In one run a tap during this glitch reached the hidden episode screen's 'Add to Up Next' and silently added an episode to the queue."
+    ],
+    "tells": [
+      "Every tab pairs a small inline nav title with a different custom serif header in the content ('Library'/'Podcasts', 'Collection'/'Shows', 'Queue'/'Up Next') instead of a system large title.",
+      "Heavy custom branding: 'THE LISTENING ROOM' eyebrow, marketing tagline, letter-spaced caps labels and serif display fonts. It reads as a styled template more than a stock iOS app.",
+      "Episode rows are very tall (168 pt), with the played toggle and + on a second line under the text, so only about 2.5 episodes fit on screen.",
+      "The queued state is a checkmark in a tinted circle, easy to confuse with the 'Played' checkmark next to it.",
+      "The custom 'Unplayed/Played' text-button toggle sits where a leading swipe action or context menu would be on iOS.",
+      "The search button in the nav bar is orange in a glass circle; the accent and colours are custom throughout (fine, but not stock)."
+    ],
+    "scroll": "Real collection view: drags and flings are smooth with no blank or popping rows, scroll position is kept on returning from an episode, and the rubber-band at the top is normal. Rows are tall, so a fling covers few items.",
+    "scores": {"features": 7, "platform": 6, "polish": 7, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Large-title 'Episodes' list with a search field. Each row shows show, title, 'Oct 26, 2026 · 21 min' and a Played/Unplayed/Playing line, newest first."},
+      {"n": 2, "status": "pass", "note": "Filter button in the nav bar switches to a list titled 'Unplayed' with an 'All Episodes' button; marked items drop out. The filter is even remembered across launches."},
+      {"n": 3, "status": "pass", "note": "Shows is an inset grouped list of 12 shows with 'N episodes · M unplayed'. Tapping one pushes that show's episodes, and episodes open correctly from there."},
+      {"n": 4, "status": "pass", "note": "Episode screen shows artwork tile, show, title, date, length, played pill and summary. Play becomes 'Playing · Pause' with 'Playing this episode' and marks it played. Mark Played/Unplayed and Add to Up Next are on this screen too."},
+      {"n": 5, "status": "pass", "note": "Circle/checkmark button on each row toggles played in place."},
+      {"n": 6, "status": "pass", "note": "+ on rows turns into a checkmark when queued. Up Next has Edit mode with remove buttons, Move Up/Move Down and a drag grip (drag reordering worked), plus swipe-to-delete."},
+      {"n": 7, "status": "pass", "note": "Played state, the queue and its reordered order survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Up Next edit mode is hand-built: every row gets a second line of text buttons 'Move Up' / 'Move Down' plus a remove circle and a grip, instead of the system reorder/delete edit mode.",
+      "At the largest text size, Shows rows keep a fixed huge icon and break the show names inside words ('Co / m- / mon Gro / und', 'episo').",
+      "No swipe actions on the episode lists (only the Up Next list has swipe-to-delete).",
+      "Episode rows are stacked views, not table/collection cells: separators are inset on both sides like a web list, and a stray horizontal scroll bar is exposed.",
+      "Two near-identical blue checkmarks per queued row: the filled played circle and a bare 'in Up Next' check. The queue's remove control is that same bare check, so its meaning is unclear.",
+      "A show's episode list repeats the show name on every row.",
+      "Artwork is a generic waveform glyph on a flat colour for every show (black glyph in light mode), and colours repeat across shows.",
+      "The Up Next tab has no badge or count anywhere."
+    ],
+    "scroll": "Drags and flings are smooth with no blank rows, and position is kept when returning from an episode. Once, a tap right after a fast fling landed on a list that had jumped back to the top and opened nothing; it did not reproduce.",
+    "scores": {"features": 8, "platform": 5, "polish": 5, "overall": 6}
+  },
+  "better": "B",
+  "why": "A looks more crafted and uses more real iOS list machinery: system edit mode, swipe actions, a tab badge, and layouts that adapt at large text. But opening an episode from a show's page fails every time, which breaks a main path. B is plainer and has clear tells (hand-made Move Up/Move Down buttons, words broken at the largest text, no swipe actions), but every spec requirement works without a bug, so I would ship B as it stands, narrowly."
+}

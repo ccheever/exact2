@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen with Today (22) and All (134/135) plus six lists, each with its open count; counts update on complete/add/delete."},
+      {"n": 2, "status": "pass", "note": "Open tasks, then a 'Completed  N' row that expands and collapses (it starts collapsed again each visit). Tapping the circle completes or reopens and the counts update."},
+      {"n": 3, "status": "pass", "note": "Sheet with title, notes, a due-date toggle with a compact date picker, a Priority menu (None/Low/Medium/High) and a List menu; tapping a row opens the same sheet to edit, with Delete Task. Save stays disabled until there is a title."},
+      {"n": 4, "status": "pass", "note": "Overdue shows a red '! Overdue · Oct 17, 2026'; high priority shows an orange 'High' pill. Low and medium priority are not shown on rows."},
+      {"n": 5, "status": "partial", "note": "Dragging the always-visible grip reorders and persists. Swipe-left delete works, but it shows a hand-drawn round red trash button labelled 'Delete', not the system swipe action."},
+      {"n": 6, "status": "partial", "note": "Create (+ sheet), and rename/delete through a touch-and-hold context menu, with a confirm alert. But a newly created list is dead until relaunch: its row cannot be tapped, opens no menu on touch-and-hold, and is missing from the element tree."},
+      {"n": 7, "status": "pass", "note": "Added/edited tasks, completion, reorder, deletes, and list renames/creation all survived relaunch."}
+    ],
+    "bugs": [
+      "A newly created list (e.g. 'Groceries') appears in My Lists but cannot be opened, renamed or deleted until the app is relaunched: tapping does nothing and touch-and-hold shows no menu."
+    ],
+    "tells": [
+      "Swipe-to-delete shows a custom round red trash circle with a caption under it, not the system trailing swipe action; the row slides under it unevenly.",
+      "Reorder grips are shown on every row all the time, with no Edit mode.",
+      "Task rows are exposed as web-style 'Link' elements and the checkboxes as tiny 22×22 switches, so the hit target is small and the accessibility is web-like.",
+      "All list icons are the same orange glyph, with no per-list colour; the Today icon is not a filled circle like Reminders'.",
+      "Dates always include the year ('Oct 30, 2026') even in the current year.",
+      "The 'Touch and hold a list to rename it.' footer stands in for discoverable list actions; there is no swipe or Edit on lists.",
+      "Completed section collapse state is not remembered between visits."
+    ],
+    "scroll": "The 134-row All list scrolls, flings and returns to the top smoothly, with no blank rows or pop-in; large title collapses properly. Feels native.",
+    "scores": {"features": 7, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Reminders-style Lists screen with filled coloured circle icons, Today and All, and per-list open counts that update live."},
+      {"n": 2, "status": "pass", "note": "Open tasks, then a 'Completed  9 ⌄' header with Clear that expands and collapses, and the state persists. Circle completes or reopens in the list colour."},
+      {"n": 3, "status": "pass", "note": "New Task sheet: multiline title, notes, a Due Date toggle with an inline graphical calendar (shows 'Today' / 'Overdue'), Priority menu (! / !! / !!!) and List menu; tapping a row opens Details with Done/Delete Task."},
+      {"n": 4, "status": "pass", "note": "Overdue shows a red '! Sat, Oct 17 · Overdue'; priority uses Reminders' orange !!! (and ! for low)."},
+      {"n": 5, "status": "pass", "note": "Standard Edit mode with delete minus signs and reorder handles, and reorder persists. Swiping gives the system Delete action."},
+      {"n": 6, "status": "pass", "note": "Add List alert opens the new list straight away. Rename and delete via the ⋯ menu (with confirmation) or by swiping a list row (Rename/Delete)."},
+      {"n": 7, "status": "pass", "note": "Everything, including order, edits and the expanded Completed state, survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "List row chevrons are exposed as disabled 'chevron' buttons in accessibility (invisible to sight).",
+      "Low priority shows a '!' prefix in grey, which reads slightly noisily, though it matches Reminders.",
+      "At the largest text the New Task toolbar button overlaps the blurred last row (system toolbar behaviour, acceptable)."
+    ],
+    "scroll": "UITableView-smooth: slow drag, fling, fling back and pull past the top all feel like a stock iPhone list, with no blank rows or jumps; the large title collapses into the inline title.",
+    "scores": {"features": 9, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "B does every requirement with system idioms: Reminders-like coloured lists, a standard Edit mode with reorder and delete, system swipe actions, an inline calendar, and list management from both a menu and swipes. A covers the spec but has a real bug: a new list can't be opened until relaunch. It also uses a hand-drawn swipe-delete circle and always-visible grips that give it away as non-native."
+}

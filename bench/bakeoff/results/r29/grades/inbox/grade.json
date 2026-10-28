@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, with sender, bold subject when unread, up to two lines of preview, and time/weekday/short date the way Mail shows them. Unread rows get a blue dot."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows system Flag and Archive buttons, and archiving removes the row. Swiping right all the way toggles read/unread. The Archive screen lists archived mail, and its swipe offers Move to Inbox."},
+      {"n": 3, "status": "pass", "note": "Flag from the row swipe or from the reader's toolbar flag button, shown as an orange flag on the row. A Mailbox Options menu offers All Mail, Unread Only and Flagged Only, and the subtitle shows the active filter."},
+      {"n": 4, "status": "pass", "note": "Pushes to a reader with subject, sender, date and a Flagged badge. The unread count drops on opening."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds two unread messages at the top, timestamped now. A Receive Mail menu item does the same."},
+      {"n": 6, "status": "pass", "note": "'N unread' subtitle under the large title, updated live."},
+      {"n": 7, "status": "pass", "note": "After relaunch, the archived message, the message marked unread, the read message, the flag changes and the refreshed messages were all kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Reader's flag toolbar button is a black filled flag rather than orange or tinted.",
+      "At the largest text size, the sender name shares a line with the time and gets hyphenated ('Mor-gan'). That is syllable hyphenation, so it is excused, but rows become very tall.",
+      "The reader has no bottom toolbar with archive/reply actions the way Mail does; actions live in a '…' menu."
+    ],
+    "scroll": "A native collection view: slow drags, flings and the rubber band past the top all feel like iOS, the large title collapses to an inline title correctly, and scroll position is kept after returning from a message.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, with avatar initials, sender, subject, two-line preview, and time for today or 'Oct 24' otherwise. Unread is shown by a small green dot and bold subject, which is fairly subtle."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows a single green Archive action. Swiping right all the way toggles read/unread. The Archive screen works, and its swipe returns mail to the Inbox."},
+      {"n": 3, "status": "pass", "note": "Each row has a flag button; the reader toolbar also has a flag. A custom All/Unread/Flagged segmented control filters correctly, and becomes an 'All mail' menu at large text."},
+      {"n": 4, "status": "pass", "note": "Reader shows a breadcrumb, large subject, avatar, date and an 'End of message' rule, with an archive/read/flag toolbar. Opening marks the message read."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds two new messages at the top. A toolbar refresh button does too, and a bottom pill shows '2 new messages'."},
+      {"n": 6, "status": "pass", "note": "'N unread · M messages' line under the title plus a bottom status pill."},
+      {"n": 7, "status": "pass", "note": "Archived, read/unread and flag states and the refreshed messages survived relaunch."}
+    ],
+    "bugs": [
+      "Archive header reads '1 messages' (no singular form).",
+      "The accessibility tree leaks dozens of off-screen avatar-initial labels at one fixed point (the 'MK', 'CB'… StaticTexts), which VoiceOver could stumble over."
+    ],
+    "tells": [
+      "Custom cream and dark-green theme instead of system background and tint colours; reads as a designed web/brand app rather than Mail.",
+      "Hand-styled pill segmented control in brand green instead of the system segmented control.",
+      "Rows are 124 pt tall with a separate flag button column, so only about 4.5 messages fit per screen, and the preview wraps into a narrow column.",
+      "Unread indicator is a small green dot at the very edge rather than Mail's blue dot.",
+      "When scrolled, the list content is cut off hard beneath a pinned search field, with no bar material or scroll-edge effect.",
+      "At the largest text size the large 'Inbox' title does not grow (it even looks smaller than the body text), and the bottom status pill overlaps list text.",
+      "Only one swipe action (Archive) on the trailing side. No Flag swipe, though a button is on the row.",
+      "Dates show 'Oct 24' for messages from this week instead of weekday names."
+    ],
+    "scroll": "Smooth on drags and flings with no blank rows. The list scrolls under a pinned search field without a material edge, and the very tall rows make it feel sparse; position came back intact after opening a message in a screenshot check.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet every requirement and keep state across relaunch. A looks and behaves like Apple Mail: system swipe actions with Flag and Archive, the blue unread dot, a Mailbox Options menu, and dense rows that scale well. B is attractive and feature-rich (avatars, reader toolbar, adaptive filter menu), but its custom theme, hand-styled controls, very tall rows and small glitches ('1 messages', leaked accessibility labels, a large title that doesn't grow at the largest text size) make it clearly not a stock iOS app."
+}

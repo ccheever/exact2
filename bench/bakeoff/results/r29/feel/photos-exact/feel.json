@@ -1,0 +1,420 @@
+{
+ "app": "dev.bakeoff.photos.b49a337",
+ "verdict": "probed",
+ "smooth": {
+  "frames": 1105,
+  "motionS": 18.47,
+  "fps": 60,
+  "hitchRatio": 2.7,
+  "longestFrameMs": 39.8,
+  "hitches": 3,
+  "hitchAt": [
+   {
+    "gesture": "status-bar",
+    "ms": 39.8,
+    "mainMs": 7.2,
+    "late": 23.2,
+    "where": {
+     "Exact host": 8.4,
+     "Exact host · Core Animation": 8.4
+    },
+    "via": {
+     "events": 16.9
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "status-bar",
+    "ms": 26.8,
+    "mainMs": 18.3,
+    "late": 10.2,
+    "where": {
+     "Exact host": 13,
+     "Exact runtime (main waits on exact.owner)": 2.6
+    },
+    "via": {
+     "the main queue": 2.6,
+     "display links and ports": 13
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "status-bar",
+    "ms": 33.3,
+    "mainMs": 15.6,
+    "late": 16.7,
+    "where": {
+     "Exact host · SwiftUI": 2.6,
+     "Exact runtime (main waits on exact.owner)": 2.6,
+     "Exact host · UIKit": 5.2,
+     "Exact host · text & drawing": 2.6,
+     "Exact host · Core Animation": 2.6
+    },
+    "via": {
+     "the main queue": 2.6,
+     "display links and ports": 13
+    },
+    "cause": "scroll"
+   }
+  ],
+  "mainMs": 1.68,
+  "mainP95Ms": 4.61,
+  "tickHitchRatio": 0,
+  "scrollHitchRatio": 2.7,
+  "where": [
+   {
+    "gesture": "status-bar",
+    "frames": 3,
+    "lateMs": 50.1,
+    "ticks": 0,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 42.8,
+      "what": [
+       [
+        "Core Animation",
+        11
+       ],
+       [
+        "UIKit",
+        5.2
+       ],
+       [
+        "SwiftUI",
+        2.6
+       ],
+       [
+        "text & drawing",
+        2.6
+       ]
+      ]
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 5.2,
+      "what": []
+     }
+    ],
+    "via": {
+     "events": 16.9,
+     "the main queue": 5.2,
+     "display links and ports": 26
+    }
+   }
+  ],
+  "verdict": {
+   "hitch": "ok",
+   "stall": "tell",
+   "main": "ok"
+  }
+ },
+ "tracking": {
+  "ratio": null,
+  "lagFrames": null,
+  "maxErrorPt": null,
+  "slopPt": 10,
+  "glidePt": 196.7,
+  "verdict": {
+   "ratio": "n/a",
+   "lag": "n/a",
+   "glide": "bad"
+  }
+ },
+ "flings": [
+  {
+   "name": "fling-1500",
+   "asked": 1500,
+   "fingerV": 760,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 2.2,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-4000",
+   "asked": 4000,
+   "fingerV": 1740,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-6000",
+   "asked": 6000,
+   "fingerV": 3800,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 2.5,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-1",
+   "asked": 8000,
+   "fingerV": -6090,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": -4370,
+   "handoff": 0.55,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1981,
+   "contentSizeChanges": 22,
+   "contentShifts": 22
+  },
+  {
+   "name": "fling-up-2",
+   "asked": 8000,
+   "fingerV": -6090,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9997,
+   "contentV": -4421,
+   "handoff": 0.55,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 2001,
+   "contentSizeChanges": 27,
+   "contentShifts": 25
+  },
+  {
+   "name": "fling-up-3",
+   "asked": 8000,
+   "fingerV": -6090,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": -4449,
+   "handoff": 0.56,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1981,
+   "contentSizeChanges": 26,
+   "contentShifts": 24
+  },
+  {
+   "name": "fling-up-4",
+   "asked": 8000,
+   "fingerV": -6090,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": -4572,
+   "handoff": 0.57,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 2061,
+   "contentSizeChanges": 28,
+   "contentShifts": 26
+  },
+  {
+   "name": "fling-up-5",
+   "asked": 8000,
+   "fingerV": -6216,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9984,
+   "contentV": -1890,
+   "handoff": 0.24,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 863,
+   "contentSizeChanges": 14,
+   "contentShifts": 12
+  },
+  {
+   "name": "fling-up-6",
+   "asked": 8000,
+   "fingerV": -6090,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": -4385,
+   "handoff": 0.55,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1981,
+   "contentSizeChanges": 27,
+   "contentShifts": 25
+  },
+  {
+   "name": "fling-up-7",
+   "asked": 8000,
+   "fingerV": -6090,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": -4403,
+   "handoff": 0.55,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1981,
+   "contentSizeChanges": 27,
+   "contentShifts": 25
+  },
+  {
+   "name": "fling-up-8",
+   "asked": 8000,
+   "fingerV": -6090,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9987,
+   "contentV": -4344,
+   "handoff": 0.54,
+   "frames": 125,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 2113,
+   "contentSizeChanges": 27,
+   "contentShifts": 25
+  },
+  {
+   "name": "fling-partway",
+   "asked": 3000,
+   "fingerV": 2230,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9983,
+   "contentV": 3172,
+   "handoff": 1.06,
+   "frames": 117,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1513,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 4.3,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-for-tap",
+   "asked": 4000,
+   "fingerV": 1740,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9999,
+   "contentV": 3920,
+   "handoff": 0.98,
+   "frames": 21,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 937,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 3.9,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  }
+ ],
+ "momentum": {
+  "tauMs": 500,
+  "handoff": 1.06,
+  "jumps": 0,
+  "contentSizeChanges": 198,
+  "contentShifts": 184,
+  "liftDrops": 0,
+  "lifts": 4,
+  "liftMainMs": 4.3,
+  "verdict": {
+   "lift": "ok",
+   "tau": "ok",
+   "handoff": "ok",
+   "jumps": "ok"
+  }
+ },
+ "edgeBounce": {
+  "name": "fling-6000",
+  "overshootPt": 138.7,
+  "entryV": 0,
+  "settleS": 0.8,
+  "verdict": {
+   "settle": "ok"
+  }
+ },
+ "scrollToTop": {
+  "fromPt": 54721,
+  "reached": true,
+  "startS": 0.12,
+  "durationS": 0.83,
+  "scrollsToTop": true,
+  "verdict": {
+   "reached": "ok"
+  }
+ },
+ "tapToStop": {
+  "beforeV": 1760,
+  "stopFrames": 1,
+  "travelPt": 0,
+  "activated": false,
+  "verdict": {
+   "stop": "ok"
+  }
+ },
+ "blank": {
+  "samples": 235,
+  "uniformSamples": 0,
+  "checked": 0,
+  "lateChecked": 0,
+  "verified": true,
+  "blankSamples": 0,
+  "share": 0,
+  "maxPt": 0,
+  "sampleMs": 4.85,
+  "verdict": {
+   "blank": "ok"
+  }
+ },
+ "scrub": {
+  "took": false,
+  "crossed": 0.27,
+  "maxStepPt": 1908,
+  "blank": {
+   "samples": 61,
+   "uniformSamples": 2,
+   "checked": 0,
+   "lateChecked": 0,
+   "verified": true,
+   "blankSamples": null,
+   "share": null,
+   "maxPt": 0,
+   "sampleMs": 2.89,
+   "verdict": {
+    "blank": "n/a"
+   }
+  },
+  "heldBlank": {
+   "samples": 16,
+   "uniformSamples": 0,
+   "checked": 0,
+   "lateChecked": 0,
+   "verified": true,
+   "blankSamples": 0,
+   "share": 0,
+   "maxPt": 0,
+   "sampleMs": 3.61,
+   "verdict": {
+    "blank": "ok"
+   }
+  },
+  "verdict": {
+   "hitch": "n/a",
+   "stall": "n/a",
+   "blank": "n/a",
+   "held": "n/a"
+  }
+ },
+ "list": {
+  "cls": "ExactKit.ScrollView",
+  "decelerationRate": 0.998,
+  "bounces": true,
+  "scrollsToTop": true,
+  "delaysContentTouches": true,
+  "contentHeight": 62420
+ }
+}

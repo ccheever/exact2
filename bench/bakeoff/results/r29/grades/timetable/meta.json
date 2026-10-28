@@ -1,0 +1,11 @@
+{
+  "spec": "timetable",
+  "key": {
+    "A": "uikit",
+    "B": "exact"
+  },
+  "exit": 0,
+  "minutes": 7.98,
+  "shots": 43,
+  "graded": true
+}

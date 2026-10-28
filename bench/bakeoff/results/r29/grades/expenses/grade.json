@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, inset-grouped by day; each header shows the date ('Today', 'Sun, Oct 25') with that day's total on the right."},
+      {"n": 2, "status": "pass", "note": "A dark green summary card shows October 2026's total ($5,269.70) and the expense count. It updates immediately after add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with amount (decimal pad), merchant, a category menu of the 7 categories, a compact date picker defaulting to Oct 27 and an optional note. Empty, negative and malformed amounts are rejected on Save with a red inline message. Save is always enabled."},
+      {"n": 4, "status": "pass", "note": "Tapping any row, including a newly added one, opens an 'Edit expense' sheet prefilled with its values, and edits save. A native swipe-left Delete action (round trash button) removes the row and updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists this month's spending per category, largest first, with '27.4% of total' and a coloured bar. Tapping one pushes a list of that category's transactions grouped by day."},
+      {"n": 6, "status": "pass", "note": "Amounts show as $1,406.65 throughout. An added expense and deletions survive relaunch."}
+    ],
+    "bugs": [
+      "The amount field accepts typed non-numeric characters, e.g. '-5' (only via a hardware keyboard; the on-screen pad has no minus). Save catches it with an error, so nothing invalid is stored."
+    ],
+    "tells": [
+      "Heavily branded custom form: a large tinted '$ 0.00' amount card and separate rounded cards with caption labels, instead of a grouped Form/List.",
+      "Custom green capsule 'Done' button floating above the keyboard, and a green filled Save capsule, instead of the system keyboard toolbar and a glass confirm button.",
+      "Marketing taglines in the UI ('Your spending, at a glance.', 'A place for every purchase.', 'Small expenses. A clearer picture.') feel web-like.",
+      "When scrolled, content is cut off hard under an opaque nav bar, with no scroll-edge blur.",
+      "At the largest text size the large title and nav buttons barely grow compared with the body text.",
+      "Uses an app-specific green accent everywhere (tab selection, Save) instead of the system tint; this is acceptable but noticeable."
+    ],
+    "scroll": "Smooth flings and slow drags with no blank rows or pop-in. Scroll position is kept across tab switches. The only roughness is the hard clip under the nav bar instead of a blurred edge.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day in inset-grouped sections. Headers read 'Oct 25, 2026 · $222.02'."},
+      {"n": 2, "status": "pass", "note": "A grey summary card shows October 2026's total and the expense count, and updates after changes."},
+      {"n": 3, "status": "pass", "note": "Native grouped Form: amount, merchant, a category pop-up menu of the 7 categories, a compact date picker defaulting to today and an optional note. The confirm button stays disabled until the amount is a positive number, and a footer explains the rule."},
+      {"n": 4, "status": "partial", "note": "Editing existing rows and swipe-to-delete work. However, a just-added expense cannot be opened: tapping it does nothing (it is also missing from the accessibility tree) until the app is relaunched. Reproduced twice."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists categories largest first with '$1,406.65 · 27%', a bar and a count. Tapping one pushes a day-grouped list of its transactions."},
+      {"n": 6, "status": "pass", "note": "Amounts show as US currency. An added expense, edits and deletions survive relaunch."}
+    ],
+    "bugs": [
+      "A newly added expense row cannot be tapped to edit (and is invisible to accessibility) until the app is relaunched. Swipe-delete on it does work.",
+      "In the category detail list, a row with a note shows only the note ('split with Sam') and drops the category name, while rows without a note show 'Bills'. The layout is inconsistent."
+    ],
+    "tells": [
+      "Category rows are tappable but have no disclosure chevron.",
+      "While a row is swiped, its content is clipped at the left edge and the row turns grey. The Delete action is a wide capsule rather than the standard round swipe button.",
+      "The validation footer 'Enter an amount greater than $0.00.' shows before the user has typed anything.",
+      "All row amounts are in secondary grey rather than primary text, so amounts look disabled."
+    ],
+    "scroll": "Native-feeling: smooth flings, the scroll-edge blur under the nav bar, no blank rows or jumps. Scroll position is kept across tab switches.",
+    "scores": {"features": 7, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "B looks more like a stock SwiftUI app (a real grouped Form, a disabled confirm until the input is valid, scroll-edge blur), but a newly added expense cannot be opened for editing until relaunch, which breaks a core requirement. A meets every requirement reliably and is consistently polished. Its main weaknesses are a branded, somewhat web-like custom form and marketing taglines."
+}
