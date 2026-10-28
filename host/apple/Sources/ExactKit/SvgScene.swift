@@ -135,8 +135,8 @@ enum CssAnimations {
     static func lowered(_ spec: [String: Any]) -> (values: [Any], keyTimes: [NSNumber], timing: [CAMediaTimingFunction]?) {
         let key = spec["k"] as? String ?? ""
         let colors = key == "fillColor" || key == "strokeColor" || key == "backgroundColor"
-        // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6), as written: a dimmed
-        // control's face greys its colours at rest, not along a running animation (TintDimmingIOS.swift).
+        // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6), as written: a dimmed control's
+        // face greys what it paints, not what an animation shows, running or held (TintDimmingIOS.swift).
         // A `path` track's values are paths, as a scene's `p` (LLP 1115.003 D4).
         let values: [Any] = colors
             ? (spec["v"] as? [Any] ?? []).compactMap { color($0, dark: false) }
