@@ -159,6 +159,8 @@ test('a package token set for this app: its value edited before Apply is still t
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-override-'));
   const design = 'tamber t\n\ntheme\n  brand = reading.card\n';
   writeFileSync(join(app, 'app.tamber'), design);
+  // Another design file the app holds, open in the tool beside the app's.
+  writeFileSync(join(app, 'brand.tamber'), 'tamber brand\n\ntheme\n  brand.ink = #202020\n');
   const pkg = join(app, 'node_modules/@acme/reading');
   mkdirSync(pkg, { recursive: true });
   writeFileSync(join(pkg, 'package.json'), '{"name":"@acme/reading","version":"1.0.0","exports":{".":"./index.contract"}}');
@@ -166,7 +168,7 @@ test('a package token set for this app: its value edited before Apply is still t
   writeFileSync(join(pkg, 'reading.tamber'), 'tamber reading\n\ntheme\n  reading.card = #112233\n  reading.measure: length = 640px\n');
   writeFileSync(join(app, 'app.contract'), 'use ReadingCard from "@acme/reading"\ncomponent App\n  view\n    column background-color="brand"\n      ReadingCard()\n');
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
-  git('init', '-q'); git('add', 'app.tamber', 'app.contract'); git('commit', '-q', '-m', 'design');
+  git('init', '-q'); git('add', 'app.tamber', 'brand.tamber', 'app.contract'); git('commit', '-q', '-m', 'design');
   const tool = await proxied(app);
   try {
     const replies = await drive(tool.url, `design-tool-override-${process.pid}`, [
@@ -185,6 +187,15 @@ test('a package token set for this app: its value edited before Apply is still t
       'tap apply', 'clock data', 'clock +1', 'clock data',
       // An app token's name typed in the form stays add-token (round 1, Grok and Astra: decided by the rows, not the last Set).
       'type new-name brand.two', 'type new-value #445566', 'type new-value key Enter', 'clock data', 'state',
+      'tap cancel-edit', 'clock data',
+      // Their read-only cell open, then the form names the same token (round 2, Astra and Grok): the cell is no guard on it.
+      'tap back-reading.measure', 'clock data', 'clock +1', 'clock data', 'tap apply', 'clock data', 'clock +1', 'clock data',
+      'tap cell-reading.measure-0-light', 'clock data',
+      'type new-name reading.measure', 'type new-value 760px', 'type new-value key Enter', 'clock data', 'clock +1', 'clock data', 'state',
+      'tap apply', 'clock data', 'clock +1', 'clock data',
+      // Another file open: their rows show beside its own, but a name added there is that file's line (round 2).
+      'type file brand.tamber', 'clock data', 'clock +1', 'clock data',
+      'type new-name reading.measure', 'type new-value 780px', 'type new-value key Enter', 'clock data', 'state',
     ]);
     const states = replies.filter(r => r.slots);
     expect([states[0].slots.editKind, states[0].slots.editTarget, states[0].slots.editValue]).toEqual(['set-token', 'reading.measure', '700px']);
@@ -197,6 +208,11 @@ test('a package token set for this app: its value edited before Apply is still t
     expect(tool.writes[2]).toMatchObject({ method: 'transaction', ok: true });
     expect(tool.writes[2].after).toBe(`${design}  reading.measure: length = 740px\n`);
     expect([states[3].slots.editKind, states[3].slots.editTarget]).toEqual(['add-token', 'brand.two']);
+    expect([states[4].slots.editKind, states[4].slots.editTarget, states[4].slots.selToken]).toEqual(['set-token', 'reading.measure', '']);
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['transaction', true], ['transaction', true], ['transaction', true], ['transaction', true], ['transaction', true]]);
+    expect(tool.writes[3].after).toBe(design);
+    expect(tool.writes[4].after).toBe(`${design}  reading.measure: length = 760px\n`);
+    expect([states[5].slots.file, states[5].slots.editKind, states[5].slots.editTarget]).toEqual(['brand.tamber', 'add-token', 'reading.measure']);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });

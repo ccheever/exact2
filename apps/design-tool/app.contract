@@ -752,7 +752,13 @@ component DesignTool
       // set-token, which the server writes as one, Set for this app's draft with its value changed included; add-token
       // of their name is refused. Decided by the rows as they are now, not the name last set.
       let n = newName.trim()
-      editKind = design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n and (t.of == "base" or t.of == "package")).length > 0).length > 0 ? "set-token" : "add-token"
+      // (Only in the app's design, where set-token of their name is the app's line; another open file shows their rows
+      // beside its own but holds none of them, so a name added there is add-token, round 2.)
+      let theirs = file == "" and design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n and (t.of == "base" or t.of == "package")).length > 0).length > 0
+      editKind = theirs ? "set-token" : "add-token"
+      // (Their read-only cell, if open, is no guard on the form's edit, as setForApp closes it, round 2.)
+      if theirs
+        selToken = ""
       editTarget = n
       editWhen = ""
       editValue = newValue.trim()
