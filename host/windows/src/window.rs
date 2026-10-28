@@ -263,7 +263,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     }
     if state.frames > 0 {
         eprintln!(
-            "exact-windows: {} frames; mean render/present {:.2} ms; mean CPU upload {:.2} ms",
+            "exact-windows: {} frames; mean paint {:.2} ms; mean present {:.2} ms",
             state.frames,
             state.paint_ms / state.frames as f64,
             state.present_ms / state.frames as f64
@@ -274,7 +274,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             values[((values.len() - 1) as f64 * fraction).round() as usize]
         };
         if !state.samples.is_empty() {
-            eprintln!("exact-windows: recent {} frames p50/p95 ms: interval {:.2}/{:.2}, render/present {:.2}/{:.2}, CPU upload {:.2}/{:.2}",
+            eprintln!("exact-windows: recent {} frames p50/p95 ms: interval {:.2}/{:.2}, paint {:.2}/{:.2}, present {:.2}/{:.2}",
                 state.samples.len(), percentile(|s| s.0, 0.5), percentile(|s| s.0, 0.95),
                 percentile(|s| s.1, 0.5), percentile(|s| s.1, 0.95),
                 percentile(|s| s.2, 0.5), percentile(|s| s.2, 0.95));
@@ -394,6 +394,11 @@ impl<D: DataSource + Default + 'static> App<D> {
                     .and_then(|m| m.refresh_rate_millihertz())
             );
         }
+        // Bounded runs measure an unchanged redraw, as the C4 still protocol does.
+        if self.frame_limit.is_some() {
+            p.repaint();
+        }
+        let painting = p.dirty();
         let paint = Instant::now();
         if let Some(previous) = self.caret.take_previous_frame() {
             p.recycle_frame(previous);
@@ -444,7 +449,12 @@ impl<D: DataSource + Default + 'static> App<D> {
         // Geometry and accessibility queries below can paint into a discarded
         // frame. Preserve work discovered after this frame's pixels were drawn.
         let repaint_owed = p.dirty();
-        let paint_ms = paint.elapsed().as_secs_f64() * 1000.;
+        let direct_present_ms = if painting && frame.is_none() && p.painter.name == "ink" {
+            p.last_frame_ms().map_or(0., |(_, present)| present)
+        } else {
+            0.
+        };
+        let paint_ms = (paint.elapsed().as_secs_f64() * 1000. - direct_present_ms).max(0.);
         self.paint_ms += paint_ms;
         let present = Instant::now();
         if let Some(frame) = frame {
@@ -485,7 +495,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             window.set_cursor(cursor);
             self.cursor = cursor;
         }
-        let present_ms = present.elapsed().as_secs_f64() * 1000.;
+        let present_ms = present.elapsed().as_secs_f64() * 1000. + direct_present_ms;
         self.present_ms += present_ms;
         if let Some(previous) = self.previous_frame.replace(frame_started) {
             let sample = (
@@ -498,6 +508,12 @@ impl<D: DataSource + Default + 'static> App<D> {
             } else {
                 self.samples[(self.frames as usize - 1) % 4096] = sample;
             }
+        }
+        if self.frames == 0 {
+            eprintln!(
+                "exact-windows: first present returned at {:.3} ms after host start",
+                self.started.elapsed().as_secs_f64() * 1000.
+            );
         }
         self.frames += 1;
         p.first_pixel();

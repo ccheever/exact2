@@ -8,6 +8,71 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod desktop {
+    use super::*;
+    use std::rc::Rc;
+    use windows::{
+        core::w,
+        Win32::{Foundation::HWND, System::Com::*, UI::WindowsAndMessaging::*},
+    };
+    struct Owner(HWND);
+    impl Drop for Owner {
+        fn drop(&mut self) {
+            unsafe { DestroyWindow(self.0).unwrap() };
+        }
+    }
+    pub(super) struct Window(Rc<Owner>);
+    impl Window {
+        pub(super) fn new(width: u32, height: u32) -> Self {
+            unsafe {
+                CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap();
+                Self(Rc::new(Owner(
+                    CreateWindowExW(
+                        WS_EX_NOREDIRECTIONBITMAP,
+                        w!("STATIC"),
+                        w!("Ink C6 frame measurement"),
+                        WS_POPUP | WS_VISIBLE,
+                        0,
+                        0,
+                        width as i32,
+                        height as i32,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                )))
+            }
+        }
+        pub(super) fn attach<D: DataSource>(&self, p: &mut Presenter<D>, w: u32, h: u32) {
+            // The retained owner keeps the HWND live through the presenter's drop.
+            let window = unsafe {
+                exact_ink::device::d3d11::Window::new(self.0 .0 .0 as isize, self.0.clone())
+            };
+            assert!(p.attach_painter_window(window, [w, h]).unwrap());
+        }
+        pub(super) fn frame<D: DataSource>(&self, p: &mut Presenter<D>) {
+            unsafe {
+                let mut message = MSG::default();
+                while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                assert!(p.window_frame(self.0 .0 .0 as usize, 0).unwrap().is_none());
+            }
+            assert!(p.last_frame_succeeded());
+        }
+    }
+    impl Drop for Window {
+        fn drop(&mut self) {
+            unsafe { CoUninitialize() };
+        }
+    }
+}
+
 fn baked(app: &str) -> PathBuf {
     if let Some(path) = std::env::var_os(format!("INK_BAKED_{}", app.to_uppercase())) {
         return path.into();
@@ -123,6 +188,14 @@ fn row_text<D: DataSource>(
 }
 
 fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f32, arm: &str) {
+    #[cfg(windows)]
+    let window = std::env::var_os("INK_WINDOW").map(|_| {
+        assert_eq!(
+            arm, "D",
+            "the composition worker uses the direct D3D11 device"
+        );
+        desktop::Window::new(width as u32, height as u32)
+    });
     let assets = root().join("apps").join(app);
     let (mut p, error) =
         Presenter::boot_with(plan, data, (width, height), 1., assets, PainterChoice::Cpu).unwrap();
@@ -180,6 +253,10 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
     memory_phase("after device");
     p.reader_replaced(backend);
     p.painter.name = if ink_arm(arm) { "ink" } else { "gpu" };
+    #[cfg(windows)]
+    if let Some(window) = &window {
+        window.attach(&mut p, width as u32, height as u32);
+    }
     p.frame();
     memory_phase("first frame complete");
     let boxes = p.boxes().to_vec();
@@ -278,11 +355,26 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
             }
             p.repaint();
             let started = Instant::now();
-            let pixels = p.frame();
+            let presented = {
+                #[cfg(windows)]
+                if let Some(window) = &window {
+                    window.frame(&mut p);
+                    true
+                } else {
+                    assert_eq!(p.frame().width(), width as u32);
+                    false
+                }
+                #[cfg(not(windows))]
+                {
+                    assert_eq!(p.frame().width(), width as u32);
+                    false
+                }
+            };
             let wall = started.elapsed().as_secs_f64() * 1000.;
-            assert_eq!(pixels.width(), width as u32);
             assert_eq!(p.painter.name, if ink_arm(arm) { "ink" } else { "gpu" });
             let (encode, readback) = p.last_frame_ms().unwrap();
+            // Window frames report encode/present; headless frames encode/readback.
+            assert_eq!(presented, std::env::var_os("INK_WINDOW").is_some());
             values.push([wall, encode, readback, step.elapsed().as_secs_f64() * 1000.]);
             if let Some(stats) = &stats {
                 let s = stats.read();
@@ -307,7 +399,7 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
         let cpu = (cpu_ms() - cpu_start) / 300.;
         println!(
             "INK_RESULT {}",
-            serde_json::json!({"app":app,"arm":arm,"size":[width,height],"mode":mode,"frames":values,"cpu_ms":cpu,"peak_rss_kib":max_rss,"counters":stats.as_ref().map(|_| counters),"scroll_max":scroll.map(|s| s.max.1),"text_node":text.as_ref().map(|t| t.0),"text_initial":text.as_ref().map(|t| &t.1),"row_groups":p.brush.row_groups().len()})
+            serde_json::json!({"app":app,"arm":arm,"size":[width,height],"window":std::env::var_os("INK_WINDOW").is_some(),"mode":mode,"frames":values,"cpu_ms":cpu,"peak_rss_kib":max_rss,"counters":stats.as_ref().map(|_| counters),"scroll_max":scroll.map(|s| s.max.1),"text_node":text.as_ref().map(|t| t.0),"text_initial":text.as_ref().map(|t| &t.1),"row_groups":p.brush.row_groups().len()})
         );
     }
 }
@@ -364,7 +456,9 @@ fn worker() {
         .unwrap_or("390".into())
         .parse()
         .unwrap();
-    let height = if width == 390. { 844. } else { 1080. };
+    let height = std::env::var("INK_HEIGHT")
+        .map(|s| s.parse().unwrap())
+        .unwrap_or(if width == 390. { 844. } else { 1080. });
     if app == "messages-stress" {
         let plan =
             contract::compile_path(&root().join("apps/messages-stress/app.contract")).unwrap();

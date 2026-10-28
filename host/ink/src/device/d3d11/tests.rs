@@ -194,3 +194,20 @@ fn composition_and_windowless_text() {
         CoUninitialize();
     }
 }
+
+#[test]
+#[ignore = "S0 C6 boot phase worker; run ten interleaved processes on the NucBox"]
+fn boot_worker() {
+    let arm = std::env::var("INK_BOOT_DEVICE").expect("INK_BOOT_DEVICE");
+    let info = match arm.as_str() {
+        "d3d11" => D3d11::new().unwrap().info().clone(),
+        "warp" => D3d11::open(true).unwrap().info().clone(),
+        "wgpu" => {
+            std::env::set_var("WGPU_BACKEND", "dx12");
+            super::super::wgpu::Wgpu::new().unwrap().info().clone()
+        }
+        _ => panic!("INK_BOOT_DEVICE must be d3d11, warp or wgpu"),
+    };
+    println!("INK_C6_BOOT {{\"arm\":\"{arm}\",\"device_ms\":{},\"shaders_ms\":{},\"cached\":{},\"api\":\"{}\",\"adapter\":\"{}\"}}",
+        info.device_ms, info.shaders_ms, info.cached, info.api, info.adapter);
+}
