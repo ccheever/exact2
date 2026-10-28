@@ -1,10 +1,11 @@
 // The geofencing fixture (LLP 1133.021 §13, drives 10 to 16): Caltrain's
-// "Next trains when I arrive" waits for @exact/notifications (§15 question
-// 5), so its drives run here, where an arrival posts the built-in
-// `showNotification` as its visible effect. A switch watches Palo Alto
+// "Next trains when I arrive" waits on its own app work (§15 question 5),
+// so its drives run here, where an arrival posts a notification
+// (`@exact/notifications`) as its visible effect. A switch watches Palo Alto
 // station; Add a fence, pressed twenty-one times, meets the quota.
 
 use addGeofence, removeGeofence, geofences, geofencingStatus, geofenceenter, geofenceleave, Geofence, GeofenceEvent, GeofencingStatus from "@exact/geofencing"
+use showNotification from "@exact/notifications"
 
 component GeofenceFixture
   resource fencing = geofencingStatus() as shape GeofencingStatus else empty()

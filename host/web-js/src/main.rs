@@ -514,11 +514,6 @@ fn main() -> ExitCode {
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
                 }
-                // `showNotification`/`closeNotification` (notify.js).
-                let _ = std::fs::remove_file(dir.join("notify.flag"));
-                if u.has(Capability::Notifications) {
-                    let _ = std::fs::write(dir.join("notify.flag"), "");
-                }
                 // A declared sound or a sound command (sounds.js, LLP 1096
                 // D5): the flag holds the table, `[src, frames, rate]` each.
                 let _ = std::fs::remove_file(dir.join("sounds.flag"));

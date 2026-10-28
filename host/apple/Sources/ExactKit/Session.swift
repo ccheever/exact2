@@ -1172,10 +1172,6 @@ public final class ExactSession {
                     continue
                 }
                 if name == "share" { app.deliver { [weak self] in self?.share(args, source: source) }; continue }
-                if name == "showNotification" || name == "closeNotification" {
-                    app.deliver { [weak self] in self?.notify(name, args) }
-                    continue
-                }
                 if name == "postMessage" {
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : "", iframe = args.count > 2 && args[2] as? String == "iframe"
                     app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }

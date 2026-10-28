@@ -261,6 +261,13 @@ fn entry(name: &str) -> Option<Entry> {
     });
     let command = match name {
         "exactMIDI" => Some(MIDI_SOURCE.to_string()),
+        "showNotification"
+        | "closeNotification"
+        | "notificationclick"
+        | "setAppBadge"
+        | "clearAppBadge"
+        | "notificationStatus"
+        | "requestNotificationPermission" => Some(NOTIFICATIONS.to_string()),
         _ => HOST_COMMANDS.contains(&name).then(|| command_text(name)),
     };
     let function = functions::function(name);
@@ -803,10 +810,13 @@ fn function_text(f: &Function) -> String {
 /// the euxy port expected its notes with no output connected.
 const MIDI_SOURCE: &str = "reserved source, `resource midi = exactMIDI() as shape MIDI`: `state`, `inputs` and `outputs` by Web MIDI's names, and `sent`, the last 128 messages that went out ({output, data, timeStamp}) by the runner's clock. `\"\"` is no output: a track's `output=\"\"` and `sendMIDI(\"\", …)` reach no device and need no access, and `sent` lists them with `output: \"\"`, so an activity log shows what plays with no device connected (filter on `output` for what reached one). A message to a named output that is not connected, or before access is granted, goes nowhere: `sendMIDI` and a sequence's notes drop it, the journal (`logs`) says so, and `sent` never lists it (LLP 1125 D6, D7; apps/metronome)";
 
+/// `@exact/notifications`' names (LLP 1133.004), which a package declares and
+/// no table of the compiler's holds.
+const NOTIFICATIONS: &str = "a name of the standard module `@exact/notifications` (LLP 1133.004): `exact add notifications`, then `use showNotification, notificationclick, NotificationEvent from \"@exact/notifications\"` and the grant `device.notifications purpose.notifications`. A post is a statement in an action, `showNotification(title=\"Build finished\", tag=t, silent=true, data=\"/thread/3\")`; `closeNotification(tag=t)` takes it away. Its click is `notificationclick=opened` on the root component's outermost node (`action opened(tag: string, e: NotificationEvent)`, `e.data`); with `navigate=\"/thread/3\"` the click opens that route. `setAppBadge(contents=3)`, `setAppBadge()` (a flag) and `clearAppBadge()` set the app icon's badge; `notificationStatus()` reads the permission and `requestNotificationPermission()` asks. Data code calls the same names through the package's binding. Under the agent `state.notifications` lists each post, `tap @ref` clicks one, and `state.badge` is the badge (docs/reference.md#notifications)";
+
 /// A host command: an action statement, never a value.
 fn command_text(name: &str) -> String {
     let what = match name {
-        "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
         "requestMIDIAccess" | "sendMIDI" => "; `sendMIDI` to an output that is not connected drops the message; to `\"\"`, no output, it reaches no device and `exactMIDI().sent` lists it, with no access needed (`contract vocab exactMIDI`); MIDI answers only under the grant `device.midi purpose.midi` (a line of app.ts's `export const grants`), whose second word is a strings key: `\"purpose.midi\": \"…\"` in strings/en.json, the text the person is shown when asked (apps/metronome)",
         "setRangeText" =>"; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement, and on web/macOS/iOS the Markdown editor's, over its source; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText); no undo step on a plain field, one undo step each on the Markdown editor (LLP 1045 D1). Markdown on Linux, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "startTrace_EXPERIMENTAL" | "stopTrace_EXPERIMENTAL" => "; experimental: `startTrace_EXPERIMENTAL()` records each display-link callback from now, in any build; `stopTrace_EXPERIMENTAL()` ends the recording and puts its trace on the clipboard as JSON: on iOS each drag and glide of an element's scroller, a route's page or the document with an estimate of its hitch time ratio, and each late frame with what the main thread did in it; `stopTrace_EXPERIMENTAL(maxBytes)` copies it cut to that many bytes, the frames late the longest first, for a conversation that limits a message (a budget too small for its totals copies a note naming the size that fits them). Apple hosts (tvOS, with no clipboard, only saves the file); the web and Linux refuse it in the journal",

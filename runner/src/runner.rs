@@ -584,9 +584,6 @@ pub struct Runner<D: DataSource> {
     device_holds: Vec<device::Hold>,
     /// Replies landed for held requests, by target (LLP 1016.000 D9): `clock held`'s evidence.
     held_replies: Vec<(String, u64)>,
-    /// Notifications the app posted under the agent (`state.notifications`):
-    /// the agent's substitute for the system's (`crate::notify`).
-    notifications: Vec<crate::notify::Notice>,
     /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
     sounds: crate::sound::Sounds,
     /// The transport (LLP 1125 D3): the sequence playing and its record.
@@ -993,7 +990,6 @@ impl<D: DataSource> Runner<D> {
             faults: faults::Faults::from_env(),
             device_holds: Vec::new(),
             held_replies: Vec::new(),
-            notifications: Vec::new(),
             auth: Default::default(),
             device_links: DeviceLinks::CORE,
             input_source: None,
@@ -1238,15 +1234,6 @@ impl<D: DataSource> Runner<D> {
     /// Inspect data-source identity and readiness without executing app logic.
     pub fn data_ref(&self) -> &D {
         &self.data
-    }
-
-    /// What the app posted under the agent, oldest first (`crate::notify`).
-    pub fn notifications(&self) -> &[crate::notify::Notice] {
-        &self.notifications
-    }
-
-    pub(crate) fn notifications_mut(&mut self) -> &mut Vec<crate::notify::Notice> {
-        &mut self.notifications
     }
 
     /// Current value of a slot by name.

@@ -8,12 +8,16 @@
 // with the real shape.js.
 import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { standIns } from './stand-ins.mjs';
 
-const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
+// The runtime in a `web-js` directory, as built: modules.js imports the web host's `../web/address-space.js`, stood in.
+const root = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-')), dir = resolve(root, 'web-js');
+mkdirSync(dir);
+mkdirSync(resolve(root, 'web'));
+writeFileSync(resolve(root, 'web/address-space.js'), 'export const setSpaceState = () => {};');
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
 
 // The collection protocol and index run unchanged; only DOM row construction
@@ -171,9 +175,8 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js', 'modules.js', 'samples.js'];
+const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
-copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
@@ -964,12 +967,6 @@ test('indexOf and split are the web methods, on the caller\'s list steps', async
   expect(B.x_split('a,b', ',', 65534, 6)).toEqual(['a', 'b']);
 });
 
-// Local notifications on the JS target (notify.js, linked by use, over the
-// web host's notify-glue.js): the runner's rule (runner/src/notify.rs)
-// refuses without `device.notifications`, lists under the agent (a tag
-// replacing its older one), and otherwise asks permission once and posts
-// through the Notification API, now or at `showTrigger` while the page is
-// open; a tag's `closeNotification` takes away a shown or a waiting one.
 // `requestFullscreen` in a plan with no video or audio, where media.js is not installed
 // (`useMedia`): the same refusal media.js journals for an id that names no video.
 test('requestFullscreen without media refuses as media.js does', async () => {
@@ -978,70 +975,78 @@ test('requestFullscreen without media refuses as media.js does', async () => {
   expect(journal.at(-1).replace(/^t=\S+ /, '')).toBe('requestFullscreen: refused: no video with id "player"');
 });
 
-test('notifications: refused without the grant, listed under the agent, else posted by the Notification API', async () => {
-  const { Hosts, clock, data, journal, navigateTo } = await import(resolve(dir, 'rt.js'));
-  await import(resolve(dir, 'notify.js'));
-  const notices = globalThis.exact.notices, posted = [], closed = [], last = () => journal.at(-1).replace(/^t=\S+ /, '');
-  clock.agent = true; data.grants = '';
-  Hosts.showNotification('Stretch', null, 'stretch', null);
-  expect(last()).toBe('showNotification: refused: the grants name no device.notifications');
-  data.grants = 'net.fetch https://a.example\ndevice.notifications purpose.notifications\n';
-  Hosts.showNotification('Stretch', 'Now', 'stretch', null, '/stretch');
-  Hosts.showNotification('Stretch', 'Later', 'stretch', 5, '/notifications');
-  Hosts.showNotification('Alert', null, null, null);
-  expect(notices).toEqual([{ title: 'Stretch', body: 'Later', tag: 'stretch', showTrigger: 5, navigate: '/notifications' }, { title: 'Alert', body: null, tag: null, showTrigger: null, navigate: null }]);
-  Hosts.closeNotification('stretch');
-  expect(notices.map(n => n.title)).toEqual(['Alert']);
+// `@exact/notifications`' web implementation (LLP 1133.004): it asks permission once and posts through the
+// Notification API, now or at `showTrigger` while the page is open; a tag's `closeNotification` takes away a shown or
+// a waiting one; the click is bound through the host's `activation`.
+test('@exact/notifications on the web: posts by the Notification API, closes, holds a showTrigger, binds the click', async () => {
+  const { implementation } = await import(new URL('../../../packages/notifications/web/index.js', import.meta.url).pathname);
+  const posted = [], closed = [], bound = [], said = [];
   globalThis.Notification = class { static permission = 'default'; static requestPermission() { Notification.permission = 'granted'; return Promise.resolve('granted'); }
-    constructor(title, options) { this.title = title; this.options = options; posted.push(this); } close() { closed.push(this.title); } };
-  const previousFocus = globalThis.focus;
+    constructor(title, options) { this.title = title; this.options = options; posted.push(this); } addEventListener() {} close() { closed.push(this.title); } };
   try {
-    clock.agent = false;
-    const navigated = [], focused = [];
-    globalThis.focus = () => focused.push(true);
-    navigateTo(location => navigated.push(location));
-    await Hosts.showNotification('Price alert', 'BTC crossed 100k', 'btc', null, 'https://example.test/notifications?unread=1');
-    expect([posted[0].title, posted[0].options, last()]).toEqual(['Price alert', { body: 'BTC crossed 100k', tag: 'btc' }, 'showNotification: shown']);
-    let prevented = false;
-    posted[0].onclick({ preventDefault() { prevented = true; } });
-    expect([navigated, focused.length, prevented]).toEqual([['/notifications?unread=1'], 1, true]);
-    await Hosts.showNotification('Stretch', null, 'stretch', Date.now() + 60_000);
-    expect([posted.length, last()]).toEqual([1, 'showNotification: scheduled while this page is open']);
-    await Hosts.closeNotification('stretch'); await Hosts.closeNotification('btc');
-    expect(closed).toEqual(['Price alert']);
-    await Hosts.showNotification('Soon', null, null, Date.now() + 20);
-    await new Promise(r => setTimeout(r, 60));
-    expect([posted.at(-1).title, last()]).toEqual(['Soon', 'showNotification: shown']);
-    for (const [input, expected] of [[' \tthread/./42#reply ', '/thread/42'], ['app://thread/../thread/43?view=full#reply', '/thread/43?view=full']]) {
-      await Hosts.showNotification('Route', null, null, null, input);
-      posted.at(-1).onclick({ preventDefault() {} });
-      expect(navigated.at(-1)).toBe(expected);
-    }
-  } finally { delete globalThis.Notification; if (previousFocus === undefined) delete globalThis.focus; else globalThis.focus = previousFocus; }
+    const n = implementation({ changed: () => {}, activation: (...a) => bound.push(a), log: line => said.push(line) });
+    expect(await n.notificationStatus()).toEqual({ available: true, state: 'prompt', badge: false, apple: null });
+    expect(await n.showNotification({ title: 'Done', body: 'Thread 4', tag: 't4', silent: true, data: 'thread-4' })).toBe(null);
+    expect([posted[0].title, posted[0].options, said.at(-1)]).toEqual(['Done', { body: 'Thread 4', tag: 't4', silent: true, data: 'thread-4' }, 'showNotification: shown']);
+    expect(bound[0].slice(1)).toEqual(['click', 'notificationclick', ['t4', { tag: 't4', data: 'thread-4', title: 'Done', body: 'Thread 4' }], { navigate: null }]);
+    expect(await n.showNotification({ title: 'Later', tag: 'l', showTrigger: Date.now() + 60_000 })).toBe(null);
+    expect([posted.length, said.at(-1)]).toEqual([1, 'showNotification: scheduled while this page is open']);
+    await n.closeNotification({ tag: 'l' }); await n.closeNotification({ tag: 't4' });
+    expect(closed).toEqual(['Done']);
+    expect(await n.setAppBadge({ contents: 3 })).toEqual({ error: 'NotSupportedError' });
+    Notification.permission = 'denied';
+    expect(await n.showNotification({ title: 'No' })).toEqual({ error: 'NotAllowedError' });
+  } finally { delete globalThis.Notification; }
 });
 
-test('notification clicks use the route location corpus, including canonical path encoding', async () => {
-  const { Hosts, clock, data, navigateTo } = await import(resolve(dir, 'rt.js'));
-  await import(resolve(dir, 'notify.js'));
+test('a module\'s activation: only a trusted event raises, and a navigate opens the route corpus\'s location', async () => {
+  const { clock, navigateTo, journal } = await import(resolve(dir, 'rt.js'));
+  const { modules } = await import(resolve(dir, 'modules.js'));
   const corpus = JSON.parse(readFileSync(new URL('../../../route/tests/corpus.json', import.meta.url), 'utf8'));
   const cases = [...corpus.location_of, ...corpus.canonical.map(({ input, expected }) => ({
     input: 'https://x' + (input.startsWith('/') ? input : '/' + input), expected,
   }))];
-  const previous = globalThis.Notification, previousFocus = globalThis.focus;
-  let posted, got;
-  globalThis.Notification = class { static permission = 'granted'; constructor() { posted = this; } };
+  let context = null;
+  clock.agent = false;
+  modules({ post: ['fixture.post', true, {}, 'u', 'never', null, false] }, { fixture: () => Promise.resolve({ implementation: c => { context = c; return { post: async () => null }; } }) });
+  await globalThis.exact.extensions.call({ extension: 'fixture', send: 'post', args: {} });
+  const previousFocus = globalThis.focus;
   globalThis.focus = () => {};
   try {
-    clock.agent = false; data.grants = 'device.notifications purpose.notifications\n';
+    const target = { listeners: [], addEventListener(type, f) { this.listeners.push(f); } };
+    context.activation(target, 'click', 'opened', ['t'], {});
+    target.listeners[0]({ isTrusted: false, type: 'click' });
+    expect(journal.at(-1).replace(/^t=\S+ /, '')).toBe('fixture.opened: an untrusted click raises nothing');
+    let got;
     navigateTo(location => { got = location; });
     const mismatches = [];
     for (const { input, expected } of cases) {
-      await Hosts.showNotification('Route', null, null, null, input);
-      posted.onclick({ preventDefault() {} });
+      const routed = { listeners: [], addEventListener(type, f) { this.listeners.push(f); } };
+      context.activation(routed, 'click', 'opened', [], { navigate: input });
+      routed.listeners[0]({ isTrusted: true, type: 'click' });
       if (got !== expected) mismatches.push({ input, expected, got });
     }
     expect(mismatches).toEqual([]);
-  } finally { globalThis.Notification = previous; globalThis.focus = previousFocus; navigateTo(null); }
+  } finally { if (previousFocus === undefined) delete globalThis.focus; else globalThis.focus = previousFocus; navigateTo(null); }
+});
+
+// LLP 1133.030 D2: the declaration's `checks` hold a send under the agent, as the runner's do.
+test('a declared check refuses a send on the JS target, and leaves its state', async () => {
+  const { clock, journal } = await import(resolve(dir, 'rt.js'));
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  clock.agent = true;
+  const checks = [{ min: { contents: 0 }, error: 'TypeError' }, { one: ['a', 'b'], error: 'TypeError' }, { nonEmpty: ['title'], error: 'TypeError' }];
+  modules({ badge: ['chk.badge', true, { admission: 'none', effect: true, checks: checks.slice(0, 1), set: { state: 'badge', from: 'contents' } }, 'u', 'never', null, false],
+    pick: ['chk.pick', true, { admission: 'none', effect: true, checks: checks.slice(1) }, 'u', 'never', null, false] }, {});
+  const call = (send, args) => globalThis.exact.extensions.call({ extension: 'chk', send, args });
+  expect(await call('badge', { contents: 3 })).toBe(null);
+  expect(await call('badge', { contents: -1 })).toEqual({ error: 'TypeError' });
+  expect(journal.at(-1).replace(/^t=\S+ /, '')).toBe('badge: refused: TypeError');
+  expect(globalThis.exact.extensions.declared().badge).toBe(3);
+  expect(await call('pick', { a: 1, b: 2, title: 't' })).toEqual({ error: 'TypeError' });
+  expect(await call('pick', { a: 1, title: '' })).toEqual({ error: 'TypeError' });
+  expect(await call('pick', { b: 2, title: 't' })).toBe(null);
+  clock.agent = false;
 });
 
 // LLP 1133.004 D6, LLP 1133.002 D12: a module event's origin on the JS target.

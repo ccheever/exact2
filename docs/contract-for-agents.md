@@ -439,9 +439,9 @@ component Cart
   the file also declares is refused (`syntax-method-shadowed`).
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
-  and the commands `share(…)`, `showNotification(…)`, `scrollIntoView(…)`, `playSound(…)` and
-  `stopSounds(…)`. Every other function takes
-  positional arguments.
+  the commands `share(…)`, `scrollIntoView(…)`, `playSound(…)` and
+  `stopSounds(…)`, and a native module's sources and sends
+  (`showNotification(…)`). Every other function takes positional arguments.
 
 For the full roster and special calls, see
 [standard functions and intrinsics](contract-grammar.md#standard-functions-and-intrinsics).
@@ -2864,10 +2864,11 @@ away, from a `pagehide` with `persisted` until the `pageshow`; `restores`
 counts those `pageshow` events, so `task t when page.restores > 0
 key=page.restores` runs once for each return, never at launch; a Mac window a
 `keepRunning` close hid is put away, a minimized one only hidden). A reminder that should
-open a route uses `showNotification(title="Done", navigate="/thread/42")`;
-its click reaches the navigation root as a warm `navigate` event or a cold
-launch location. Under the agent `state.notifications` lists `navigate`, and
-`type <navigation root> "/thread/42"` checks the destination. Under the agent each
+open a route uses `showNotification(title="Done", navigate="/thread/42")`
+(`@exact/notifications`); its click reaches the navigation root as a warm
+`navigate` event or a cold launch location, and without `navigate=` it is
+`notificationclick` on the root. Under the agent `state.notifications` lists
+each post, and `tap @ref` clicks one. Under the agent each
 is the drive's (`prefer has-focus false`; `state.device`). Use dimensions,
 media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts

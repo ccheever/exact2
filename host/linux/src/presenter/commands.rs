@@ -97,9 +97,6 @@ impl<D: DataSource> Presenter<D> {
                 // The shell's share sheet; with no shell, refused into the
                 // journal. Held for the agent like every host (LLP 1069.003 D6).
                 "share" => self.share(&c.args, c.source),
-                // No request carries a notification yet: refused, or listed
-                // for the agent.
-                "showNotification" | "closeNotification" => self.notify(&c.name, &c.args),
                 "blur" => self.blur_command(&c.args),
                 "focus" => {
                     self.focus_command(&c.args);

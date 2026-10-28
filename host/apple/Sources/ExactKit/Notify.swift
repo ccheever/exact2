@@ -1,72 +1,17 @@
-// `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and
-// `closeNotification(tag)` (rules/DEFERRED.md, 2026-10-04; x2apps habits
-// F13), in ExactKit so an embedder gets them with the session. The runner
-// rules first (runner/src/notify.rs): bad data or no `device.notifications`
-// refused, and under the agent the notification listed for
-// `state.notifications`, never posted. Then UNUserNotificationCenter:
-// authorization asked the first time, the content posted now or at
-// `showTrigger` (the system keeps it, so it arrives with the app closed),
-// identified by its tag, so a newer one replaces it and `closeNotification`
-// takes it away, pending or delivered. It shows with the app in front too
-// (the centre's delegate, unless the app set its own). The outcome is a
-// journal line, as `share`'s is.
+// The one notification delegate a process has (LLP 1133.004 D7), in
+// ExactKit so an embedder gets it with the session. It is set at launch,
+// before the system can deliver a launching click, which a module's
+// implementation could not be: a module is made when its session boots.
+// A click on content a module posted (`@exact/notifications`) carries the
+// host's activation entry (`userInfo["exact"]`): it opens the entry's
+// `navigate` location, or raises the module's event on the session that
+// posted it, held until that session can hear it. A notification shows
+// with the app in front too, as a browser shows a page's, and sounds only
+// when its content has a sound (a silent post has none).
 import Foundation
 #if !os(tvOS)
 import UserNotifications
 #endif
-
-extension ExactSession {
-    func notify(_ name: String, _ args: [Any]) {
-        let text = { (i: Int) -> String? in i < args.count ? args[i] as? String : nil }
-        var request: [String: Any] = ["command": name, "agent": ExactEnv.agentMode]
-        let keys = name == "closeNotification" ? ["tag"] : ["title", "body", "tag"]
-        for (i, key) in keys.enumerated() {
-            if let value = text(i) { request[key] = value }
-        }
-        let at = args.count > 3 ? (args[3] as? NSNumber)?.doubleValue : nil
-        if name == "showNotification", let at { request["showTrigger"] = at }
-        if name == "showNotification", let location = text(4) { request["navigate"] = location }
-        guard runtime.command(request)["present"] as? Bool == true else { return }
-        let log: (String) -> Void = { [weak self] line in DispatchQueue.main.async { self?.log(line) } }
-        #if os(tvOS)
-        log("showNotification: refused: unavailable")
-        #else
-        // An unbundled process has no notification centre (it traps).
-        guard NotificationPresenter.available else {
-            if name == "showNotification" { log("showNotification: refused: unavailable outside an app bundle") }
-            return
-        }
-        let center = UNUserNotificationCenter.current()
-        if name == "closeNotification" {
-            guard let tag = text(0) else { return }
-            center.removePendingNotificationRequests(withIdentifiers: [tag])
-            center.removeDeliveredNotifications(withIdentifiers: [tag])
-            return
-        }
-        if center.delegate == nil { app.installNotificationClicks() }
-        let content = UNMutableNotificationContent()
-        content.title = text(0) ?? ""
-        if let body = text(1) { content.body = body }
-        if let location = text(4) {
-            content.userInfo = ["navigate": location, "session": label,
-                                "owner": notificationOwnerID, "process": app.notificationProcessID]
-        }
-        content.sound = .default
-        let wait = at.map { $0 / 1000 - Date().timeIntervalSince1970 } ?? 0
-        let trigger = wait > 0 ? UNTimeIntervalNotificationTrigger(timeInterval: max(1, wait), repeats: false) : nil
-        let posted = UNNotificationRequest(identifier: text(2) ?? UUID().uuidString, content: content, trigger: trigger)
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            guard granted else {
-                return log("showNotification: refused: \(error?.localizedDescription ?? "denied")")
-            }
-            center.add(posted) { error in
-                log(error.map { "showNotification: refused: \($0.localizedDescription)" }
-                    ?? (trigger == nil ? "showNotification: shown" : "showNotification: scheduled"))
-            }
-        }
-        #endif
-    }
-}
 
 #if !os(tvOS)
 /// Shows a notification while the app is in front, as a browser shows one
@@ -102,21 +47,21 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
         deliver(id: request.identifier, date: notification.date, info: request.content.userInfo)
     }
 
+    /// A module's activation entry (LLP 1133.004 D6, D7): the session that
+    /// posted it, and a location to open or an event to raise.
     func deliver(id: String, date: Date, info: [AnyHashable: Any]) {
-        // A module's activation entry (LLP 1133.004 D6, D7): its own session
-        // fields, and a location to open or an event to raise.
-        let activation = info["exact"] as? [AnyHashable: Any]
-        let info = activation ?? info
-        let location = (info["navigate"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        guard location != nil || activation != nil,
-              let label = info["session"] as? String,
-              let owner = info["owner"] as? String else { return }
+        // A notification an older build scheduled carries its session fields
+        // and `navigate` at the top level of `userInfo`.
+        guard let entry = info["exact"] as? [AnyHashable: Any] ?? (info["navigate"] != nil ? info : nil),
+              let label = entry["session"] as? String,
+              let owner = entry["owner"] as? String else { return }
+        let location = (entry["navigate"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let key = "\(id):\(date.timeIntervalSince1970)"
         guard delivered.insert(key).inserted else { return }
         order.append(key)
         if order.count > 128 { delivered.remove(order.removeFirst()) }
         let sessions = app?.sessions.filter { $0.state != .destroyed } ?? []
-        let sameProcess = (info["process"] as? String).map { $0 == app?.notificationProcessID } ?? true
+        let sameProcess = (entry["process"] as? String).map { $0 == app?.notificationProcessID } ?? true
         let session: ExactSession?
         if sameProcess { session = sessions.first { $0.notificationOwnerID == owner } }
         else { session = sessions.first { $0.label == label } ?? sessions.first }
@@ -127,8 +72,8 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
             return
         }
         if let location { session.openLocation(location) }
-        else if let activation, let name = activation["extension"] as? String, let event = activation["event"] as? String {
-            session.raiseModuleEvent(extension: name, event: event, args: activation["args"] as? String ?? "[]", activation: true)
+        else if let name = entry["extension"] as? String, let event = entry["event"] as? String {
+            session.raiseModuleEvent(extension: name, event: event, args: entry["args"] as? String ?? "[]", activation: true)
         }
         activate?(session)
     }
@@ -144,7 +89,8 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound])
+        let silent = notification.request.content.sound == nil
+        completionHandler(silent ? [.banner, .list] : [.banner, .list, .sound])
     }
 }
 

@@ -165,11 +165,6 @@ pub const HOST_COMMANDS: &[&str] = &[
     "hidePopover",
     "togglePopover",
     "share",
-    // Local notifications by the Notification API's names (rules/DEFERRED.md,
-    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and
-    // `closeNotification(tag)`.
-    "showNotification",
-    "closeNotification",
     // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
     "saveFile",
     // @ref LLP 1069.010 D2 — the File System Access API's pickers.

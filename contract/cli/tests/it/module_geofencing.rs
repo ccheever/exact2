@@ -21,8 +21,13 @@ impl App {
         let path =
             std::env::temp_dir().join(format!("exact-fence-{name}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
-        let package = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/geofencing");
-        copy(&package, &path.join("node_modules/@exact/geofencing"));
+        let packages = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages");
+        for name in ["geofencing", "notifications"] {
+            copy(
+                &packages.join(name),
+                &path.join("node_modules/@exact").join(name),
+            );
+        }
         std::fs::write(path.join("app.contract"), contract).unwrap();
         if !data.is_empty() {
             std::fs::write(path.join("app.ts"), data).unwrap();
@@ -55,6 +60,7 @@ fn copy(from: &Path, to: &Path) {
 }
 
 const APP: &str = r#"use addGeofence, removeGeofence, geofences, geofencingStatus, geofenceenter, geofenceleave, Geofence, GeofenceEvent, GeofencingStatus from "@exact/geofencing"
+use showNotification from "@exact/notifications"
 
 component App
   resource status = geofencingStatus() as shape GeofencingStatus
@@ -79,14 +85,14 @@ component App
       text testId="count" `${fences.length}`
 "#;
 
-/// The app writes both grant lines.
+/// The app writes its grant lines.
 struct Granted;
 impl exact_runner::DataSource for Granted {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, exact_runner::DataError> {
         Err(exact_runner::DataError::UnknownSource(source.into()))
     }
     fn grants(&self) -> &str {
-        "device.geolocation locationPurpose\ndevice.geolocation-background alwaysPurpose"
+        "device.geolocation locationPurpose\ndevice.geolocation-background alwaysPurpose\ndevice.notifications noticePurpose"
     }
     /// `pull` answers later, as a server would: a wake's owned work.
     fn answer(

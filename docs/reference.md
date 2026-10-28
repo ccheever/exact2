@@ -1386,44 +1386,77 @@ are `bigint`: convert them to a Contract-compatible value before returning.
 
 ### Notifications
 
-`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local
-notification; `closeNotification(tag)` takes one away, shown or still
-waiting. The names are the Notification API's (`showTrigger` is the
-Notification Triggers draft's member, given as the time in epoch
-milliseconds: the date now is `exactTime().epochAtZero + performanceNow()`). A newer notification
-with the same `tag` replaces the older. The app's grants must name
-`device.notifications purpose.notifications` (a strings key, LLP 1069.008;
-iOS shows its own fixed prompt text), or the command is refused. Permission
-is asked the first time; the outcome is a journal line
-(`showNotification: shown`, `scheduled`, `refused: denied`, …).
-`navigate=` is a route location, such as `"/thread/42"`; relative paths and
-custom-scheme URLs are reduced by the router's `location_of` on every host
-(`app://thread/42` becomes `/thread/42`; `app:/thread/42` and
-`app:///thread/42` become `//thread/42`). A plain click on the
-notification delivers one `navigate` event to the navigation root while the
-app runs, or makes that location the launch location when it starts the app.
-Notifications posted before the app last quit still navigate after it reopens.
-An embedded Mac host must receive launch callbacks before sizing or attaching
-its Exact views: either can boot a session. Boot once with the launch location,
-then attach the view.
-Without `navigate=`, a click just brings the app forward. Action buttons,
-replies, and badges are not available.
+`@exact/notifications` (LLP 1133.004) posts local notifications, hears their
+click, sets the app's badge and reads the permission, by the Notification and
+Badging APIs' names:
 
-| host | now | at `showTrigger` |
-| --- | --- | --- |
-| web | `new Notification(title, {body, tag})`; a click navigates and focuses the open page | while the page is open: the web has no trigger that outlives the page |
-| macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed |
-| Linux | refused: `unavailable` | the same |
+```text
+use showNotification, closeNotification, setAppBadge, clearAppBadge, notificationStatus, requestNotificationPermission, notificationclick, NotificationStatus, NotificationEvent from "@exact/notifications"
+
+component App
+  action opened(tag: string, e: NotificationEvent)
+    …
+  action done
+    showNotification(title="Build finished", tag="thread-3", silent=true, data="/thread/3")
+  view
+    column notificationclick=opened
+      …
+```
+
+The app depends on the package (`exact add notifications`, or
+`"@exact/notifications": "file:<exact2>/packages/notifications"`) and grants
+`device.notifications purpose.notifications` (a strings key, LLP 1069.008;
+iOS shows its own fixed prompt text): without the grant a post and the
+request are refused (`notifications.showNotification: refused, grant-missing
+(device.notifications)`).
+
+- `showNotification(title=, body=, tag=, silent=, data=, showTrigger=,
+  navigate=)` and `closeNotification(tag=)` are statements in an action; data
+  code calls them through the package's binding (`await showNotification({
+  title, tag, silent: true })`). A newer notification with the same `tag`
+  replaces the older. `silent=true` posts without the platform's sound.
+  `showTrigger` is the time to show it in epoch milliseconds (the date now is
+  `exactTime().epochAtZero + performanceNow()`). A post while the permission
+  is `prompt` asks first; while `denied` it is refused. A post from a wake or
+  a tool while `prompt` is refused `person-required`: ask from a person's
+  press first (`requestNotificationPermission()`).
+- A plain click with `navigate=` opens that route location: one `navigate`
+  event to the navigation root while the app runs, or the launch location when
+  it starts the app. `navigate=` is reduced by the router's `location_of`
+  (`app://thread/42` becomes `/thread/42`).
+- A click without `navigate=` is `notificationclick` on the root component's
+  outermost node: the tag and the notification's `{tag, data, title, body}`,
+  delivered once, in order, after first pixel; one that starts the app (macOS,
+  iOS) is held until then. A click always brings the app forward.
+- `setAppBadge(contents=)` sets the app icon's badge, best effort: a number, no
+  number for a flag (`•` on the Mac's Dock tile, `1` on iOS), 0 to clear;
+  `clearAppBadge()` clears it. The badge is the app's: an embedded host's
+  sessions share one. It needs no grant. A negative count is refused
+  `TypeError` on every host, under the agent too.
+- `notificationStatus()` reads `{available, state, badge, apple}` (`state`
+  `granted`, `prompt`, `denied` or `unknown`), read again when the app comes
+  back to the front; `requestNotificationPermission()` asks while `prompt` and
+  answers the status.
+
+| host | post | `showTrigger` | click | badge |
+| --- | --- | --- | --- | --- |
+| web | `new Notification` in the page | while the page is open: the web has no trigger that outlives the page | while the page is open | `navigator.setAppBadge` where the browser has it, else `NotSupportedError` |
+| macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed | warm, or the launch | the Dock tile's label; `setBadgeCount` |
+| Linux, terminal, tvOS, Android, Windows | no implementation yet: each call is refused `NotSupportedError`, under the agent too, and the status reads `available: false` | | | |
 
 On macOS, system notifications need an app bundle (`bun host/apple/build.mjs
---bundle`); the bare development executable refuses them because it has no
-notification centre.
+--bundle`); the bare development executable has no notification centre, so
+there `available` is false and every call refuses `NotSupportedError`.
 
-Under the agent nothing reaches the system on any host: `state.notifications`
-lists what the app posted (`{title, body, tag, showTrigger, navigate}`, a tag replacing
-its older one, `closeNotification` removing it), so a drive reads a reminder
-without a permission prompt. A drive can then `type` the listed location into
-the navigation root to check its screen. Scheduling is one time per call: a daily
+Under the agent nothing reaches the system on any host. A post while
+`prompt` waits on a `permission` ticket (`tap @t allow`, or `--permission
+notifications=granted` at launch); `state.notifications` lists what the app
+posted (`{title, body, tag, silent, data, showTrigger, navigate, delivered,
+ref}`, a tag replacing its older one, `closeNotification` removing it, an
+entry for later `delivered: false` until `clock` passes it); `state.badge` is
+the badge (a number, `"flag"` or `null`). `tap @ref` on a delivered entry is
+its click; `--notification '<entry>'` relaunches the app with one, as the
+system hands a closed app its click. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
 
 ### Local network

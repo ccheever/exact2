@@ -1,8 +1,7 @@
 // LLP 1133.021 §13's geofencing drives 10 to 14 and 16 under the agent, on
-// the geofencing fixture (`apps/geofence-fixture`). Caltrain's arrival
-// notice waits for @exact/notifications (§15 question 5), so here an
-// arrival posts the built-in `showNotification`, and there is no
-// notification ticket before the fence. Drive 15 (a wake past its budget
+// the geofencing fixture (`apps/geofence-fixture`), where an arrival posts
+// a notification (`@exact/notifications`), its permission granted by the
+// drive: a wake's post never raises a ticket. Drive 15 (a wake past its budget
 // keeps its transition) is the runner's (`contract/cli/tests/it/
 // module_geofencing.rs`), since the fixture's handler has no request to
 // hold open.
@@ -84,7 +83,7 @@ if (host === 'web' || host === 'linux') {
   // 11: a warm arrival and a leave.
   let printed = null;
   await session(11, async (s) => {
-    await s.prefer({ 'permission.geolocation-background': 'granted' });
+    await s.prefer({ 'permission.geolocation-background': 'granted', 'permission.notifications': 'granted' });
     await s.tap('arrive-switch');
     await settle(s);
     const fence = ((await state(s)).geofences ?? [])[0];
@@ -104,7 +103,7 @@ if (host === 'web' || host === 'linux') {
   });
   // 12: a cold wake from the entry as state printed it.
   if (printed) await session(12, async (s) => {
-    await s.prefer({ 'permission.geolocation-background': 'granted' });
+    await s.prefer({ 'permission.geolocation-background': 'granted', 'permission.notifications': 'granted' });
     const entry = { ...printed, event: 'geofenceenter', inside: false };
     const r = await s.op({ op: 'launchEntry', launch: 'wake', entry: JSON.stringify(entry) });
     check('12: the cold wake raises geofenceenter', JSON.stringify(r).includes('geofenceenter'), JSON.stringify(r));

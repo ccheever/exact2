@@ -69,8 +69,6 @@ pub struct DeviceLinks<D: DataSource> {
     pub documents: Option<(CommandLink<D>, CommandLink<D>)>,
     /// `input type="file"` and `showPicker` (LLP 1069.002).
     pub picker: Option<PickerLinks<D>>,
-    /// `showNotification` and `closeNotification`: their ruling.
-    pub notifications: Option<CommandLink<D>>,
 }
 
 impl<D: DataSource> Clone for AuthLinks<D> {
@@ -106,7 +104,6 @@ impl<D: DataSource> DeviceLinks<D> {
             crate::file_pickers::request::<D>,
         )),
         picker: Some(PickerLinks::LINKED),
-        notifications: Some(crate::notify::request::<D>),
     };
 
     /// The core alone.
@@ -115,7 +112,6 @@ impl<D: DataSource> DeviceLinks<D> {
         share: None,
         documents: None,
         picker: None,
-        notifications: None,
     };
 }
 

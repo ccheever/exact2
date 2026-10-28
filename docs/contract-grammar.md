@@ -244,7 +244,8 @@ platform's implementation declares (`contract-module-positional`,
 `contract-module-argument`, `call-argument-twice`). The device answers it, never
 the build: its placeholder is `else empty()` (`contract-module-placeholder`).
 A send that answers nothing (`"answers": null`, LLP 1133.004 D5) is a statement
-in an action, as a host command is (`showNotification(title="Done", tag=t)`);
+in an action, as a host command is (`showNotification(title="Done", tag=t)`,
+from `@exact/notifications`: [notifications](reference.md#notifications));
 a `send` to one is refused (`contract-module-answers`), and so is a statement
 calling a send that answers something (`contract-module-kind`). A module's
 event (D6) is heard with an attribute on the root component's outermost node,
@@ -2330,7 +2331,7 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
 `load`, `openURL`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `requestPermission`, `scrollIntoView`, `scrollBy`, `showModal`,
-`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `relaunch`, `close`,
+`haptic`, `postMessage`, `reload`, `relaunch`, `close`,
 `playSound`, `playSounds`, `stopSounds`, `requestMIDIAccess`, `sendMIDI`, `startTrace_EXPERIMENTAL`, `stopTrace_EXPERIMENTAL`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` ([keys](#keys)) and
 `stopPropagation` ([events](#events)).
@@ -2355,7 +2356,6 @@ argument validation. Use the working implementation when selecting arguments:
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. The Mac's View ▸ Zoom In multiplies whichever size stands ([The Mac's menu bar](#keys)). A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`, each its own item of the sheet (pass a picture alone to share only it, as a Share Card button does; `contract vocab share`); `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
-| `showNotification(title=, body=, tag=, showTrigger=, navigate=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a click opens `navigate=` through the navigation root, cold or warm. A newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
@@ -2373,8 +2373,7 @@ argument validation. Use the working implementation when selecting arguments:
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, editor or dev menu: its
 `openURL`, `copyText`, `format`, `reload`, `close`, `fastSeek` and `load` are
-journaled as unsupported there (it has no media player), `haptic` does nothing, and `showNotification` is refused
-(`showNotification: refused: unavailable`). Its `selectText` focuses the field
+journaled as unsupported there (it has no media player), and `haptic` does nothing. Its `selectText` focuses the field
 with its whole text selected, which the next typed key or Backspace replaces.
 On Android the same host has the platform behind it (LLP 1115.001 D5): `openURL` and a
 link out open the browser, the mail app or the dialer, `copyText` writes the clipboard,
