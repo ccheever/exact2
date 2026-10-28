@@ -1146,7 +1146,8 @@ impl LayoutTree {
                         // @ref LLP 1069.001 D3 — the platform's size for its
                         // control (CSS leaves it to the UA), each axis
                         // overridden by a known one; until the host
-                        // reports, the kind's default. Native modules use the
+                        // reports, a mark's last report, else the kind's
+                        // default. Native modules use the
                         // same non-ratio seam, with no default content size
                         // (LLP 1024 D4). A determinate `progress` is `10em`
                         // by `1em` whatever its host's bar reports (LLP
@@ -1155,7 +1156,8 @@ impl LayoutTree {
                         let (iw, ih) = if kind == Some(crate::ControlKind::ProgressBar) {
                             crate::control::progress_size(arena, slot)
                         } else {
-                            arena.intrinsic(slot).unwrap_or_else(|| {
+                            let shared = || crate::control::shared_size(arena, slot);
+                            arena.intrinsic(slot).or_else(shared).unwrap_or_else(|| {
                                 kind.map_or((0.0, 0.0), |kind| {
                                     let font = crate::generated::StyleId::FontSize;
                                     kind.default_size(arena.computed_source(slot, font).font_size)

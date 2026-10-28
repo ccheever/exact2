@@ -1,12 +1,15 @@
 // Excord's routing on the fixture server (llp/0001 §3.12): the launch's restore and warm navigation, one
 // request at a time (routing.contract). The fixture and its launches are app.test.contract's: the run starts
 // it with --world transcript --reset-on-identify, so each launch's IDENTIFY starts from the same world, and
-// each launch lets 500 ms of the gateway's real-time READY pass, or waits for it (`clock until state`).
+// each launch runs `clock settle` (IDENTIFY's task), waits for the gateway's READY with the clock frozen
+// (`clock until state`), then `clock settle` again.
 epoch "2026-10-22T18:00:00Z"
 time-zone "America/Los_Angeles"
 
 test "a user action before the launch's restore lands wins: another conversation chosen first opens, the restore never applies"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   type "composer" "kept for later"
@@ -17,7 +20,8 @@ test "a user action before the launch's restore lands wins: another conversation
   // The web comes back on /c/general, a native relaunch on / with #general remembered. The fixture holds the
   // servers 3 s past READY, so the restore of #general waits for its server while the direct messages are
   // there to choose: the reader picks one first.
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
   clock settle
   type "excord" key "Meta+k"
   type "switcher-search" "Weekend"
@@ -40,7 +44,9 @@ test "a user action before the launch's restore lands wins: another conversation
 // channel, which opens there; Back undoes one step. Ops land at a standing clock, so a second step taken
 // before a clock step is taken before the first one resolved.
 test "a link opens its channel with its own draft, and one Back returns with the first channel's"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   type "composer" "a draft for general"
@@ -67,7 +73,9 @@ test "a link opens its channel with its own draft, and one Back returns with the
   expect text "composer" == "a draft for help"
 
 test "Back before a link's channel opens wins: it never opens"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "fixture"
@@ -83,7 +91,9 @@ test "Back before a link's channel opens wins: it never opens"
   expect state onScreen == "1191168914235588608"
 
 test "a link to a direct message selects the direct messages and opens it"
-  clock +500 real
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
   tap "channel-general"
   clock settle
   tap "fixture"

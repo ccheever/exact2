@@ -78,8 +78,7 @@ export function fm(m, g) { const o = Mask; Mask = m; try { g(); } finally { Mask
 function flush() {
   if (Flushing) return;
   Flushing = true;
-  try { for (let i = 0; i < Queue.length; i++) if (!Queue[i].gone) fresh(Queue[i]); }
-  finally { Queue = []; Flushing = false; }
+  try { for (let i = 0; i < Queue.length; i++) if (!Queue[i].gone) fresh(Queue[i]); } finally { Queue = []; Flushing = false; }
   while (FocusQueue.length) FocusQueue.shift()();
 }
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }

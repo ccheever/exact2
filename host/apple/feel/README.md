@@ -126,7 +126,7 @@ Each line is a verdict (`ok`, `tell` — someone who knows iOS would notice — 
 | deceleration τ | the time constant of v(t) = v₀·e^(−t/τ) fitted to each fling's momentum (median) | 440–560 ms (UIKit `.normal`: 0.998/ms, 500 ms) |
 | momentum hand-off | the fitted velocity at the lift ÷ the asked speed (median of the three flings down and the 3,000 pt/s one) | 0.8–1.25 |
 | flings that drop a frame at the lift | of the flings without blank sampling, those with a frame over 1.5 periods in the three after the lift | none |
-| offset jumps while decelerating | frames off the fitted curve by more than 15 % (or 150 pt/s): a stall, a frozen frame, a catch-up or the content moving back; a still frame in the two after the lift is the hand-off's | none |
+| offset jumps while decelerating | frames off the fitted curve by more than 15 % (or 150 pt/s): a stall, a frozen frame, a catch-up or the content moving back; a still frame in the two after the lift is the hand-off's; a fling that reaches the list's end is judged until it does (the bounce is the edge's) | none |
 | edge bounce settle | from momentum crossing the top to resting there | 0.25–1.0 s |
 | rubber band | overscroll ÷ finger travel past the top; and the time from the lift to resting | 0.3–0.65; 0.25–1.0 s |
 | status-bar scroll to top | from the tap to the top | ≤ 1.0 s |

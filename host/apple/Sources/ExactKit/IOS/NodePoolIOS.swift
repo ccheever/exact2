@@ -107,7 +107,7 @@ final class NodePool {
 
     private var batch: Batch?
     private var destroyed: Set<UInt32>?
-    private var created: (kind: [UInt32: String], children: [UInt32: [UInt32]], parent: [UInt32: UInt32], image: [UInt32: String])?
+    private var created: (kind: [UInt32: String], children: [UInt32: [UInt32]], parent: [UInt32: UInt32], image: [UInt32: String], scrolls: Set<UInt32>)?
     private var claims: [UInt32: NodeView] = [:]
     private var tried = Set<UInt32>()
 
@@ -390,12 +390,13 @@ final class NodePool {
             && presenter.editing !== v && presenter.pendingFocusNode !== v
     }
 
-    /// This batch's created nodes: kinds, children, parents, image sources.
-    private func createdNodes() -> (kind: [UInt32: String], children: [UInt32: [UInt32]], parent: [UInt32: UInt32], image: [UInt32: String])? {
+    /// This batch's created nodes: kinds, children, parents, image sources,
+    /// and the lists that scroll.
+    private func createdNodes() -> (kind: [UInt32: String], children: [UInt32: [UInt32]], parent: [UInt32: UInt32], image: [UInt32: String], scrolls: Set<UInt32>)? {
         if let created { return created }
         guard let batch else { return nil }
         var kind: [UInt32: String] = [:], children: [UInt32: [UInt32]] = [:], parent: [UInt32: UInt32] = [:]
-        var image: [UInt32: String] = [:]
+        var image: [UInt32: String] = [:], scrolls = Set<UInt32>()
         var flat = Set<UInt32>()
         for op in batch.ops where op.op == .create {
             // A flat leaf is a layer, not a view: no part of a row's shape
@@ -403,13 +404,16 @@ final class NodePool {
             if presenter.flats.batchFlat.contains(op.id) { flat.insert(op.id); continue }
             kind[op.id] = op.kind
             if op.kind == "image" { image[op.id] = op.props["imageSource"] ?? "" }
+            if op.kind == "list", ["scroll", "auto"].contains(op.style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(op.style["overflow_y"]?.string ?? "") {
+                scrolls.insert(op.id)
+            }
         }
         for op in batch.ops where op.op == .children {
             let ids = op.ids.map { UInt32($0) }.filter { !flat.contains($0) }
             if kind[op.id] != nil { children[op.id] = ids }
             for child in ids where kind[child] != nil { parent[child] = op.id }
         }
-        created = (kind, children, parent, image)
+        created = (kind, children, parent, image, scrolls)
         return created
     }
     /// The collection list a node this batch creates will be a row of, and
@@ -430,17 +434,26 @@ final class NodePool {
     func take(_ id: UInt32) -> NodeView? {
         if let view = claims.removeValue(forKey: id) { return rebound(view, id) }
         guard depth == 1, count + innerCount > 0, batch != nil, let c = createdNodes() else { return nil }
+        // An inner list, as `park` reads one: a collection's, or a scrolling
+        // list this batch creates in a collection's row, which parks as any
+        // live scroll view does, virtualized or not (a feed post's carousel
+        // of every card). Taken only as a collection's, such a row never
+        // matched its parked shape: it was built new, and its parked trees
+        // were evicted unused.
+        func inner(_ node: UInt32) -> Bool {
+            c.kind[node] == "list" && (presenter.collections.owns(node) || c.scrolls.contains(node) && list(creating: node) != nil)
+        }
         var root = id
         // An inner list's cards claim their own trees (LLP 1068 §4.2.1).
-        while let up = c.parent[root], c.kind[up] != nil, !presenter.collections.owns(up) { root = up }
-        guard tried.insert(root).inserted, let list = c.parent[root].flatMap({ presenter.views[$0] }),
-              list.kind == "list", presenter.collections.owns(list.id),
+        while let up = c.parent[root], c.kind[up] != nil, !inner(up) { root = up }
+        guard tried.insert(root).inserted, let up = c.parent[root], let list = presenter.views[up],
+              list.kind == "list", presenter.collections.owns(list.id) || inner(up),
               let kind = c.kind[root], !Self.leaves.contains(kind) else { return nil }
         var ids: [UInt32] = [], holes: [String] = []
         func shape(_ node: UInt32) -> String? {
             guard let kind = c.kind[node] else { return nil }
             ids.append(node)
-            if kind == "list", node != root, presenter.collections.owns(node) { return "list[]" }
+            if node != root, inner(node) { return "list[]" }
             if Self.leaves.contains(kind) {
                 guard c.children[node]?.isEmpty ?? true else { return nil }
                 holes.append(kind)

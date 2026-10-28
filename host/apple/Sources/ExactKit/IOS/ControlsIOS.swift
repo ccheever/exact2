@@ -228,8 +228,9 @@ final class ControlHost: NSObject {
     /// `contents`: a sync outside any batch, which reads every face again;
     /// a batch has already dropped the faces it changes (`Presenter.apply`).
     /// `changed`, `touched`: after a batch, the views it touched with their
-    /// ancestors, and those it touched; a control nothing at, in or above
-    /// stands as the last sync left it (`stands`).
+    /// ancestors, and those whose props or style it changed or that it put
+    /// under another parent; a control nothing at or in changed, nor at or
+    /// above touched, stands as the last sync left it (`stands`).
     func sync(contents: Bool = true, changed: Set<UInt32>? = nil, touched: Set<UInt32> = []) {
         if contents { faces.removeAll() }
         // A face read with no control (a tab's, a menu row's) goes with its view.
@@ -355,12 +356,12 @@ final class ControlHost: NSObject {
 
     /// Whether a batch left `owner`'s control as it was: neither the owner
     /// nor anything in it changed (each touched view's ancestors are in
-    /// `changed`; a button's face stands), nothing above it was touched
-    /// (an inherited disabled or a closing box), and it is mounted where
-    /// it was. A live list's tick then configures its changed rows'
-    /// controls, not every row's.
+    /// `changed`; a button's face stands), nothing at or above it was
+    /// restyled or moved (an inherited disabled or a closing box), and it
+    /// is mounted where it was. A live list's tick then configures its
+    /// changed rows' controls, not every row's.
     private func stands(_ owner: NodeView, _ changed: Set<UInt32>, _ touched: Set<UInt32>) -> Bool {
-        guard !changed.contains(owner.id), let control = controls[owner.id],
+        guard !changed.contains(owner.id), !touched.contains(owner.id), let control = controls[owner.id],
               control.superview === owner.controlMount,
               !(control is NativeButtonIOS) || faces[owner.id] != nil else { return false }
         var at = presenter.accessibilityParent(of: owner)

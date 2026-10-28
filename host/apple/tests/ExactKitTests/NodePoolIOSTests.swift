@@ -342,6 +342,39 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertTrue(p.scrollers.contains(202) && !p.scrollers.contains(102))
     }
 
+    /// An inner list that is not virtualized (a feed post's carousel, which
+    /// mounts every card) parks with its row, and a row of its shape takes
+    /// it back, with its cards.
+    func testARowHoldingAPlainInnerListPoolsAndItsCardsAreReused() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        func outer(_ row: Int) -> [String: Any] {
+            ["op": "collections", "items": [["view": 1, "revision": 1, "scrollSequence": 0, "count": 50, "totalExtent": 5000,
+                                              "rows": [["view": row, "root": row, "epoch": 1]], "correction": NSNull()]]]
+        }
+        p.apply(wireBatch([outer(100), ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
+            + carouselOps(100, y: 0)
+            + [["op": "children", "id": 1, "ids": [100]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+               ["op": "content", "id": 1, "w": 300.0, "h": 5000.0]]))
+        let row = try XCTUnwrap(p.views[100]), list = try XCTUnwrap(p.views[102])
+        let scroll = try XCTUnwrap(list.scroll)
+        let card = try XCTUnwrap(p.views[110]), other = try XCTUnwrap(p.views[120])
+        XCTAssertFalse(p.collections.owns(102), "the inner list is not a collection")
+        scroll.contentOffset = CGPoint(x: 240, y: 0)
+
+        p.apply(wireBatch([outer(200)] + destroy(carouselIDs(100)) + carouselOps(200, y: 140)
+            + [["op": "children", "id": 1, "ids": [200]]]))
+        XCTAssertTrue(p.views[200] === row, "the row's view came back")
+        XCTAssertTrue(p.views[202] === list && list.scroll === scroll, "its inner list's, with its scroll view")
+        XCTAssertEqual(scroll.contentOffset, .zero, "at a new list's offset")
+        XCTAssertTrue(p.views[210] === card && p.views[220] === other, "the cards came back under the same list")
+        XCTAssertTrue(card.superview === scroll)
+        XCTAssertFalse(row.isHidden || card.isHidden || other.isHidden)
+        XCTAssertEqual(p.pool.count, 0); XCTAssertEqual(p.pool.innerCount, 0)
+    }
+
     func testARowWhoseInnerListIsMovingIsDestroyedAsBefore() throws {
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))

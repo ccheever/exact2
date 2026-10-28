@@ -73,8 +73,7 @@ pub struct Bridge<D: DataSource> {
     /// The date and place last told before a boot (`set_launch_time`,
     /// `set_launch_place`): a runner booted later reads them from its first settle.
     launch_facts: exact_runner::time::Launch,
-    /// A share claimed before the boot, and whether its files move from an inbox: they land once
-    /// storage is configured (`share_land`).
+    /// A share claimed before the boot, and whether its files move from an inbox (`share_land`).
     cold_share: Option<(exact_runner::share_in::Claimed, bool)>,
     /// The host's live clock while it owns time, kept for every boot (`set_live_clock`)
     live_clock: Option<LiveClockFn>,

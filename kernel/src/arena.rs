@@ -75,6 +75,9 @@ pub struct NodeArena {
     /// current role and font, under the measurer's revision the kernel last
     /// measured at (`Kernel::measures_symbol`).
     pub(crate) measured_symbols: SlotSet,
+    /// What a host last reported for a mark it sizes alike for every node
+    /// (`control::shared_size`), by kind and font size bits.
+    pub(crate) mark_sizes: Vec<((crate::ControlKind, u32), (f32, f32))>,
     /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
     /// Slots in HTML's top layer: popovers, unless their author made them
@@ -182,6 +185,7 @@ impl Clone for NodeArena {
             relative_slots: self.relative_slots.clone(),
             symbols_owed: self.symbols_owed.clone(),
             measured_symbols: self.measured_symbols.clone(),
+            mark_sizes: self.mark_sizes.clone(),
             sticky_slots: self.sticky_slots.clone(),
             top_layer_slots: self.top_layer_slots.clone(),
             timelines: self.timelines.clone(),
@@ -269,6 +273,7 @@ impl NodeArena {
         self.relative_slots.clear();
         self.symbols_owed.clear();
         self.measured_symbols.clear();
+        self.mark_sizes.clear();
         self.sticky_slots.clear();
         self.top_layer_slots.clear();
         self.timelines = Default::default();

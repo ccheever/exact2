@@ -804,7 +804,7 @@ package final class Presenter {
                 #endif
             }
         }
-        var beganGeometry = false, touchedIDs: [UInt32] = [], reshapedIDs: [UInt32] = []
+        var beganGeometry = false, touchedIDs: [UInt32] = [], reshapedIDs: [UInt32] = [], restyledIDs: [UInt32] = []
         if outermost { placedAnew.removeAll(keepingCapacity: true) } // a flat leaf promoted between batches
         let anewFrom = placedAnew.count
         let rowsOnly = onlyListRows(batch)
@@ -816,6 +816,7 @@ package final class Presenter {
             case .frame: touchedIDs.append(op.id); controls.faceChanged(op.id)
             default: break
             }
+            if kind == .props || kind == .style { restyledIDs.append(op.id) }
             if kind == .create || kind == .frame || kind == .content { moved = true }
             if !beganGeometry && (kind == .frame || kind == .content) {
                 beganGeometry = true
@@ -1003,7 +1004,6 @@ package final class Presenter {
         PaintOrder.flush()
         session?.canvases.captureIfNeeded()
         let changed = touchedAndAbove(touchedIDs + geometryApplied)
-        let touchedHere = Set(touchedIDs + geometryApplied)
         geometryApplied = []
         swipeActions.sync(changed: changed, reshaped: touchedAndAbove(reshapedIDs)); rowCells.sync(changed: changed)
         groupedLists?.sync(changed: changed); reachPageEdges() // a list mounted now reaches its bands too
@@ -1014,8 +1014,13 @@ package final class Presenter {
         #endif
         segments.sync()
         // A batch that changes a control's contents (a select's options, a
-        // button's face) reads every control again.
-        controls.sync(contents: false, changed: batch.controls ? nil : changed, touched: touchedHere)
+        // button's face) reads every control again. At or above a control,
+        // only props and style reach it (a disabled box, a closing one), and
+        // a move to another parent: the children and frame ops of a list
+        // whose rows a scroll replaced leave the controls of the rows it
+        // kept as they were. Every checkbox in a list of tasks was
+        // configured again each batch.
+        controls.sync(contents: false, changed: batch.controls ? nil : changed, touched: Set(restyledIDs + placedAnew[anewFrom...]))
         #if os(tvOS)
         // A remembered node's replacement owns focus only after its native
         // control exists, so retarget guides in this same batch after sync.
