@@ -75,6 +75,7 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
         guard alive else { return }
         if routeKey.isEmpty { removeItem(); button.menu = makeMenu(); return }
         guard let route, route.isLive else { return }
+        if #available(iOS 26.0, *) { route.controller.navigationItem.style = .editor }
         if let group, rendered == configuration, renderedTint == tint {
             if !route.controller.navigationItem.trailingItemGroups.contains(where: { $0 === group }) {
                 route.controller.navigationItem.trailingItemGroups.append(group)

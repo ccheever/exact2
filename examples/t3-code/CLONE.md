@@ -91,9 +91,10 @@ A live runtime probe found offscreen browser and device discovery superseding th
 permission reads. Preview discovery now follows the consuming chat and viewer
 screens, retaining iPad Files chat when its inspector is supported. The native
 app opens the real tree and README source on first entry, then switches to
-Markdown preview. Source rows now use authored presentation without native cell separators.
-The file header, source token weight and Markdown code styling still differ
-from the reference. These later phone fixes are not in the POC build.
+Markdown preview. Source rows use authored presentation without native cell
+separators. File title, subtitle and actions now share the native navigation bar
+with the reference editor style. Its hairline, source token weight and Markdown
+code styling still differ from the reference. These later phone fixes are not in the POC build.
 A paired learned route still retains its learned marker.
 T3 Connect relay login remains unconfigured in the clone; direct pairing is the
 verified connection path.
