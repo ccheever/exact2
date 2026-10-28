@@ -1,4 +1,3 @@
-// Inactive app-owned Thread rich editor runtime. No producer or root activation.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import { referencedFiles } from './shared/composer-editor-files';
 import { mobileComposerMenuSelection } from './composer-command-selection';
@@ -322,13 +321,23 @@ export async function mobileEditorAction(client:T3Client,route:EditorRouteInput,
         const token=collectComposerContextReferences(owner.state.value).find(token=>token.source===selection.source
           &&token.start===selection.start&&token.end===selection.end);
         if(!token)throw superseded();
-        if(token.kind==='file'){
+        if(token.kind==='file'||token.kind==='image'){
           await consume(client,runtime,native,storage);validate();
-          const file=referencedFiles(client.local,owner.target.key,owner.state.value).find(file=>file.contextId===token.contextId
-            &&file.environmentId===owner.target.environmentId);
-          if(!file)throw superseded();
+          let attachmentId='';
+          if(token.kind==='file'){
+            attachmentId=referencedFiles(client.local,owner.target.key,owner.state.value).find(file=>file.contextId===token.contextId
+              &&file.environmentId===owner.target.environmentId)?.id??'';
+          }else{
+            const context=mobileComposerContextRead(client,owner.target.key,owner.state.value);
+            const record=context.ok?context.context?.records.find(record=>record.kind==='image'&&record.contextId===token.contextId):undefined;
+            const id=str(record?.attachmentId);
+            const owned=(client.local.snapshotDrafts[owner.target.key]??[]).some(image=>image.id===id)
+              ||draftFiles(client.local).some(file=>file.id===id&&file.draftKey===owner.target.key&&file.environmentId===owner.target.environmentId);
+            if(owned)attachmentId=id;
+          }
+          if(!attachmentId)throw superseded();
           owner.error='';mobileEditorOwnerChanged(client);
-          return {...result(client,runtime),attachmentId:file.id};
+          return {...result(client,runtime),attachmentId};
         }
       }
       if(callback.kind==='contentSize'){

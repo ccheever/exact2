@@ -3,6 +3,8 @@ import {expect,test} from 'bun:test';
 import {mobileComposerRootSnapshot as snapshot,mobileComposerRootAction as action,type ComposerRootInput} from './composer-root';
 import {MobileDraftClient,mobileDraftRecoveryHandles} from './mobile-draft-recovery';
 import {mobileEditorOwner} from './composer-editor-owner';
+import {mobileComposerContextCapture,mobileComposerContextCommit} from './composer-command-context';
+import {mobileComposerTarget} from './composer-target';
 import {mobileThreadLocalCommandsSnapshot} from './thread-send-local-commands';
 import {mobileEditorFilesSnapshot} from './composer-file-runtime';
 import {fleet} from './shared/settings-b-fleet';
@@ -228,5 +230,54 @@ test('preview revalidates typing, route and file ownership after saving observed
     else if(change==='route'){f.input.active=false;f.view()}
     else setDraftFiles(f.client.local,[]);
     held.resolve();await expect(opening).rejects.toMatchObject({kind:'superseded'});
+  }
+});
+
+async function imagePreviewFixture(storage:'snapshot'|'file'){
+  const source='![Photo](t3-context://v1/image/photo-reference)',text=`😀 ${source} `,f=await fixture(text),id=uuid(2);
+  if(storage==='snapshot')f.client.local.snapshotDrafts[f.client.draftKey]=[{id,name:'photo.png',mimeType:'image/png',sizeBytes:5}];
+  else setDraftFiles(f.client.local,[{id,contextId:'file-storage',draftKey:f.client.draftKey,environmentId:f.client.environmentId,
+    name:'photo.png',mimeType:'image/png',sizeBytes:5,source:'attached',attachmentId:'',status:'staged'}]);
+  expect(mobileComposerContextCommit(f.client,mobileComposerContextCapture(f.client,mobileComposerTarget(f.client))!,text,
+    {version:1,kind:'image',contextId:'photo-reference',label:'Photo',attachmentId:id,name:'photo.png',mimeType:'image/png',sizeBytes:5})).toBe(true);
+  await f.ready();const view=f.view();if(view.files.needsPrepare)await f.run('prepare-files',view.files.prepareKey);
+  return {...f,source,text,id};
+}
+test('inline snapshot and file-backed images save observed text before opening their bound attachment',async()=>{
+  for(const storage of ['snapshot','file'] as const){
+    const f=await imagePreviewFixture(storage),value=`${f.text}rapid edit 😀`;f.view(f.event('text',value));
+    const owner=mobileEditorOwner(f.client)!,callback={...owner.state.identity,mountId:owner.state.mountId,kind:'contextPress',
+      richEventId:'tap-photo',eventCount:owner.state.eventCount,value,payload:{source:f.source,start:3,end:3+f.source.length}};
+    const held=deferred<void>(),entered=deferred<void>();f.holdWrite(async()=>{entered.resolve();await held.promise});
+    let finished=false;const opening=f.run('rich','',JSON.stringify(callback)).then(result=>{finished=true;return result});
+    await entered.promise;expect(finished).toBe(false);expect(f.client.draft).toBe(value);
+    held.resolve();const result=await opening;
+    expect(obj(f.writes.at(-1)?.drafts)[f.client.draftKey]).toBe(value);
+    expect(result).toMatchObject({attachmentId:f.id,message:'',owner:owner.target.owner,visit:f.input.visit});
+  }
+});
+test('inline image preview rejects attachment removal while observed text is saving',async()=>{
+  for(const storage of ['snapshot','file'] as const){
+    const f=await imagePreviewFixture(storage),value=`${f.text}latest`;f.view(f.event('text',value));
+    const owner=mobileEditorOwner(f.client)!,callback={...owner.state.identity,mountId:owner.state.mountId,kind:'contextPress',
+      richEventId:'tap-photo',eventCount:owner.state.eventCount,value,payload:{source:f.source,start:3,end:3+f.source.length}};
+    const held=deferred<void>(),entered=deferred<void>();f.holdWrite(async()=>{entered.resolve();await held.promise});
+    const opening=f.run('rich','',JSON.stringify(callback));await entered.promise;
+    if(storage==='snapshot')f.client.local.snapshotDrafts[f.client.draftKey]=[];else setDraftFiles(f.client.local,[]);
+    held.resolve();await expect(opening).rejects.toMatchObject({kind:'superseded'});
+    expect(f.client.draft).toBe(value);
+  }
+});
+test('inline image preview rereads context ownership after saving while its inventory remains',async()=>{
+  for(const storage of ['snapshot','file'] as const){
+    const f=await imagePreviewFixture(storage),value=`${f.text}latest`;f.view(f.event('text',value));
+    const owner=mobileEditorOwner(f.client)!,callback={...owner.state.identity,mountId:owner.state.mountId,kind:'contextPress',
+      richEventId:'tap-photo',eventCount:owner.state.eventCount,value,payload:{source:f.source,start:3,end:3+f.source.length}};
+    const held=deferred<void>(),entered=deferred<void>();f.holdWrite(async()=>{entered.resolve();await held.promise});
+    const opening=f.run('rich','',JSON.stringify(callback));await entered.promise;
+    expect(mobileComposerContextCommit(f.client,mobileComposerContextCapture(f.client,mobileComposerTarget(f.client))!,value,
+      undefined,'photo-reference')).toBe(true);
+    held.resolve();await expect(opening).rejects.toMatchObject({kind:'superseded'});
+    expect(storage==='snapshot'?f.client.local.snapshotDrafts[f.client.draftKey]:f.client.local.composerFiles).toHaveLength(1);
   }
 });

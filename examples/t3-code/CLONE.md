@@ -113,8 +113,12 @@ Ordinary-chat Photo Library selection is now verified in the normal build. The
 system picker imports the test PNG as `IMG_0007`; its draft and strip preview
 survive restart. Sending it with an explicit message receives `PHOTO_LIBRARY_OK`
 from the real provider. After another restart, the saved conversation opens the
-sent image correctly. Inline image-chip activation still reaches an unsupported
-context action; the attachment strip remains the verified preview path.
+sent image correctly. Inline image chips now open the bound draft preview after
+saving observed text and rechecking the current context and attachment inventory.
+The normal build using committed Swift sources opens the photo from its chip;
+closing the preview preserves newly typed text and the attachment. Removing the
+photo preserves that text. Source tests cover snapshot and file-backed images,
+including attachment or context removal during an awaited save.
 New-task drafts import and preview the same PNG, recover through Home's Unsent
 row after restart, and discard through confirmation. Unsent follows active tasks
 once the live catalogue loads. Current checkout selects `main` correctly. The
@@ -159,7 +163,7 @@ An instrumented drive sends to the real provider and displays
 tested conversation on its first tap and restores its transcript, environment
 and that reply. A separate 18-character draft also survives another restart
 with Send ready. Temporary diagnostics and the unsuccessful
-clock-argument experiment were removed. Strict TypeScript, all 3,717 mobile tests
+clock-argument experiment were removed. Strict TypeScript, all 3,720 mobile tests
 and the boot check pass. The desktop source cap remains the sole cap violation.
 
 Terminal verification opens a real project shell, runs `pwd`, selects one output
