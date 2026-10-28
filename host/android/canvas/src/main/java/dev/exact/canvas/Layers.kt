@@ -283,8 +283,9 @@ internal class Layers(
     /** Op 32: freed with the next stream (a row recorded before may still draw it this frame). */
     fun free(id: Int) { freeing.add(id) }
 
-    fun flush() {
-        for (id in freeing) layers.remove(id)?.node?.discardDisplayList()?.also { snapshot = null }
+    /** The layers freed in the last stream go, each told to [freed]. */
+    fun flush(freed: (Int) -> Unit) {
+        for (id in freeing) layers.remove(id)?.node?.discardDisplayList()?.also { snapshot = null; freed(id) }
         freeing.clear()
     }
 

@@ -18,8 +18,18 @@ task: Excord on an Android emulator against the fixture, and the focus ring a Ba
   disclosure chevron. Discord's iOS and Android channel lists have none, nor do Messages'
   conversations, and the split beside the chat already hid them: the rows now say nothing
   there.
-- The newest message's two avatars are empty grey circles once the older page has
-  loaded, keyboard or not; what was ruled out is in QUEUE.md.
+- The newest message's two avatars were empty grey circles once the older page had
+  loaded, and after scrolling far up and back other rows' were too. The Android reader
+  draws each picture in a slot node that rows draw by reference, and exact2 sends a
+  slot's drawing only when it changes. HWUI discards the drawing of a node that leaves
+  its tree, so a slot whose rows were all freed before the row taking it over was drawn
+  kept nothing; and freeing a picture dropped every slot that had ever drawn it,
+  including slots that now drew another. The reader now keeps each slot's drawing and
+  records it again when a row draws it empty, and a slot leaves a picture's list when
+  its drawing changes (`host/android/canvas/.../Slots.kt`).
+- Gradle on the build Mac kept reporting `compileReleaseKotlin` up to date after
+  `git apply` changed the reader's Kotlin over ssh, so the APK carried the old code and
+  two rounds of this hunt tested nothing new (QUEUE.md).
 
 ### Lean in
 
