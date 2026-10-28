@@ -84,28 +84,32 @@ enum RasterRetry {
     /// question (`why?`) is left be. One pass (the Linux host's
     /// `remote::without_queries`).
     static func withoutQueries(_ text: String) -> String {
-        let trailing: (Character) -> Bool = { ")\"'`>],;:.".contains($0) }
-        let characters = Array(text)
-        var out = "", i = 0, linked = false, last: [Character] = ["\0", "\0", "\0"]
-        while i < characters.count {
-            let c = characters[i]
-            let continues = i + 1 < characters.count && !characters[i + 1].isWhitespace
+        // By Unicode scalar (a combining mark after `?` is its own), and words
+        // end at ASCII whitespace only (a no-break space can sit in a link).
+        let trailing: (Unicode.Scalar) -> Bool = { ")\"'`>],;:.".unicodeScalars.contains($0) }
+        let space: (Unicode.Scalar) -> Bool = { " \t\n\r\u{0B}\u{0C}".unicodeScalars.contains($0) }
+        let scalars = Array(text.unicodeScalars)
+        var out = String.UnicodeScalarView(), i = 0, linked = false
+        var last: [Unicode.Scalar] = ["\0", "\0", "\0"]
+        while i < scalars.count {
+            let c = scalars[i]
+            let continues = i + 1 < scalars.count && !space(scalars[i + 1])
             if continues && (c == "?" || (c == "#" && linked)) {
                 var end = i
-                while end < characters.count, !characters[end].isWhitespace { end += 1 }
+                while end < scalars.count, !space(scalars[end]) { end += 1 }
                 var kept = end
-                while kept > i + 1, trailing(characters[kept - 1]) { kept -= 1 }
-                out.append(contentsOf: characters[kept..<end])
+                while kept > i + 1, trailing(scalars[kept - 1]) { kept -= 1 }
+                out.append(contentsOf: scalars[kept..<end])
                 i = end
                 continue
             }
-            if c.isWhitespace { linked = false; last = ["\0", "\0", "\0"] } else {
+            if space(c) { linked = false; last = ["\0", "\0", "\0"] } else {
                 linked = linked || c == "/" || c == ":" || (c == "(" && last == ["u", "r", "l"])
                 last = [last[1], last[2], c]
             }
             out.append(c); i += 1
         }
-        return out
+        return String(out)
     }
 
     /// A box on screen at least 90% of its window's width and half its height

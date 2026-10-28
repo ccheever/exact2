@@ -954,6 +954,14 @@ fn an_errors_links_lose_their_queries() {
     assert_eq!(without_queries("HTTP 404"), "HTTP 404");
     assert_eq!(without_queries("why? because"), "why? because");
     assert_eq!(
+        without_queries("https://h/a.svg?x=a\u{00A0}&hm=secret"),
+        "https://h/a.svg"
+    );
+    assert_eq!(
+        without_queries("https://h/a.svg?\u{0301}x=1&hm=secret"),
+        "https://h/a.svg"
+    );
+    assert_eq!(
         without_queries("`https://h/a.svg?file=(1).png&hm=secret`: x"),
         "`https://h/a.svg`: x"
     );

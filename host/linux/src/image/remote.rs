@@ -37,7 +37,8 @@ pub(crate) fn redacted(text: &str, _source: &str) -> String {
 /// (a colour, `#fff`, stays). The rest of the word goes, all of it, and only
 /// the run of closing marks and punctuation that ended the word comes back
 /// (`)`, `"`, `'`, `` ` ``, `>`, `]`, `,`, `;`, `:`, `.`): whatever a query
-/// holds, none of it stays. A question (`why?`) is left be. One pass.
+/// holds, none of it stays. Words end at ASCII whitespace only (a no-break
+/// space can sit in a link). A question (`why?`) is left be. One pass.
 pub(crate) fn without_queries(text: &str) -> String {
     let trailing = |c: char| ")\"'`>],;:.".contains(c);
     let chars: Vec<char> = text.chars().collect();
@@ -47,10 +48,10 @@ pub(crate) fn without_queries(text: &str) -> String {
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
-        let continues = chars.get(i + 1).is_some_and(|n| !n.is_whitespace());
+        let continues = chars.get(i + 1).is_some_and(|n| !n.is_ascii_whitespace());
         if continues && (c == '?' || (c == '#' && linked)) {
             let end = (i..chars.len())
-                .find(|&j| chars[j].is_whitespace())
+                .find(|&j| chars[j].is_ascii_whitespace())
                 .unwrap_or(chars.len());
             let mut kept = end;
             while kept > i + 1 && trailing(chars[kept - 1]) {
@@ -60,7 +61,7 @@ pub(crate) fn without_queries(text: &str) -> String {
             i = end;
             continue;
         }
-        if c.is_whitespace() {
+        if c.is_ascii_whitespace() {
             (linked, last) = (false, ['\0'; 3]);
         } else {
             linked |= c == '/' || c == ':' || (c == '(' && last == ['u', 'r', 'l']);
