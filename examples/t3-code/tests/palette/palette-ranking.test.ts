@@ -29,24 +29,29 @@ const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Erro
 /** A thread row picked at `moment`: the command it runs, with its moment and the root search's query. */
 const pick = (c: T3Client, id: string, query: string, moment = NOW) => paletteCommand(c, null, files, 'thread', id, `${moment} ${query}`);
 const recents = (c: T3Client) => group(view(c, '').rows, 'recent-threads').map(entry => entry.arg);
-/** A connected transport that records the commands it is asked to dispatch. */
+/**
+ * A connected transport that records the commands it is asked to dispatch. As the real one, a request with a `deliver`
+ * key answers once sent; `refuse` answers a dispatch as the server's failure.
+ */
 class Transport implements Native {
-  available = true; dispatched: Obj[] = [];
+  available = true; dispatched: Obj[] = []; delivered: string[] = []; refuse = false;
   watch() {}
   async later(input: unknown): Promise<unknown> {
     const request = obj(input);
-    if (request.op === 'ids') return { ok: true, generation: 1, value: Array.from({ length: Number(request.count) }, (_, i) => `id-${i}`) };
-    if (request.method === 'orchestration.dispatchCommand') this.dispatched.push(obj(request.payload));
-    return { ok: true, generation: 1, value: {} };
+    if (request.op === 'ids') return { ok: true, generation: 1, value: Array.from({ length: Number(request.count) }, (_, i) => `id-${this.dispatched.length}-${i}`) };
+    if (request.method !== 'orchestration.dispatchCommand') return { ok: true, generation: 1, value: {} };
+    this.dispatched.push(obj(request.payload)); this.delivered.push(String(request.deliver ?? ''));
+    return this.refuse ? { ok: false, generation: 1, error: { kind: 'server', message: 'Thread is deleted.', uncertain: false } } : { ok: true, generation: 1, value: { id: 7 } };
   }
 }
-/** A client that may write, with threads a visit-tracking server sends (`lastVisitedAt`). */
-function writable(threads: Obj[], environmentId: string): T3Client {
+/** A client connected to a visit-tracking server (its threads carry `lastVisitedAt`), the open thread still loading. */
+function visiting(threads: Obj[], environmentId: string): T3Client {
   const c = client(threads, environmentId);
-  Object.assign(c, { origin: 'http://127.0.0.1:16540', scopes: ['orchestration:read', 'orchestration:operate'] });
-  c.config = { ...c.config, environment: { label: 'Local', capabilities: { serverResolvedCommandContext: true } } };
+  Object.assign(c, { origin: 'http://127.0.0.1:16540', threadId: 'open', threadLive: false });
   return c;
 }
+const visitThreads = [{ id: 'old', title: 'Old', updatedAt: at(48), lastVisitedAt: at(48) }, { id: 'quiet', title: 'Quiet', updatedAt: at(5) },
+  { id: 'open', title: 'Open', updatedAt: at(1), lastVisitedAt: at(1) }];
 
 describe('threads', () => {
   test('subagent threads are left out, of the results and of the recents', () => {
@@ -86,26 +91,45 @@ describe('threads', () => {
     c.threadId = '';
     expect(recents(c)).toEqual(['new', 'old', 'open']);
   });
-  test('a thread the server says was picked for this query ranks first among word matches for it', () => {
-    const picked = { openedAt: NOW - 3_600_000, score: 1, picks: [{ query: 'auth', at: NOW - 3_600_000 }] };
-    const threads = [{ id: 'share', title: 'Share auth across worktrees', updatedAt: at(400) }, { id: 'token', title: 'Auth token refresh', updatedAt: at(0) },
-      { id: 'oauth', title: 'Fix oauth redirect', updatedAt: at(0) }];
-    expect(group(view(client(threads), 'auth').rows, 'threads-search').map(entry => entry.arg)).toEqual(['token', 'share', 'oauth']);
-    const c = client(threads.map(thread => thread.id === 'share' ? { ...thread, opens: picked } : thread));
+  test('a pick tells the server its query, and the pick it keeps ranks that thread first among word matches next time', async () => {
+    const threads = [{ id: 'share', title: 'Share auth across worktrees', updatedAt: at(400), lastVisitedAt: at(400) },
+      { id: 'token', title: 'Auth token refresh', updatedAt: at(0), lastVisitedAt: at(0) }, { id: 'oauth', title: 'Fix oauth redirect', updatedAt: at(0), lastVisitedAt: null }];
+    const c = visiting(threads, 'kept-pick-env'), transport = new Transport();
+    expect(group(view(c, 'auth').rows, 'threads-search').map(entry => entry.arg)).toEqual(['token', 'share', 'oauth']);
+    await paletteCommand(c, transport, files, 'thread', 'share', `${NOW} auth`);
+    // The server keeps the visit's query as a pick in the thread's opens (Orchestrator.ts recordThreadOpen).
+    const [visit] = transport.dispatched;
+    c.shell.threads = c.shell.threads.map(thread => thread.id === visit!.threadId ? { ...thread, opens: { openedAt: NOW, score: 1, picks: [{ query: visit!.searchQuery, at: NOW }] } } : thread);
+    c.threadId = '';
     // The pick counts for its query and for the start of it; a match inside a word stays below either way.
     expect(group(view(c, 'auth').rows, 'threads-search').map(entry => entry.arg)).toEqual(['share', 'token', 'oauth']);
     expect(group(view(c, 'aut').rows, 'threads-search').map(entry => entry.arg)).toEqual(['share', 'token']);
-    expect(group(view(c, 'token').rows, 'threads-search').map(entry => entry.arg)).toEqual(['token']);
+    expect(group(view(c, 'refresh').rows, 'threads-search').map(entry => entry.arg)).toEqual(['token']);
   });
-  test('a pick sends the server its open with the query, which a visit-tracking server keeps as a pick', async () => {
-    const threads = [{ id: 'old', title: 'Old', updatedAt: at(48), lastVisitedAt: at(48) }, { id: 'quiet', title: 'Quiet', updatedAt: at(5) },
-      { id: 'open', title: 'Open', updatedAt: at(1), lastVisitedAt: at(1) }];
-    const c = writable(threads, 'visit-env'), transport = new Transport();
-    c.threadId = 'open';
-    await paletteCommand(c, transport, files, 'thread', 'old', `${NOW} Old Things`);
-    expect(transport.dispatched).toEqual([{ type: 'thread.visit', commandId: 'id-0', threadId: 'old', visitedAt: at(48), opened: true, searchQuery: 'old things' }]);
+  test('the pick sends its open without waiting for the reply, while the open thread still loads too', async () => {
+    const c = visiting(visitThreads, 'visit-env'), transport = new Transport();
+    expect(c.writable).toBe(false);
+    expect(await paletteCommand(c, transport, files, 'thread', 'old', `${NOW} Old Things`)).toMatchObject({ close: true, thread: 'old' });
+    expect(transport.dispatched).toEqual([{ type: 'thread.visit', commandId: 'id-0-0', threadId: 'old', visitedAt: at(48), opened: true, searchQuery: 'old things' }]);
+    expect(transport.delivered).toEqual(['palette-visit:id-0-0']);
     // None without a query, from a ">" filter, for the open thread, or to a server that keeps no visits.
     for (const [id, query] of [['old', ''], ['old', '>old'], ['open', 'open'], ['quiet', 'quiet']]) await paletteCommand(c, transport, files, 'thread', id!, `${NOW} ${query}`);
+    expect(transport.dispatched.length).toBe(1);
+  });
+  test('picking the same thread again sends its open again', async () => {
+    const c = visiting(visitThreads, 'twice-env'), transport = new Transport();
+    await paletteCommand(c, transport, files, 'thread', 'old', `${NOW} old`);
+    await paletteCommand(c, transport, files, 'thread', 'old', `${NOW + 1000} old`);
+    expect(transport.dispatched.map(visit => [visit.threadId, visit.searchQuery])).toEqual([['old', 'old'], ['old', 'old']]);
+  });
+  test('a refused open, or no transport, still opens the picked thread', async () => {
+    const c = visiting(visitThreads, 'refused-env'), transport = new Transport();
+    transport.refuse = true;
+    expect(await paletteCommand(c, transport, files, 'thread', 'old', `${NOW} old`)).toMatchObject({ ok: true, close: true, thread: 'old' });
+    expect(transport.dispatched.length).toBe(1);
+    expect(await paletteCommand(c, null, files, 'thread', 'old', `${NOW} old`)).toMatchObject({ ok: true, close: true, thread: 'old' });
+    expect(await paletteCommand(c, { ...transport, available: false, later: transport.later.bind(transport), watch() {} }, files, 'thread', 'old', `${NOW} old`))
+      .toMatchObject({ close: true, thread: 'old' });
     expect(transport.dispatched.length).toBe(1);
   });
   test('a match outside the title says which field matched, with the project beside the title', () => {

@@ -14,7 +14,7 @@
 // targets before the origin.
 import { arr, obj, str } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
-import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS, remoteSchemeForEditor } from '../shared/editors';
+import { buildRemoteOpenUrl, EDITOR_DEFINITIONS, REMOTE_CAPABLE_EDITOR_IDS, remoteSchemeForEditor } from '../shared/editors';
 import { fleet, trimOrigin } from './settings-b-fleet';
 import { focusedOnPrimary } from './local-primary';
 import { savedRoutes } from './connection-routes';
@@ -191,12 +191,15 @@ export async function openInEditorHere(client: T3Client, native: Native, cwd: st
 }
 
 /**
- * editor.openFavorite (OpenInPicker's shortcut handler): the preferred editor opens the workspace,
- * remotely the first remote-capable editor this Mac has. False when nothing could open.
+ * editor.openFavorite (OpenInPicker's shortcut handler): the preferred editor opens the workspace (usePreferredEditor
+ * over the editors Open offers): `serverFavorite` on this machine; remotely `last` when this Mac's remote links take it,
+ * else the first of them in EDITORS order. Returns the editor that opened, '' when nothing could open.
  */
-export async function openFavoriteHere(client: T3Client, native: Native, cwd: string, serverFavorite: string): Promise<boolean> {
+export async function openFavoriteHere(client: T3Client, native: Native, cwd: string, serverFavorite: string, last = ''): Promise<string> {
   await loadSshAliases(native);
   const remote = remoteOpenFor(client);
-  const editor = remote.state.mode === 'local-exec' ? serverFavorite : remote.state.mode === 'remote-links' ? (await remoteCapableEditors(native))[0] ?? '' : '';
-  return openInEditorHere(client, native, cwd, editor);
+  const remoteEditors = remote.state.mode === 'remote-links' ? await remoteCapableEditors(native) : [];
+  const editor = remote.state.mode === 'local-exec' ? serverFavorite
+    : last && remoteEditors.includes(last) ? last : EDITOR_DEFINITIONS.find(entry => remoteEditors.includes(entry.id))?.id ?? '';
+  return await openInEditorHere(client, native, cwd, editor) ? editor : '';
 }

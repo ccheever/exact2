@@ -13,9 +13,9 @@ import { cloneDestination, cloneDirectoryName, flowOf, newProjectPublishTargets,
 import { sortedThreads } from './palette';
 import { activeTarget } from './palette-files';
 import { favoriteEditor } from '../shell/keyboard-dispatch';
-import { openFavoriteHere, remoteCapableEditors, remoteOpenFor } from '../connections/remote-open'; // remote Open: an SSH environment's workspace opens over SSH
+import { openFavoriteHere } from '../connections/remote-open'; // remote Open: an SSH environment's workspace opens over SSH
 import { announce } from '../shell/announce';
-import { editorLabel } from '../shared/editors';
+import { EDITOR_DEFINITIONS } from '../shared/editors';
 import { lastEditor } from '../details/shell-details';
 import { linkPullRequest } from './palette-linkpr';
 import { linkFromPicker } from '../pull-requests/pages-pr-links';
@@ -71,21 +71,24 @@ async function createProject(client: T3Client, native: Native, storage: Files, t
  * CommandPaletteThreadItems runThread: a thread picked from a search counts as opened by this client at the pick's moment,
  * for Recent Threads and the use boost, and the server records the open with its query (`thread.visit` with `opened`
  * and `searchQuery`), which ranks the thread first when that query is typed again. `pick` is "<moment in epoch ms>
- * <query>", the query being the root page's search ("" for other rows); the open thread is no pick. The visit is
- * awaited: the native data executor runs a source's promises only while a request waits on them.
+ * <query>", the query being the root page's search ("" for other rows); the open thread is no pick.
  */
 async function pickThread(client: T3Client, native: Native | null | undefined, threadId: string, pick: string): Promise<void> {
   const space = pick.indexOf(' '), at = Number(pick.slice(0, space)), query = pick.slice(space + 1);
   if (space <= 0 || !Number.isFinite(at) || query.trim().length === 0 || query.startsWith('>') || threadId === client.threadId) return;
   claimThreadOpen(client.environmentId, threadId, at);
-  // A server that keeps no visits sends no `lastVisitedAt`; the open is sent whether or not this client already claimed it.
+  // A server that keeps no visits sends no `lastVisitedAt`. The open goes whether or not this client already claimed it,
+  // and the pick does not wait for its reply (upstream's `void visitThread(…)`): a request with a `deliver` key returns
+  // once the transport has sent it, and the reply lands in the inbox, where nothing reads it. A refused send is dropped,
+  // as visitThread's reportFailure: false drops it.
   const thread = client.shell.threads.find(entry => entry.id === threadId);
-  if (!thread || thread.lastVisitedAt === undefined || !native?.available || !client.writable) return;
+  if (!thread || thread.lastVisitedAt === undefined || !native?.available) return;
   try {
-    const access = client.restAccess(native), [commandId] = await access.ids(1);
-    await access.request('orchestration.dispatchCommand', { type: 'thread.visit', commandId, threadId, visitedAt: str(thread.updatedAt), opened: true, searchQuery: pickedQuery(query) }, true);
+    const [commandId] = await client.ids(native, 1);
+    await client.call(native, { op: 'request', method: 'orchestration.dispatchCommand', deliver: `palette-visit:${commandId}`,
+      payload: { type: 'thread.visit', commandId, threadId, visitedAt: str(thread.updatedAt), opened: true, searchQuery: pickedQuery(query) } }, client.generation, true);
   } catch (error) {
-    if (letGo(error)) throw error; // visitThread's reportFailure: false
+    if (letGo(error)) throw error;
   }
 }
 
@@ -267,11 +270,9 @@ async function restartSession(client: T3Client, native: Native, storage: Files, 
 async function openInEditor(client: T3Client, native: Native, op: string, id: string, line: string): Promise<PaletteResult> {
   const editor = favoriteEditor(client.config, lastEditor(client)); // the last-used editor (t3-code.json)
   if (op === 'open-favorite') {
-    // useOpenFavoriteEditorShortcut: a screen reader hears which editor took the workspace, the one openFavoriteHere
-    // opens with (the favorite here, else the first editor this Mac has that takes remote links).
-    const mode = remoteOpenFor(client).state.mode;
-    const opened = mode === 'local-exec' ? editor : mode === 'remote-links' ? (await remoteCapableEditors(native))[0] ?? '' : '';
-    if (id && await openFavoriteHere(client, native, id, editor)) announce(client, `Opened in ${editorLabel(opened)}`);
+    // useOpenFavoriteEditorShortcut: a screen reader hears which editor took the workspace (editorLabelForPlatform).
+    const opened = id ? await openFavoriteHere(client, native, id, editor, lastEditor(client)) : '';
+    if (opened) announce(client, `Opened in ${EDITOR_DEFINITIONS.find(entry => entry.id === opened)?.label ?? 'Editor'}`);
     return done(client);
   }
   const target = activeTarget(client);
