@@ -936,7 +936,12 @@ fn source(
             Some((prop, value)) => format!("{} · {prop}={value}", c.component),
             None => format!("{} · first values", c.component),
         };
-        let _ = writeln!(s, "        column gap=4 testId={}", literal(&id));
+        // (Each component at its own size, as a caller's column that doesn't stretch it shows it, D4 batch 2 #4.)
+        let _ = writeln!(
+            s,
+            "        column gap=4 align-items=\"flex-start\" testId={}",
+            literal(&id)
+        );
         let _ = writeln!(
             s,
             "          text {} font=\"-exact-footnote\"",
@@ -1020,6 +1025,33 @@ fn compiler_record(
     Ok(format!("{name}({})", fields.join(", ")))
 }
 
+/// The roles a component's colour props are shown with, in their declared
+/// order: two colours one draws over the other (VerifiedBadge's disc and
+/// its check, D4 batch 2 #5) never get the same one.
+const COLOUR_SAMPLES: [&str; 4] = [
+    "-exact-label",
+    "-exact-background",
+    "-exact-system-blue",
+    "-exact-secondary-label",
+];
+
+/// A style-row string prop's sample (`inert::style_sample`): a colour prop
+/// takes the next of [`COLOUR_SAMPLES`] by its place among `c`'s colour
+/// props, a length its length.
+fn sample(c: &Component, file: &File, prop: &str) -> &'static str {
+    let colour = |name: &str| inert::style_sample(c, file, name) == Some(COLOUR_SAMPLES[0]);
+    match inert::style_sample(c, file, prop) {
+        Some(s) if s == COLOUR_SAMPLES[0] => {
+            let rank = (c.props.iter())
+                .take_while(|p| p.name != prop)
+                .filter(|p| colour(&p.name))
+                .count();
+            COLOUR_SAMPLES[rank % COLOUR_SAMPLES.len()]
+        }
+        s => s.unwrap_or_default(),
+    }
+}
+
 /// Each prop's argument: a variant's value in the cell, else a placeholder.
 fn args(
     c: &Component,
@@ -1064,7 +1096,7 @@ fn args(
                     Some(TypeExpr::Named(t, _))
                         if t == "string" && inert::style_sample(c, file, &p.name).is_some() =>
                     {
-                        literal(inert::style_sample(c, file, &p.name).unwrap_or_default())
+                        literal(sample(c, file, &p.name))
                     }
                     Some(ty) => placeholder(ty, &p.name, file, shapes, compiler, &mut Vec::new())
                         .map_err(|why| format!("{} ({why})", p.name))?,

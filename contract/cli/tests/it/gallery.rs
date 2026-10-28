@@ -1040,12 +1040,29 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         .lines()
         .find(|l| l.contains("Inks("))
         .expect("an Inks cell");
-    for prop in ["caret", "accent", "pressed", "pressInk"] {
-        assert!(
-            inks.contains(&format!(r#"{prop}="-exact-label""#)),
-            "{inks}"
-        );
+    // Each colour prop its own role, in declared order (D4 batch 2 #5: one
+    // drawn over another, as VerifiedBadge's check over its disc, shows).
+    for (prop, role) in [
+        ("caret", "-exact-label"),
+        ("accent", "-exact-background"),
+        ("pressed", "-exact-system-blue"),
+        ("pressInk", "-exact-secondary-label"),
+    ] {
+        assert!(inks.contains(&format!(r#"{prop}="{role}""#)), "{inks}");
     }
+    // Each cell holds its component at its own size, not stretched to the
+    // cell's width (D4 batch 2 #4: FollowButton's pill).
+    let cells: Vec<&str> = text
+        .lines()
+        .filter(|l| l.contains(r#"testId="gallery-"#))
+        .collect();
+    assert!(!cells.is_empty());
+    assert!(
+        cells
+            .iter()
+            .all(|l| l.contains(r#"align-items="flex-start""#)),
+        "{cells:?}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
