@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { resolve, basename, dirname } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { verifyBakeFiles } from '../../scripts/app.mjs';
-import { webRefusal } from './documents.mjs';
+import { webRefusal, browserEntitlements } from './documents.mjs';
 import { listAssets } from '../web/serve.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, copyMacResources, signingOrder, helperEntitlements, wrapFramework, assertArchiveFrameworks } from './assets.mjs';
 import { allows, profile, identity, embeddedProfile } from './devices.mjs';
@@ -192,10 +192,10 @@ export function assembleIOS({intents, shared, triple, app, paths, binDir, bin, d
   }
   // A grant's signing entitlement needs a profile that allows it, which a
   // team wildcard never does for HealthKit (LLP 1069.008.000 D4).
-  const required = appleReach?.entitlements ?? [];
+  const required = appleReach?.entitlements ?? [], appRequired = [...required, ...browserEntitlements({ ...app, widgetTV: tv }, distribution)];
   // With entries, the app's and the extension's profiles together, each granting the shared groups (LLP 1126.001 WP13).
-  const provisioned = shared && device && !unsigned ? entryProfiles({ app, udid: ph?.udid, required }) : null;
-  const appProfile = device && !unsigned ? provisioned?.app ?? (allows(prof, required) ? prof : profile(ph?.udid, app.id, required)) : null;
+  const provisioned = shared && device && !unsigned ? entryProfiles({ app, udid: ph?.udid, required: appRequired }) : null;
+  const appProfile = device && !unsigned ? provisioned?.app ?? (allows(prof, appRequired) ? prof : profile(ph?.udid, app.id, appRequired)) : null;
   // The clip's profile is for its own App ID, of the app's profile's team, prefix and method, as the extension's is.
   const profiles = { host: () => profile(ph?.udid, `${app.id}.host`, required), clip: () => embeddedProfile(ph?.udid, clip.id, appProfile, [...required, 'com.apple.developer.parent-application-identifiers']) };
   for (const [assembled, kind] of bundles) {
@@ -205,7 +205,7 @@ export function assembleIOS({intents, shared, triple, app, paths, binDir, bin, d
     const ent = resolve(binDir, kind === 'app' ? 'entitlements.plist' : `${kind}-entitlements.plist`);
     if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
     // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
-    writeFileSync(ent, entitlements({ ...app, id, widgetTV: tv, widgetHost: kind === 'host', ...(kind === 'clip' ? { clipParent: app.id } : {}) }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach, { simulator: !device, prefix: signingProfile?.prefix }));
+    writeFileSync(ent, entitlements({ ...app, id, widgetTV: tv, widgetHost: kind === 'host', ...(kind === 'clip' ? { clipParent: app.id } : {}) }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach, { simulator: !device, prefix: signingProfile?.prefix, distributed: distribution }));
     if (shared && kind === 'app') {
       const group = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', ent]).stdout)['keychain-access-groups'][0];
       runApple('plutil', ['-insert', 'ExactKeychainAccessGroup', '-string', group, resolve(assembled, 'Info.plist')]);
