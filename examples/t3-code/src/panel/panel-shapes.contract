@@ -178,6 +178,8 @@ shape FilesView
   mermaidNote: string
   // The file shown, by environment, thread and path: the audio player is one per file.
   fileKey: string
+  // A document, or a file read as binary: AttachmentFilePreview under "File" (preview "attachment").
+  attachment: AttachmentSurface
 shape FilesCrumbEntry
   id: string
   path: string
