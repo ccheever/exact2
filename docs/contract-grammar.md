@@ -2273,7 +2273,7 @@ the virtual clock).
   Close Window (built with ⌘W) in its place with no chord, so ⌘W reaches the
   page, and `close-window=Meta+Shift+W` gives it ⇧⌘W. `close-window` is the
   one id; the chord is one `aria-keyshortcuts` chord with `Meta` that is not
-  one of the host's or the system's own (⌘Q, ⌘W, ⌘H, ⌘M, ⌘, and the like).
+  one of the host's or the system's own (⌘Q, ⌘W, ⌘H, ⌘M, ⌘-comma and the like).
   Another id, an id named twice, a chord without `Meta`, a standard chord,
   expressions and non-root use fail with `lower-menu-keys`. With nothing
   holding ⌘W, AppKit's Close All ⌥⌘W shows as a row of its own: an app that

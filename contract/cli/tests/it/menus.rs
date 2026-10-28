@@ -642,6 +642,8 @@ fn menu_bar_keys_accept_only_close_window_and_a_free_chord() {
     for value in [
         "close-window=none",
         "close-window=Meta+Shift+W",
+        "close-window=Meta+Shift+1",
+        "close-window=Meta+Meta+Shift+W",
         "close-window=Meta+F1",
         "close-window=Meta+Alt++",
         "",
@@ -676,6 +678,15 @@ fn menu_bar_keys_accept_only_close_window_and_a_free_chord() {
         "close-window=Meta+Tab",
         "close-window=Meta+Space",
         "close-window=Meta++",
+        // The same keystrokes spelled with Shift, and the system's own.
+        "close-window=Meta+Shift+;",
+        "close-window=Meta+Shift+=",
+        "close-window=Meta+Shift+Q",
+        "close-window=Meta+Alt+Shift+Q",
+        "close-window=Meta+Shift+`",
+        "close-window=Meta+Control+Shift+3",
+        "close-window=Meta+Control+Shift+4",
+        "close-window=Meta+Alt+D",
     ]
     .iter()
     .map(|value| keys(value))

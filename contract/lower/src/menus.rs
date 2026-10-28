@@ -115,7 +115,7 @@ pub(crate) fn check_menu_keys(attrs: &[Attr], root: bool) -> Result<(), LowerErr
             return err("lower-menu-keys", format!(
                 "`-exact-menu-keys` belongs to a root and takes a literal whitespace-separated list of id=chord, each id once, \
                  the chord `none` or one `aria-keyshortcuts` chord with Meta (`Meta+Shift+W`) that is not one of the host's or \
-                 the system's own (⌘Q, ⌘W, ⌘H, ⌘M, ⌘, and the like); the ids: {}",
+                 the system's own (⌘Q, ⌘W, ⌘H, ⌘M, ⌘-comma and the like); the ids: {}",
                 IDS.join(", ")
             ), attr.span);
         }
@@ -129,7 +129,8 @@ type MenuChord = (Vec<&'static str>, String);
 
 /// One chord as `aria-keyshortcuts` spells it, with `Meta`, parsed as the
 /// Mac host's shortcuts parse it (`ShortcutsMac.swift`, `Shortcut`): one
-/// character, a named key or `F1` to `F35`, after modifiers each named once.
+/// character, a named key or `F1` to `F35`, after any of `Meta`, `Control`,
+/// `Alt` and `Shift`, which may repeat, as the host lets them.
 fn menu_chord(chord: &str) -> Option<MenuChord> {
     let (held, key) = match chord.strip_suffix("++") {
         Some(held) => (held, "Plus"),
@@ -184,7 +185,10 @@ fn menu_chord(chord: &str) -> Option<MenuChord> {
 /// app menu's, File's, Edit's (with Find and Spelling), View's, Go's,
 /// Window's, Help's and Develop's (`DevMenuMac.swift`), AppKit's own Close
 /// All and Minimize All, and the system's (app switching, Spotlight,
-/// screenshots, Force Quit, Lock Screen, Emoji & Symbols).
+/// screenshots, Force Quit, Lock Screen, Log Out, the Dock, Emoji &
+/// Symbols). A chord with Shift is also the one that types its shifted
+/// character on a US layout, as AppKit matches a menu item by the typed
+/// character: ⇧⌘; is ⌘:, and ⇧⌘= is ⌘+.
 fn standard_chord(chord: &MenuChord) -> bool {
     const STANDARD: &[&str] = &[
         "Meta+q",
@@ -236,9 +240,52 @@ fn standard_chord(chord: &MenuChord) -> bool {
         "Meta+Alt+escape",
         "Meta+Control+q",
         "Meta+Control+space",
+        "Meta+Shift+q",
+        "Meta+Alt+Shift+q",
+        "Meta+Shift+`",
+        "Meta+Control+Shift+3",
+        "Meta+Control+Shift+4",
+        "Meta+Alt+d",
+    ];
+    const SHIFTED: &[(&str, &str)] = &[
+        ("1", "!"),
+        ("2", "@"),
+        ("3", "#"),
+        ("4", "$"),
+        ("5", "%"),
+        ("6", "^"),
+        ("7", "&"),
+        ("8", "*"),
+        ("9", "("),
+        ("0", ")"),
+        ("-", "_"),
+        ("=", "plus"),
+        ("[", "{"),
+        ("]", "}"),
+        ("\\", "|"),
+        (";", ":"),
+        ("'", "\""),
+        (",", "<"),
+        (".", ">"),
+        ("/", "?"),
+        ("`", "~"),
     ];
     let (modifiers, key) = chord;
-    STANDARD.contains(&format!("{}+{key}", modifiers.join("+")).as_str())
+    let spelled = |modifiers: &[&str], key: &str| {
+        STANDARD.contains(&format!("{}+{key}", modifiers.join("+")).as_str())
+    };
+    if spelled(modifiers, key) {
+        return true;
+    }
+    let unshifted: Vec<&str> = modifiers
+        .iter()
+        .copied()
+        .filter(|m| *m != "Shift")
+        .collect();
+    unshifted.len() < modifiers.len()
+        && SHIFTED
+            .iter()
+            .any(|(base, shifted)| key == base && spelled(&unshifted, shifted))
 }
 
 /// HTML honours `popovertarget` and `commandfor` on a button only (HTML

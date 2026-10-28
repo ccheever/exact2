@@ -1420,11 +1420,12 @@ built with ⌘W: `close-window=none` keeps the item in its place with no chord,
 and `close-window=Meta+Shift+W` gives it ⇧⌘W, as Safari and Chrome give it
 beside their ⌘W Close Tab. The chord is one `aria-keyshortcuts` chord. It
 must hold `Meta`: that is a choice, not AppKit's rule (AppKit accepts a key
-equivalent without ⌘), made because every item in the host's bar has one and
-a chord without ⌘ would reach the menu before a field's typing. It may not be
-one of the host's own or the system's standard chords (⌘Q, ⌘W, ⌘H, ⌘M, ⌘,,
-Edit's, View's, Develop's, ⌘Tab, ⌘Space and the like), which would take that
-chord from its item or never reach the app. Function keys are spelled `F1` to
+equivalent without ⌘), made because every chord in the host's bar holds ⌘ and a chord without ⌘
+would reach the menu before a field's typing. It may not be one of the host's
+own or the system's standard chords (⌘Q, ⌘W, ⌘H, ⌘M, ⌘-comma, Edit's, View's,
+Develop's, ⌘Tab, ⌘Space and the like), nor the same keystroke spelled with
+Shift (`Meta+Shift+;` is ⌘:), which would take that chord from its item or
+never reach the app. Function keys are spelled `F1` to
 `F35`, as the host's shortcuts parse them (`ShortcutsMac.swift`, `Shortcut`).
 Another id, an id named twice, a chord without `Meta`, a standard chord,
 expressions and non-root use fail with `lower-menu-keys`.
