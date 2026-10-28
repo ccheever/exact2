@@ -20,6 +20,7 @@ import type { Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 import { readableFailure } from '../details/pr-row-logic';
+import { capitalizeTerm, termView, terminologyOf } from '../details/git-logic';
 import type { T3Client } from '../client/client';
 import type { PrReactionPill } from './pages-pr-summary';
 import { actionState, finishAction, type PanelContext } from './pages-pr-actions';
@@ -51,8 +52,8 @@ const serial = (state: State, name: string) => state.serials.get(name) ?? 0;
 const bump = (state: State, name: string) => state.serials.set(name, serial(state, name) + 1);
 /** Who reads the candidate lists fresh: kept for a minute, as the reference's queries are. */
 export const CANDIDATES_FRESH_MS = 60_000;
-/** The words a review ends with (PullRequestReviewForm VERDICTS). */
-export const VERDICT_SENT: Record<string, string> = { comment: 'Review submitted', approve: 'Pull request approved', 'request-changes': 'Changes requested' };
+/** The words a review ends with (PullRequestReviewForm VERDICTS), an approval in the host's term. */
+export const VERDICT_SENT: Record<string, (term: string) => string> = { comment: () => 'Review submitted', approve: term => `${capitalizeTerm(term)} approved`, 'request-changes': () => 'Changes requested' };
 const VERDICT_ORDER = ['comment', 'approve', 'request-changes'];
 const REVIEWER_HINT = 'The host refused it. Check that you have write access on this repository, and that they still have access to it.';
 const LABEL_HINT = 'The host refused it. Check that you have triage access on this repository.';
@@ -81,6 +82,8 @@ export function emptyWrites() {
     canEditChange: false, rawBody: '', titleSaving: false, titleSerial: 0, bodySaving: false, bodySerial: 0,
     reactionChoices: PULL_REQUEST_REACTION_ORDER.map(content => ({ content, emoji: pullRequestReactionEmoji(content), name: pullRequestReactionName(content) })),
     reviewers: emptyPicker(), labels: emptyPicker(),
+    // The host's words (PullRequestComposer's term: "Review merge request").
+    term: termView(terminologyOf(undefined)),
   };
 }
 /** The reference a selection names, as the RPCs and the review store take it. */
@@ -91,7 +94,7 @@ export function writeReference(selection: { projectId: string; host: string; rep
 export function presentWrites(client: object, reference: WriteReference, detail: Obj): PrWrites {
   const state = stateOf(client), key = pullRequestReviewKey(reference), view = emptyWrites();
   const capabilities = obj(detail.capabilities), permissions = obj(detail.viewerPermissions);
-  view.key = key;
+  view.key = key; view.term = termView(terminologyOf(str(detail.provider) || undefined));
   // What is offered is the host's ability and this account's permission together.
   view.canComment = capabilities.comment === true && permissions.comment === true;
   const offered = names(obj(capabilities.review).verdicts), allowed = names(permissions.verdicts);
@@ -251,7 +254,7 @@ async function submitReview(context: WriteContext, verdict: string, body: string
   store.removeComments(key, submittedComments.map(comment => comment.id));
   store.clearSummary(key, body); state.sent.set(`${key}|review`, body);
   bump(state, `${key}|review`); bump(state, `${key}|close`);
-  pushToast(client, { kind: 'success', title: VERDICT_SENT[verdict]! });
+  pushToast(client, { kind: 'success', title: VERDICT_SENT[verdict]!(terminologyOf(str(context.panel?.detail?.provider) || undefined).singular) });
   context.refresh();
   return '';
 }

@@ -70,18 +70,19 @@ fn pqCheckIcon(status: string): string = status == "success" ? "circle-check" : 
 fn pqChecksIcon(checks: string): string = checks == "failing" ? "circle-x" : checks == "pending" ? "circle-dot" : "circle-check"
 fn pqChecksTone(checks: string): string = checks == "failing" ? "light-dark(#e40014, #fb414a)" : checks == "pending" ? "light-dark(#e17100, #ffb900e6)" : "light-dark(#009966, #5ee9b5e6)"
 
-// The group after the row's selection area: "Quick actions for pull request #N".
+// The group after the row's selection area: "Quick actions for pull request #N" (`label`, in the row's host term).
 component PrQuickActions
   props
     actions: PrSpeedAction[]
     number: number
+    label: string
     pending: bool
     act: action
     sweepDown: action
     sweepMove: action
     sweepUp: action
   view
-    row flex-shrink=0 align-items="center" gap="0.25rem" padding-right="0.75rem" role="group" aria-label=`Quick actions for pull request #${number}` testId=`pr-quick-${number}`
+    row flex-shrink=0 align-items="center" gap="0.25rem" padding-right="0.75rem" role="group" aria-label=label testId=`pr-quick-${number}`
       for item in actions key=item.key
         PrQuickButton(item=item, number=number, pending=pending, act=act, sweepDown=sweepDown, sweepMove=sweepMove, sweepUp=sweepUp)
 

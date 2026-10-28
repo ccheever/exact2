@@ -99,6 +99,18 @@ describe('the setup card in the timeline', () => {
     expect(rows.map(row => row.kind)).toEqual(['user', 'worktree-setup', 'working', 'thinking']);
     expect(rows[1]!.setup![0]).toMatchObject({ collapsed: true, summary: 'failed', header: 'Worktree ready, setup script failed' });
   });
+  test('a script still running after the agent started is the Working row\'s Background setup chip (#23169)', async () => {
+    const { transcriptRows } = await import('../../src/timeline/timeline-presentation');
+    const background = snapshot('running', [stage('fetch', 'done'), stage('setup-script', 'running'), stage('agent', 'done')]);
+    const rows = transcriptRows(timelineClient({ id: 'r1', status: 'running', requestedAt: at(0), startedAt: at(10), completedAt: null }, background));
+    expect(rows.map(row => row.kind)).toEqual(['user', 'working', 'thinking']);
+    expect(rows[1]).toMatchObject({ title: 'Working for', detail: 'Install deps' });
+    // The embedded card: its stages, no Cancel.
+    expect(rows[1]!.setup![0]).toMatchObject({ collapsed: false, cancel: false, showHeader: false });
+    // Before the run starts the card keeps its slot under the send and the chip is not drawn.
+    const starting = transcriptRows(timelineClient({ id: 'r1', status: 'starting', requestedAt: at(0), startedAt: null, completedAt: null }, background));
+    expect(starting.find(row => row.kind === 'working')?.setup).toBeUndefined();
+  });
 });
 
 test('setup terminal is offered after setup starts and reveals the existing session without spawning', async () => {

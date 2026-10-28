@@ -1,5 +1,5 @@
 // The thread's pull request beside the thread (MIT reference,
-// see LICENSE-T3, upstream 9c161462c9):
+// see LICENSE-T3, upstream 7c3b3b3605ef):
 // - the details card's rows under the branch select (components/chat/
 //   ThreadDetailsPrRows.tsx, ThreadDetailsPrRow.tsx, BranchToolbarBranchSelector
 //   panel mode: displayedPr / prNumber / prUrl / panelPrLabel), "Show N more"
@@ -19,10 +19,11 @@ import { currentPullRequestLink, visiblePullRequests, pullRequestPanelTarget } f
 import { listLines, resolveChains } from './linked-prs';
 import { parseChangeRequestUrl, findProjectForChangeRequest, findProjectOnChangeRequestHost } from '../palette/palette-linkpr';
 import { repositorySelector } from '../composer/composer-editor-menu';
-import { readDetail, peekDetail, forgetDetails, mergeAsk, askMerge, confirmMerge, performAction, startHandoff, closeMerge, toggleShowAll } from '../details/pr-row-actions';
+import { readDetail, peekDetail, forgetDetails, mergeAsk, askMerge, confirmMerge, performAction, startHandoff, closeMerge, toggleShowAll, rowChecksPoll, refKey } from '../details/pr-row-actions';
 import { rowExtra, emptyExtra, type RowExtra } from '../details/pr-row';
 import type { MergeAsk } from '../details/pr-row-actions';
 import { breakdownKey, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns } from '../pull-requests/pr-change-breakdown';
+import { capitalizeTerm, changeRequestHostKind, terminology, terminologyOf, type Terminology } from '../details/git-logic';
 
 export type PrTarget = { projectId: string; host: string; repository: string; number: number; url: string; environmentId?: string };
 export type PrRow = {
@@ -32,7 +33,8 @@ export type PrRow = {
   /** The server watches this open pull request for the thread: the row's eye, which stops the watch (`watchKey`, linked-prs.ts's key). */
   watching: boolean; watchKey: string; stopWatchLabel: string;
 };
-export type PrRowsView = { show: boolean; rows: PrRow[]; rest: PrRow[]; moreLabel: string; expanded: boolean; merge: MergeAsk };
+/** `checksPoll`, `checksKey`: the row's checks timer (rowChecksPoll) and the pull request it runs for. */
+export type PrRowsView = { show: boolean; rows: PrRow[]; rest: PrRow[]; moreLabel: string; expanded: boolean; merge: MergeAsk; checksPoll: string; checksKey: string };
 /** ThreadDetailsPrRows' expanded state, per thread so a scheme rebuild of the card keeps it. */
 const expandedThreads = new WeakMap<T3Client, Set<string>>();
 export function togglePrRows(client: T3Client): void {
@@ -45,12 +47,11 @@ const caps = (client: T3Client): Obj => obj(obj(obj(client.config).environment).
 const snapshotOf = (link: Obj): Obj | null => (link.snapshot && typeof link.snapshot === 'object' ? obj(link.snapshot) : null);
 export const linkKey = (link: { host?: unknown; repository?: unknown; number?: unknown }) => `${str(link.host).toLowerCase()}/${str(link.repository).toLowerCase()}#${num(link.number)}`;
 
-/** resolveChangeRequestPresentation(provider).shortName: GitLab says MR, every other host PR. */
-export function shortName(kind: string): string { return kind === 'gitlab' ? 'MR' : kind === '' || ['github', 'forgejo', 'azure-devops', 'bitbucket'].includes(kind) ? 'PR' : 'change request'; }
-/** linkedPullRequestSnapshotStatus: the provider a linked URL implies. */
-export function providerOfUrl(url: string): string {
-  return url.includes('/-/merge_requests/') ? 'gitlab' : url.includes('/pullrequest/') ? 'azure-devops' : url.includes('/pull-requests/') ? 'bitbucket' : url.includes('/pulls/') ? 'forgejo' : 'github';
-}
+/** sourceControlClients.get(kind).changeRequest.shortLabel: GitLab says MR, every other host PR, a kind no host claims "change request". */
+export function shortName(kind: string): string { return terminologyOf(kind || undefined).shortLabel; }
+/** linkedPullRequestSnapshotStatus: the provider a linked URL implies, findByChangeRequestUrl(url) ?? get(undefined): the
+ *  default host's (GitHub's) where no host claims it. */
+export const providerOfUrl = (url: string): string => changeRequestHostKind(url) || 'github';
 const STATE_LABEL: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
 /** resolvePullRequestState: an open draft reads as a draft. */
 export const lifecycle = (state: string, isDraft: boolean) => (state === 'open' && isDraft ? 'draft' : ['open', 'closed', 'merged'].includes(state) ? state : 'open');
@@ -126,16 +127,17 @@ export function forgetRowDetail(client: T3Client): void { forgetDetails(client);
 // classifyPullRequestChecks, pullRequestChecksState and resolveThreadPanelPullRequestAction live in pr-row-logic.ts.
 export { checksState, checksRollup, rowAction } from '../details/pr-row-logic';
 
-function simpleRow(client: T3Client, number: number, url: string, label: string, pr: Pr | null, link: Obj | null = null): PrRow {
+/** `term`: the row's host (ThreadDetailsPrRow's terminology); `openTerm`: the branch status's, which names an Open with no URL. */
+function simpleRow(client: T3Client, number: number, url: string, label: string, pr: Pr | null, link: Obj | null, term: Terminology, openTerm: Terminology): PrRow {
   const target = prTarget(client, url);
   // ThreadDetailsPrRows stopWatching: only a watched link gets the eye, and the server ends a watch when the pull request closes.
   const watching = link?.watch != null && (pr?.state ?? 'open') === 'open';
   return {
     watching, watchKey: watching ? linkKey(link!) : '', stopWatchLabel: `Stop watching #${number}`,
-    key: `pr-${number}-${url}`, label, tooltip: pr ? statusTooltip(pr) : `Pull request #${number}`,
+    key: `pr-${number}-${url}`, label, tooltip: pr ? statusTooltip(pr) : `${capitalizeTerm(term.singular)} #${number}`,
     // ChangeRequestStatusIcon(state) without isDraft: the glyph follows the lifecycle, the tone the draft-aware status.
     icon: pr ? lifecycleIcon(lifecycle(pr.state, false)) : 'git-pull-request-arrow', state: pr ? lifecycle(pr.state, pr.isDraft) : '', tinted: !!pr,
-    target: target ? JSON.stringify(target) : '', url, aria: url || 'Open pull request',
+    target: target ? JSON.stringify(target) : '', url, aria: url || `Open ${openTerm.singular}`,
     split: false, checks: '', checksCount: '', checksAria: '', action: '', actionTarget: '', actionLabel: '', actionTooltip: '', actionDisabled: false, extra: emptyExtra(),
   };
 }
@@ -144,7 +146,7 @@ function simpleRow(client: T3Client, number: number, url: string, label: string,
  * current link, else its branch's pull request, as "#N[: title]"; with the host's detail the row
  * splits into its state glyph, the checks and the one action worth taking.
  */
-export async function prRowsView(client: T3Client, native: Native, input: { status: Obj | null; threadId: string; now: number; projectId: string; rightGap?: number; inline?: boolean }): Promise<PrRowsView> {
+export async function prRowsView(client: T3Client, native: Native, input: { status: Obj | null; threadId: string; now: number; projectId: string; rightGap?: number; inline?: boolean; visible?: boolean }): Promise<PrRowsView> {
   const none: PrRowsView = emptyPrRows();
   const thread = client.shell.threads.find(entry => entry.id === input.threadId);
   const capabilities = caps(client), many = capabilities.threadPullRequests === true;
@@ -159,15 +161,17 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
   const number = current ? num(current.number) : displayed?.number ?? 0, url = current ? str(current.url) : displayed?.url ?? '';
   if (!number || !url) return none;
   const label = `#${number}${displayed?.title.trim() ? `: ${displayed.title}` : ''}`;
-  const main = simpleRow(client, number, url, label, displayed, current);
   // ThreadDetailsPrRow's reference: read through the thread's project on the host.
   const project = client.shell.projects.find(entry => entry.id === (thread ? str(thread.projectId) : input.projectId));
+  const projectTerm = terminologyOf(str(obj(project?.repositoryIdentity).provider) || undefined), openTerm = terminology(input.status);
+  const main = simpleRow(client, number, url, label, displayed, current, projectTerm, openTerm);
   const repository = repositorySelector(obj(project?.repositoryIdentity));
   const reference = capabilities.pullRequests === true && project
     ? current ? { projectId: str(project.id), host: str(current.host), repository: str(current.repository), number }
       : repository ? { projectId: str(project.id), repository, number } : null
     : null;
-  const loaded = native?.available ? await readDetail(client, native, reference, input.now) : null;
+  const visible = input.visible !== false;
+  const loaded = native?.available ? await readDetail(client, native, reference, input.now, { visible }) : null;
   const summary = reference ? sharedPullRequestSummary(client, reference, loaded) : null;
   const detail = loaded && summary ? { ...loaded, ...summary } : loaded;
   if (summary) {
@@ -189,12 +193,13 @@ export async function prRowsView(client: T3Client, native: Native, input: { stat
   }
   // ThreadDetailsPrRows: the other visible links, in the list's order, behind "Show N more".
   const rest = current === null ? [] : listLines(resolveChains(links)).map(line => line.link).filter(link => linkKey(link) !== linkKey(current))
-    .map(link => { const pr = snapshotPr(link), snapshot = snapshotOf(link); return simpleRow(client, num(link.number), str(link.url), `#${num(link.number)}${snapshot ? `: ${str(snapshot.title)}` : ''}`, pr, link); });
+    .map(link => { const pr = snapshotPr(link), snapshot = snapshotOf(link); return simpleRow(client, num(link.number), str(link.url), `#${num(link.number)}${snapshot ? `: ${str(snapshot.title)}` : ''}`, pr, link, projectTerm, openTerm); });
   const expanded = rest.length > 0 && expandedThreads.get(client)?.has(client.draftKey) === true;
-  return { show: true, rows: [main], rest: expanded ? rest : [], moreLabel: rest.length ? (expanded ? 'Show less' : `Show ${rest.length} more`) : '', expanded, merge: mergeAsk(client) };
+  return { show: true, rows: [main], rest: expanded ? rest : [], moreLabel: rest.length ? (expanded ? 'Show less' : `Show ${rest.length} more`) : '', expanded, merge: mergeAsk(client),
+    checksPoll: rowChecksPoll(client, reference, input.now, visible), checksKey: reference ? refKey(client, reference) : '' };
 }
 // A declaration, so shell-details' module-level empty view can call it through the import cycle.
-export function emptyPrRows(): PrRowsView { return { show: false, rows: [], rest: [], moreLabel: '', expanded: false, merge: { open: false, number: 0, description: '', target: '', pending: false } }; }
+export function emptyPrRows(): PrRowsView { return { show: false, rows: [], rest: [], moreLabel: '', expanded: false, merge: { open: false, number: 0, title: '', description: '', target: '', pending: false }, checksPoll: '', checksKey: '' }; }
 
 /**
  * `shell:surface-linked-pr-*`: Ready and the confirmed Merge run against the host; Resolve

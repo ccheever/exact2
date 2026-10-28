@@ -159,6 +159,8 @@ shape Message
   intent: string
   intentTip: string
   attribution: string
+  // A folded automation or agent message's one line (its task title or first line).
+  summary: string
   targetId: string
   actionLabel: string
   copied: number
@@ -176,6 +178,8 @@ shape Message
   fileCount: number
   images: MessageImage[]
   attachFiles: MessageFile[]
+  // A sent message's sounds, each an audio chip (timeline-audio.contract).
+  audio: MessageFile[]
   // Code font/size, word wrap and the message's chips (message-chips.ts).
   md: MarkdownEnv
   secret: SecretCardView[]

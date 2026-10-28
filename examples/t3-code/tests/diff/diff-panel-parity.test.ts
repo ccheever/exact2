@@ -287,6 +287,33 @@ describe('file header counts', () => {
   });
 });
 
+describe('a file\'s Copy path shows while the pointer is over any of its rows (diffs-container:hover)', () => {
+  test('a row names its file as the pointer enters it, once; the list forgets it as the pointer leaves', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const row = contractComponent('diff-rows.contract', 'DiffRow'), named: string[] = [];
+    const scope = (hoveredPath: string) => ({ item: { kind: 'line', path: 'src/a.ts' }, hoveredPath, hoverPath: (path: string) => named.push(path) });
+    row.call('rowHover', row.state(), scope(''), [true]);
+    row.call('rowHover', row.state(), scope('src/a.ts'), [true]);
+    row.call('rowHover', row.state(), scope('src/a.ts'), [false]);
+    expect(named).toEqual(['src/a.ts']);
+    const body = contractComponent('diff.contract', 'DiffPanelBody'), state = { hoveredFile: '' };
+    body.call('hoverFile', state, {}, ['src/a.ts']);
+    body.call('listHover', state, {}, [true]);
+    expect(state.hoveredFile).toBe('src/a.ts');
+    body.call('listHover', state, {}, [false]);
+    expect(state.hoveredFile).toBe('');
+  });
+  test('the header\'s Copy path is drawn opaque while its file is hovered, the header itself or not', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const row = contractComponent('diff-rows.contract', 'DiffRow'), header = contractComponent('diff-rows.contract', 'DiffFileHeader');
+    const item = { kind: 'file', path: 'src/a.ts' }, scope = { item, command: () => {}, scheme: 'red-green' };
+    const handed = (hoveredPath: string) => row.callArguments('DiffFileHeader(item=item', {}, { ...scope, hoveredPath }).fileHovered;
+    expect([handed('src/a.ts'), handed('src/b.ts'), handed('')]).toEqual([true, false, false]);
+    const opacity = (fileHovered: boolean, hovering = false) => header.attribute('testId=`diff-copy-${item.path}`', 'opacity', { hovering, copyFocused: false }, { ...scope, fileHovered });
+    expect([opacity(true), opacity(false), opacity(false, true)]).toEqual([1, 0, 1]);
+  });
+});
+
 describe('⌘↩ in a line comment draft', () => {
   test("while the draft's textarea holds the focus the composer's Send declares no chord", async () => {
     const { client, command, calls } = harness();

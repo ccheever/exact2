@@ -3,7 +3,7 @@ import { can } from '../connections/command-permissions';
 import { parseScopedThreadKey } from '../terminal/terminal-ui-state';
 import { addTerminalSurface, focusPanelTerminal, isTerminalChoice, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
 import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from '../terminal/terminal-drawer-view';
-// The right panel's tabbed surfaces (MIT reference 9c161462c9, see LICENSE-T3:
+// The right panel's tabbed surfaces (MIT reference 7c3b3b3605ef, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts, components/RightPanelTabs.tsx, ChatView.tsx
 // addFilesSurface / addDeviceSurface / openFileSurface): an ordered set of surface
 // tabs per thread with one active, opened from the launcher, the "+" menu, the
@@ -14,7 +14,7 @@ import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerVi
 import { closeSurface, moveSurface, closePanelSurfaces, openDeviceSurface, editTabName, tabRename, copyTabPath, tabMenuRows, type TabMenuRow } from './right-panel-tabs';
 import { selectDeviceTarget } from '../device/device-session';
 import type { T3Client } from '../client/client';
-import { obj, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { diffRequest, adoptDiff, diffNotGit, selectScope } from '../diff/diff';
 import { loadDiffFiles } from '../diff/diff-review';
@@ -47,7 +47,7 @@ import { emptyFramesView, frameLayerView, type BrowserFramesView } from '../brow
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, frameLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
-import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix } from '../timeline/workspace-file-lookup'; // a chat link's file
+import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // a chat link's file
 import { mediaFrameSource } from '../media/media-frame'; // a server tab's PDF as a local copy
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
@@ -250,7 +250,8 @@ export function workspacePath(target: string, cwd: string, line = 0): { path: st
   const suffix = /^(.*?):(\d+)(?::\d+)?$/.exec(path);
   if (suffix && !/^[A-Za-z]$/.test(suffix[1]!)) { path = suffix[1]!; at = at || Number(suffix[2]); }
   const root = cwd.replace(/\/+$/, '');
-  if (root && (path === root || path.startsWith(`${root}/`))) path = path.slice(root.length + 1) || '.';
+  // `/root/../x` starts with the root but leaves it: a host file (ChatMarkdown's panelPath).
+  if (root && (path === root || path.startsWith(`${root}/`)) && workspaceRelativeFilePath(path, root) !== null) path = path.slice(root.length + 1) || '.';
   return { path, line: at };
 }
 /** openFileSurface (palette file picker, content search, file links): needs a project workspace. */
@@ -356,7 +357,10 @@ async function surfaceOp(client: T3Client, native: Native, state: PanelState, ta
     // closePreviewPanel (ChatView.tsx): closing the whole panel on a live device floats it instead of dropping it.
     const active = state.visible ? state.surfaces.find(entry => entry.id === state.active) : undefined, target = active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
     const thread = deviceThreadId(client);
-    if (target && thread) floatMiniDevice(client, thread, target);
+    // floatDeviceSurface: a tab whose session already ended has nothing to stream; before the first device state it floats.
+    const devices = deviceStateOf(client);
+    const live = !devices || arr(devices.sessions).some(session => str(session.threadId) === thread && str(session.hostId) === target?.hostId && str(session.deviceId) === target?.deviceId);
+    if (target && thread && live) floatMiniDevice(client, thread, target);
     // A live Browser tab floats too (closePreviewPanel's browser half).
     if (active?.kind === 'browser' && active.browser && thread && floatingTabOf(client) !== active.browser.tabId) miniStoreOf(client).open(thread, browserMiniPlayerSource(active.browser.tabId));
     state.visible = false; state.maximized = false; client.diffOpen = false; client.diffLoading = false; return '';

@@ -15,6 +15,7 @@
 // The snapshot store is the app's versioned preference file (t3-code.json) instead of
 // localStorage: `SnapshotStorage` is the same getItem/setItem pair over a record in it.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { capitalizeTerm, terminologyOf } from '../details/git-logic';
 
 // ── Live refresh (useLiveRefresh.ts) ────────────────────────────────────────
 
@@ -176,10 +177,12 @@ export const pullRequestConversationItemComments = (item: PullRequestConversatio
 export function isPullRequestCommentFinished(comment: Obj, thread?: Obj): boolean {
   return thread?.isResolved === true || pullRequestReviewOutcome(str(comment.reviewState) || null) === 'dismissed';
 }
-const isBotActor = (actor: unknown) => { const person = obj(actor); return person.isBot === true || str(person.login).endsWith('[bot]'); };
-/** Matching any member keeps the finding beside a human reply to a bot. */
+/** A bot is what the host says is one (its `isBot`); a login's "[bot]" suffix is one host's convention. */
+const isBotActor = (actor: unknown) => obj(actor).isBot === true;
+const isPullRequestVerdict = (reviewState: string | null) => { const outcome = pullRequestReviewOutcome(reviewState); return outcome === 'approved' || outcome === 'changes-requested'; };
+/** Matching any member keeps the finding beside a human reply to a bot; a bot's approval or change request is a verdict, not chatter. */
 export function filterPullRequestConversationItems(items: readonly PullRequestConversationItem[], filter: { bots: boolean; resolved: boolean }): PullRequestConversationItem[] {
-  return items.filter(item => pullRequestConversationItemComments(item).some(comment => (filter.bots || !isBotActor(comment.author))
+  return items.filter(item => pullRequestConversationItemComments(item).some(comment => (filter.bots || !isBotActor(comment.author) || isPullRequestVerdict(str(comment.reviewState) || null))
     && (filter.resolved || !isPullRequestCommentFinished(comment, item.kind === 'thread' ? item.thread : undefined))));
 }
 export function pagePullRequestConversationItems<T>(items: readonly T[], count: number): { shown: T[]; hidden: number } {
@@ -195,11 +198,11 @@ export function pullRequestCommentCount(activity: Obj | null): number {
 const actorOf = (value: unknown): Obj | null => (value && typeof value === 'object' && !Array.isArray(value) && str(obj(value).login) ? obj(value) : null);
 const lifecycle = (id: string, at: string, kind: 'opened' | 'merged' | 'closed', title: string, actor: Obj | null): PullRequestTimelineEvent =>
   ({ id, at, kind, title, body: null, markdown: false, url: null, actor, commitAuthors: [], additions: null, deletions: null, path: null, reviewState: null, reactions: [] });
-/** Creation, commits, comments and the terminal event in one list, newest first; merged wins over closed. */
-export function buildPullRequestTimeline(detail: { createdAt?: unknown; author?: unknown; commits?: unknown; comments?: unknown; reviewThreads?: unknown; mergedAt?: unknown; closedAt?: unknown }): PullRequestTimelineEvent[] {
-  const mergedAt = str(detail.mergedAt), closedAt = str(detail.closedAt);
+/** Creation, commits, comments and the terminal event in one list, newest first; merged wins over closed. `provider` names the host's term. */
+export function buildPullRequestTimeline(detail: { provider?: unknown; createdAt?: unknown; author?: unknown; commits?: unknown; comments?: unknown; reviewThreads?: unknown; mergedAt?: unknown; closedAt?: unknown }): PullRequestTimelineEvent[] {
+  const mergedAt = str(detail.mergedAt), closedAt = str(detail.closedAt), term = terminologyOf(str(detail.provider) || undefined).singular;
   return [
-    lifecycle('created', str(detail.createdAt), 'opened', 'opened this pull request', actorOf(detail.author)),
+    lifecycle('created', str(detail.createdAt), 'opened', `opened this ${term}`, actorOf(detail.author)),
     ...arr(detail.commits).map((commit): PullRequestTimelineEvent => ({
       id: str(commit.oid), at: str(commit.committedDate), kind: 'commit', title: `Commit ${str(commit.oid).slice(0, 7)}`, body: str(commit.messageHeadline) || null,
       markdown: false, url: null, actor: actorOf(arr(commit.authors)[0]), commitAuthors: arr(commit.authors),
@@ -209,8 +212,8 @@ export function buildPullRequestTimeline(detail: { createdAt?: unknown; author?:
       ...commentTimelineEvent(item.root),
       thread: { path: str(item.thread.path), line: typeof item.thread.line === 'number' ? item.thread.line : null, isResolved: item.thread.isResolved === true, isOutdated: item.thread.isOutdated === true,
         replies: item.replies.map(commentTimelineEvent), moreReplies: item.moreReplies, hasMoreReplies: item.hasMoreReplies, url: item.url } }),
-    ...(mergedAt ? [lifecycle('merged', mergedAt, 'merged', 'Pull request merged', null)] : []),
-    ...(closedAt && !mergedAt ? [lifecycle('closed', closedAt, 'closed', 'Pull request closed', null)] : []),
+    ...(mergedAt ? [lifecycle('merged', mergedAt, 'merged', `${capitalizeTerm(term)} merged`, null)] : []),
+    ...(closedAt && !mergedAt ? [lifecycle('closed', closedAt, 'closed', `${capitalizeTerm(term)} closed`, null)] : []),
   ].sort((left, right) => right.at.localeCompare(left.at));
 }
 
