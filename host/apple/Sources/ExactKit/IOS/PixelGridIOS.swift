@@ -167,6 +167,7 @@ extension Presenter {
         v.transform = .identity
         v.frame = groupedLists?.carriesRows == true ? groupedLists?.cellFrame(of: v, at: place) ?? place.drawn : place.drawn
         // PROTO (safe-area design r2 §5.3): a box that reaches past its laid-out box keeps its outset frame.
+        if v.take != .zero { v.frame = v.frame.inset(by: UIEdgeInsets(top: -v.take.top, left: -v.take.left, bottom: -v.take.bottom, right: -v.take.right)) }
         if v.reach != .zero { v.frame = v.frame.inset(by: UIEdgeInsets(top: -v.reach.top, left: -v.reach.left, bottom: -v.reach.bottom, right: -v.reach.right)) }
         v.textRasterGeometryChanged()
         v.scroll?.frame = v.scrollFrame

@@ -34,7 +34,8 @@ struct SafeReach {
     @discardableResult
     func visit(_ v: NodeView, allowed: UIRectEdge) -> UIRectEdge {
         guard !v.isHidden else { Self.apply(.zero, to: v); return [] }
-        let r = v.convert(v.boxBounds, to: view)
+        // Its laid-out box: its bounds less its reach (origin shifted) or less what it takes (origin kept).
+        let r = v.convert(v.boxBounds.inset(by: v.take), to: view)
         var touches: UIRectEdge = []
         if allowed.contains(.top), safe.minY > allocation.minY + pixel, abs(r.minY - safe.minY) <= pixel { touches.insert(.top) }
         if allowed.contains(.bottom), safe.maxY < allocation.maxY - pixel, abs(r.maxY - safe.maxY) <= pixel { touches.insert(.bottom) }
@@ -54,9 +55,25 @@ struct SafeReach {
         var below: UIRectEdge = []
         for child in v.container.subviews.compactMap({ $0 as? NodeView }) { below.formUnion(visit(child, allowed: inside)) }
         let leaf = v.container.subviews.allSatisfy { !($0 is NodeView) } && v.scroll == nil
+        // A leaf that takes its edges (`-exact-safe-area="ignore …"`, §2.4) is laid out to the allocation's
+        // edge with its content: its frame grows, its bounds origin stays, so what fills its bounds (a module's
+        // view, its own layer) fills the band, and UIKit's safe area tells a native view where its controls go.
+        if leaf {
+            let taken = Self.ignored(v).intersection(touches)
+            var take = UIEdgeInsets.zero
+            if taken.contains(.top) { take.top = r.minY - allocation.minY }
+            if taken.contains(.left) { take.left = r.minX - allocation.minX }
+            if taken.contains(.bottom) { take.bottom = allocation.maxY - r.maxY }
+            if taken.contains(.right) { take.right = allocation.maxX - r.maxX }
+            Self.take(take, to: v)
+            // Its ancestors cover what it takes, so UIKit's safe area reaches the view inside it.
+            below.formUnion(taken)
+        }
         let surface = v.scroll != nil || (Self.fills(v) && !leaf) || Self.clips(v)
         var reach = UIEdgeInsets.zero
-        for edge in [UIRectEdge.top, .left, .bottom, .right] where touches.contains(edge) && !contained.contains(edge) {
+        // An edge a leaf takes is laid out to the allocation already: it does not also reach there.
+        let takes = leaf ? Self.ignored(v) : []
+        for edge in [UIRectEdge.top, .left, .bottom, .right] where touches.contains(edge) && !contained.contains(edge) && !takes.contains(edge) {
             // A decorated box covers for what reaches inside it but paints nothing new: the prototype
             // keeps it in its box (the design separates paint from coverage).
             guard !decorated, surface || below.contains(edge) else { continue }
@@ -112,7 +129,28 @@ struct SafeReach {
         return (x, y)
     }
 
+    /// Outsets a leaf that takes its edges, its bounds origin kept.
+    static func take(_ take: UIEdgeInsets, to v: NodeView) {
+        guard take != v.take else { return }
+        let base = v.frame.inset(by: v.take)
+        v.take = take
+        v.frame = base.inset(by: UIEdgeInsets(top: -take.top, left: -take.left, bottom: -take.bottom, right: -take.right))
+    }
+
+    /// The edges `-exact-safe-area="ignore …"` (or D4's `none`) takes.
+    static func ignored(_ v: NodeView) -> UIRectEdge {
+        guard let raw = v.props["safeArea"] else { return [] }
+        if raw == "none" || raw == "ignore" { return .all }
+        guard raw.hasPrefix("ignore ") else { return [] }
+        var out: UIRectEdge = []
+        for w in raw.split(separator: " ").dropFirst() {
+            switch w { case "top": out.insert(.top); case "right": out.insert(.right); case "bottom": out.insert(.bottom); case "left": out.insert(.left); default: break }
+        }
+        return out
+    }
+
     static func clear(_ v: NodeView) {
+        take(.zero, to: v)
         apply(.zero, to: v)
         for child in v.container.subviews.compactMap({ $0 as? NodeView }) { clear(child) }
     }

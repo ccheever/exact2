@@ -721,6 +721,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package var boxBounds: CGRect { bounds.inset(by: reach) }
     /// PROTO: the cross-axis reach written into its scroll view's `contentInset` (by delta, as bands are).
     package var reachInset: UIEdgeInsets = .zero
+    /// PROTO: how far a leaf that takes its edges is laid out past its box, content and all (bounds origin kept).
+    package var take: UIEdgeInsets = .zero
 
     /// Every canvas's overlay alive, and every node a surface placed. With
     /// none, no node is under a canvas (`canvasAbove`) or placed
