@@ -26,6 +26,8 @@ export interface Activity { replArguments?: ReturnType<typeof import('../timelin
 export interface Message { secret?: ReturnType<typeof import('../timeline/secret-card').secretCard>; id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; elapsed?: string; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
+  /** A folded automation or agent message's one line. */
+  summary?: string;
   findLines?: { id: string; parts: { id: string; text: string; find: number }[] }[];
   meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
   /** An answer the reference offers Fork from this response on. */
@@ -38,6 +40,8 @@ export interface Message { secret?: ReturnType<typeof import('../timeline/secret
   setup?: import('../timeline/timeline-worktree').SetupView[];
   images?: { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }[];
   attachFiles?: { id: string; name: string; icon: string }[];
+  /** A sent message's sounds, each an audio chip (InlineAudioPreview). */
+  audio?: { id: string; name: string; icon: string }[];
   chips?: import('../timeline/message-chips').ChipView[] }
 
 function isObject(value: unknown): value is Obj {

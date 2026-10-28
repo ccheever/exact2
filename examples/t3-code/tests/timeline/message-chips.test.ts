@@ -194,3 +194,73 @@ describe('thread links are thread chips', () => {
       ['t3-thread://v1/thread-1', 'Clone', 'emoji', '🧪'], ['t3-context://v1/thread/thread_t', 'Clone', 'emoji', '🧪']]);
   });
 });
+
+describe('skill chips open their details (#25432)', () => {
+  const client = (skills: object[]) => ({ providerId: 'codex', config: { providers: [{ instanceId: 'codex', skills }] }, projection: { thread: {} },
+    shell: { projects: [], threads: [] }, projectId: '' }) as unknown as T3Client;
+  const skills = [{ name: 'review-code', displayName: 'Review code', description: ' Reads the diff. ', path: '/skills/review-code/SKILL.md' }, { name: 'deploy', shortDescription: 'Ships it' }];
+  test('a `$skill` in the prose and a skill record carry the description and the instructions path', () => {
+    const chips = messageChips(item('Use $review-code then [Deploy](t3-context://v1/skill/skill_d), not $5', [{ version: 1, kind: 'skill', contextId: 'skill_d', label: 'Deploy', name: 'deploy' }]),
+      '', [], 'm', {}, client(skills));
+    expect(chips.map(chip => [chip.href, chip.kind, chip.label, chip.detail, chip.target])).toEqual([
+      ['t3-context://v1/skill/skill_d', 'skill', 'Deploy', 'Ships it', ''],
+      ['t3-skill:$review-code', 'skill', 'Review code', 'Reads the diff.', '/skills/review-code/SKILL.md']]);
+  });
+  test('an unknown skill has no chip of its own, where a known one beside it has', () => {
+    expect(messageChips(item('Use $unknown, then $review-code'), '', [], 'm', {}, client(skills)).map(chip => [chip.href, chip.kind]))
+      .toEqual([['t3-skill:$review-code', 'skill']]);
+  });
+  test('each skill chip occurrence opens its own popover: its id names the message, the block and the run (#25432)', async () => {
+    // One chip per href, so the same skill in two list items is one chip, and each block numbers its runs from 0.
+    const chips = messageChips(item('- $review-code a\n- $review-code b\n\n$deploy when green'), '', [], 'm', {}, client(skills));
+    expect(chips.map(chip => [chip.id, chip.href])).toEqual([['chip-0', 't3-skill:$review-code'], ['chip-1', 't3-skill:$deploy']]);
+    const { value } = await import('../support/contract-action-fixture');
+    const { appText } = await import('../support/app-files');
+    const call = /SkillChip\(label=chip\.label, description=chip\.detail, path=chip\.target, id=(`[^`]+`)/.exec(appText('markdown.contract'))![1]!;
+    const ids = [['0', chips[0]!], ['1', chips[0]!], ['3', chips[1]!]].map(([blockId, chip]) => value(call, { chip, blockId, run: { id: '0' } }));
+    expect(ids).toEqual(['m-0-0', 'm-1-0', 'm-3-0']);
+    expect(appText('markdown.contract')).toContain('ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId)');
+  });
+});
+
+describe('a sent sound (#21363)', () => {
+  test('its context reference is an audio chip, which the prose draws nothing for: the sound plays in its audio chip', async () => {
+    const chips = messageChips(item('Listen to [memo.mp3](t3-context://v1/file/file_m)',
+      [{ version: 1, kind: 'file', contextId: 'file_m', label: 'memo.mp3', attachmentId: 'att-m', name: 'memo.mp3', mimeType: 'audio/mpeg', sizeBytes: 900 }],
+      [{ type: 'file', id: 'att-m', name: 'memo.mp3', mimeType: 'audio/mpeg; codecs=mp3', sizeBytes: 900 }]), '', [], 'm');
+    expect(chips.map(chip => [chip.kind, chip.label, chip.target])).toEqual([['audio', 'memo.mp3', 'att-m']]);
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const resolved = contractComponent('markdown.contract', 'ResolvedChip');
+    const drawn = (kind: string) => resolved.drawn('AttachmentChip(run=run, chip=chip', resolved.state(), { chip: { ...chips[0], kind }, run: { id: '0' } });
+    expect([drawn('audio'), drawn('file')]).toEqual([false, true]);
+  });
+  test('the timeline leaves the reference out of the prompt, so nothing draws for it (renderContextReference returns null)', async () => {
+    const { withoutSoundReferences } = await import('../../src/timeline/timeline-attachments');
+    const sound = { context: { records: [{ kind: 'file', contextId: 'file_m', attachmentId: 'att-m' }, { kind: 'file', contextId: 'file_n', attachmentId: 'att-n' }] },
+      attachments: [{ type: 'file', id: 'att-m', name: 'memo.mp3', mimeType: 'audio/mpeg' }, { type: 'file', id: 'att-n', name: 'notes.md', mimeType: 'text/markdown' }] };
+    expect(withoutSoundReferences('Listen to [memo.mp3](t3-context://v1/file/file_m) and read [notes.md](t3-context://v1/file/file_n).', sound))
+      .toBe('Listen to  and read [notes.md](t3-context://v1/file/file_n).');
+    expect(withoutSoundReferences('[memo.mp3](t3-context://v1/file/file_m)', sound)).toBe('');
+  });
+});
+
+describe('document chips take their type\'s accent (#21469)', () => {
+  test('a PDF, Word, spreadsheet, slides or EPUB name gives its accent; any other file keeps the file chip\'s', async () => {
+    const { contractFns } = await import('../support/contract-fn-fixture');
+    const inks = contractFns('src/timeline/markdown-chip-inks.contract') as unknown as Record<string, (...args: unknown[]) => string>;
+    expect(['a.PDF', 'b.docx', 'c.rtf', 'd.xlsx', 'e.csv', 'f.pptx', 'g.epub', 'h.ts', 'report.pdf · L3'].map(name => inks.docType!(name))).toEqual(['pdf', 'word', 'word', 'sheet', 'sheet', 'slides', 'epub', '', 'pdf']);
+    expect([inks.docInk!('word'), inks.docFill!('word', false), inks.docFill!('word', true), inks.docBorder!('word')]).toEqual(['light-dark(#2b3b4c, #d7e7f9)', 'light-dark(#1a85d41c, #69b1ff1c)', 'light-dark(#1a85d42b, #69b1ff2b)', 'light-dark(#a8c5e3, #69b1ff61)']);
+  });
+  test('a file link chip draws its document accent from its label (FileChipFace)', async () => {
+    const { contractFns } = await import('../support/contract-fn-fixture');
+    const { value } = await import('../support/contract-action-fixture');
+    const { appText } = await import('../support/app-files');
+    const inks = contractFns('src/timeline/markdown-chip-inks.contract') as Record<string, unknown>;
+    const face = appText('markdown.contract').split('component FileChipFace')[1]!;
+    const [, border, fill] = /border-color=\((.+?)\) background-color=\((.+?)\) testId/.exec(face)!;
+    const ink = /white-space="pre" color=\((.+?)\) text-decoration-line/.exec(face)![1]!;
+    const drawn = (label: string) => [border!, fill!, ink].map(expr => value(expr, { ...inks, label }));
+    expect(drawn('report.docx')).toEqual(['light-dark(#a8c5e3, #69b1ff61)', 'light-dark(#1a85d41c, #69b1ff1c)', 'light-dark(#2b3b4c, #d7e7f9)']);
+    expect(drawn('notes.ts')).toEqual(['light-dark(#a9cad4, #39a1b861)', '#0096af1c', 'light-dark(#2c3e45, #cbe0e6)']);
+  });
+});

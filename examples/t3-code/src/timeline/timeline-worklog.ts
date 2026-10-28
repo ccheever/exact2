@@ -132,6 +132,12 @@ export function projectedWorkEntry(row: Obj): WorkEntry {
         ? formatSearchToolLabel({ input }) ?? (str(item.toolName) || 'Tool call') : str(item.toolName) || 'Tool call'),
         toolTitle: title ?? (str(item.toolName) || 'Tool'), toolData: { input, output: item.output ?? null } };
     }
+    // Each todo update is a quiet row where the agent wrote it; it opens to every step.
+    case 'todo_list': {
+      const steps = arr(item.steps), done = steps.filter(step => step.status === 'completed').length;
+      const current = steps.find(step => step.status === 'running') ?? steps.find(step => step.status === 'pending');
+      return { ...common, label: `Tasks ${done}/${steps.length}${current ? ` · ${str(current.text)}` : ''}` };
+    }
     case 'approval_request': return { ...common, label: title ?? 'Approval requested', detail: str(item.prompt, str(item.requestKind)), toolData: item };
     case 'user_input_request': return { ...common, label: title ?? (item.questionAnswer ? 'Answered questions' : 'Input requested'),
       ...(item.questionAnswer ? { questionAnswer: obj(item.questionAnswer) } : {}), toolData: item };
@@ -392,6 +398,7 @@ export function entryIcon(entry: WorkEntry): string {
     return kind === 'subagent' || kind === 'delegated_task' ? 'bot' : kind === 'command' ? 'terminal' : kind === 'monitor' ? 'eye' : kind === 'system' ? 't3-code' : 'zap';
   }
   if (entry.itemType === 'user_input_request' || entry.itemType === 'approval_request') return 'message-circle';
+  if (entry.itemType === 'todo_list') return 'list-todo';
   const surface = extractToolActivityPresentation(entry.item).toolSurface;
   if (surface) return surface;
   const presentation = toolPresentation(entry);
@@ -516,6 +523,7 @@ export function inspectorDetail(entry: WorkEntry, root: string): { input: string
     case 'notification': return { input: display(item.detail), result: '', ok: true };
     case 'system_notice': return { input: str(item.message), result: '', ok: true };
     case 'reasoning': return { input: str(item.text), result: '', ok: true };
+    case 'todo_list': return { input: arr(item.steps).map(step => `${step.status === 'completed' ? '✓' : step.status === 'running' ? '◉' : '○'} ${str(step.text)}`).join('\n'), result: '', ok: true };
     default: return { input: '', result: '', ok: true };
   }
 }
