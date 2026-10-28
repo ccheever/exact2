@@ -1226,6 +1226,53 @@ waits until the data source is ready`). Live requests run after that under host 
 or authenticated network session is available while baking. See
 [the data-module reference](reference.md#generate-typescript-data-source-types).
 
+### Sign-in providers (`@exact/oauth`)
+
+The `oauth` recipe is the code; this is each provider's configuration, as its
+documentation requires (LLP 1146; the IDs are `packages/oauth/test/PROVIDERS.md`'s).
+
+| Provider | Configuration |
+|---|---|
+| Google | `issuer: 'https://accounts.google.com'`, `issuerAliases: ['accounts.google.com']` (GOOG-2), `authorizationParams: { access_type: 'offline', prompt: 'consent' }` for a refresh token (GOOG-8). Grant `net.fetch https://oauth2.googleapis.com`, its token endpoint's origin (GOOG-1). An iOS client's callback is its reversed client ID, `com.googleusercontent.apps.<id>:/oauth2redirect` (GOOG-5); a desktop or web client needs its `clientSecret`, which is not secret (GOOG-4) |
+| Microsoft Entra ID | `issuer: 'https://login.microsoftonline.com/common/v2.0'`, `issuerTemplate: true` (ENTRA-1), `offline_access` in `scopes`. Register the callback as "Mobile and desktop"; send no `clientSecret` (ENTRA-3). A web build's callback is registered as "Single-page application" (ENTRA-4) |
+| Auth0 | `issuer: 'https://<tenant>.auth0.com/'`, the tenant's domain with a trailing slash (AUTH0-1); `offline_access`, with "Allow Offline Access" on the API (AUTH0-3); `authorizationParams: { audience }` for an API's token. With rotation's overlap period on, `retryLostRefresh: true` |
+| Okta | `issuer`: the authorization server's issuer, `https://<org>.okta.com/oauth2/default` (OKTA-1); `offline_access` (OKTA-4); `retryLostRefresh: true` while refresh tokens rotate with a grace period (OKTA-6) |
+| OneLogin | `issuer: 'https://<subdomain>.onelogin.com/oidc/2'` (ONELOGIN-1); no `offline_access`, which it refuses (ONELOGIN-2); `endedErrors: [{ error: 'invalid_request', status: 401 }]` (ONELOGIN-4) |
+| GitHub | `endpoints: { authorization: 'https://github.com/login/oauth/authorize', token: 'https://github.com/login/oauth/access_token' }`, no `openid` (GH-1), `clientSecret` (GH-7), `commaScopes: true` (GH-5), `endedErrors: ['bad_refresh_token']` (GH-4). Its token endpoint does not answer a browser, so a web build needs a server (GH-8) |
+| Salesforce | `issuer: 'https://login.salesforce.com'`, the `refresh_token` scope (SF-14); it sends no `expires_in`, so the expiry is learned from a 401 (SF-1) |
+| Amazon Cognito | the endpoints are on the user pool's domain, not the issuer's: grant both origins (COGNITO-1) |
+| Sign in with Apple | not supported: its token exchange needs a server-signed client secret |
+
+Every option, with what it does, is in `@exact/oauth`'s `index.d.ts`.
+
+**Testing against a fake provider.** Name `<exact2>/packages/oauth/test/fixture.ts`
+as the app's server in `app.json` (`"commands": {"server": ["bun", "<exact2>/packages/oauth/test/fixture.ts", "--port", "4400"]}`,
+`"server": {"database": false}`). Its profiles (`spec`, `google`, `entra`, `auth0`,
+`okta`, `onelogin`, `github`, `salesforce`) behave as those providers do. The
+issuer is `http://127.0.0.1:4400/p/<profile>`, except Entra's
+`…/p/entra/common/v2.0`, Auth0's `…/p/auth0/` and OneLogin's
+`…/p/onelogin/oidc/2`. Google's token endpoint is on the next port, `4401`:
+grant it too. GitHub has no discovery: its `endpoints` are `…/p/github/authorize`
+and `…/p/github/token`. `GET /p/<profile>/api/me` answers the person.
+`authorize` completes the held sign-in against the fixture;
+`authorize cancel` cancels it. `request POST "/control"` changes what the
+fixture does next: `{"action": "expire-access", "profile": "spec"}`, and
+`revoke`, `fail-token`, `hold-token` (then `{"action": "await", "held": 1}`
+returns once the app's token request is held, and `release-token` lets it
+go), `deny-authorize`; `fixture.ts`'s `control` lists them all.
+
+```contract-test
+test "signs in, shows the person, and is still signed in after a relaunch"
+  request POST "/control" {"action": "reset"}
+  tap "sign-in"
+  authorize
+  clock data
+  expect text "name" == "Ada Lovelace"
+  reload
+  clock data
+  expect text "status" == "Signed in"
+```
+
 ## Views, layout, and interaction
 
 For an attachment of any type, use `input type="file"` with no `accept` (or
