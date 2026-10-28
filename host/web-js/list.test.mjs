@@ -616,9 +616,11 @@ test('keep-mounted keeps the first, last and playing rows mounted as the window 
     rt.commit(() => rt.W(playing, 150));
     rt.settled();
     out.push(mounted());
+    // The kept last key and the data change in one commit: one pass, one revision.
+    const before = c.revision;
     rt.commit(() => rt.W(rows, [...rows(), ...Array.from({length:20}, (_, i) => 200 + i)]));
     rt.settled();
-    out.push(c.mounted.some(m => m.position === 219), c.mounted.some(m => m.position === 199) === c.mounted.some(m => m.position === 198));
+    out.push(c.mounted.some(m => m.position === 219), c.mounted.some(m => m.position === 199) === c.mounted.some(m => m.position === 198), c.revision - before);
     rt.end(own); el.remove(); rt.settled();
     return out;
   })()`);
@@ -632,7 +634,7 @@ test('keep-mounted keeps the first, last and playing rows mounted as the window 
   expect(played.split(' ').map(Number)).toEqual(expect.arrayContaining([0, 150]));
   expect(played.split(' ').map(Number)).not.toContain(100);
   // The new last row is kept; 199 is now an ordinary row of the window.
-  expect(grown).toEqual([true, true]);
+  expect(grown).toEqual([true, true, 1]);
 }, 60_000);
 
 // @ref LLP 1010 §6.11 — a kept row before a jump's target does not hold the jump open (into_view.rs `settle_target`).
@@ -650,7 +652,8 @@ test('a jump past a kept row settles', async () => {
       await exact.lists.pending(); await exact.lists.settle();
       rt.Hosts.scrollIntoView('kept-jump', 150, 'start', 'nearest', 'instant', null, null);
       for (let f = 0; f < 4; f++) { await exact.lists.settle(); await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0))); }
-      out.push([exact.lists.intoView().at(-1)?.status, el.scrollTop]);
+      const c = [...exact.lists.internals.Lists.values()].find(c => c.el === el);
+      out.push([exact.lists.intoView().find(e => e.list === c.view)?.status, el.scrollTop]);
       rt.end(own); el.remove(); rt.settled();
     }
     return out;

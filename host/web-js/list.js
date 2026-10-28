@@ -281,6 +281,9 @@ class Collection {
   }
   // ------------------------------------------------ data (mod.rs update_data)
   update(items, [idents, dups], fresh) {
+    // The kept keys as they are now, whichever of the two effects ran first.
+    if (this.o.keep) this.keepKeys = keepIdents(this.o.keep());
+    Remount.delete(this);
     let anchor = this.anchor();
     const dropAnchor = this.dropAnchor?.(), last = this.index.order.at(-1), count = this.index.len;
     const compare = !fresh && items.length === this.items.length;
@@ -840,12 +843,13 @@ export function vl(el, subject, key, row, o) {
   onEnd(() => Lists.delete(c.view));
   let first = true;
   if (o.follow) effect(() => { c.followEnd = !!o.follow(); });
-  // A changed set mounts its rows and lets the others go, as an update does (mod.rs `update_data`).
+  // A changed set mounts its rows and lets the others go after the commit,
+  // in the update's pass when the data changed too (mod.rs `update_data`).
   if (o.keep) effect(() => {
     const keys = keepIdents(o.keep());
     if (keys.join("\0") === c.keepKeys.join("\0")) return;
     c.keepKeys = keys;
-    if (!first) untracked(() => { c.realize(true, {}); c.revision++; });
+    if (!first) Remount.add(c);
   });
   // The keys are read here, so a key's other inputs rerun the update too.
   effect(() => {
@@ -916,7 +920,13 @@ function release() {
     else if (!inactive(c.el)) { Held.delete(c); for (const m of c.mounted) m.epoch = ++c.nextEpoch; c.revision++; }
   }
 }
-After.push(() => { release(); wake(); publish(); });
+// Lists whose kept rows changed in a commit that left their data alone.
+const Remount = new Set();
+function remount() {
+  for (const c of Remount) if (Lists.has(c.view)) { c.realize(true, {}); c.revision++; }
+  Remount.clear();
+}
+After.push(() => { remount(); release(); wake(); publish(); });
 function load() {
   if (Loading || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
