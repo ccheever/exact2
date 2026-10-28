@@ -923,7 +923,10 @@ impl<D: DataSource> Host<D> {
     /// `presenter/images.rs`). Not a press, so no navigation refusal applies.
     pub(crate) fn dispatch_now(&mut self, view: ViewId, event: Event) -> Option<String> {
         let event = self.document_value(view, event);
-        let at_ms = self.runner.now_ms().max(self.now_ms);
+        // The host's clock at the commit, as dispatch_at moves it, so its
+        // effects (a transition's start) are timed from it.
+        self.now_ms = self.runner.now_ms().max(self.now_ms);
+        let at_ms = self.now_ms;
         match crate::traced(c"exact dispatch", || self.runner.dispatch(view, event)) {
             Ok(receipt) => self.commit(&[Timed { at_ms, receipt }], None),
             Err(e) => self.commit(&[], Some(format!("{e:?}"))),
