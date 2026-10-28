@@ -262,9 +262,11 @@ package final class SwipeActionsHost {
     }
 
     /// An action's name; a native button's is its label, else its title
-    /// (LLP 1069.011.000 D6).
+    /// (LLP 1069.011.000 D6). Read from the node, not its view's
+    /// `accessibilityLabel`: with assistive technology's runtime loaded,
+    /// UIKit answers that getter, and each row a scroll builds read it.
     private func label(_ node: NodeView) -> String {
-        node.accessibilityLabel ?? node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? node.accessibleName
+        node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? node.accessibleName
     }
     /// LLP 1080.001 D3: a projected row's table, the views it hides, and
     /// the content it carries into its cell.
