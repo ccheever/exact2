@@ -383,7 +383,7 @@ public final class ExactSession {
     /// The last two timer advances changed nothing the presenter shows,
     /// and no batch has applied since (`scheduleClock`).
     var timersQuiet: Bool { quietTimerAdvances >= 2 }
-    private(set) var quietTimerAdvances = 0
+    var quietTimerAdvances = 0
     /// An advance of a deadline already due is running (`advanceIfDue`)
     var advancingDue = false
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
@@ -419,15 +419,23 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
-    private typealias IdleWork = (views: Int?, work: () -> Void, cancelled: (() -> Void)?)
+    /// `made`: a batch the owner already made, which applies when released rather than after a later slice.
+    private typealias IdleWork = (views: Int?, work: () -> Void, cancelled: (() -> Void)?, made: Bool)
     private var afterFill: [IdleWork] = []
+    /// What a slice released while a batch the owner made after it waits to apply (`holdingReports`):
+    /// asked once that batch has applied, so its layout is not overtaken by a newer one.
+    private var afterHeld: [IdleWork] = []
+    private var releasingHeld = false
+    private var flushHeld = false
     private var viewsEpoch = 0
     private let published = NSLock()
     /// What the owner committed without main waiting.
     enum Published { case fill(UInt32), tick, advance, canvas, notice, reply, cancelledReply }
     /// Batches the owner committed without main waiting, in its order: a
     /// slice's (with its list), a frame's tick's and a canvas draw's.
-    private var publishedQueue: [(kind: Published, batch: Batch, generation: Int)] = []
+    private var publishedQueue: [(kind: Published, batch: Batch, generation: Int, seq: Int)] = []
+    /// How many batches the owner has published: a held batch lands those published before it (`holdBatch`).
+    private var publishedSeq = 0
     /// A frame's tick is on the owner (LLP 1072 §7.1): the next one waits.
     var tickInFlight = false
     /// A timer advance is on the owner (LLP 1072.000): the next one waits.
@@ -447,19 +455,14 @@ public final class ExactSession {
     private var canvasOwed = false
     private var canvasAsked = false
     private(set) var landing = false
-    /// Landing slices ahead of a batch already made: their appearance
-    /// reports wait for it, so no batch made later applies before it.
+    /// Landing slices ahead of a batch already made: their reports and
+    /// nested commits wait for it, so no batch made later applies before it.
     private(set) var holdingReports = false
-    /// Slices build off main on iOS unless the agent drives the app, or
-    /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1072 T12).
-    /// macOS follows once physical scrolling there is measured (stage 5).
-    /// Read when a session wires itself; tests set it to drive the
-    /// asynchronous path on macOS.
-    #if os(iOS) || os(tvOS)
+    /// Slices build off main unless the agent drives the app, or
+    /// `EXACT_FILL_SYNC=1` asks for the synchronous path (LLP 1072 T12);
+    /// on macOS since stage 5's physical check (LLP 1072 §11).
+    /// Read when a session wires itself.
     nonisolated(unsafe) static var asyncFills = !ExactEnv.agentMode && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
-    #else
-    nonisolated(unsafe) static var asyncFills = false
-    #endif
     package var isApplyingPresentation: Bool { applying }
     // Weak live gesture ownership only; no historical tokens or row registry.
     private let inputHolds = NSHashTable<SwipeHold>.weakObjects()
@@ -576,12 +579,48 @@ public final class ExactSession {
 
     /// View reports expire after reset; executor work survives a plan commit.
     package func whenIdle(bound: Bool = false, _ work: @escaping () -> Void, cancelled: (() -> Void)? = nil) {
-        idle((bound ? viewsEpoch : nil, work, cancelled))
+        idle((bound ? viewsEpoch : nil, work, cancelled, false))
     }
-    private func idle(_ item: IdleWork) {
+    private func idle(_ item: IdleWork, released: Bool = false) {
         if state == .destroyed || (item.views != nil && item.views != viewsEpoch) { item.cancelled?() }
-        else if fillInFlight { afterFill.append(item) }
+        // A landing's work waits for its held batch; work asked during release follows the older waiters.
+        else if holdingReports || (releasingHeld && !released) { afterHeld.append(item) }
+        else if fillInFlight, !(released && item.made) { afterFill.append(item) }
         else { item.work() }
+    }
+
+    /// A batch made while a landing holds one back, or while batches it held wait, applies after them.
+    var holdsBatches: Bool { holdingReports || releasingHeld || afterHeld.contains { $0.made } }
+
+    /// A list's report waits while batches are held: made now, it would be from facts they change.
+    var holdsReports: Bool { holdingReports || afterHeld.contains { $0.made } }
+
+    /// How many batches the owner has published so far: those a batch made now follows.
+    private var publishedNow: Int { published.lock(); defer { published.unlock() }; return publishedSeq }
+
+    /// A nested commit belongs after the batch this landing holds back, and only to its own tree.
+    func holdBatch(_ work: @escaping () -> Void) {
+        let captured = generation, views = viewsEpoch, through = publishedNow
+        afterHeld.append((views, { [weak self] in
+            guard let self, generation == captured else { return }
+            // What the owner published before this batch lands first (T4), and may replace its tree.
+            landFill(through: through)
+            guard state != .destroyed, generation == captured, viewsEpoch == views else { return }
+            work()
+        }, nil, true))
+        releaseHeld()
+    }
+
+    /// Land the slices published before this batch, without letting their callbacks
+    /// overtake it (T4). False when they replaced its tree.
+    func landBeforeBatch() -> Bool {
+        let captured = generation, through = publishedNow
+        if !applying, !landing, ownerInFlight, hasPublished {
+            holdingReports = true; landFill(through: through); holdingReports = false
+        }
+        // A replacement tree's due timers wait on the landing (`treeIsIn`): advanced here.
+        guard state != .destroyed, generation == captured else { releaseHeld(); advanceIfDue(); return false }
+        return true
     }
 
     /// Send a build-only slice to the owner; its batch comes back published.
@@ -613,7 +652,8 @@ public final class ExactSession {
     /// On the owner: queue a batch for main, in the owner's order.
     func publish(_ kind: Published, _ batch: Batch, _ generation: Int) {
         published.lock()
-        publishedQueue.append((kind, batch, generation))
+        publishedSeq += 1
+        publishedQueue.append((kind, batch, generation, publishedSeq))
         published.unlock()
         DispatchQueue.main.async { [weak self] in self?.landFill() }
     }
@@ -627,7 +667,7 @@ public final class ExactSession {
     /// Apply the slice the owner published, then what it owes and what
     /// waited for it. Before any other batch applies, so batches apply in
     /// the owner's order (T4).
-    func landFill() {
+    func landFill(through: Int = .max) {
         guard !landing else { return }
         landing = true
         // A reply the slices released (`afterFill`) may have left a deadline
@@ -635,7 +675,7 @@ public final class ExactSession {
         defer { landing = false; if !holdingReports { advanceIfDue() } }
         while true {
             published.lock()
-            let next = publishedQueue.isEmpty ? nil : publishedQueue.removeFirst()
+            let next = publishedQueue.first.map { $0.seq <= through } == true ? publishedQueue.removeFirst() : nil
             published.unlock()
             guard let next else { return }
             let began = CACurrentMediaTime()
@@ -655,8 +695,9 @@ public final class ExactSession {
                 continue
             }
             let batch = next.batch
-            if case .advance = next.kind { applyUnlessEmpty(batch, timer: true) } else if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
-                apply(batch)
+            // Only this published batch bypasses the hold; its callbacks still queue their commits.
+            if case .advance = next.kind { applyUnlessEmpty(batch, timer: true, inTurn: true) } else if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
+                apply(batch, inTurn: true)
             }
             if case .reply = next.kind {
                 sampler?.replyPump(main: submitted + (CACurrentMediaTime() - began) * 1000)
@@ -673,6 +714,8 @@ public final class ExactSession {
     private func landedFill(_ view: UInt32, stale: Bool = false) {
         let waiting = afterFill; afterFill.removeAll()
         if state != .destroyed { presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime) }
+        // These waiters were asked before the landing could add work to `afterHeld`.
+        if !stale, holdingReports { afterHeld.insert(contentsOf: waiting, at: 0); return }
         guard stale else { for item in waiting { idle(item) }; return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { waiting.forEach { $0.cancelled?() }; return }
@@ -701,6 +744,9 @@ public final class ExactSession {
             presenter.collections.filling = { [weak self] in self?.fillInFlight ?? false }
             presenter.collections.drain = { [weak self] in self?.drainFill() }
         }
+        // A list reports after the batch a landing holds back, from the facts it leaves.
+        presenter.collections.holding = { [weak self] in self?.holdsReports ?? false }
+        presenter.collections.afterHold = { [weak self] in self?.flushAfterHeld() }
         presenter.collections.onFeedback = { [weak self] bytes in
             guard let self, state != .destroyed else { return }
             let batch = runtime.collectionFeedback(bytes, now: now())
@@ -853,7 +899,8 @@ public final class ExactSession {
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
-        apply(batch)
+        // A new tree is not held behind a landing: what that landing held belongs to the old one.
+        apply(batch, inTurn: holdsBatches)
         treeIsIn()
         if batch.error == nil { tellTime(); refuseUnheardLaunch() }
         // A fresh runner must receive the view's current viewport and insets.
@@ -959,7 +1006,8 @@ public final class ExactSession {
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
         appFileRoots = AppFiles.learn(runtime)
-        apply(batch)
+        // A new tree is not held behind a landing: what that landing held belongs to the old one.
+        apply(batch, inTurn: holdsBatches)
         treeIsIn()
         tellTime()
         refuseUnheardLaunch()
@@ -1003,41 +1051,25 @@ public final class ExactSession {
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
 
-    /// A batch from a timer, a scroll event or a host's measurement: one that
-    /// changes nothing only moves the clock. An app's timer that writes nothing
-    /// (a poll that finds no news), a `scroll=` handler whose writes show
-    /// nowhere (every frame of a fling) and a size layout already had (a list
-    /// row's symbol, which the kernel measured) still commit, and the presenter's
-    /// whole pass cost ~4.5 ms a batch on the simulator. Other events
-    /// still apply an empty batch: a native control that changed itself
-    /// before its handler ran is reconciled by the pass (a refused tab), and
-    /// the agent's clock seeks native animations through it. Slices published
-    /// before it land first (T4), and it is asked again (a fling's fills).
-    /// `timer`: a clock advance's, which `timersQuiet` counts.
-    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, timer: Bool = false) {
-        guard !batch.busy, !batch.held else { return }
-        guard !applying else { apply(batch); return }
-        if !landing, ownerInFlight, hasPublished {
-            // What the slices leave owed is asked after this batch, as in `apply`.
-            holdingReports = true; landFill(); holdingReports = false
-            guard state != .destroyed else { return }
-        }
-        guard !fillInFlight, !tickInFlight, !advanceInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch); return }
-        // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
-        sampler?.batch(batch.seq, ms: 0); logAlerts(batch.alerts); logJournal(batch.journal)
-        if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
-        if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
-        timerDue = batch.timerDueMs
-        scheduleClock(due: batch.timerDueMs)
-        // What the pass did that a scroll moves (`scrolledWithoutPass`).
-        if scrolled { presenter.scrolledWithoutPass() }
-        drainReports()
-        advanceIfDue()
+    /// A list's report, asked again after the batches held before it.
+    private func flushAfterHeld() {
+        guard !flushHeld else { return }
+        flushHeld = true
+        afterHeld.append((viewsEpoch, { [weak self] in self?.flushHeld = false; self?.presenter.collections.flush() }, { [weak self] in self?.flushHeld = false }, false))
+        releaseHeld()
+    }
+
+    /// What a landing held back (`afterHeld`), once the batch it waited for has applied.
+    func releaseHeld() {
+        guard !holdingReports, !applying, !releasingHeld, !afterHeld.isEmpty else { return }
+        releasingHeld = true
+        defer { releasingHeld = false }
+        while !afterHeld.isEmpty { idle(afterHeld.removeFirst(), released: true) }
     }
 
     /// The appearance reports a landing held back (`holdingReports`), asked
     /// once the batch the owner made before them has applied or skipped.
-    private func drainReports() {
+    func drainReports() {
         if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
         while !holdingReports, !pendingViewDark.isEmpty {
             let (id, dark) = pendingViewDark.removeFirst()
@@ -1054,27 +1086,25 @@ public final class ExactSession {
     /// Tests: a tick's slice the owner published, not yet landed.
     func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
     func holdFillForTests() { fillInFlight = true }
-    func commitForTests() { generation += 1; viewsEpoch += 1 }
+    func commitForTests(resetViews: Bool = true) { generation += 1; if resetViews { viewsEpoch += 1 } }
     func publishFillForTests(_ view: UInt32, _ batch: Batch, generation: Int) { fillInFlight = true; publish(.fill(view), batch, generation) }
     func oweColorsForTests() { colorsOwed = true }
     #endif
 
     /// Batches that reached `apply` (`IdleTickTests` read it, and painted popovers keep their measures for one: `PositionArea.MeasureCache`).
     private(set) var appliedBatches = 0
-    package func apply(_ batch: Batch) {
+    /// `inTurn`: the batch's place in the owner's order is now (a landed slice, or one a landing held
+    /// back), so nothing lands ahead of it and no landing holds it.
+    package func apply(_ batch: Batch, inTurn: Bool = false) {
         guard state != .destroyed, !batch.busy, !batch.held else { return }
+        if !inTurn, holdsBatches { holdBatch { [weak self] in self?.apply(batch, inTurn: true) }; return }
         appliedBatches += 1
         quietTimerAdvances = 0
         // A slice the owner committed before this batch applies first (T4).
-        if !applying, !landing, ownerInFlight, hasPublished {
-            // What the landed slices leave owed is asked after this batch,
-            // which the owner made after them (T4; LLP 1034 §8).
-            holdingReports = true; landFill(); holdingReports = false
-            guard state != .destroyed else { return }
-        }
+        guard inTurn || landBeforeBatch() else { return }
         let outermost = !applying
         // After the batch's own accounting below, which a later defer runs first
-        defer { if outermost { advanceIfDue(); rasters.readmitPictures() } }
+        defer { if outermost { releaseHeld(); advanceIfDue(); rasters.readmitPictures() } }
         applying = true
         // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
         let began = sampler == nil ? 0 : CACurrentMediaTime()
@@ -1409,31 +1439,6 @@ public final class ExactSession {
               let batch = runtime.selection(node, json: json, now: now()) else { return }
         apply(batch)
     }
-    /// @ref LLP 1038 D8/D11 — pre-boot URLs are launch facts; the adapter consumes development links first.
-    @discardableResult public func openURL(_ url: URL) -> Bool {
-        guard state != .destroyed else { return false }
-        return openIncoming(incomingLocation(url))
-    }
-    /// A link the reader followed — a `link href`, a text run's `href`, a
-    /// Markdown link. A path naming one of the app's routes is a location
-    /// for the navigation root, as the web's same-document link is (LLP 1038
-    /// §7); anything else — a page, a file beside a document — is the
-    /// containing app's to open (`openURL`).
-    @discardableResult public func follow(_ href: String) -> Bool {
-        guard state != .destroyed, !href.isEmpty else { return false }
-        if href.hasPrefix("/"), !href.hasPrefix("//"), booted, runtime.routeMatches(href) { return navigate(href) }
-        delegate?.exactSession(self, command: "openURL", args: [href])
-        return true
-    }
-    @discardableResult public func navigate(_ location: String) -> Bool {
-        guard state != .destroyed, booted else { return false }
-        let batch: Batch
-        if let node = navigationRoot { batch = runtime.navigate(node.id, location, now: now()) }
-        else if runtime.routeMatches(location) { batch = runtime.hostGo(location, now: now()) }
-        else { log("navigate refused: no navigation root handler or matching route"); return false }
-        apply(batch)
-        return batch.error == nil
-    }
     /// The number of live views the presenter holds (the smoke reads it).
     public var viewCount: Int { presenter.views.count }
     /// The first root's frame size (the smoke reads it).
@@ -1467,7 +1472,7 @@ public final class ExactSession {
     public func destroy() {
         guard state != .destroyed else { return }
         state = .destroyed
-        let waiting = afterFill; afterFill.removeAll()
+        let waiting = afterFill + afterHeld; afterFill.removeAll(); afterHeld.removeAll()
         waiting.forEach { $0.cancelled?() }
         generation += 1
         cancelAuthSessions()

@@ -362,6 +362,10 @@ package final class CollectionHost {
     var onFill: ((UInt32, Data) -> Void)?
     var filling: (() -> Bool)?
     var drain: (() -> Void)?
+    /// Whether a landing holds a batch back (`ExactSession.holdingReports`): a report waits for
+    /// that batch and is made afresh after it (`afterHold`), never from the facts before it.
+    var holding: (() -> Bool)?
+    var afterHold: (() -> Void)?
     /// The slice a report sends off main, and the retire-only report a
     /// landed one owes, each with its limit.
     private var building: (view: UInt32, limit: UInt32)?
@@ -666,6 +670,7 @@ package final class CollectionHost {
         // still in flight and queue another, every main-queue turn until it
         // lands (LLP 1072 §3.2).
         if filling?() == true { return }
+        if holding?() == true { afterHold?(); return }
         observeTurns()
         // Reserve the continuation before calling Rust: its batch can reenter us.
         schedule()

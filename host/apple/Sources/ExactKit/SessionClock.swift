@@ -7,6 +7,36 @@ import AppKit
 #endif
 
 extension ExactSession {
+    /// A batch from a timer, a scroll event or a host's measurement: one that
+    /// changes nothing only moves the clock. An app's timer that writes nothing
+    /// (a poll that finds no news), a `scroll=` handler whose writes show
+    /// nowhere (every frame of a fling) and a size layout already had (a list
+    /// row's symbol, which the kernel measured) still commit, and the presenter's
+    /// whole pass cost ~4.5 ms a batch on the simulator. Other events
+    /// still apply an empty batch: a native control that changed itself
+    /// before its handler ran is reconciled by the pass (a refused tab), and
+    /// the agent's clock seeks native animations through it. Slices published
+    /// before it land first (T4), and it is asked again (a fling's fills).
+    /// `timer`: a clock advance's, which `timersQuiet` counts.
+    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, timer: Bool = false, inTurn: Bool = false) {
+        guard state != .destroyed, !batch.busy, !batch.held else { return }
+        if !inTurn, holdsBatches { holdBatch { [weak self] in self?.applyUnlessEmpty(batch, scrolled: scrolled, timer: timer, inTurn: true) }; return }
+        guard !applying else { apply(batch, inTurn: inTurn); return }
+        guard inTurn || landBeforeBatch() else { return }
+        guard !fillInFlight, !tickInFlight, !advanceInFlight, !canvasInFlight, noticesInFlight == 0, changesNothing(batch) else { apply(batch, inTurn: true); return } // landed above: its turn
+        // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
+        sampler?.batch(batch.seq, ms: 0); logAlerts(batch.alerts); logJournal(batch.journal)
+        if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
+        if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
+        timerDue = batch.timerDueMs
+        scheduleClock(due: batch.timerDueMs)
+        // What the pass did that a scroll moves (`scrolledWithoutPass`).
+        if scrolled { presenter.scrolledWithoutPass() }
+        drainReports()
+        releaseHeld()
+        advanceIfDue()
+    }
+
     // @ref LLP 1043.000 §3 D8, §6 ruling 5 — one advance per display frame,
     // or one distant wake. Runner retains ordered catch-up and its 4096-commit cap.
     // After timer advances that showed nothing (`timersQuiet`), a near

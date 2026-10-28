@@ -1249,6 +1249,18 @@ physical Mac scrolling:
 - text input in rows;
 - LLP 1044's hitch counts and the macOS smokes 8 of 8 A/B.
 
+**Stage 5 as run (2026-10-26).** Charlie compared two copies of one Excord
+development build on an M5 Max (120 Hz, trackpad) against his own Discord
+account: one with asynchronous fills, one with `EXACT_FILL_SYNC=1` set in
+its `LSEnvironment`. He judged the asynchronous one "a bit better" and saw no
+blank rows or jumps from it. The traces of the two sessions do not compare
+cleanly: they ran for different lengths and the asynchronous one's includes
+its launch (1,636 of 9,317 frames missed, against 2,834 of 30,709); over the
+last 600 frames of each, the asynchronous session had none late and the
+synchronous one a p99 of 143 ms. macOS now fills off main as iOS does. Not
+yet checked on macOS: a mouse wheel, text input in rows, and the smokes A/B
+(the agent runs fills synchronously, so a smoke cannot tell the two apart).
+
 **What stops the lane:**
 - stage 1's blocked-wall budget or the two-session gate is missed and
   cannot be met in three rounds;

@@ -64,6 +64,32 @@ extension ExactSession {
         return navigate(location)
     }
 
+    /// @ref LLP 1038 D8/D11 — pre-boot URLs are launch facts; the adapter consumes development links first.
+    @discardableResult public func openURL(_ url: URL) -> Bool {
+        guard state != .destroyed else { return false }
+        return openIncoming(incomingLocation(url))
+    }
+    /// A link the reader followed — a `link href`, a text run's `href`, a
+    /// Markdown link. A path naming one of the app's routes is a location
+    /// for the navigation root, as the web's same-document link is (LLP 1038
+    /// §7); anything else — a page, a file beside a document — is the
+    /// containing app's to open (`openURL`).
+    @discardableResult public func follow(_ href: String) -> Bool {
+        guard state != .destroyed, !href.isEmpty else { return false }
+        if href.hasPrefix("/"), !href.hasPrefix("//"), booted, runtime.routeMatches(href) { return navigate(href) }
+        delegate?.exactSession(self, command: "openURL", args: [href])
+        return true
+    }
+    @discardableResult public func navigate(_ location: String) -> Bool {
+        guard state != .destroyed, booted else { return false }
+        let batch: Batch
+        if let node = navigationRoot { batch = runtime.navigate(node.id, location, now: now()) }
+        else if runtime.routeMatches(location) { batch = runtime.hostGo(location, now: now()) }
+        else { log("navigate refused: no navigation root handler or matching route"); return false }
+        apply(batch)
+        return batch.error == nil
+    }
+
     /// The view that hears `navigate`: the navigation root (LLP 1038 D8).
     var navigationRoot: NodeView? {
         presenter.views.values.first { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }
