@@ -2,11 +2,15 @@
 
 @ref LLP 1149 §4; G1.
 
-**G1 remains unqualified.** Both release apps build, and the functional checks
-below pass. The five-round comparison was not run: other lanes kept building
-on this shared Mac and the compiler preflight refused to launch the series.
-The functional previews reported thermal state `fair`. No
-performance conclusion is established; the timing tables remain unmeasured.
+**G1m has no qualifying timing series.** Both release apps built and passed
+G1's functional checks below. The corrected quiet preflight passed for the
+2026-10-28 14:43 PDT attempt: load averages stayed below 12, with no compiler
+processes observed. The native run scrolled, but the driver rejected it because
+the window was inactive for all 1,195 sampled display callbacks. macOS reports
+`CGSSessionScreenIsLocked=true`; waking the display did not unlock the desktop.
+Thermals were nominal. Raw output is in `target/g1/series-g1m3/`; it is excluded
+from the tables. An unlocked desktop is required to finish the comparison.
+No performance winner is established.
 
 ## Arms and provenance
 
@@ -30,31 +34,15 @@ performance conclusion is established; the timing tables remain unmeasured.
   against `data.sha256`. `messages.json` SHA-256:
   `0b63b79ca113dfc23e52fdc9f4b653890bd48a59110f917fe3cae80c730a30dd`.
 
-## Whole app
-
-| Arm | Cold to complete screen | Fling process/main CPU | Peak footprint | Rest process/main CPU |
-|---|---:|---:|---:|---:|
-| Native Apple host | unavailable | unavailable | unavailable | unavailable |
-| GPUI 0.2.2 | unavailable | unavailable | unavailable | unavailable |
-
-| Arm | Fling interval p50/p95/p99 | Late frames/s | End-of-fling footprint |
-|---|---:|---:|---:|
-| Native Apple host | unavailable | unavailable | unavailable |
-| GPUI 0.2.2 | unavailable | unavailable | unavailable |
-
-There are **zero qualifying rounds**. The remaining requirement is five
-interleaved rounds with both windows active, recorded stable thermals and no
-builds on the machine. The driver rejects a lost-focus, non-scrolling or
-thermal-transition run.
-The functional previews are excluded from these tables.
-
-## Renderer only
-
-| Comparison | Status |
-|---|---|
-| GPUI renderer versus Ink headless paint, same heavy-list screen | Follow-up in the Ink lane; not measured by G1 |
-
 ## Method
+
+Quiet means **every load average is below 30 and no `cargo`, `rustc`, `swiftc`,
+`clang`, `xcodebuild` or `metal` process is running**, regardless of its owner.
+Compiler executables `swift-frontend` and `clang++` count too. An idle
+`codex exec` process is not a reason to refuse the series. Check `uptime` and
+`ps` before launching, wait at most 20 minutes if necessary, and monitor the
+same conditions during measurement. The desktop must be unlocked so each
+window can become active; waking the display alone does not unlock it.
 
 `measure.m` launches fresh processes for five interleaved rounds, alternating
 native/GPUI and GPUI/native. Both receive the same four 600-point flings at
@@ -136,6 +124,36 @@ The supplied brief references LLP 1149 §4.1, but this checkout's r3 has §4
 followed by §5. Its requested exact list of non-comparables is unavailable here;
 the list above names the differences established from the implementation.
 
+## Whole app
+
+**The frame intervals use different instruments.** The native probe records
+display-link cadence, not presented-frame timestamps. GPUI also records
+`MTLDrawable.presentedTime`. Native cadence and GPUI presentation cannot
+establish which app presents more smoothly; native presented-frame intervals
+and late frames remain unmeasured.
+
+| Arm | Cold to complete screen | Fling process/main CPU | Peak footprint | Rest process/main CPU |
+|---|---:|---:|---:|---:|
+| Native Apple host | unavailable | unavailable | unavailable | unavailable |
+| GPUI 0.2.2 | unavailable | unavailable | unavailable | unavailable |
+
+| Arm | Fling interval p50/p95/p99 | Late frames/s | End-of-fling footprint |
+|---|---:|---:|---:|
+| Native Apple host | unavailable | unavailable | unavailable |
+| GPUI 0.2.2 | unavailable | unavailable | unavailable |
+
+There are **zero qualifying rounds**. The remaining requirement is five
+interleaved rounds with both windows active, recorded stable thermals and no
+builds on the machine. The driver rejects a lost-focus, non-scrolling or
+thermal-transition run.
+The functional previews are excluded from these tables.
+
+## Renderer only
+
+| Comparison | Status |
+|---|---|
+| GPUI renderer versus Ink headless paint, same heavy-list screen | Follow-up in the Ink lane; not measured by G1 |
+
 ## Window inspection
 
 [Native at row zero](native-top.png) and [GPUI at row zero](gpui-top.png) are
@@ -151,7 +169,12 @@ The link description ends with an ellipsis after two lines.
 
 ## Checks
 
-All required commands passed on this worktree:
+For this report update, `git diff --check` and `bun scripts/caps.mjs` passed:
+“All budgets within cap. 10 categories inspected.” No test suite was rerun.
+
+G1 (`6ffede6aa8`) records the following commands passing on this worktree.
+These are G1's results, not new G1m test runs. G1m changes only this report;
+the executables, workspace source, lockfiles and six checks are unchanged.
 
 - `cargo build --all-targets --keep-going`
 - `cargo test --tests --no-fail-fast` (full rerun)
