@@ -11,6 +11,8 @@ use Ink from "../shared/shapes.contract"
 use Control from "../shared/shapes.contract"
 use Primary from "../shared/shapes.contract"
 use ImageDraftTile from "../composer/composer-editor.contract"
+use PreparingImageTile from "../composer/composer-editor.contract"
+use PreparingImage from "../composer/composer-shapes.contract"
 use ComposerVideo from "../composer/composer-video.contract"
 use VideoDraftTile from "../composer/composer-video.contract"
 use KmItem from "../shared/menu-keys.contract"
@@ -283,18 +285,22 @@ component SnapshotDrafts
     ask: action
     // The draft's attached videos follow the images (composerVideos, composer-video.contract).
     videos: ComposerVideo[]
+    // Images still being prepared, after the ready ones (ComposerAttachmentStrip's preparingImages).
+    preparing: PreparingImage[]
     command: action
   derive snapshots = images.filter((image) => image.snapshot).length > 0
   view
     // The strip scrolls sideways only once it holds a SnapShot frame; plain images and videos wrap, so no scroll
     // area stands between the prompt and the thumbnails for VoiceOver.
-    if images.length > 0 or videos.length > 0
+    if images.length > 0 or preparing.length > 0 or videos.length > 0
       row width="100%" gap="0.5rem" flex-wrap=(snapshots ? "nowrap" : "wrap") overflow-x=(snapshots ? "scroll" : "visible") padding-bottom=(snapshots ? "0.25rem" : "0px") box-sizing="border-box" testId="snapshot-drafts"
         for image, i in images key=image.id
           if image.snapshot
             SnapshotTile(image=image, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i))
           else
             ImageDraftTile(id=image.id, name=image.name, referenced=image.referenced, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i))
+        for image in preparing key=image.id
+          PreparingImageTile(id=image.id, name=image.name, source=image.source, command=command)
         for video, i in videos key=video.id
           VideoDraftTile(video=video, disabled=disabled, command=command, after=videoFocusAfter(videos, i))
 

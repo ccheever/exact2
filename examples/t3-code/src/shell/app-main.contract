@@ -327,9 +327,10 @@ component ChatColumn
           TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown, wheel=minimapWheel, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 6 * rem)) / 2), windowHeight=viewport.height, jump=turnJump)
           for owner in [composerOwner] key=owner
             box intersect=transcriptOpened(owner) position="absolute" top=0 left=0 width=0 height=0 pointer-events="none"
-          // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
-          if data.transcriptAway
-            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary="")
+          // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing. It names what
+          // waits at the end (ChatView's scrollToEndSummary), and hides while find is open, as the reference's does.
+          if data.transcriptAway and not threadFind.open
+            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary=data.composer.endSummary)
       // The composer overlays the transcript (ChatView's data-chat-composer-overlay; composer-overlay.ts
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.

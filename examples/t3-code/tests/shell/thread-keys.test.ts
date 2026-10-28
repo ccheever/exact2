@@ -177,6 +177,17 @@ describe('A14: keys', () => {
     const quiet = keyClient({ projection: { ...projection, providerSessions: [{ id: 's', capabilities: { turns: {} } }] } });
     expect(find(keyboardDispatch(quiet, rows(['a'], 'a'), '', '', context), 'thread.steerQueuedMessage')).toBeUndefined();
   });
+  // QueuedRunsControl editLatest at 7c3b3b3605ef (fe507c5a1e): an open question takes the composer for its answer, so ⌥↑
+  // leaves the queue alone; a guest's message can be cancelled, not edited.
+  test('⌥↑ does not edit the last queued message while a question is open, or when it is a guest\'s', () => {
+    const base = { thread: { id: 'a' }, messages: [{ id: 'm1', text: 'one' }], runs: [{ id: 'q1', status: 'queued', userMessageId: 'm1', ordinal: 1 }] };
+    const keysOf = (projection: Obj) => keyboardDispatch(keyClient({ projection }), rows(['a'], 'a'), '', '', { ...context, composerFocus: true, editableFocus: true });
+    expect(find(keysOf(base), 'thread.editQueuedMessage')).toMatchObject({ extra: 'q1' });
+    const asking = { ...base, runtimeRequests: [{ id: 'r1', status: 'pending', kind: 'user_input' }], turnItems: [{ type: 'user_input_request', requestId: 'r1', questions: [] }] };
+    expect(find(keysOf(asking), 'thread.editQueuedMessage')).toBeUndefined();
+    const guest = { ...base, messages: [{ id: 'm1', text: 'one', context: { guest: { name: 'Ana', text: 'hi' } } }] };
+    expect(find(keysOf(guest), 'thread.editQueuedMessage')).toBeUndefined();
+  });
   test('⌥⌘B toggles a draft\'s right panel too; ⇧⌘C stays off a draft', () => {
     const items = keyboardDispatch(keyClient({ threadId: '' }), rows(['a'], ''), '', '', { ...context, draftThreadRoute: true });
     expect(find(items, 'rightPanel.toggle')).toMatchObject({ kind: 'diff' });
