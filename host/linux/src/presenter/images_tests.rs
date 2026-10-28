@@ -87,8 +87,8 @@ fn a_hidden_pictures_failed_download_is_asked_again_only_once_it_shows() {
     );
 }
 
-/// A server answering every request with a 400 by 400 PNG; its origin.
-fn picture_server() -> String {
+/// A server answering every request with a 400 by 400 PNG, counting them; its origin.
+fn picture_server(asked: Arc<AtomicUsize>) -> String {
     let mut body = Vec::new();
     let mut encoder = png::Encoder::new(&mut body, 400, 400);
     encoder.set_color(png::ColorType::Rgba);
@@ -101,6 +101,7 @@ fn picture_server() -> String {
     let origin = format!("http://{}", listener.local_addr().unwrap());
     std::thread::spawn(move || {
         for mut stream in listener.incoming().flatten() {
+            asked.fetch_add(1, Ordering::SeqCst);
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut line = String::new();
             while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
@@ -119,7 +120,8 @@ fn picture_server() -> String {
 
 #[test]
 fn an_image_hears_load_once_a_source_when_its_first_picture_lands() {
-    let origin = picture_server();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let origin = picture_server(asked.clone());
     let source = format!(
         r#"component App
   state loads = 0
@@ -131,10 +133,13 @@ fn an_image_hears_load_once_a_source_when_its_first_picture_lands() {
     big = true
   action other
     name = "b"
+  action first
+    name = "a"
   view
     column width=300 height=300
       button "Grow" press=grow testId="grow" width=100 height=30
       button "Other" press=other testId="other" width=100 height=30
+      button "First" press=first testId="first" width=100 height=30
       image "{origin}/" + name + ".png" width=(big ? 200 : 20) height=(big ? 200 : 20) load=loaded testId="picture"
 "#
     );
@@ -185,4 +190,14 @@ fn an_image_hears_load_once_a_source_when_its_first_picture_lands() {
     press(&mut p, "other");
     settle(&mut p, 800);
     assert_eq!(loads(&mut p), 2., "a new source's picture sends load");
+    // The first source again, its body from the cache: assigned again, so its own load.
+    let fetched = asked.load(Ordering::SeqCst);
+    press(&mut p, "first");
+    settle(&mut p, 800);
+    assert_eq!(asked.load(Ordering::SeqCst), fetched, "from the cache");
+    assert_eq!(
+        loads(&mut p),
+        3.,
+        "a cached source assigned again sends load"
+    );
 }

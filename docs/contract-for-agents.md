@@ -1710,7 +1710,7 @@ usual. Keep a picked photo by copying it to
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
 
 An `image` hears HTML `<img>`'s two events, once per source, on the web, macOS and
-iOS (Linux and Android send `load` and not yet `error`): `load=` when the picture
+iOS (Linux, Android and Windows send `load` and not yet `error`): `load=` when the picture
 is ready (no payload), and `error=` when it does not
 load, with a `message` that says why (`error=failed` runs `action failed(message:
 string)`; `error=failed("icon")` passes `"icon"` before it). On macOS and iOS the

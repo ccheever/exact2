@@ -131,7 +131,8 @@ data module never tells hosts apart to choose one.
 
 **`load` and `error` (2026-10-06, #121).** An `image` hears HTML `<img>`'s
 two events on the web, macOS and iOS, each once
-per source (Linux and Android send `load`, at the same point, and not yet `error`): `load=` when the picture is ready, with no payload (`iframe`'s `load` is the same event; the compiler admits `load` on
+per source; Linux, Android and Windows send `load` too, at the same point (from
+2026-10-28), and not yet `error`: `load=` when the picture is ready, with no payload (`iframe`'s `load` is the same event; the compiler admits `load` on
 those two tags and on a native module), and `error=` when the source does not
 load, with the error's `message`, as a media element's `error` carries one.
 The message is the host's reason where it has one (§4) and a fixed text where
@@ -379,8 +380,10 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   for the process, whatever their cache headers say, as a browser keeps the
   images a page has loaded, so a list scrolled back fetches nothing while
   they are there; nothing is kept across launches, and a body this host
-  cannot decode is not kept. Linux and Android send `load` (below, from
-  2026-10-28) but no `error` yet (LLP 1011.001): a
+  cannot decode is not kept. Linux, Android and Windows send `load`, once a
+  source assignment, when its first picture is accepted for drawing (one
+  from the cache too), after that pass's sizes, and not again for a re-decode
+  or an unchanged source shown again; they send no `error` yet (LLP 1011.001): a
   failed download, or a body this host cannot decode, is a line on stderr
   (`exact: image <url>: HTTP 404`). Linux and Windows decode PNG and SVG
   bodies; a JPEG, GIF or WebP body fails there as a bundled one does, and

@@ -876,3 +876,30 @@ fn a_picture_on_screen_is_never_asked_again_sooner_than_its_server_says() {
     assert_eq!(long_asks, 1);
     assert_eq!(images.retry_due_in(), None);
 }
+
+#[test]
+fn a_picture_shown_again_with_its_source_unchanged_sends_no_second_load() {
+    let origin = serve(|_, _| Answer::Body(png(6, 6, [5, 5, 5, 255])));
+    let url = format!("{origin}/again.png");
+    let k = kernel(&url);
+    let mut images = images();
+    let show = |images: &mut Images| {
+        let started = Instant::now();
+        while shown(images).is_none() {
+            assert!(started.elapsed() < SETTLED, "it shows");
+            images.poll();
+            images.sync(&k, &k.roots());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    images.sync(&k, &k.roots());
+    show(&mut images);
+    assert_eq!(std::mem::take(&mut images.load_events), [1]);
+    // Out of view, its picture let go of; back in view, drawn again from the same source.
+    images.sync_visible(&k, &k.roots(), 1., |_| false);
+    images.poll();
+    assert!(images.bitmaps.is_empty());
+    images.sync(&k, &k.roots());
+    show(&mut images);
+    assert!(images.load_events.is_empty(), "{:?}", images.load_events);
+}
