@@ -588,7 +588,8 @@ the platform's placement. A fitting choice survives resize and invoker movement;
 changing the area, fallback list, margins or size clears it. An overflowing choice tries the list
 again, preserving the current option if none fits. Logical areas, `flip-x`,
 `flip-y`, area-dependent sizing,
-nonzero insets and non-default self-alignment, full scroll-offset bookkeeping,
+nonzero insets alongside an area (an authored `left` or `top` replaces the
+area: "At the press point", below) and non-default self-alignment, full scroll-offset bookkeeping,
 and general Linux popover presentation remain outside this slice. `anchor-name`,
 `position-anchor`, named `@position-try` rules and `position-visibility` are
 not admitted by this work.
