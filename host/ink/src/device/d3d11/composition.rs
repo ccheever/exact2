@@ -278,8 +278,9 @@ impl D3d11 {
             .as_mut()
             .ok_or(Error::Unsupported("no composition window"))?;
         composition.resize(size)?;
+        let activating = !composition.active;
         let swap = composition.swap.clone();
-        let did_present;
+        let mut did_present;
         unsafe {
             // Before Commit, DXGI considers the unattached visual occluded.
             // Its first image must be queued before that visual becomes visible.
@@ -317,8 +318,13 @@ impl D3d11 {
         }
         let s = self.submit()?;
         self.textures.get_mut(&id).unwrap().last = s;
-        if did_present {
+        if activating || did_present {
             self.composition.as_mut().unwrap().activate()?;
+        }
+        if activating && !did_present {
+            // A not-yet-attached composition swap chain can return OCCLUDED
+            // from the real present too. Retry its populated buffer after Commit.
+            did_present = presented(unsafe { swap.Present(1, DXGI_PRESENT(0)) })?;
         }
         Ok(if did_present {
             start.elapsed().as_secs_f64() * 1000.
