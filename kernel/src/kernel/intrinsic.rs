@@ -93,16 +93,27 @@ impl Kernel {
     }
 
     /// A host withdrew `slot`'s report. When that report is the size its kind's
-    /// marks share, the host sizes them no more (Linux's Material and neutral
-    /// looks leave a checkbox to the kernel, after a report it took back):
-    /// the shared size goes with it, and the marks still reading it are laid
-    /// out again at the kind's own.
+    /// marks share and no other mark of the kind still reports it, the host
+    /// sizes them no more (Linux's Material and neutral looks leave a checkbox
+    /// to the kernel, after a report it took back): the shared size goes with
+    /// it, and the marks still reading it are laid out again at the kind's own.
     fn mark_withdrawn(&mut self, slot: u32) {
         let Some(key) = crate::control::mark_key(&self.arena, slot) else {
             return;
         };
         let own = self.arena.intrinsic(slot);
         if own.is_none() || crate::control::shared_size(&self.arena, slot) != own {
+            return;
+        }
+        // Another mark of the kind still reporting that size holds it for the
+        // marks with none (two equal reports, or a node whose kind changed
+        // since its report withdrawing one that equals this kind's).
+        let held = (self.arena.iter_live()).any(|s| {
+            s != slot
+                && self.arena.intrinsic(s) == own
+                && crate::control::mark_key(&self.arena, s) == Some(key)
+        });
+        if held {
             return;
         }
         self.arena.mark_sizes.retain(|(k, _)| *k != key);

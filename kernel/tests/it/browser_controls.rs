@@ -1359,3 +1359,88 @@ fn a_withdrawn_report_takes_its_kinds_shared_size_with_it() {
         "the kind's size stands for it"
     );
 }
+
+/// A withdrawn report takes back its kind's shared size only when no other
+/// mark of that kind still holds it as its own (post-hoc review of
+/// 9960b11949, Astra and Grok): with two equal reports, withdrawing one
+/// leaves the size the other still reports, for the marks with none; and a
+/// switch that became a checkbox, withdrawing a size the checkboxes' happens
+/// to equal, leaves the checkboxes' alone while one of them reports it.
+#[test]
+fn a_withdrawn_report_leaves_a_shared_size_another_mark_still_reports() {
+    let control = |id, kind: &str| {
+        [
+            Op::CreateView {
+                id,
+                node_type: NodeType::Control,
+            },
+            Op::SetProp {
+                id,
+                prop: PropId::Type,
+                value: PropValue::Str(kind.into()),
+            },
+        ]
+    };
+    let size = |kernel: &Kernel, id| {
+        let f = kernel.node(id).unwrap().frame;
+        (f.width, f.height)
+    };
+    let offer = Offer::definite(400.0, 600.0);
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&rows(
+                "display:flex;align-items:flex-start;width:400px",
+            ))),
+        },
+    ];
+    for id in [2, 3, 4] {
+        ops.extend(control(id, "checkbox"));
+    }
+    ops.extend(control(5, "checkbox"));
+    ops.push(Op::SetProp {
+        id: 5,
+        prop: PropId::AccessibilityRole,
+        value: PropValue::Str("switch".into()),
+    });
+    ops.extend([
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3, 4, 5],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    kernel.set_intrinsic_size(2, Some((22.0, 22.0))).unwrap();
+    kernel.set_intrinsic_size(3, Some((22.0, 22.0))).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    assert_eq!(size(&kernel, 4), (22.0, 22.0));
+    kernel.set_intrinsic_size(3, None).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    assert_eq!(
+        (size(&kernel, 3), size(&kernel, 4)),
+        ((22.0, 22.0), (22.0, 22.0)),
+        "mark 2 still reports the kind's size"
+    );
+    // The switch reported the checkboxes' size, then became a checkbox and withdrew it.
+    kernel.set_intrinsic_size(5, Some((22.0, 22.0))).unwrap();
+    kernel
+        .apply(
+            1,
+            2,
+            &[Op::ClearProp {
+                id: 5,
+                prop: PropId::AccessibilityRole,
+            }],
+        )
+        .unwrap();
+    kernel.set_intrinsic_size(5, None).unwrap();
+    kernel.compute_layout(1, offer).unwrap();
+    assert_eq!(size(&kernel, 4), (22.0, 22.0), "mark 2 still reports it");
+}
