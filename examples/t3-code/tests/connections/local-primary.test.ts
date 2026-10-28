@@ -391,7 +391,7 @@ describe('settings search follows this machine', () => {
     expect(ids('Windows Subsystem')).toEqual([]);
     expect(ids('T3 Connect')).not.toContain('t3-connect');
     primaryOff();
-    expect(ids('environment icon')).not.toContain('environment-icon');
+    expect(ids('environment icon')).toContain('environment-icon'); // upstream's result has no condition (settingsSearch.ts)
     expect(ids('local environment')).toContain('local-environment');
   });
 });

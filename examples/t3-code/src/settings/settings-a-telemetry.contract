@@ -149,7 +149,7 @@ component DxRefresh
     hovered = over
   view
     box position="relative" width=`${size / 16}rem` height=`${size / 16}rem` flex-shrink=0
-      button press=press hover=hover disabled=busy aria-label=label testId=refreshId width=`${size / 16}rem` height=`${size / 16}rem` padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(busy ? 0.64 : 1) title=""
+      button press=press hover=hover disabled=busy aria-label=label testId=refreshId width=`${size / 16}rem` height=`${size / 16}rem` padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(busy ? 0.64 : 1) title="" id=refreshId data-focus-stop=(busy ? "" : "enabled page")
         LucideRefreshCw(size=(size >= 24 ? 14 : 12), color="light-dark(#71717b, #a1a1a1)")
       if hovered
         DxTip(text=tip, right=0, bottom=((size + 6) * rem / 16))
@@ -194,7 +194,7 @@ component DxPeriod
     choose: action
     groupId: string
   view
-    button press=choose(period) aria-checked=(period == selected) role="radio" aria-label=period testId=`${groupId}-${period}` height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(period == selected ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(period == selected ? "0 1px 2px #0000000d" : "none")
+    button press=choose(period) aria-checked=(period == selected) role="radio" aria-label=period id=`${groupId}-${period}` testId=`${groupId}-${period}` data-focus-stop=(period == selected ? "enabled page" : "") height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(period == selected ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(period == selected ? "0 1px 2px #0000000d" : "none")
       text period font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(period == selected ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 
 // ExpandableText: clamped to two or three lines, with Show full error / Show less.
@@ -204,6 +204,7 @@ component DxExpandable
     lines: number
     label: string
     tone: string
+    expandId: string
   state expanded = false
   action toggle
     expanded = not expanded
@@ -213,7 +214,7 @@ component DxExpandable
         text text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color=dxTone(tone) width="100%"
       else
         text text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color=dxTone(tone) line-clamp=lines width="100%"
-      button press=toggle aria-expanded=expanded padding=0 border-width=0 background-color="#00000000"
+      button press=toggle aria-expanded=expanded id=expandId data-focus-stop="enabled page" padding=0 border-width=0 background-color="#00000000"
         text (expanded ? "Show less" : label) font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
 
 // ProcessSignalActions: INT (muted) and KILL (destructive) inline buttons.
@@ -225,12 +226,12 @@ component DxSignals
   view
     row flex=1 min-width=0 gap="0.375rem" justify-content="flex-end" align-items="center"
       if row.signal
-        button press=signal("diag-signal", `${row.target}&signal=SIGINT`) disabled=(busy or row.busy) aria-label="Send SIGINT" testId=`signal-int-${row.id}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1)
+        button press=signal("diag-signal", `${row.target}&signal=SIGINT`) disabled=(busy or row.busy) aria-label="Send SIGINT" testId=`signal-int-${row.id}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1) id=`signal-int-${row.id}` data-focus-stop=(busy or row.busy ? "" : "enabled page")
           text "INT" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
-        button press=signal("diag-signal", `${row.target}&signal=SIGKILL`) disabled=(busy or row.busy) aria-label="Send SIGKILL" testId=`signal-kill-${row.id}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1) id=`signal-kill-${row.id}`
+        button press=signal("diag-signal", `${row.target}&signal=SIGKILL`) disabled=(busy or row.busy) aria-label="Send SIGKILL" testId=`signal-kill-${row.id}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1) id=`signal-kill-${row.id}` data-focus-stop=(busy or row.busy ? "" : "enabled page")
           text "KILL" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#fb2c36cc, #fb414acc)"
       else
-        text "—" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b59, #a1a1a159)"
+        text "-" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b59, #a1a1a159)"
 
 // A process name: the tree indent, a disclosure (or its space), the category dot.
 component DxName
@@ -242,7 +243,7 @@ component DxName
   view
     row flex=1 min-width=0 gap="0.5rem" align-items="center" padding-left=(row.depth * 10) box-sizing="border-box"
       if row.toggle == "expand" or row.toggle == "collapse"
-        button press=toggle(toggleOp, row.id) aria-label=`${row.toggle == "expand" ? "Expand" : "Collapse"} ${row.name}` aria-expanded=(row.toggle == "collapse") testId=`dx-toggle-${row.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        button press=toggle(toggleOp, row.id) aria-label=`${row.toggle == "expand" ? "Expand" : "Collapse"} ${row.name}` aria-expanded=(row.toggle == "collapse") testId=`dx-toggle-${row.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id=`dx-toggle-${row.id}` data-focus-stop="enabled page"
           // f2cc80a7 MorphIcon ChevronRight↔ChevronDown: congruent under 90°, so the glyph turns (morphicons' snappy spring).
           box rotate=(row.toggle == "collapse" ? "90deg" : "0deg") transition="rotate -exact-spring(420, 30, 1)" display="flex"
             LucideChevronRight(size=14, color="light-dark(#71717b, #a1a1a1)")
@@ -282,14 +283,14 @@ component DxTableView
                 if part.id == "trace"
                   row flex=1 min-width=0 gap="0.5rem" align-items="center"
                     text item.traceLabel font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" line-clamp=1 flex=1 min-width=0 color="light-dark(#71717b, #a1a1a1)" aria-description=item.trace
-                    button press=copy(item.trace) aria-label="Copy trace ID" testId=`copy-trace-${table.id}-${item.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                    button press=copy(item.trace) aria-label="Copy trace ID" testId=`copy-trace-${table.id}-${item.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id=`copy-trace-${table.id}-${item.id}` data-focus-stop="enabled page"
                       LucideCopy(size=12, color="light-dark(#71717b, #a1a1a1)")
                 if part.id == "level"
                   text part.text font-family="ui-monospace" font-size="0.6875rem" font-weight=500 line-height="1rem" text-transform="uppercase" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0f)" color="light-dark(#18181bcc, #f5f5f5cc)"
                 if (part.id == "process" or part.id == "name") and item.toggle != ""
                   DxName(row=item, cell=part, toggle=toggle, toggleOp=toggleOp)
                 if (part.id == "cause" or part.id == "message") and item.expand
-                  DxExpandable(text=part.text, lines=(part.id == "message" ? 2 : 3), label=item.detail, tone=part.tone)
+                  DxExpandable(text=part.text, lines=(part.id == "message" ? 2 : 3), label=item.detail, tone=part.tone, expandId=`dx-expand-${table.id}-${item.id}-${part.id}`)
                 if part.id != "kill" and part.id != "trace" and part.id != "level" and not ((part.id == "process" or part.id == "name") and item.toggle != "") and not ((part.id == "cause" or part.id == "message") and item.expand)
                   if variant == "trace" and not part.mono
                     text part.text font-size="0.75rem" font-weight=(part.tone == "strong" ? 500 : 400) line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" min-width=0 flex=1 color=dxTone(part.tone)
@@ -412,7 +413,7 @@ component TelemetrySections
         row min-height="1.75rem" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="center" justify-content="space-between" box-sizing="border-box"
           DxHeading(title="Host & collection", icon="gauge")
           if t.retry
-            button press=rest("diag-retry", "") disabled=busy testId="telemetry-retry" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" opacity=(busy ? 0.64 : 1)
+            button press=rest("diag-retry", "") disabled=busy testId="telemetry-retry" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" opacity=(busy ? 0.64 : 1) id="telemetry-retry" data-focus-stop=(busy ? "" : "enabled page")
               LucideRefreshCw(size=12, color="light-dark(#71717b, #a1a1a1)")
               text "Retry monitor" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
         Card()

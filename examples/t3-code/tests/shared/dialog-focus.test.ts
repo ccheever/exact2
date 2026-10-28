@@ -419,10 +419,10 @@ describe('post-created provider traversal follows the Sign in content', () => {
       expect(targets.filter(id => enabled.includes(id))[0]).toBe(discovering ? 'wizard-finish' : 'wizard-provider-auth-docs-example');
     }
     const setup = await source('providers-setup.contract');
-    expect(setup).toContain('ProviderCredentialsForm(account=account, off=off, op=op, idPrefix=idPrefix)');
+    expect(setup).toContain('ProviderCredentialsForm(stop=stop, account=account, off=off, op=op, idPrefix=idPrefix)');
     expect(setup).toContain('id=`${idPrefix}provider-auth-credential-${account.instanceId}-${field.name}`');
     expect(setup).toContain('id=`${idPrefix}provider-callback-${account.instanceId}`');
-    expect(setup).toContain('button id=testId data-focus-stop=(disabled ? "" : "enabled")');
+    expect(setup).toContain('button id=testId data-focus-stop=(disabled ? "" : stop)'); // the wizard's SetupButtons pass "enabled"
   });
 });
 

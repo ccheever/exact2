@@ -11,6 +11,8 @@ import { modelCatalog, snapshot } from '../../src/client/presentation';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { taskModelMarks } from '../../src/settings/scheduled-view';
 import { sourceControlRows } from '../../src/settings/source-control-view';
+// Writing & review's rows, its Advanced ones after them (source-control-view.ts sourceControlRows).
+const writingRows = (rows: ReturnType<typeof sourceControlRows>) => [...rows.writing, ...rows.writingAdvanced];
 import { connected } from '../support/composer-controls-fixture';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { appPath } from '../support/app-files';
@@ -213,9 +215,9 @@ describe('Scheduled Tasks\' Model and the writer model open the provider picker'
   test('the Model trigger: the model name, the draft\'s unknown slug, or "Choose model"', () => {
     const marks = taskModelMarks([codexError, claude], 'claudeAgent:claude-gone');
     const of = (value: string) => marks.find(entry => entry.value === value);
-    expect(of('claudeAgent:claude-opus-5-5')).toMatchObject({ name: 'Claude Opus 5.5', driver: 'claudeAgent' });
+    expect(of('claudeAgent:claude-opus-5-5')).toMatchObject({ name: 'Opus 5.5', driver: 'claudeAgent' }); // getTriggerDisplayModelName: the driver's family goes
     expect(of('claudeAgent:claude-gone')).toMatchObject({ name: 'claude-gone', driver: 'claudeAgent' });
-    expect(of('')).toMatchObject({ name: 'GPT-6-Luna', driver: 'codex' });
+    expect(of('')).toMatchObject({ name: '6 Luna', driver: 'codex' }); // modelShortName: GPT-6.1-Sol reads 6.1 Sol
     expect(taskModelMarks([{ ...codexError, models: [] }, claude], '').find(entry => entry.value === '')).toMatchObject({ name: 'Choose model', driver: 'codex' });
   });
   test('the writer picker: text generation instances, the writer\'s model, provider setup and the page\'s scope', () => {
@@ -230,7 +232,7 @@ describe('Scheduled Tasks\' Model and the writer model open the provider picker'
     const project = modelCatalog(c, '', '', 'source-control-writer-model:|env-a:pa');
     expect(project.models.filter(row => row.selected).map(row => row.id)).toEqual(['claude-sonnet-5-5']);
     // The row's trigger: the writer's mark and name.
-    const rows = sourceControlRows(obj(c.config.settings), 'pa', 'Studio', c.config.providers as Obj[], true).text;
-    expect(rows.find(row => row.kind === 'model')).toMatchObject({ checked: true, valueLabel: 'Claude Sonnet 5.5', driver: 'claudeAgent', status: '' });
+    const rows = writingRows(sourceControlRows(obj(c.config.settings), 'pa', 'Studio', c.config.providers as Obj[], true));
+    expect(rows.find(row => row.kind === 'model')).toMatchObject({ checked: true, valueLabel: 'Sonnet 5.5', driver: 'claudeAgent', status: '' });
   });
 });

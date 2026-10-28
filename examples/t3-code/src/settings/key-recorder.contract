@@ -41,6 +41,7 @@ component KeyRecorder
     layout: bool // the layout's character (Settings › Keybindings), else the key's position (the action editor)
     capture: action // the binding, or "escape"
     cancel: action // the focus left the field
+    stop: string // its focus word when enabled: "enabled page" on a Settings page, "enabled" in a dialog
   // Tab is recorded like any key while recording (its default, the focus moving on, is cancelled with the rest).
   action keys(k: string, e: KeyboardEvent)
     if recording or k != "Tab"
@@ -55,6 +56,6 @@ component KeyRecorder
   // reference's does: AppKit serves a non-editable field as static text, not a text field. Typing writes nothing,
   // since every key is taken above.
   view
-    input id=testId autofocus=autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.8125rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" cursor="text" data-editable="yes"
+    input id=testId autofocus=autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.8125rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" cursor="text" data-editable="yes" data-focus-stop=stop
       ::placeholder
         color="light-dark(#71717b, #a1a1a1)"

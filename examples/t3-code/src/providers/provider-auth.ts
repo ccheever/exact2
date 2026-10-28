@@ -1,7 +1,8 @@
-// ProviderAuthenticationSection and ProviderWizardAuthenticationStep, T3 Code 1e2ecbd975
-// (MIT, see LICENSE-T3): apps/web/src/components/settings/ProviderAuthenticationSection.tsx:59-101,
-// 162-472 (active, signedIn, isDiscovering, needsExternalSetup, the description and status
-// text, which controls show and when they are disabled, the forms under the row) and
+// ProviderAuthenticationSection and ProviderWizardAuthenticationStep, T3 Code 1e2ecbd975 (the
+// starting description 7c3b3b3605ef; MIT, see LICENSE-T3):
+// apps/web/src/components/settings/ProviderAuthenticationSection.tsx:59-101, 162-472 (active,
+// signedIn, isDiscovering, needsExternalSetup, the description and status text, which controls
+// show and when they are disabled, the forms under the row) and
 // ProviderWizardAuthenticationStep.tsx:24-98. Changes: one view model for Contract
 // (`ProviderAccount`, providers-setup.contract); `pending` is the row's command in flight
 // (provider-setup.ts) or the setup mutation's (the view's `busy`); the Sign out confirmation's
@@ -24,7 +25,7 @@ export function providerAccount(instanceId: string, provider: Obj, entry: Provid
   const isDiscovering = provider.driver === 'acpRegistry' && !active && !signedIn && !queryError && methods === undefined;
   const needsExternalSetup = !active && !signedIn && (setup?.canAuthenticate === false || (provider.driver === 'acpRegistry' && methods?.length === 0));
   const description = active
-    ? phase === 'starting' ? 'Starting sign-in…' : phase === 'verifying' ? 'Checking your account…'
+    ? phase === 'starting' ? (typeof auth?.message === 'string' ? auth.message : 'Starting sign-in…') : phase === 'verifying' ? 'Checking your account…'
       : interaction.type === 'terminal' ? 'Complete sign-in in the terminal below.'
         : interaction.type === 'credentials' ? 'Enter your credentials below.' : 'Finish signing in in your browser.'
     : signedIn ? 'Signed in.' : isDiscovering ? 'Discovering sign-in methods…'

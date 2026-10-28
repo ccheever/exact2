@@ -2,16 +2,15 @@
 // (:285 "routes refresh and provider update commands to the selected environment", original name),
 // against a fake environment: a press sends the op its button sends. Clone cases follow for the
 // advisory popover (ProviderInstanceCard versionAdvisoryNode), Update all (ProviderUpdatesAction),
-// the launch notification (ProviderUpdatePrimaryNotification) and the custom model editor's Save.
+// launch without an update toast (7c3b3b3605ef) and the custom model editor's Save.
 import { describe, expect, it, test } from 'bun:test';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { providerPage, runProviderOp } from '../../src/providers/providers';
 import { advisoryView, providerUpkeepOp, runProviderUpdate, runUpdateAll, updateAllView, withUpkeep } from '../../src/providers/providers-upkeep';
-import { primaryTarget, providerUpdates, resetProviderUpdateNotifications, runLaunchUpdates, type UpdateTarget } from '../../src/providers/provider-update-notify';
-import { primaryAt, primaryOff, resetPrimary } from '../support/local-primary-fixture';
+import { primaryTarget, type UpdateTarget } from '../../src/providers/provider-update-notify';
+import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 import { toasts } from '../../src/shell/toast';
-import { adoptShellPrefs } from '../../src/shell/shell-prefs';
 import type { T3Client } from '../../src/client/client';
 
 const codex = (extra: Obj = {}): Obj => ({ instanceId: 'codex', driver: 'codex', enabled: true, installed: true, version: '1.0.0', status: 'ready', auth: { status: 'authenticated' },
@@ -53,7 +52,7 @@ test('the advisory popover: one view for the row and the editor; Install vX, Upd
   expect([row.mode, editor.mode, row.popId, editor.popId]).toEqual(['list', 'editor', 'provider-advisory-list-codex', 'provider-advisory-editor-codex']);
   const { mode: _a, popId: _b, ...rowRest } = row, { mode: _c, popId: _d, ...editorRest } = editor;
   expect(rowRest).toEqual(editorRest);
-  expect(editor).toMatchObject({ show: true, label: 'Update available — view details', title: 'Update available', detail: 'Update available.', warning: false, strong: false,
+  expect(editor).toMatchObject({ show: true, label: 'Update available, view details', title: 'Update available', detail: 'Update available.', warning: false, strong: false,
     action: 'Update now', command: 'pnpm add -g @openai/codex@latest', divider: true, updating: false });
   const recommended = codex({ compatibilityAdvisory: { status: 'unsupported', latestVersionStatus: 'supported', message: 'Codex 1.0.0 is not supported. Install v1.0.5.', recommendedVersion: '1.0.5', recommendedRange: '>=1.0.5' },
     versionAdvisory: { status: 'behind_latest', latestVersion: '1.1.0', updateCommand: 'npm i -g codex', canUpdate: true, canInstallVersion: true } });
@@ -103,59 +102,16 @@ test('Update all: every machine with a one-click update, one toast with a line p
   expect(updateAllView(studio, [target(new Fake([codex({ versionAdvisory: { status: 'current' } })]))]).show).toBe(false);
 });
 
-test('the launch notification: one prompt, Update runs the one-click providers, the outcome follows updateState', async () => {
-  resetProviderUpdateNotifications();
-  const fake = new Fake();
-  const client = fake as unknown as T3Client;
-  providerUpdates(fake as never, target(fake));
-  const prompt = toasts(client)[0]!;
-  expect([prompt.kind, prompt.title, prompt.description, prompt.action?.label, prompt.action?.op, prompt.secondary?.label]).toEqual(['warning', 'Update Available: Codex v1.1.0', 'Install the update now or review provider settings.', 'Update', 'upkeep:update-launch', 'Settings']);
-  providerUpdates(fake as never, target(fake)); // shown once per update set
-  expect(toasts(client)).toHaveLength(1);
-  fake.handlers['server.updateProvider'] = () => ({ providers: [codex({ updateState: { status: 'running' } })] });
-  await runLaunchUpdates(fake as never, prompt.action!.id!, target(fake));
-  expect(fake.called('server.updateProvider')).toEqual([{ provider: 'codex', instanceId: 'codex' }]);
-  expect(toasts(client)).toEqual([]); // the prompt closed; running shows in the sidebar pill, not a toast
-  fake.config.providers = [codex({ updateState: { status: 'unchanged', message: 'still old' } })];
-  providerUpdates(fake as never, target(fake));
-  expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description, toast.action?.label])).toEqual([['warning', 'Provider still needs an update', 'Codex still appears outdated. Check provider settings for details.', 'Settings']]);
-});
-
-test('the launch prompt follows the primary only: with no primary there is no prompt, whatever is focused', () => {
-  // ProviderUpdateLaunchNotification is mounted only for an authenticated primary and reads primaryServerProvidersAtom.
-  resetProviderUpdateNotifications();
-  const fake = new Fake(); // an outdated Codex on the focused (remote) environment
+test('provider updates pop no toast at launch; Update all still offers them', async () => {
   resetPrimary();
-  expect(primaryTarget(fake as never, null)).toBeNull();
-  providerUpdates(fake as never); // the source is primaryTarget
-  expect(toasts(fake as unknown as T3Client)).toEqual([]);
-  primaryOff(); // the Local environment switched off: the same
-  providerUpdates(fake as never);
-  expect(toasts(fake as unknown as T3Client)).toEqual([]);
-  // A primary that is not the focus and has no background connection: still nothing (its providers are unknown).
   primaryAt('http://127.0.0.1:16437', 'env-local');
-  expect(primaryTarget(fake as never, null)).toBeNull();
-  // The focused environment is the primary: its providers prompt.
+  const fake = new Fake(); // the focused primary, with a one-click Codex update
   fake.environmentId = 'env-local';
-  expect(primaryTarget(fake as never, null)?.key).toBe('focus:env-local');
-  providerUpdates(fake as never);
-  expect(toasts(fake as unknown as T3Client).map(toast => toast.title)).toEqual(['Update Available: Codex v1.1.0']);
+  expect(primaryTarget(fake as never, null)?.providers).toHaveLength(1);
+  expect(toasts(fake as unknown as T3Client)).toEqual([]);
+  await expect(providerUpkeepOp(fake, fake, 'upkeep:update-launch', 'codex:1.1.0', '', '')).rejects.toThrow('Unknown action');
+  expect(updateAllView(fake, [target(fake)])).toMatchObject({ show: true, label: 'Update all', tip: 'Remote device: Codex' });
   resetPrimary();
-});
-
-test('the launch outcome: succeeded leaves after 3 s; a rejected request is the error toast', async () => {
-  resetProviderUpdateNotifications();
-  const fake = new Fake([codex({ versionAdvisory: { status: 'behind_latest', latestVersion: '1.2.0', updateCommand: 'pnpm add -g @openai/codex@latest', canUpdate: true } })]);
-  const client = fake as unknown as T3Client;
-  providerUpdates(fake as never, target(fake));
-  fake.handlers['server.updateProvider'] = () => ({ providers: [codex({ version: '1.2.0', versionAdvisory: { status: 'current' }, updateState: { status: 'succeeded' } })] });
-  await runLaunchUpdates(fake as never, toasts(client)[0]!.action!.id!, target(fake));
-  expect(toasts(client).map(toast => [toast.kind, toast.title, toast.timeoutMs])).toEqual([['success', 'Provider updated', 3000]]);
-  const second = new Fake([codex({ versionAdvisory: { status: 'behind_latest', latestVersion: '1.3.0', updateCommand: 'pnpm add -g @openai/codex@latest', canUpdate: true } })]);
-  providerUpdates(second as never, target(second));
-  second.handlers['server.updateProvider'] = () => { throw new Error('WebSocket closed'); };
-  await runLaunchUpdates(second as never, toasts(second as unknown as T3Client)[0]!.action!.id!, target(second));
-  expect(toasts(second as unknown as T3Client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Provider update failed', 'WebSocket closed']]);
 });
 
 test('Copy update command copies and toasts; the custom model editor saves through the instance upsert', async () => {
@@ -181,18 +137,11 @@ test('Copy update command copies and toasts; the custom model editor saves throu
   expect(withUpkeep(fake, providerPage(fake, 'codex', 0)).escapeOwned).toBe(false);
 });
 
-test('dismissed launch prompts are all kept (dismissProviderUpdateNotification has no limit)', () => {
-  const keys = Array.from({ length: 150 }, (_, index) => `codex:1.${index}.0`);
-  const next: Obj = {};
-  adoptShellPrefs(next, { shell: { providerUpdateDismissals: keys } });
-  expect((obj(next.shell).providerUpdateDismissals as string[]).length).toBe(150);
-});
-
 test('provider update rows expose live progress and keep a terminal problem in the advisory', () => {
   const running = codex({ updateState: { status: 'running', message: 'Installing Codex package' } });
   const fake = new Fake([running]);
   expect(advisoryView(fake, 'codex', running, true, 'list')).toMatchObject({ updating: true,
-    progress: 'Installing Codex package', problem: '', label: 'Updating — view details' });
+    progress: 'Installing Codex package', problem: '', label: 'Updating, view details' });
   expect(withUpkeep(fake, providerPage(fake, 'codex', 1)).rows.find(row => row.id === 'codex')).toMatchObject({
     status: 'Updating · Installing Codex package', dot: '' });
   const failed = codex({ updateState: { status: 'unchanged', message: 'The installed version did not change' } });

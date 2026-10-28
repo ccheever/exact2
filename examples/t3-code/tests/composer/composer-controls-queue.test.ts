@@ -7,6 +7,7 @@ import { snapshot } from '../../src/client/presentation';
 describe('composer commands', () => {
   test('composer commands run without Date.now() (data sources have none): the snapshot clock stands in', async () => {
     const { client, native, command } = await opened();
+    client.local.clientSettings.followUpBehavior = 'queue'; // follow-ups steer by default
     snapshot(client, Date.parse('2026-10-03T02:00:00.000Z'));
     running(client);
     const real = Date.now;

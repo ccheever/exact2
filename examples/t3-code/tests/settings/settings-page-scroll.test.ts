@@ -31,35 +31,39 @@ describe('a Settings page owns its scroller', () => {
     const derive = (name: string) => text.match(new RegExp(`^  derive ${name} = (.+)$`, 'm'))![1]!;
     const focused: string[] = [];
     const frames: Record<string, { x: number; y: number; width: number; height: number }> = {
-      'setting-time-format': { x: 0, y: 900, width: 600, height: 40 }, 'settings-content-column': { x: 0, y: 100, width: 600, height: 2000 },
+      'time-format': { x: 0, y: 900, width: 600, height: 40 }, 'settings-content-column': { x: 0, y: 100, width: 600, height: 2000 },
       'settings-content-scroll': { x: 0, y: 60, width: 600, height: 600 },
     };
     const state: Env = { settingsOpen: true, settingsRoute: 'appearance', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
       settingsFocusTarget: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '' };
     const available = { available: true };
-    let core = { ready: true, route: 'appearance', sections: [{}] };
+    // settingsCore answers for one jump target: its fold's reveal stop and the scope notice, if any.
+    let core = { ready: true, route: 'appearance', sections: [{}], jumpTarget: '', jumpStop: '', notice: '' };
+    let reveals: string[] = [];
     // The root's scope: its derives over the current state, its resources and the host's frame and focus.
     const scope = (): Env => {
       const env: Env = { ...state, settingsCore: core, storageSettings: available, archives: available, diagnostics: available, bindings: available, scheduled: available,
-        sourceControl: available, integrations: available, max: Math.max, floor: Math.floor, frame: (id: string) => frames[id] ?? { x: 0, y: 0, width: 0, height: 0 },
-        focus: (id: string) => focused.push(id) };
+        sourceControl: available, integrations: available, providerPage: available, projectsSettings: { ready: true }, max: Math.max, floor: Math.floor, frame: (id: string) => frames[id] ?? { x: 0, y: 0, width: 0, height: 0 },
+        focus: (id: string) => focused.push(id), querySelectorAll: () => reveals };
       for (const name of ['settingsPage', 'settingsPageScrollTop', 'settingsJumpReady']) env[name] = value(derive(name), env);
       return env;
     };
     const run = (action: string, args: unknown[] = []) => root.call(action, state, scope(), args);
     // From Appearance, the search picks General's "Time format": the route changes and General's settings are not in yet.
-    run('corePick', ['general', 'setting-time-format', '', '']);
+    run('corePick', ['general', 'time-format', '', '']);
     expect(scope().settingsJumpReady).toBe(false);
     run('focusSettingsTarget');
-    expect(state.settingsFocusTarget).toBe('setting-time-format');
+    expect(state.settingsFocusTarget).toBe('time-format');
     run('settingsPageForget'); // the page-left task (after 1 ms)
     expect(scope().settingsPageScrollTop).toBe(0); // the new page's scroller mounts at its top
     // General's settings arrive: the jump is ready, and its task (after 1 ms, once the page is laid out) scrolls to the row.
-    core = { ready: true, route: 'general', sections: [{}] };
+    core = { ...core, route: 'general' };
+    expect(scope().settingsJumpReady).toBe(false); // the answer is still the last target's
+    core = { ...core, jumpTarget: 'time-format' };
     expect(scope().settingsJumpReady).toBe(true);
     run('focusSettingsTarget');
     expect(scope().settingsPageScrollTop).toBe(900 - 100 + 20 - 300 + 0.25); // the row's centre at the scroller's
-    expect(focused).toEqual(['setting-time-format']);
+    expect(focused).toEqual(['time-format']);
     expect(state.settingsFocusTarget).toBe('');
     // The page-left task firing after the jump keeps it: the offset is this page's.
     run('settingsPageForget');
@@ -70,10 +74,84 @@ describe('a Settings page owns its scroller', () => {
     run('settingsPageForget');
     expect(state.settingsScrollPage).toBe('');
     // Every page split from General (9db433f4ba) waits for its own sections the same way, Chat's here.
-    run('corePick', ['chat', 'setting-send-shortcut', '', '']);
+    run('corePick', ['chat', 'send-shortcut', '', '']);
     expect(scope().settingsJumpReady).toBe(false);
-    core = { ready: true, route: 'chat', sections: [{}] };
+    core = { ...core, route: 'chat', jumpTarget: 'send-shortcut' };
     expect(scope().settingsJumpReady).toBe(true);
+    // A scope notice stands in for the page (SettingsScopeBoundary): the jump waits for a scope that has the row.
+    core = { ...core, notice: 'Send shortcut is not available for the selected target.' };
+    expect(scope().settingsJumpReady).toBe(false);
+    core = { ...core, notice: '' };
+    // A row under a closed Advanced fold is not drawn yet: the jump lands on the fold's reveal stop, which opens it.
+    run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
+    core = { ...core, jumpTarget: 'skills-in-slash-menu', jumpStop: 'settings-advanced-composer-reveal' };
+    reveals = ['settings-advanced-composer-reveal'];
+    frames['settings-advanced-composer-reveal'] = { x: 0, y: 700, width: 0, height: 0 };
+    focused.length = 0;
+    run('focusSettingsTarget');
+    expect(focused).toEqual(['settings-advanced-composer-reveal']);
+    expect(scope().settingsPageScrollTop).toBe(700 - 100 - 300);
+    // The fold already open: its stop is focused first (opening is idempotent), then the row.
+    run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
+    frames['skills-in-slash-menu'] = { x: 0, y: 760, width: 600, height: 40 };
+    focused.length = 0;
+    run('focusSettingsTarget');
+    expect(focused).toEqual(['settings-advanced-composer-reveal', 'skills-in-slash-menu']);
+    // A fold this page does not draw leaves the target as it is.
+    run('corePick', ['chat', 'skills-in-slash-menu', '', '']);
+    reveals = [];
+    focused.length = 0;
+    run('focusSettingsTarget');
+    expect(focused).toEqual(['skills-in-slash-menu']);
+  });
+
+  test("a section's result centres the section's header, as scrollAndFocusSettingsTarget does; a row's centres the row", () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const text = appText('app.contract');
+    const derive = (name: string) => text.match(new RegExp(`^  derive ${name} = (.+)$`, 'm'))![1]!;
+    const focused: string[] = [];
+    const box = (y: number, height: number) => ({ x: 0, y, width: 600, height });
+    const frames: Record<string, { x: number; y: number; width: number; height: number }> = {
+      'settings-content-column': box(100, 4000), 'settings-content-scroll': { x: 0, y: 60, width: 600, height: 600 },
+      // Keybindings' and Providers' first sections top their pages, so their results leave the scroller at its top.
+      keybindings: box(100, 120), 'keybindings-scroll-target': box(100, 28), providers: box(100, 900), 'providers-scroll-target': box(100, 28),
+      // Browsing sits lower on its page: its header, not its middle, comes to the scroller's centre.
+      browser: box(900, 700), 'browser-scroll-target': box(900, 28),
+      'send-shortcut': box(900, 60),
+    };
+    const state: Env = { settingsOpen: true, settingsRoute: 'general', settingsMachine: '', settingsProjectKey: '', settingsCheckout: '', settingsRestores: 0,
+      settingsFocusTarget: '', settingsScrollPage: '', settingsScrollTop: 0, settingsQuery: '', settingsMenu: '', modalError: '', providerLinkTarget: '', keybindingQuery: '' };
+    const available = { available: true };
+    let core = { ready: true, route: 'general', sections: [{}], jumpTarget: '', jumpStop: '', notice: '' };
+    const scope = (): Env => {
+      const env: Env = { ...state, settingsCore: core, storageSettings: available, archives: available, diagnostics: available, bindings: available, scheduled: available,
+        sourceControl: available, integrations: available, providerPage: available, projectsSettings: { ready: true }, max: Math.max, floor: Math.floor,
+        frame: (id: string) => frames[id] ?? box(0, 0), focus: (id: string) => focused.push(id), querySelectorAll: () => [] };
+      for (const name of ['settingsPage', 'settingsPageScrollTop', 'settingsJumpReady']) env[name] = value(derive(name), env);
+      return env;
+    };
+    const jump = (route: string, target: string) => {
+      root.call('corePick', state, scope(), [route, target, '', '']);
+      core = { ...core, route, jumpTarget: target };
+      root.call('focusSettingsTarget', state, scope(), []);
+      return [Math.floor(state.settingsScrollTop as number), focused.at(-1)];
+    };
+    expect(jump('keybindings', 'keybindings')).toEqual([0, 'keybindings']); // the filter stays in view
+    expect(jump('providers', 'providers')).toEqual([0, 'providers']); // the top of the list stays in view
+    expect(jump('browser', 'browser')).toEqual([900 - 100 + 28 / 2 - 300, 'browser']);
+    expect(jump('chat', 'send-shortcut')).toEqual([900 - 100 + 60 / 2 - 300, 'send-shortcut']);
+  });
+
+  test("Keybindings' and Providers' results name their first section, and every section's header is its scroll target", () => {
+    const keys = appText('settings-keybindings.contract'), providers = appText('providers.contract');
+    // KeybindingsSettings.tsx and ProviderSettingsPanel.tsx spread searchableSetting(…) on the first SettingsSection.
+    expect(keys).toContain('column width="100%" gap="2rem" testId="keybindings-settings"\n');
+    expect(keys).toMatch(/column width="100%" gap="0\.625rem" id="keybindings" tabindex=-1\n\s+row [^\n]* id="keybindings-scroll-target"\n\s+text "Keybindings"/);
+    expect(providers).toContain('column width="100%" gap="2rem" testId="providers-settings"\n');
+    expect(providers).toMatch(/column width="100%" gap="0\.625rem" id="providers" tabindex=-1\n(\s+\/\/[^\n]*\n)+\s+row [^\n]* id="providers-scroll-target"\n/);
+    expect(appText('settings-kit.contract')).toMatch(/id=sectionId tabindex=-1 testId=sectionId\n\s+row [^\n]* id=`\$\{sectionId\}-scroll-target`\n/);
+    expect(appText('settings-rows.contract').match(/id=`\$\{section\.id\}-scroll-target`/g)).toHaveLength(1); // no result names Legacy features itself
+    expect(appText('settings-members.contract')).toContain('let anchor = frame(`${target}-scroll-target`).height > 0 ? `${target}-scroll-target` : target');
   });
 
   test('a jump to a legacy row opens Legacy features first, by Return as by a press on the result', () => {

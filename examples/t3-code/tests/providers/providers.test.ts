@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
-import { providerRows, providerPage, providerWizard, acpRegistry, runProviderOp, providerFieldValues, healthInterval, type ProviderHost } from '../../src/providers/providers';
+import { providerRows, providerPage, providerWizard, acpRegistry, refreshAcpRegistry, runProviderOp, providerFieldValues, healthInterval, type ProviderHost } from '../../src/providers/providers';
 import { withUpkeep, versionAdvisoryPresentation } from '../../src/providers/providers-upkeep';
-import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, validateInstanceId } from '../../src/providers/providers-meta';
+import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, validateInstanceId, providerInstanceInitials } from '../../src/providers/providers-meta';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
@@ -26,6 +26,7 @@ class FakeServer implements ProviderHost {
   ids?: (native: Native, count: number) => Promise<string[]>;
   ready = true; writable = true; local = { favoriteModels: [] as string[] };
   calls: Obj[] = [];
+  registry: Obj[] = [{ id: 'devin', name: 'Devin', version: '1.2.0', description: 'Devin CLI coding agent', website: 'https://docs.devin.ai/cli', repository: null, icon: 'https://cdn.agentclientprotocol.com/registry/v1/latest/devin.svg', distribution: 'binary' }];
   settings: Obj = { providers: legacy(), providerInstances: { exact_fixture: { driver: 'codex', displayName: 'Exact verification fixture', enabled: true,
     config: { setupMode: 'existing', binaryPath: '/fixture/codex', homePath: '/fixture/home', customModels: [{ slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna' }] } } },
     backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, cursorKeychainUsageEnabled: false };
@@ -40,7 +41,7 @@ class FakeServer implements ProviderHost {
     if (method === 'server.getSettings') return JSON.parse(JSON.stringify(this.settings));
     if (method === 'server.getConfig') return this.snapshot();
     if (method === 'server.refreshProviders') return { providers: this.live };
-    if (method === 'server.searchAcpRegistry') return { agents: [{ id: 'devin', name: 'Devin', version: '1.2.0', description: 'Devin CLI coding agent', website: 'https://docs.devin.ai/cli', repository: null, icon: 'https://cdn.agentclientprotocol.com/registry/v1/latest/devin.svg', distribution: 'binary' }] };
+    if (method === 'server.searchAcpRegistry') return { agents: this.registry };
     if (method === 'server.prepareAcpRegistryAgent') return { agentId: payload.agentId, version: '1.2.0', distribution: 'binary', prepared: true };
     if (method === 'server.updateSettings') {
       const patch = obj(payload.patch);
@@ -174,6 +175,53 @@ test('ACP registry search and prepare fill the identity step without installing 
   expect(await runProviderOp(server, native, 'provider-add', '', JSON.stringify({ driver: 'acpRegistry', label: 'Devin', fields: {} }))).toBe('');
   expect(obj(obj(server.settings.providerInstances).acpRegistry_devin).config).toEqual({ agentId: 'devin', registryIconUrl: 'https://cdn.agentclientprotocol.com/registry/v1/latest/devin.svg', distribution: 'auto' });
   expect(providerWizard(server, true, 8, 'acpRegistry', false, '', false, '').prepared).toEqual([]);
+});
+
+test('Add provider leads with first-class providers and warns before a second Codex or Claude account', () => {
+  const server = new FakeServer();
+  const wizard = providerWizard(server, true, 1, 'codex', false, '', false, '');
+  expect(wizard.drivers.map(driver => [driver.id, driver.badge])).toEqual([['codex', ''], ['claudeAgent', ''], ['cursor', ''], ['grok', ''], ['opencode', ''],
+    ['antigravity', ''], ['muse', ''], ['pi', '']]);
+  expect(wizard.moreDrivers).toEqual([]);
+  // MultipleAccountsNote: Codex is signed in here (exact_fixture), so choosing Codex and Add ChatGPT account say so; Claude is not.
+  expect([wizard.accountsNote, wizard.chatgptAccountsNote]).toEqual(['Codex', 'Codex']);
+  expect(providerWizard(server, true, 1, 'claudeAgent', false, '', false, '').accountsNote).toBe('');
+  server.live = [...server.live, { instanceId: 'claude_work', driver: 'claudeAgent', enabled: true, auth: { status: 'authenticated' } }];
+  server.config = server.snapshot();
+  expect(providerWizard(server, true, 1, 'claudeAgent', false, '', false, '').accountsNote).toBe('Claude');
+  expect(['grok', 'acpRegistry'].map(driver => providerWizard(server, true, 1, driver, false, '', false, '').accountsNote)).toEqual(['', '']);
+});
+
+test('the ACP Registry list leaves out first-class agents and keeps an answer for five minutes', async () => {
+  const server = new FakeServer(), at = 1_000_000;
+  const agent = (id: string): Obj => ({ id, name: id, version: '1.0.0', description: '', website: null, repository: null, icon: null, distribution: 'npx' });
+  server.registry = ['codex-acp', 'claude-acp', 'cursor', 'grok-build', 'opencode', 'opencode-v2', 'antigravity-acp', 'pi-acp', 'devin', 'mistral-vibe'].map(agent);
+  const searches = () => server.calls.filter(call => call.method === 'server.searchAcpRegistry').length;
+  expect(await acpRegistry(server, native, '', false, [], at)).toMatchObject({ ready: false, agents: [] }); // nothing kept yet
+  const first = await acpRegistry(server, native, '', true, [], at);
+  expect([first.agents.map(entry => entry.id), first.status]).toEqual([['devin', 'mistral-vibe'], '2 compatible agents found.']);
+  // Closed, it holds what the dialog opens on; reopened within five minutes it shows it without searching again.
+  expect((await acpRegistry(server, native, '', false, [], at + 60_000)).agents.map(entry => entry.id)).toEqual(['devin', 'mistral-vibe']);
+  expect((await acpRegistry(server, native, '', true, ['devin'], at + 4 * 60_000)).agents.map(entry => [entry.id, entry.added])).toEqual([['devin', true], ['mistral-vibe', false]]);
+  expect(searches()).toBe(1);
+  await acpRegistry(server, native, '', true, [], at + 5 * 60_000 + 1); // stale: asked again
+  expect(searches()).toBe(2);
+  refreshAcpRegistry(server, ' '); // Enter on the same search
+  await acpRegistry(server, native, '', true, [], at + 5 * 60_000 + 2);
+  expect(searches()).toBe(3);
+  // Kept five minutes after the dialog stops asking for it, then dropped.
+  await acpRegistry(server, native, '', false, [], at + 6 * 60_000);
+  expect((await acpRegistry(server, native, '', false, [], at + 11 * 60_000)).agents).toHaveLength(2);
+  expect(await acpRegistry(server, native, '', false, [], at + 11 * 60_000 + 1)).toMatchObject({ ready: false, agents: [] });
+});
+
+test('list badges are the instance initials, punctuation breaking words', () => {
+  expect(['Codex (hub)', 'Work', "Theo's Codex", "Codex 'hub'", '‘hub’', '(hub)', 'work_codex', '😀 Work', '😀'].map(providerInstanceInitials))
+    .toEqual(['CH', 'WO', 'TC', 'CH', 'HU', 'HU', 'WC', '😀W', '😀']);
+  const server = new FakeServer();
+  server.settings.providerInstances = { ...obj(server.settings.providerInstances), codex_hub: { driver: 'codex', displayName: 'Codex (hub)', accentColor: '#2563eb', enabled: true, config: {} } };
+  server.config = server.snapshot();
+  expect(providerPage(server, '', 0).rows.find(row => row.id === 'codex_hub')?.badge).toBe('CH');
 });
 
 test('editor writes change only the selected instance and skip no-op commits', async () => {
