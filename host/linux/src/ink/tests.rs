@@ -169,3 +169,21 @@ fn image_revisions_and_mips_preserve_alpha_and_group_opacity() {
         }
     }
 }
+
+#[test]
+fn finish_returns_a_group_error_without_hanging() {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut ink = Ink::new().expect("native adapter");
+        ink.begin(8., 8., 1.);
+        ink.push_opacity(0.5);
+        ink.error = Some("allocation refused".into());
+        send.send(ink.finish().unwrap_err()).unwrap();
+    });
+    assert_eq!(
+        receive
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap(),
+        "allocation refused"
+    );
+}

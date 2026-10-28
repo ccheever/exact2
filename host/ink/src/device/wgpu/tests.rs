@@ -263,3 +263,28 @@ fn textures_brushes_clips_mips_and_retirement_reach_the_pixels() {
     device.trim().unwrap();
     assert!(device.buffers.iter().all(|s| s.capacity == 192));
 }
+
+#[test]
+fn allocation_errors_are_results_and_the_device_remains_usable() {
+    let mut device = Wgpu::new().expect("native adapter");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        checked(&device.device, || {
+            device.device.create_buffer(&::wgpu::BufferDescriptor {
+                label: Some("invalid allocation fixture"),
+                size: 16,
+                usage: ::wgpu::BufferUsages::MAP_READ | ::wgpu::BufferUsages::VERTEX,
+                mapped_at_creation: false,
+            })
+        })
+    }));
+    assert!(matches!(result, Ok(Err(Error::Device(_)))));
+    let target = device.create_target(1, 1).unwrap();
+    device
+        .render(&Frame::default(), target, Some([0.25, 0., 0., 1.]))
+        .unwrap();
+    near(
+        device.readback(target).unwrap().try_into().unwrap(),
+        [64, 0, 0, 255],
+        1,
+    );
+}

@@ -122,12 +122,11 @@ impl Ink {
             return Ok(());
         }
         if self.encoder.push(instance, bindings).is_err() {
-            // A shadow uses its second clip slot for the excluded border box.
-            self.open_group(1., None);
-            self.encoder
-                .push(instance, bindings)
-                .map_err(|_| Error::Invalid("instance clips".into()))?;
-            self.close_group()?;
+            let clip = self.combined_clip(None)?;
+            self.encoder.push_combined_clip(clip);
+            let result = self.encoder.push(instance, bindings);
+            self.encoder.pop_clip();
+            result.map_err(|_| Error::Invalid("instance clips".into()))?;
         }
         Ok(())
     }
@@ -424,7 +423,7 @@ impl Backend for Ink {
         if self.record(rows::Marker::Opacity(alpha)) {
             return;
         }
-        self.open_group(alpha.clamp(0., 1.), None);
+        self.open_group(alpha.clamp(0., 1.));
     }
     fn pop_opacity(&mut self) {
         if self.record(rows::Marker::PopOpacity) {
@@ -438,7 +437,7 @@ impl Backend for Ink {
         if self.record(rows::Marker::Opacity(1.)) {
             return;
         }
-        self.open_group(1., None);
+        self.open_group(1.);
     }
     fn pop_mask(
         &mut self,
@@ -504,12 +503,11 @@ impl Backend for Ink {
     }
 
     fn finish(&mut self) -> std::result::Result<Pixmap, String> {
-        while !self.groups.is_empty() {
-            let r = self.close_group();
-            self.accept(r);
+        if let Some(e) = &self.error {
+            return Err(e.clone());
         }
-        if let Some(e) = self.error.take() {
-            return Err(e);
+        while !self.groups.is_empty() {
+            self.close_group().map_err(|e| e.to_string())?;
         }
         let target = self.flush().map_err(|e| e.to_string())?;
         let render_ms = self.layer_ms;

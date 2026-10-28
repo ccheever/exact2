@@ -55,6 +55,7 @@ pub struct Wgpu {
     retired_textures: Vec<(Submission, Texture)>,
     retired_buffers: Vec<(Submission, ::wgpu::Buffer)>,
     info: Info,
+    errors: Arc<Mutex<Option<String>>>,
 }
 
 impl Wgpu {
@@ -95,6 +96,14 @@ impl Wgpu {
             })
             .await
             .map_err(|e| Error::Device(e.to_string()))?;
+        let failures = Arc::new(Mutex::new(None));
+        let errors = failures.clone();
+        device.on_uncaptured_error(Arc::new(move |error| {
+            errors
+                .lock()
+                .unwrap()
+                .get_or_insert_with(|| format!("{error}"));
+        }));
         let device_ms = started.elapsed().as_secs_f64() * 1000.;
         let started = Instant::now();
         let errors = device.push_error_scope(::wgpu::ErrorFilter::Validation);
@@ -206,16 +215,22 @@ impl Wgpu {
             mipmap_filter: ::wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
-        let viewport = device.create_buffer(&::wgpu::BufferDescriptor {
-            label: Some("ink viewport"),
-            size: 16,
-            usage: ::wgpu::BufferUsages::UNIFORM | ::wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let buffers = std::array::from_fn(|_| BufferSlot {
-            buffer: instance_buffer(&device, 192),
-            capacity: 192,
-        });
+        let viewport = checked(&device, || {
+            device.create_buffer(&::wgpu::BufferDescriptor {
+                label: Some("ink viewport"),
+                size: 16,
+                usage: ::wgpu::BufferUsages::UNIFORM | ::wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        })?;
+        let mut initial = Vec::new();
+        for _ in 0..3 {
+            initial.push(BufferSlot {
+                buffer: instance_buffer(&device, 192)?,
+                capacity: 192,
+            });
+        }
+        let buffers = initial.try_into().ok().unwrap();
         let white_alpha = allocate_texture(
             &device,
             TextureDesc {
@@ -224,8 +239,8 @@ impl Wgpu {
                 format: Format::Alpha,
                 mipmapped: false,
             },
-        );
-        let white_color = allocate_texture(&device, TextureDesc::rgba(1, 1));
+        )?;
+        let white_color = allocate_texture(&device, TextureDesc::rgba(1, 1))?;
         upload(&queue, &white_alpha, [0, 0], [1, 1], &[255]);
         upload(&queue, &white_color, [0, 0], [1, 1], &[255; 4]);
         Ok(Self {
@@ -247,6 +262,7 @@ impl Wgpu {
             pending: BTreeMap::new(),
             retired_textures: Vec::new(),
             retired_buffers: Vec::new(),
+            errors: failures,
             info: Info {
                 adapter: adapter_info.name,
                 api: format!("{:?}", adapter_info.backend),
@@ -309,7 +325,11 @@ impl Wgpu {
         {
             entries.push(::wgpu::BindGroupEntry {
                 binding,
-                resource: ::wgpu::BindingResource::TextureView(self.slot(id, format)?),
+                resource: ::wgpu::BindingResource::TextureView(if binding == 7 && id.0 != 0 {
+                    &self.texture(id)?.view
+                } else {
+                    self.slot(id, format)?
+                }),
             });
         }
         entries.push(::wgpu::BindGroupEntry {
@@ -392,12 +412,14 @@ impl Wgpu {
         let row = width * texture.desc.format.channels();
         let padded = row.div_ceil(::wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
             * ::wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let buffer = self.device.create_buffer(&::wgpu::BufferDescriptor {
-            label: Some("ink readback"),
-            size: u64::from(padded) * u64::from(height),
-            usage: ::wgpu::BufferUsages::COPY_DST | ::wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let buffer = checked(&self.device, || {
+            self.device.create_buffer(&::wgpu::BufferDescriptor {
+                label: Some("ink readback"),
+                size: u64::from(padded) * u64::from(height),
+                usage: ::wgpu::BufferUsages::COPY_DST | ::wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })
+        })?;
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_texture_to_buffer(
             ::wgpu::TexelCopyTextureInfo {
@@ -476,7 +498,7 @@ impl Device for Wgpu {
         if bytes == 0 || bytes > self.device.limits().max_buffer_size {
             return Err(Error::Invalid("instance buffer size".into()));
         }
-        Ok(instance_buffer(&self.device, bytes))
+        instance_buffer(&self.device, bytes)
     }
 
     fn upload_buffer(&self, buffer: &Self::Buffer, offset: u64, data: &[u8]) -> Result<()> {
@@ -505,7 +527,7 @@ impl Device for Wgpu {
         let id = TextureId(self.next_texture);
         self.next_texture += 1;
         self.textures
-            .insert(id, allocate_texture(&self.device, desc));
+            .insert(id, allocate_texture(&self.device, desc)?);
         Ok(id)
     }
 
@@ -547,25 +569,27 @@ impl Device for Wgpu {
                 mip_level_count: Some(1),
                 ..Default::default()
             });
-            let viewport = self
-                .device
-                .create_buffer_init(&::wgpu::util::BufferInitDescriptor {
-                    label: Some("ink mip viewport"),
-                    contents: bytemuck::cast_slice(&[width as f32, height as f32, 0., 0.]),
-                    usage: ::wgpu::BufferUsages::UNIFORM,
-                });
+            let viewport = checked(&self.device, || {
+                self.device
+                    .create_buffer_init(&::wgpu::util::BufferInitDescriptor {
+                        label: Some("ink mip viewport"),
+                        contents: bytemuck::cast_slice(&[width as f32, height as f32, 0., 0.]),
+                        usage: ::wgpu::BufferUsages::UNIFORM,
+                    })
+            })?;
             let instance = Instance::new(
                 Kind::Layer,
                 Brush::Solid,
                 [0., 0., width as f32, height as f32],
             );
-            let buffer = self
-                .device
-                .create_buffer_init(&::wgpu::util::BufferInitDescriptor {
-                    label: Some("ink mip quad"),
-                    contents: bytemuck::bytes_of(&instance),
-                    usage: ::wgpu::BufferUsages::VERTEX,
-                });
+            let buffer = checked(&self.device, || {
+                self.device
+                    .create_buffer_init(&::wgpu::util::BufferInitDescriptor {
+                        label: Some("ink mip quad"),
+                        contents: bytemuck::bytes_of(&instance),
+                        usage: ::wgpu::BufferUsages::VERTEX,
+                    })
+            })?;
             let group = self.bindings(Bindings::default(), &viewport, Some(&source))?;
             let batch = Batch {
                 instances: 0..1,
@@ -761,6 +785,9 @@ impl Device for Wgpu {
     }
 
     fn completed(&mut self) -> Result<Submission> {
+        if let Some(e) = self.errors.lock().unwrap().as_ref() {
+            return Err(Error::Device(e.clone()));
+        }
         self.device
             .poll(::wgpu::PollType::Poll)
             .map_err(|e| Error::Device(e.to_string()))?;
@@ -788,7 +815,7 @@ impl Device for Wgpu {
                 let old = std::mem::replace(
                     slot,
                     BufferSlot {
-                        buffer: instance_buffer(&self.device, 192),
+                        buffer: instance_buffer(&self.device, 192)?,
                         capacity: 192,
                     },
                 );
@@ -799,35 +826,39 @@ impl Device for Wgpu {
     }
 }
 
-fn instance_buffer(device: &::wgpu::Device, size: u64) -> ::wgpu::Buffer {
-    device.create_buffer(&::wgpu::BufferDescriptor {
-        label: Some("ink instances"),
-        size,
-        usage: ::wgpu::BufferUsages::VERTEX | ::wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
+fn instance_buffer(device: &::wgpu::Device, size: u64) -> Result<::wgpu::Buffer> {
+    checked(device, || {
+        device.create_buffer(&::wgpu::BufferDescriptor {
+            label: Some("ink instances"),
+            size,
+            usage: ::wgpu::BufferUsages::VERTEX | ::wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
     })
 }
 
-fn allocate_texture(device: &::wgpu::Device, desc: TextureDesc) -> Texture {
-    let raw = device.create_texture(&::wgpu::TextureDescriptor {
-        label: Some("ink"),
-        size: extent([desc.width, desc.height]),
-        mip_level_count: desc.levels(),
-        sample_count: 1,
-        dimension: ::wgpu::TextureDimension::D2,
-        format: if desc.format == Format::Alpha {
-            ::wgpu::TextureFormat::R8Unorm
-        } else {
-            ::wgpu::TextureFormat::Rgba8Unorm
-        },
-        usage: ::wgpu::TextureUsages::TEXTURE_BINDING
-            | ::wgpu::TextureUsages::COPY_DST
-            | ::wgpu::TextureUsages::COPY_SRC
-            | ::wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
+fn allocate_texture(device: &::wgpu::Device, desc: TextureDesc) -> Result<Texture> {
+    let raw = checked(device, || {
+        device.create_texture(&::wgpu::TextureDescriptor {
+            label: Some("ink"),
+            size: extent([desc.width, desc.height]),
+            mip_level_count: desc.levels(),
+            sample_count: 1,
+            dimension: ::wgpu::TextureDimension::D2,
+            format: if desc.format == Format::Alpha {
+                ::wgpu::TextureFormat::R8Unorm
+            } else {
+                ::wgpu::TextureFormat::Rgba8Unorm
+            },
+            usage: ::wgpu::TextureUsages::TEXTURE_BINDING
+                | ::wgpu::TextureUsages::COPY_DST
+                | ::wgpu::TextureUsages::COPY_SRC
+                | ::wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+    })?;
     let view = raw.create_view(&Default::default());
-    Texture { raw, view, desc }
+    Ok(Texture { raw, view, desc })
 }
 
 fn check_region(desc: TextureDesc, origin: [u32; 2], size: [u32; 2]) -> Result<()> {
@@ -887,5 +918,47 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
             std::task::Poll::Ready(value) => return value,
             std::task::Poll::Pending => std::thread::park(),
         }
+    }
+}
+
+fn checked<T>(device: &::wgpu::Device, make: impl FnOnce() -> T) -> Result<T> {
+    let scopes = [
+        ::wgpu::ErrorFilter::OutOfMemory,
+        ::wgpu::ErrorFilter::Internal,
+        ::wgpu::ErrorFilter::Validation,
+    ]
+    .map(|filter| device.push_error_scope(filter));
+    let value = make();
+    let mut failure = None;
+    for scope in scopes.into_iter().rev() {
+        #[cfg(not(target_arch = "wasm32"))]
+        let error = block_on(scope.pop());
+        #[cfg(target_arch = "wasm32")]
+        let error = {
+            use std::{
+                future::Future,
+                task::{Context, Poll, Waker},
+            };
+            let mut future = std::pin::pin!(scope.pop());
+            match future
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+            {
+                Poll::Ready(error) => error,
+                Poll::Pending => {
+                    failure = Some(Error::Unsupported(
+                        "synchronous WebGPU allocation error scope",
+                    ));
+                    None
+                }
+            }
+        };
+        if let Some(error) = error {
+            failure = Some(Error::Device(error.to_string()));
+        }
+    }
+    match failure {
+        Some(error) => Err(error),
+        None => Ok(value),
     }
 }

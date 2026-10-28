@@ -51,7 +51,11 @@ impl Ink {
                     };
                     let dev = self.device_transform(ts);
                     let resolution = dev.sx.hypot(dev.ky).max(dev.kx.hypot(dev.sy));
-                    let Some(p) = path.stroke(&stroke, resolution) else {
+                    let dashed = match &stroke.dash {
+                        Some(dash) => path.dash(dash, resolution),
+                        None => Some(path.clone()),
+                    };
+                    let Some(p) = dashed.and_then(|p| p.stroke(&stroke, resolution)) else {
                         continue;
                     };
                     (p, s.stroke.as_ref(), FillRule::Winding)
@@ -156,7 +160,7 @@ impl Ink {
             self.encoder.pop_clip();
         }
         self.open_clip_group(coverage)?;
-        self.clips.push(true);
+        self.clips.push(false);
         Ok(())
     }
 
