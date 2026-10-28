@@ -1,7 +1,7 @@
 // Excord: a Discord client (apps/excord/llp/0001).
 // The data seam is §4.2's: `gatewayState` is the gateway's stream and its small snapshot (a version
 // for the lists and one per channel); each list is a resource taking its version, and the transcript
-// is one resource, `loadWindow`, answering one contiguous run of at most 200 messages around `anchor`
+// is one resource, `loadWindow`, answering one contiguous run of at most 300 messages around `anchor`
 // ("" is the live tail).
 // Paging moves the anchor a page ahead of the reader (`scrolled`, with `reachstart` and `reachend`
 // behind it); a jump replaces the window and places its target with `scrollIntoView`.
@@ -252,6 +252,8 @@ component Excord
   derive rows = win.channel == open ? win.rows : []
   derive keys = rows.map(r => r.key)
   derive lastKey = match rows.at(-1) { case some(r) => r.key, case none => "" }
+  // The first visible row's place in the window (`scrolled` keeps its key).
+  derive topAt = keys.indexOf(topKey)
   derive dividerKey = match first(rows.filter(r => r.isNew)) { case some(r) => r.key, case none => "" }
   // The window answers the reader's present request (a page or a jump has
   // landed). A window's pin asks for the same rows, so pinning it keeps it current.
@@ -361,6 +363,10 @@ component Excord
   // ack chose its newest) and after a failed ack, at most three times.
   task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
+  // The lead holds with no scroll event (F1): a page that lands while the reader is still within 100 rows of
+  // the window's first row moves the anchor there, and the next page goes out at once.
+  task leadOlder when current and target == "" and (away or anchor != "") and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
+    after(1, older)
   // The page the window lacks; a failed one is asked again, at most three times.
   task fetchPage when win.channel == open and not signedOutNow and win.need != "" and not historyFailed and not pending(paged) and not pending(editPaged) key=`${pageKey}/${pageTries}`
     after(1, pageNow)
@@ -566,10 +572,13 @@ component Excord
 
   // The window: the reader's place decides which run of history it holds.
   // The reader is at the end within the last row's height of it (§3.7). The
-  // window anchors at its first (last) row when the first visible row comes
-  // within 15 rows of that edge, and the data module then fetches the one page
-  // (50 rows) beyond it (§2: the next page only as the reader moves toward the
-  // edge): `reachstart` alone gives one viewport of lead, which a fling
+  // window anchors at its first row when the first visible row comes within
+  // 100 rows of it (15 at the live end, which a short tail must not leave by
+  // itself), and the data module then fetches the pages before it, one
+  // at a time, each the moment the last lands, until 100 rows stand above the
+  // anchor (x2-perf4's fling plan, F1: a fling up travels 60-90 rows, so it
+  // meets loaded rows, not the top). Toward the newest end, 15 rows and one page,
+  // as before. `reachstart` alone gives one viewport of lead, which a fling
   // overruns. A page is asked only of a window that answers the present
   // request, whatever else is refreshing.
   action scrolled(x: number, y: number, e: ScrollEvent)
@@ -600,7 +609,7 @@ component Excord
         if anchor != "" and not win.hasAfter
           anchor = ""
     if at >= 0 and current and target == ""
-      if at < 15 and win.hasBefore
+      if at < (isAway ? 100 : 15) and win.hasBefore
         anchor = win.firstId
       else
         if at > keys.length - 15 and win.hasAfter

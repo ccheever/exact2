@@ -6,7 +6,7 @@ import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 import * as S from './discord/store';
 import * as rest from './discord/rest';
 import { cmpId, msFromSnowflake } from './discord/ids';
-import { applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live, type Upload } from './live';
+import { abortPages, applyEvent, at, call, clock, connect, context, createLive, digest, dispatch, heartbeat, loadSession, nonce, page, recordIdentify, RestError, sendIdentify, signIn, signOut, touched, view, type Live, type Upload } from './live';
 import { emojiChoices, resolveMentions, suggest, switchTargets } from './compose';
 import { protectToken, signInAgain, unlockSession, unprotectToken } from './lock';
 import { avatarUrl, clip, createRenderer, timeOf, windowOf, type Directories, type Stored, type Unread } from './render';
@@ -132,7 +132,7 @@ function roleColors(roles: Record<string, any>[]): Map<string, { position: numbe
   return found;
 }
 const render = createRenderer(dirs);
-const LIMIT = 200, HALF = 100;
+const LIMIT = S.WINDOW_CAP, HALF = 100;
 
 // What is unread after `since`: counted in the cached run that holds it, a lower bound (`more`) when
 // that run does not reach the newest message or `since` is not cached; its time is then the read
@@ -270,13 +270,16 @@ const readable = (guild: string) => S.guildChannelList(store, guild).filter(c =>
 const emptyWindow = (channel: string, anchor: string): Window => ({ channel, anchor, rows: [], hasBefore: false,
   hasAfter: false, firstId: '', lastId: '', pin: '', unread: 0, unreadMore: false, unreadAt: 0, need: '', cursor: '' });
 
-// The window: one run of at most 200 cached messages, the live tail or around an anchor, of the rows
-// a page has confirmed since the last fresh READY (the rest are left out until a page confirms them).
-// It names the one page it lacks (`need`, `cursor`), which the view asks for: the newest 50 for a
-// tail with none, 50 around an anchor not held, and 50 beyond an anchor within EDGE rows of the
-// window's edge, since the view moves its anchor there only as the reader nears that edge (§2: one
-// page on opening a channel, the next as the reader moves toward the edge).
-const EDGE = 15;
+// The window: one run of at most 300 cached messages (S.WINDOW_CAP), the live tail or around an anchor,
+// of the rows a page has confirmed since the last fresh READY (the rest are left out until a page
+// confirms them). It names the one page it lacks (`need`, `cursor`), which the view asks for: the
+// newest 50 for a tail with none, 50 around an anchor not held, 50 newer than an anchor within EDGE
+// rows of the window's end, and 50 older than one within LEAD rows of its start: the view moves its
+// anchor to the start as the reader comes within LEAD rows of it, and the pages before it are asked
+// one after another, each the moment the last lands, until LEAD rows stand above the anchor. A fling
+// up (about 60-90 rows) then meets rows already loaded rather than the window's top (x2-perf4's fling
+// plan, F1; Excord's RFC still holds: 50 a page, one page in flight per channel).
+const EDGE = 15, LEAD = 100;
 export function loadWindow(channel: string, asked: string, since: string): Window {
   if (!channel) return emptyWindow(channel, asked);
   // An anchor Discord's page did not hold is answered with the channel's end, under the anchor asked.
@@ -312,8 +315,13 @@ export function loadWindow(channel: string, asked: string, since: string): Windo
     if (!firstId && (w.fetchLatest || w.rows.length)) need = 'latest';
     else if (firstId && rows.length < 50 && hasBefore) { need = 'before'; cursor = firstId; }
   }
-  else if (pos < 0) { need = 'around'; cursor = anchor; }
-  else if (pos < EDGE && hasBefore) { need = 'before'; cursor = firstId; }
+  else if (pos < 0) {
+    need = 'around'; cursor = anchor;
+    // A jump replaces the window: a page still loading toward the old one's edge is aborted (F1).
+    const jump = JSON.stringify(QUERIES.around(anchor));
+    abortPages(live, (other, query) => other !== channel || JSON.stringify(query) === jump);
+  }
+  else if (pos < LEAD && hasBefore) { need = 'before'; cursor = firstId; }
   else if (rows.length - 1 - pos < EDGE && hasAfter) { need = 'after'; cursor = rows[rows.length - 1].id ?? ''; }
   const firstKey = rows[0] ? (rows[0].id ?? rows[0].key) : '';
   const previous = firstKey ? S.windowBefore(store, channel, firstKey, 1).rows[0] : undefined;
