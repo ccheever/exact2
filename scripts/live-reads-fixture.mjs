@@ -1,7 +1,9 @@
-// The Bluesky clone's three live reads, on a server of this machine (theme2's 23:41Z approval): the clone's
-// tests of them asked Bluesky itself, so main's runs of them failed whenever the network did. Each read here is
-// what the clone's is, a plain fetch from a TypeScript source, and each answer is DELAYED, so a `clock data`
-// that stopped waiting for a fetch in flight fails (the class 566d1aa573 touched). host/web-js/live-reads.test.mjs
+// What the Bluesky clone's three live-read tests prove about exact2, on a server of this machine (theme2's 23:41Z
+// approval): those tests asked Bluesky itself, and failed in main's runs while passing on a fresh main, the network
+// the likeliest cause. Each read is a plain fetch from a TypeScript source, as the clone's are (the poll and Top's
+// 403 are synthetic: the clone answers both locally when signed out), and each answer is WITHHELD until
+// `delay` ms after it came or after the last input step landed (`arm`), so the `clock` step that follows must wait
+// for a fetch in flight or fail (the class 566d1aa573 touched). host/web-js/live-reads.test.mjs
 // runs the tests below on the JS target, then FAILING sends every read a failure, which each test must fall back
 // from, not hang on; host/web/live-reads.test.mjs runs both on the wasm target, against a dist built as `native`
 // below says.
@@ -75,6 +77,8 @@ component LiveReads
     scrollIntoView("post-0", block="start")
   action search(tab: string)
     searchTab = tab
+  action arm
+    fresh = fresh
   action toggleVideos
     send keep = keepVideos(not trending.videosOff)
   action wasKept
@@ -82,6 +86,8 @@ component LiveReads
   view
     column height="100%" min-height=0
       row
+        button press=arm testId="arm"
+          text "Arm"
         button press=search("top") testId="search-tab-top"
           text "Top"
         button press=search("people") testId="search-tab-people"
@@ -116,10 +122,11 @@ component LiveReads
 
 /** The tests with every read answered. */
 export const TESTS = `test "Discover's poll: a timer's re-ask lands within clock data, and the load-new-posts button follows the scroll"
+  tap "arm"
   clock data
   expect state posts == 30
   expect tree missing "loadLatestBtn"
-  tap "feed" drag 0 -400
+  tap "feed" drag 0 -400 hold 300
   clock settle
   expect state down == true
   expect tree has "loadLatestBtn"
@@ -141,6 +148,7 @@ export const TESTS = `test "Discover's poll: a timer's re-ask lands within clock
   expect tree missing "loadLatestBtn"
 
 test "Explore's tabs: each tap's fetch is waited on, and Top's 403 is the source's to shape"
+  tap "arm"
   clock data
   tap "search-tab-top"
   clock data
@@ -154,6 +162,7 @@ test "Explore's tabs: each tap's fetch is waited on, and Top's 403 is the source
   expect tree has "feed-results"
 
 test "Content & Media: a config read gates the switches, and the setting kept on the device survives a reload"
+  tap "arm"
   clock data
   expect tree has "show_trending_topics"
   expect tree has "show_trending_videos"
@@ -169,6 +178,7 @@ test "Content & Media: a config read gates the switches, and the setting kept on
 
 /** The same reads failing: each falls back, and every `clock data` still ends. */
 export const FAILING_TESTS = `test "a poll that fails leaves no new posts"
+  tap "arm"
   clock data
   expect state posts == 0
   clock + 61000
@@ -178,6 +188,7 @@ export const FAILING_TESTS = `test "a poll that fails leaves no new posts"
   expect tree missing "loadLatestBtn"
 
 test "a search that fails says so"
+  tap "arm"
   clock data
   tap "search-tab-people"
   clock data
@@ -188,21 +199,25 @@ test "a search that fails says so"
   expect tree has "feeds-failed"
 
 test "a config read that fails shows no switches"
+  tap "arm"
   clock data
   expect state configAnswered == true
   expect tree missing "show_trending_topics"
   expect tree missing "show_trending_videos"
 `;
 
-/** Bluesky's three reads, each answered after `delay` ms: Discover's feed (30 posts, one more for each load of new posts)
- * and its poll (`count` new), searchPosts (403, as Bluesky answers a signed-out search), searchActors,
- * getPopularFeedGenerators and unspecced.getConfig, typed as Bluesky types them. `failing` answers every one
- * 500. `seen` lists the paths asked, in order. */
+/** Bluesky's reads, each answered no sooner than `delay` ms after it came or after the last `arm`: Discover's feed
+ * (30 posts, one more for each load of new posts) and a poll of it (`count` new), searchPosts (403, a search
+ * refused), searchActors, getPopularFeedGenerators and unspecced.getConfig, typed as Bluesky types them. `failing`
+ * answers every one 500. `seen` lists the paths asked, in order. */
 export function blueskyServer({ delay = 300, port = 0 } = {}) {
   const seen = [];
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'content-type': 'application/json' };
   const state = { failing: false };
-  const json = (body, status = 200) => new Promise(ok => setTimeout(() => ok(new Response(JSON.stringify(body), { status, headers: cors })), delay));
+  // Each answer waits `delay` ms; `arm` restarts that wait for every answer still withheld.
+  const withheld = new Set();
+  const hold = answer => { answer.timer = setTimeout(() => { withheld.delete(answer); answer(); }, delay); withheld.add(answer); };
+  const json = (body, status = 200) => new Promise(ok => hold(() => ok(new Response(JSON.stringify(body), { status, headers: cors }))));
   const server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch(req) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
     const url = new URL(req.url), path = url.pathname;
@@ -225,6 +240,8 @@ export function blueskyServer({ delay = 300, port = 0 } = {}) {
   } });
   return {
     origin: `http://127.0.0.1:${server.port}`, seen, state,
+    /** An input step landed (runTests' `atStep`): what it asked is answered no sooner than `delay` ms from now. */
+    arm: () => { for (const answer of [...withheld]) { clearTimeout(answer.timer); withheld.delete(answer); hold(answer); } },
     stop: () => server.stop(true),
   };
 }

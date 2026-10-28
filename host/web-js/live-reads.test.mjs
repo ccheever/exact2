@@ -5,16 +5,17 @@ import { runTests } from '../../scripts/agent-test.mjs';
 import { blueskyServer, FAILING_TESTS, liveReadsApp, TESTS } from '../../scripts/live-reads-fixture.mjs';
 import { webCompiler } from './module.mjs';
 
-// The Bluesky clone's three live reads on the JS target, against a server of this machine whose every answer
-// comes 300 ms late (scripts/live-reads-fixture.mjs): each `clock data` must wait for the fetch in flight. Then
-// every read fails, and each test falls back rather than hanging.
+// What the Bluesky clone's three live-read tests prove, on the JS target, against a server of this machine that
+// withholds each answer 300 ms past the input step that asked for it (scripts/live-reads-fixture.mjs): each
+// `clock` step must wait for the fetch in flight. Then every read fails, and each test falls back rather than
+// hanging.
 test('the clone\'s live reads land within clock data, and fall back when they fail', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
   const root = resolve(import.meta.dir, '../..');
-  const server = blueskyServer({ delay: 300 });
-  const dir = liveReadsApp(root, server.origin);
-  let page;
+  let server, dir, page;
   try {
+    server = blueskyServer({ delay: 300 });
+    dir = liveReadsApp(root, server.origin);
     const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'live-reads', '--out', resolve(dir, 'dist'), '--render', 'none'], {
       cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
     });
@@ -28,7 +29,7 @@ test('the clone\'s live reads land within clock data, and fall back when they fa
     const run = async (name, text) => {
       const file = resolve(dir, name);
       writeFileSync(file, text);
-      return runTests({ host: 'web', file, app: dir, url: page.url.href });
+      return runTests({ host: 'web', file, app: dir, url: page.url.href, atStep: () => server.arm() });
     };
     const answered = await run('app.test.contract', TESTS);
     expect(answered.results.map(r => [r.name, r.failures])).toEqual(answered.results.map(r => [r.name, []]));
@@ -40,7 +41,7 @@ test('the clone\'s live reads land within clock data, and fall back when they fa
     expect(failing.results.length).toBe(3);
   } finally {
     page?.stop(true);
-    server.stop();
-    rmSync(dir, { recursive: true, force: true });
+    server?.stop();
+    if (dir) rmSync(dir, { recursive: true, force: true });
   }
 }, 300_000);
