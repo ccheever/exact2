@@ -195,7 +195,7 @@ pub fn read(index: u8, reading: Reading) {
 
 /// The host's reader: pad `index` is gone, with every claim on it.
 pub fn disconnect(index: u8) {
-    with(|r, ended| (((), r.disconnect(index, ended))))
+    with(|r, ended| ((), r.disconnect(index, ended)))
 }
 
 /// The connected pads by index, and the one in use.
