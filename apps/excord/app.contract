@@ -367,8 +367,9 @@ component Excord
   // The lead holds with no scroll event (F1): a page that lands while the reader, away from the live end, is
   // still within 100 rows of the window's first row moves the anchor there, and the next page goes out at once.
   // One page a step, so it asks none beyond the page that brings the lead to 100 rows (rows already cached can
-  // stand further above). At the live end a short tail gets its one page, as before.
-  task leadOlder when reading and current and target == "" and away and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
+  // stand further above). At the live end a short tail gets its one page, as before; after a jump it waits
+  // for the target's highlight to clear (2.5 s), so the jump's placement is settled before rows go above it.
+  task leadOlder when reading and current and target == "" and highlight == "" and away and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
     after(1, older)
   // The page the window lacks, while the channel is read (leaving aborts the page in flight, and none is
   // asked behind the list); a failed one is asked again, at most three times.
