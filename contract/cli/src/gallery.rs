@@ -1093,7 +1093,12 @@ fn args(
                 Some(ty) => {
                     let v = placeholder(ty, &p.name, file, shapes, compiler, &mut Vec::new())
                         .map_err(|why| format!("{} ({why})", p.name))?;
-                    taken.extend(role(v.trim_matches('"')));
+                    // (an enum's first literal as written, not its escaped source text)
+                    let raw = match ty {
+                        TypeExpr::Enum(options, _) => options.first().map(String::as_str),
+                        _ => Some(v.trim_matches('"')),
+                    };
+                    taken.extend(raw.and_then(role));
                     v
                 }
                 None => return Err(format!("{} (no type written)", p.name)),
