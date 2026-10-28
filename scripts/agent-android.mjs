@@ -233,13 +233,27 @@ async function relay([serial, id, vars]) {
   socket.on('error', () => done(1));
   const answer = () => ready.length ? Promise.resolve(ready.shift()) : new Promise((r) => waiting.push(r));
   const say = (line) => process.stdout.write(line + '\n');
+  const pollsLanded = async () => {
+    for (const end = Date.now() + 2000; Date.now() < end;) {
+      socket.write('{"op":"polls"}\n');
+      if (!JSON.parse(await answer()).asking) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
   say(await answer()); // the app's `ready`
   let pending = '', turn = Promise.resolve();
   const one = async (line) => {
     let req = null;
     try { req = JSON.parse(line); } catch {}
     if (req?.op === 'quit') return done(0);
-    if (req?.op !== 'screenshot') { socket.write(line + '\n'); return say(await answer()); }
+    if (req?.op !== 'screenshot') {
+      socket.write(line + '\n');
+      const reply = await answer();
+      // A jump's asks of polled module sources land before its reply is given (LLP 1133.009 D10 item 7). The
+      // reader's extensions answer on its main thread, which takes their asks between requests, so the wait is here.
+      if (req?.op === 'clock' && !req.settle) await pollsLanded();
+      return say(reply);
+    }
     if (req.film) return say(JSON.stringify({ error: 'the reader carrier films nothing: its picture is a screencap of the device' }));
     await new Promise((r) => setTimeout(r, SHOT_SETTLE_MS));
     const shot = sh('shell', `screencap -p ${quote(req.path)}`);

@@ -4,7 +4,8 @@
 // - The recognizer (D9): `createSpeechRecognizer`, the default service, which may stream audio to a server; with
 //   `processLocally=true`, `createOnDeviceSpeechRecognizer` (API 31) where `isOnDeviceRecognitionAvailable`, else the
 //   recognition ends `service-not-allowed` before anything opens. `android.recognitionService` names another service.
-// - Inputs (D8): `microphone=true`, which the service captures itself. A track or a file goes to a service through a
+// - Inputs (D8): `microphone=true`, which the service captures itself, under an exclusive hold of the session's
+//   microphone (the track table's `hold`), refused `NotReadableError` while a capture runs. A track or a file goes to a service through a
 //   pipe (`EXTRA_AUDIO_SOURCE`) only where the service is on the qualified list, which a device run builds; the list
 //   is empty, so the status lists `microphone` alone and a `track=` or `path=` start is `NotSupportedError`.
 // - Permission (D11): `RECORD_AUDIO`, for every input; a start asks for it when the state is `prompt`.
@@ -221,6 +222,14 @@ class SpeechRecognitionModule(context: ExtensionContext) : ExactExtension(contex
         next += 1
         val leaves = if (context.agent) !local && !s.optBoolean("local") else !local
         val r = Recognition(this, "recognition-${context.session}-$next", input, args, leaves)
+        // The service opens the microphone itself, so the session's captures stand aside while it listens (D8).
+        if (input == "microphone" && !refused) {
+            try {
+                r.hold = context.tracks.hold("audio")
+            } catch (e: TrackError) {
+                return reply(error(e.code))
+            }
+        }
         args.optString("transcript").takeIf { it.isNotEmpty() }?.let { path -> context.file(path)?.let { r.transcript = path to it } }
         r.prepareTranscript()
         recognitions[r.id] = r
@@ -371,6 +380,8 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
     private var files = 0
     private var fileSize = 0
     var subscription: (() -> Unit)? = null
+    /** The exclusive hold of a `microphone=true` recognition, released at its end. */
+    var hold: (() -> Unit)? = null
     // The agent's clock (§9).
     val began = module.context.now()
     var cursor = began
@@ -453,6 +464,7 @@ internal class Recognition(private val module: SpeechRecognitionModule, val id: 
         state = "ended"; error = error ?: why; message = message ?: text
         audio = false; sound = false; speech = false
         subscription?.invoke(); subscription = null
+        hold?.invoke(); hold = null
         recognizer?.destroy(); recognizer = null
         module.say("$id: ended${error?.let { " ($it)" } ?: ""}${message?.let { ": $it" } ?: ""}, $finalCount final results")
         module.announce()

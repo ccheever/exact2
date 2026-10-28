@@ -108,6 +108,14 @@ pub use hatches::Hatches;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;
 
+/// Whether a driver drives Android's reader (`canvas/agent.rs`).
+pub(crate) fn reader_driven() -> bool {
+    #[cfg(target_os = "android")]
+    return canvas::agent::driven();
+    #[cfg(not(target_os = "android"))]
+    false
+}
+
 /// Run `f` inside an atrace section on Android (Perfetto shows it on this
 /// thread); elsewhere just `f`.
 #[inline]
