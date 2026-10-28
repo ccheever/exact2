@@ -130,8 +130,8 @@ which is the declared deviation. One source string works on every host, so a
 data module never tells hosts apart to choose one.
 
 **`load` and `error` (2026-10-06, #121).** An `image` hears HTML `<img>`'s
-two events on the web, macOS and iOS (Linux sends neither yet), each once
-per source: `load=` when the picture is ready, with no payload (`iframe`'s `load` is the same event; the compiler admits `load` on
+two events on the web, macOS and iOS, each once
+per source (Linux and Android send `load`, at the same point, and not yet `error`): `load=` when the picture is ready, with no payload (`iframe`'s `load` is the same event; the compiler admits `load` on
 those two tags and on a native module), and `error=` when the source does not
 load, with the error's `message`, as a media element's `error` carries one.
 The message is the host's reason where it has one (§4) and a fixed text where
@@ -354,7 +354,18 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   process, never a raster worker, and share the transport's idle
   connections; up to 64 downloads wait or run, and a source asked for past
   that is asked again at the next poll, as one past the raster pipeline's
-  header bound is. The body spools to a file in a directory of the process's
+  header bound is. A picture that fills the screen (on screen, at least 90%
+  of its width and half its height: a viewer's full-size original) goes
+  ahead of the ordinary downloads waiting, behind any such picture already
+  waiting, and has 120 s for its whole load from its ask (a 12 MB original at
+  3 Mbit/s takes 32 s); a thread takes at most two of them in a row while an
+  ordinary one waits. A picture on screen whose download failed in a way
+  asking again may mend (the network, a timeout, a 5xx, 408 or 429; not
+  another 4xx, a bad URL or a body over the cap) is asked again after 1, 2,
+  4, 8, 16 and 30 s, six times a showing, never sooner than a 429's or 503's
+  `Retry-After` (one asking for over 5 minutes, or unreadable, is not asked
+  again in that showing), and from nothing once it leaves the screen and
+  shows again (2026-10-28; Apple keeps its one try). The body spools to a file in a directory of the process's
   own under `exact/images/` in the user's cache (`XDG_CACHE_HOME` or
   `~/.cache`; `%LOCALAPPDATA%` on Windows), locked for the process's life as
   Apple's `RasterSpool` is, so the first spool of a launch removes the
@@ -368,7 +379,8 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   for the process, whatever their cache headers say, as a browser keeps the
   images a page has loaded, so a list scrolled back fetches nothing while
   they are there; nothing is kept across launches, and a body this host
-  cannot decode is not kept. Linux sends no image events (LLP 1011.001): a
+  cannot decode is not kept. Linux and Android send `load` (below, from
+  2026-10-28) but no `error` yet (LLP 1011.001): a
   failed download, or a body this host cannot decode, is a line on stderr
   (`exact: image <url>: HTTP 404`). Linux and Windows decode PNG and SVG
   bodies; a JPEG, GIF or WebP body fails there as a bundled one does, and
