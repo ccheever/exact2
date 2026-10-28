@@ -200,16 +200,6 @@ pub(super) fn open_backend(
 }
 
 impl<D: DataSource> Presenter<D> {
-    /// Route characters to a platform editor when it owns the field.
-    #[cfg(windows)]
-    pub fn platform_text(&mut self, text: &str) -> Result<bool, String> {
-        let handled = self.brush.platform_text(text)?;
-        if handled {
-            self.repaint();
-        }
-        Ok(handled)
-    }
-
     /// The carrier transfers a retained window to a directly presenting backend.
     #[cfg(windows)]
     pub fn attach_painter_window(

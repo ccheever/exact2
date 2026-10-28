@@ -136,7 +136,7 @@ impl Ink {
         &mut self,
         shape: &Shape,
         ts: Transform,
-    ) -> Result<Option<(Instance, Bindings)>> {
+    ) -> Result<Option<rows::GeometryInstance>> {
         if shape.rect.2 <= 0. || shape.rect.3 <= 0. {
             return Ok(None);
         }
@@ -148,7 +148,7 @@ impl Ink {
             let mut instance = Instance::new(Kind::RoundedRect, Brush::Solid, rect(shape.rect));
             instance.radii = shape.radii.map(|r| r.0);
             instance.xform = affine(dev);
-            Ok(Some((instance, Bindings::default())))
+            Ok(Some((instance, Bindings::default(), None)))
         } else {
             let Some(path) = shape_path(shape) else {
                 return Ok(None);
@@ -163,8 +163,22 @@ impl Ink {
         rule: FillRule,
         clips: &[(&Path, FillRule)],
         ts: Transform,
-    ) -> Result<Option<(Instance, Bindings)>> {
+    ) -> Result<Option<rows::GeometryInstance>> {
         let dev = self.device_transform(ts);
+        if !self.rows.capture.is_empty() {
+            let mut instance = Instance::new(Kind::Coverage, Brush::Solid, [0.; 4]);
+            instance.xform = affine(dev);
+            return Ok(Some((
+                instance,
+                Bindings::default(),
+                Some(rows::PathGeometry {
+                    path: path.clone(),
+                    rule,
+                    clips: clips.iter().map(|(p, r)| ((*p).clone(), *r)).collect(),
+                    transform: self.record_transform(ts),
+                }),
+            )));
+        }
         let coverage = exact_ink::path::coverage(
             &mut self.paths,
             &mut self.device,
@@ -172,7 +186,7 @@ impl Ink {
             rule,
             clips,
             dev,
-            self.rows.capture.is_empty().then_some(self.size),
+            Some(self.size),
         )?;
         Ok(coverage.map(|c| {
             let mut instance = Instance::new(Kind::Coverage, Brush::Solid, c.rect);
@@ -184,8 +198,31 @@ impl Ink {
                     path: c.entry.texture,
                     ..Default::default()
                 },
+                None,
             )
         }))
+    }
+
+    fn emit_geometry(
+        &mut self,
+        i: Instance,
+        b: Bindings,
+        path: Option<rows::PathGeometry>,
+    ) -> Result<()> {
+        if let Some(path) = path {
+            if self.error.is_none() {
+                let offset = self
+                    .rows
+                    .capture
+                    .last()
+                    .expect("recording geometry")
+                    .offset(self.scale);
+                self.record(rows::Marker::Path(i.translated(offset), b, path));
+            }
+            Ok(())
+        } else {
+            self.emit(i, b)
+        }
     }
 
     fn border(&mut self, part: &BorderFill, ts: Transform) -> Result<()> {
@@ -217,11 +254,11 @@ impl Ink {
             .into_iter()
             .chain(ring.as_ref().map(|p| (p, FillRule::EvenOdd)))
             .collect();
-        if let Some((mut instance, bindings)) =
+        if let Some((mut instance, bindings, geometry)) =
             self.path_instance(&region, FillRule::EvenOdd, &clips, ts)?
         {
             instance.color = color(part.color);
-            self.emit(instance, bindings)?;
+            self.emit_geometry(instance, bindings, geometry)?;
         }
         Ok(())
     }
@@ -238,14 +275,6 @@ impl Backend for Ink {
         }
         Ok(None)
     }
-    #[cfg(windows)]
-    fn platform_text(&mut self, text: &str) -> std::result::Result<bool, String> {
-        if let Selected::D3d11(device) = &self.device {
-            return device.type_text(text).map_err(|e| e.to_string());
-        }
-        Ok(false)
-    }
-
     #[cfg(windows)]
     fn attach_window(
         &mut self,
@@ -331,9 +360,9 @@ impl Backend for Ink {
             return;
         }
         let result = self.shape_instance(shape, ts);
-        if let Some(Some((mut i, b))) = self.accept(result) {
+        if let Some(Some((mut i, b, geometry))) = self.accept(result) {
             i.color = color(c);
-            let result = self.emit(i, b);
+            let result = self.emit_geometry(i, b, geometry);
             self.accept(result);
         }
     }
@@ -536,7 +565,7 @@ impl Backend for Ink {
         };
         let ts = Transform::from_translate(x, y);
         let result = (|| {
-            if let Some((mut i, b)) = self.path_instance(&path, FillRule::Winding, &[], ts)? {
+            if let Some((mut i, b, _)) = self.path_instance(&path, FillRule::Winding, &[], ts)? {
                 i.color = [1.; 4];
                 self.encoder
                     .push_unclipped(i, b, self.size)
@@ -549,7 +578,9 @@ impl Backend for Ink {
                 },
                 self.scale,
             ) {
-                if let Some((mut i, b)) = self.path_instance(&stroke, FillRule::Winding, &[], ts)? {
+                if let Some((mut i, b, _)) =
+                    self.path_instance(&stroke, FillRule::Winding, &[], ts)?
+                {
                     i.color = [0., 0., 0., 1.];
                     self.encoder
                         .push_unclipped(i, b, self.size)
@@ -613,6 +644,12 @@ impl Backend for Ink {
     fn rows(&self) -> bool {
         true
     }
+    fn row_local(&self) -> bool {
+        false
+    }
+    fn row_reusable(&self, id: u32, origin: (f32, f32)) -> bool {
+        self.reusable(id, origin)
+    }
     fn row_begin(&mut self, id: u32, origin: (f32, f32), _: Option<u32>) {
         self.record_row(id, origin);
     }
@@ -629,12 +666,6 @@ impl Backend for Ink {
     fn row_culled(&self, bounds: Rect4) -> bool {
         self.culled(bounds)
     }
-    fn group_begin(&mut self, id: exact_kernel::ViewId, scroll: (f32, f32)) {
-        self.rows.groups.push((id, scroll));
-    }
-    fn group_end(&mut self) {
-        self.rows.groups.pop();
-    }
     fn slot_begin(&mut self, id: exact_kernel::ViewId) {
         self.record_slot(id);
     }
@@ -645,6 +676,11 @@ impl Backend for Ink {
         self.replace_slot(row, id)
     }
     fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
+        // Transforming a rasterized group would move the stationary outer clips.
+        // @ref LLP 1149 D4: let the walk apply motion before clipping.
+        if base[0] != 0. || base[1] != 0. || base[2] != 1. || base[3] != 0. {
+            return false;
+        }
         self.record_layer(key, ts, pivot, base);
         true
     }

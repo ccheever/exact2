@@ -96,3 +96,91 @@ fn kept_rows_move_reclip_and_replace_a_slot_without_recording_the_row() {
         }
     }
 }
+
+#[test]
+fn failed_recordings_are_not_kept_and_the_next_row_is_complete() {
+    let mut ink = Ink::new().unwrap();
+    let ts = Transform::identity();
+    for failure in 0..3 {
+        ink.begin(90., 85., 1.);
+        ink.row_begin(1, (0., 0.), None);
+        scene(&mut ink, (0., 0.), true);
+        if failure == 1 {
+            ink.slot_begin(8);
+        }
+        if failure == 2 {
+            assert!(ink.layer_begin(9, ts, (0., 0.), [0., 0., 1., 0., 1., 0., 0.]));
+        }
+        ink.error = Some("injected recording failure".into());
+        ink.fill(&Shape::rect((0., 0., 90., 85.)), [200, 0, 0, 255], ts);
+        if failure == 1 {
+            ink.slot_end();
+        }
+        if failure == 2 {
+            ink.layer_end();
+        }
+        ink.row_end((0., 0., 90., 85.));
+        assert!(
+            !ink.rows.kept.contains_key(&1),
+            "failed recording was published"
+        );
+        assert!(ink.finish().is_err());
+        ink.begin(90., 85., 1.);
+        ink.row_begin(2, (0., 0.), None);
+        scene(&mut ink, (0., 0.), true);
+        ink.row_end((0., 0., 90., 85.));
+        ink.row_draw(2, (0., 0.), (0., 0., 90., 85.));
+        let actual = ink.finish().unwrap();
+        ink.row_free(2);
+        ink.begin(90., 85., 1.);
+        scene(&mut ink, (0., 0.), true);
+        assert!(actual.data() == ink.finish().unwrap().data());
+    }
+}
+
+#[test]
+fn oversized_retained_coverage_rasterizes_only_the_visible_region() {
+    let mut ink = Ink::new().unwrap();
+    let shape = Shape::elliptical((0., 0., 300., 20_000.), [(80., 40.); 4]);
+    ink.begin(320., 200., 1.);
+    ink.row_begin(1, (0., 0.), None);
+    ink.fill(&shape, [10, 120, 220, 255], Transform::identity());
+    ink.row_end(shape.rect);
+    for y in [0., -10_000., -19_800.] {
+        ink.begin(320., 200., 1.);
+        ink.row_draw(1, (0., y), (0., y, 300., 20_000.));
+        let actual = ink.finish().unwrap();
+        ink.begin(320., 200., 1.);
+        ink.fill(
+            &shape,
+            [10, 120, 220, 255],
+            Transform::from_translate(0., y),
+        );
+        assert!(actual.data() == ink.finish().unwrap().data());
+    }
+}
+
+#[test]
+fn translated_layer_respects_stationary_outer_clip_or_refuses_lowering() {
+    let mut ink = Ink::new().unwrap();
+    ink.begin(100., 50., 1.);
+    ink.push_clip(&Shape::rect((0., 0., 50., 50.)), Transform::identity());
+    let lowered = ink.layer_begin(
+        1,
+        Transform::identity(),
+        (0., 0.),
+        [40., 0., 1., 0., 1., 0., 0.],
+    );
+    ink.fill(
+        &Shape::rect((0., 0., 50., 50.)),
+        [255, 0, 0, 255],
+        Transform::from_translate(if lowered { 0. } else { 40. }, 0.),
+    );
+    if lowered {
+        ink.layer_end();
+    }
+    ink.pop_clip();
+    let pixels = ink.finish().unwrap();
+    assert_eq!(pixels.pixel(45, 25).unwrap().green(), 0);
+    assert_eq!(pixels.pixel(55, 25).unwrap().green(), 255);
+}

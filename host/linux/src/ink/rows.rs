@@ -9,7 +9,8 @@ mod tests;
 #[derive(Clone)]
 pub(super) enum Marker {
     Clip(Shape, Transform),
-    Coverage(exact_ink::path::Coverage, bool),
+    Coverage(Vec<Vec<(Path, FillRule)>>, Transform),
+    Path(Instance, Bindings, PathGeometry),
     PopClip,
     Opacity(f32),
     PopOpacity,
@@ -22,6 +23,16 @@ pub(super) enum Marker {
     Slot(u32),
     Layer(Rc<Drawing<Marker>>, Transform, f32),
 }
+
+#[derive(Clone)]
+pub(super) struct PathGeometry {
+    pub path: Path,
+    pub rule: FillRule,
+    pub clips: Vec<(Path, FillRule)>,
+    pub transform: Transform,
+}
+
+pub(super) type GeometryInstance = (Instance, Bindings, Option<PathGeometry>);
 
 enum CaptureKind {
     Row(u32),
@@ -50,6 +61,7 @@ struct Slot {
 }
 
 struct Row {
+    origin: (f32, f32),
     drawing: Rc<Drawing<Marker>>,
     textures: Vec<TextureId>,
     slots: HashMap<u32, Slot>,
@@ -59,14 +71,25 @@ struct Row {
 pub(super) struct Rows {
     kept: HashMap<u32, Rc<Row>>,
     pub(super) capture: Vec<Capture>,
-    pub(super) groups: Vec<(u32, (f32, f32))>,
 }
 
 fn textures(drawing: &Drawing<Marker>) -> Vec<TextureId> {
     let mut textures = drawing.textures();
     for command in &drawing.commands {
         match command {
-            Command::Marker(Marker::Coverage(c, _)) => textures.push(c.entry.texture),
+            Command::Marker(Marker::Path(_, b, _)) => textures.extend(
+                [
+                    b.image,
+                    b.glyph,
+                    b.color,
+                    b.path,
+                    b.ramp,
+                    b.mask,
+                    b.destination,
+                ]
+                .into_iter()
+                .filter(|t| t.0 != 0),
+            ),
             Command::Marker(Marker::Layer(drawing, ..)) => textures.extend(self::textures(drawing)),
             _ => {}
         }
@@ -135,11 +158,18 @@ impl Ink {
             panic!("row balanced")
         };
         self.free_row(id);
+        if self.error.is_some() {
+            for slot in c.slots.values() {
+                self.unpin(&slot.textures);
+            }
+            return id;
+        }
         let textures = textures(&c.drawing);
         self.pin(&textures);
         self.rows.kept.insert(
             id,
             Rc::new(Row {
+                origin: c.origin,
                 drawing: Rc::new(c.drawing),
                 textures,
                 slots: c.slots,
@@ -190,6 +220,12 @@ impl Ink {
         let CaptureKind::Slot(id, row) = c.kind else {
             unreachable!()
         };
+        if self.error.is_some() {
+            if let Some(row) = row {
+                self.free_row(row);
+            }
+            return;
+        }
         let textures = textures(&c.drawing);
         self.pin(&textures);
         let slot = Slot {
@@ -245,6 +281,14 @@ impl Ink {
             || y * scale >= (s.y + s.height) as f32
     }
 
+    pub(super) fn reusable(&self, id: u32, origin: (f32, f32)) -> bool {
+        self.rows.kept.get(&id).is_some_and(|row| {
+            let dx = (origin.0 - row.origin.0) * self.scale;
+            let dy = (origin.1 - row.origin.1) * self.scale;
+            dx.fract() == 0. && dy.fract() == 0.
+        })
+    }
+
     pub(super) fn draw_row(&mut self, id: u32, origin: (f32, f32)) -> Result<()> {
         let row = self
             .rows
@@ -281,11 +325,29 @@ impl Ink {
                     Marker::Clip(shape, ts) => {
                         self.clip(shape, ts.post_translate(origin.0, origin.1))?
                     }
-                    Marker::Coverage(c, transformed) => {
-                        let mut c = *c;
-                        c.rect[0] += offset[0];
-                        c.rect[1] += offset[1];
-                        self.coverage_clip(c, *transformed)?;
+                    Marker::Coverage(groups, ts) => {
+                        self.path_clip(groups, ts.post_translate(origin.0, origin.1))?;
+                    }
+                    Marker::Path(instance, bindings, geometry) => {
+                        let ts = geometry.transform.post_translate(origin.0, origin.1);
+                        let clips: Vec<_> = geometry.clips.iter().map(|(p, r)| (p, *r)).collect();
+                        let dev = self.device_transform(ts);
+                        if let Some(c) = exact_ink::path::coverage(
+                            &mut self.paths,
+                            &mut self.device,
+                            &geometry.path,
+                            geometry.rule,
+                            &clips,
+                            dev,
+                            Some(self.size),
+                        )? {
+                            let mut i = instance.translated(offset);
+                            i.rect = c.rect;
+                            i.uv = c.entry.uv;
+                            let mut b = *bindings;
+                            b.path = c.entry.texture;
+                            self.emit(i, b)?;
+                        }
                     }
                     Marker::PopClip => self.pop_clip(),
                     Marker::Opacity(alpha) => self.open_group(*alpha),
@@ -346,6 +408,9 @@ impl Ink {
         let CaptureKind::Layer(ts, alpha) = c.kind else {
             panic!("layer balanced")
         };
+        if self.error.is_some() {
+            return Ok(());
+        }
         let marker = Marker::Layer(Rc::new(c.drawing), ts, alpha);
         if !self.record(marker.clone()) {
             let mut drawing = Drawing::default();

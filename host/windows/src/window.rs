@@ -611,9 +611,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         if self.minimized || self.occluded || !self.focused {
             return Ok(());
         }
-        let (Some(window), Some(surface), Some(p)) =
-            (&self.window, &mut self.surface, &mut self.presenter)
-        else {
+        let (Some(window), Some(p)) = (&self.window, &mut self.presenter) else {
             return Ok(());
         };
         if p.dirty() || p.wants_display_frames() || p.host().motion() {
@@ -623,7 +621,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             return Ok(());
         }
         p.set_caret_visible(self.caret.visible());
-        if !self.caret.can_patch() {
+        if self.surface.is_none() || !self.caret.can_patch() {
             p.repaint();
             window.request_redraw();
             return Ok(());
@@ -636,7 +634,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
             self.caret.compare(other);
         }
-        let mut buffer = surface.buffer_mut().map_err(|e| e.to_string())?;
+        let mut buffer = self.surface.as_mut().expect("patch surface").buffer_mut().map_err(|e| e.to_string())?;
         if let Some(damage) = self.caret.paint(&mut buffer, window.inner_size().width) {
             buffer
                 .present_with_damage(&[damage])
@@ -991,23 +989,6 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
                 if event.state == ElementState::Pressed {
                     self.caret.activity(Instant::now());
-                }
-                if event.state == ElementState::Pressed {
-                    if let Some(text) = event.text.as_deref() {
-                        match p.platform_text(text) {
-                            Ok(true) => {
-                                if let Some(window) = &self.window {
-                                    window.request_redraw();
-                                }
-                                return;
-                            }
-                            Err(e) => {
-                                self.fail(events, e);
-                                return;
-                            }
-                            Ok(false) => {}
-                        }
-                    }
                 }
                 // Unicode input (VK_PACKET) has text but no physical key.
                 let (code, key) = key_names(

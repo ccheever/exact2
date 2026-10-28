@@ -307,3 +307,35 @@ fn inline_frame_retained_rows_keep_initial_and_scrolled_viewport_origins() {
         }
     }
 }
+
+#[test]
+fn fractional_row_scroll_matches_a_fresh_walk_with_clips_and_hinted_text() {
+    let source = r##"component App
+  view
+    scroll testId="port" width=120 height=80
+      column
+        view width=120 height=70 clip-path="path('M 5 5 Q 115 0 115 65 L 5 65 Z')" background-color="#2488bb"
+          text "Hinted text" font-size=17 color="#ffffff"
+        view width=120 height=200 background-color="#44aa33"
+"##;
+    let (mut p, _) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (140., 100.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Ink,
+    )
+    .unwrap();
+    p.frame();
+    let k = p.host.kernel();
+    let port = k.node_by_key(k.find_by_test_id("port")[0]).unwrap().id;
+    for offset in [0.25, 0.5, 1., 1.25] {
+        p.scroll_to(port, (0., offset)).unwrap();
+        let kept = p.frame();
+        p.brush.forget_rows();
+        p.repaint();
+        let fresh = p.frame();
+        assert!(kept.data() == fresh.data(), "scroll {offset}");
+    }
+}

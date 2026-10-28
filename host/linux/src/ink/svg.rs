@@ -65,7 +65,7 @@ impl Ink {
             let Some(ink) = ink else {
                 continue;
             };
-            let Some((mut i, mut b)) = self.path_instance(&region, rule, &[], ts)? else {
+            let Some((mut i, mut b, geometry)) = self.path_instance(&region, rule, &[], ts)? else {
                 continue;
             };
             match ink {
@@ -131,7 +131,7 @@ impl Ink {
                 }
             }
             if from_affine(i.xform).invert().is_some() {
-                self.emit(i, b)?;
+                self.emit_geometry(i, b, geometry)?;
             }
         }
         Ok(())
@@ -142,15 +142,6 @@ impl Ink {
         coverage: exact_ink::path::Coverage,
         transformed: bool,
     ) -> Result<()> {
-        let mut coverage = coverage;
-        if let Some(c) = self.rows.capture.last() {
-            let offset = c.offset(self.scale);
-            coverage.rect[0] += offset[0];
-            coverage.rect[1] += offset[1];
-        }
-        if self.record(rows::Marker::Coverage(coverage, transformed)) {
-            return Ok(());
-        }
         let clip = CoverageClip {
             texture: coverage.entry.texture,
             rect: coverage.rect,
@@ -192,15 +183,7 @@ impl Ink {
         } else {
             FillRule::Winding
         };
-        let dev = self.device_transform(ts);
-        let c = exact_ink::path::clip_union(
-            &mut self.paths,
-            &mut self.device,
-            &[vec![(path, rule)]],
-            dev,
-            self.rows.capture.is_empty().then_some(self.size),
-        )?;
-        self.coverage_clip(c, dev.kx != 0. || dev.ky != 0.)?;
+        self.path_clip(&[vec![(path, rule)]], ts)?;
         Ok(true)
     }
 
@@ -231,16 +214,27 @@ impl Ink {
             );
             current = clip.then.as_deref();
         }
+        self.path_clip(&groups, ts)?;
+        Ok(1)
+    }
+    pub(super) fn path_clip(
+        &mut self,
+        groups: &[Vec<(Path, FillRule)>],
+        ts: Transform,
+    ) -> Result<()> {
+        let local = self.record_transform(ts);
+        if self.record(rows::Marker::Coverage(groups.to_vec(), local)) {
+            return Ok(());
+        }
         let dev = self.device_transform(ts);
         let c = exact_ink::path::clip_union(
             &mut self.paths,
             &mut self.device,
-            &groups,
+            groups,
             dev,
-            self.rows.capture.is_empty().then_some(self.size),
+            Some(self.size),
         )?;
-        self.coverage_clip(c, dev.kx != 0. || dev.ky != 0.)?;
-        Ok(1)
+        self.coverage_clip(c, dev.kx != 0. || dev.ky != 0.)
     }
 }
 

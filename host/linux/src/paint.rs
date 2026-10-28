@@ -927,6 +927,10 @@ impl Painter {
             self.field_text = walk.fields;
             self.inline_text = walk.inline;
         } else {
+            for id in self.rows.kept_ids() {
+                self.backend.row_free(id);
+            }
+            self.forget_rows();
             drop(walk.text);
         }
         // Pending measurements end with every paint attempt, including failure.

@@ -244,12 +244,12 @@ impl Ink {
                 }
             }
         }
-        if let Some((mut i, mut bindings)) = self.shape_instance(shape, ts)? {
+        if let Some((mut i, mut bindings, geometry)) = self.shape_instance(shape, ts)? {
             i.kind_brush = (i.kind_brush & 65535) | ((Brush::Image as u32) << 16);
             i.flags |= flags::REPLACE;
             bindings.image = source;
             bindings.destination = original;
-            self.emit(i, bindings)?;
+            self.emit_geometry(i, bindings, geometry)?;
         }
         self.flush()?;
         Ok(())

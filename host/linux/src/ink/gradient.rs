@@ -8,7 +8,7 @@ impl Ink {
         gradient: &GradientPaint,
         ts: Transform,
     ) -> Result<()> {
-        let Some((mut instance, mut bindings)) = self.shape_instance(shape, ts)? else {
+        let Some((mut instance, mut bindings, geometry)) = self.shape_instance(shape, ts)? else {
             return Ok(());
         };
         let stops = premultiplied_ramp(&gradient.stops);
@@ -32,7 +32,7 @@ impl Ink {
             }
         };
         bindings.ramp = ramp.texture;
-        self.emit(instance, bindings)
+        self.emit_geometry(instance, bindings, geometry)
     }
     pub(super) fn ramp(
         &mut self,

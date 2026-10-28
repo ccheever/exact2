@@ -49,7 +49,6 @@ pub(super) struct Row {
 pub(super) struct Rows {
     pub(super) kept: HashMap<u32, Rc<Row>>,
     pub(super) capture: Vec<Capture>,
-    pub(super) groups: Vec<(u32, (f32, f32))>,
 }
 
 impl Rows {
@@ -112,6 +111,10 @@ impl Gpu {
         let Kind::Row(id) = c.kind else {
             panic!("row balanced")
         };
+        if self.image_refused {
+            self.rows.kept.remove(&id);
+            return id;
+        }
         self.rows.kept.insert(
             id,
             Rc::new(Row {
@@ -153,6 +156,12 @@ impl Gpu {
         let Kind::Slot(id, row) = c.kind else {
             unreachable!()
         };
+        if self.image_refused {
+            if let Some(row) = row {
+                self.rows.kept.remove(&row);
+            }
+            return;
+        }
         let slot = Slot {
             drawing: Rc::new(Drawing {
                 ops: c.ops,
@@ -212,7 +221,10 @@ impl Gpu {
     }
 
     pub(super) fn draw_row(&mut self, id: u32, origin: (f32, f32)) {
-        let row = self.rows.kept.get(&id).cloned().expect("kept row");
+        let Some(row) = self.rows.kept.get(&id).cloned() else {
+            self.image_refused = true;
+            return;
+        };
         let offset = Affine::translate((
             origin.0 as f64 * self.scale as f64,
             origin.1 as f64 * self.scale as f64,
@@ -285,6 +297,9 @@ impl Gpu {
         let Kind::Layer(ts, alpha) = c.kind else {
             panic!("layer balanced")
         };
+        if self.image_refused {
+            return;
+        }
         let drawing = Rc::new(Drawing {
             ops: c.ops,
             _images: c.images,
@@ -294,5 +309,57 @@ impl Gpu {
             self.replay(&drawing, &c.slots, ts);
             self.pop_recorded();
         }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn refused_images_do_not_publish_rows_slots_or_layers() {
+    let mut gpu = Gpu::new().unwrap();
+    for failure in 0..3 {
+        gpu.begin(32., 32., 1.);
+        gpu.row_begin(1, (0., 0.), None);
+        gpu.fill(
+            &Shape::rect((0., 0., 16., 32.)),
+            [255, 0, 0, 255],
+            Transform::identity(),
+        );
+        if failure == 1 {
+            gpu.slot_begin(7);
+        }
+        if failure == 2 {
+            gpu.layer_begin(
+                9,
+                Transform::identity(),
+                (0., 0.),
+                [0., 0., 1., 0., 1., 0., 0.],
+            );
+        }
+        gpu.image_refused = true;
+        if failure == 1 {
+            gpu.slot_end();
+        }
+        if failure == 2 {
+            gpu.layer_end();
+        }
+        gpu.row_end((0., 0., 32., 32.));
+        assert!(!gpu.rows.kept.contains_key(&1));
+        assert!(gpu.finish().is_err());
+        gpu.begin(32., 32., 1.);
+        gpu.row_begin(2, (0., 0.), None);
+        gpu.fill(
+            &Shape::rect((0., 0., 32., 32.)),
+            [255, 0, 0, 255],
+            Transform::identity(),
+        );
+        gpu.row_end((0., 0., 32., 32.));
+        gpu.row_draw(2, (0., 0.), (0., 0., 32., 32.));
+        assert!(gpu
+            .finish()
+            .unwrap()
+            .data()
+            .chunks_exact(4)
+            .all(|p| p == [255, 0, 0, 255]));
+        gpu.row_free(2);
     }
 }

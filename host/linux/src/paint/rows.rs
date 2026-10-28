@@ -127,6 +127,9 @@ pub(super) struct Rows {
 }
 
 impl Rows {
+    pub(super) fn kept_ids(&self) -> Vec<u32> {
+        self.kept.values().map(|r| r.id).collect()
+    }
     /// Whether the last walk kept rows.
     pub(super) fn active(&self) -> bool {
         self.active
@@ -536,9 +539,10 @@ impl Painter {
         let scale = (ts.sx, ts.sy);
         let frame = self.rows.frame;
         let kept = self.rows.kept.get(&node.key);
-        let valid = kept.is_some_and(|row| self.row_valid(row, &node, walk, scale, true))
-            || (kept.is_some_and(|row| self.row_valid(row, &node, walk, scale, false))
-                && self.pictures_again(walk, node.key));
+        let valid = kept.is_some_and(|row| self.backend.row_reusable(row.id, origin))
+            && (kept.is_some_and(|row| self.row_valid(row, &node, walk, scale, true))
+                || (kept.is_some_and(|row| self.row_valid(row, &node, walk, scale, false))
+                    && self.pictures_again(walk, node.key)));
         if let Some(row) = self.rows.kept.get(&node.key).filter(|_| valid) {
             let d = (origin.0 - row.origin.0, origin.1 - row.origin.1);
             for b in &row.boxes {
@@ -585,7 +589,7 @@ impl Painter {
         // top-left at 0,0, from document positions alone): the same row records
         // the same ops wherever it scrolled to, so one recorded again unchanged
         // keeps its drawing. Its boxes move to the page after.
-        let local = ts == Transform::identity();
+        let local = self.backend.row_local() && ts == Transform::identity();
         let (walk_offset, content) = if local {
             ((node.frame.x, node.frame.y), (0.0, 0.0))
         } else {

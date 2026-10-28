@@ -1042,6 +1042,9 @@ impl Backend for Gpu {
     fn rows(&self) -> bool {
         true
     }
+    fn row_reusable(&self, id: u32, _: (f32, f32)) -> bool {
+        self.rows.kept.contains_key(&id)
+    }
     fn row_begin(&mut self, id: u32, origin: (f32, f32), _: Option<u32>) {
         self.record_row(id, origin);
     }
@@ -1056,12 +1059,6 @@ impl Backend for Gpu {
     }
     fn row_culled(&self, bounds: Rect4) -> bool {
         self.culled(bounds)
-    }
-    fn group_begin(&mut self, id: exact_kernel::ViewId, scroll: (f32, f32)) {
-        self.rows.groups.push((id, scroll));
-    }
-    fn group_end(&mut self) {
-        self.rows.groups.pop();
     }
     fn slot_begin(&mut self, id: exact_kernel::ViewId) {
         self.record_slot(id);
