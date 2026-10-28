@@ -776,8 +776,7 @@ test('19. a REST reply that lands after a sign-out leaves the next account\'s li
   } finally { fetchSpy.mockRestore(); }
 });
 
-// F1 (x2-perf4's fling plan): a page still loading is aborted when the reader leaves its channel or opens another,
-// and a jump aborts its channel's page toward the old window's edge but never its own.
+// F1 (x2-perf4's fling plan): the window names one older page per anchor, and keeps what lands, up to 300 rows.
 test('F1. with the anchor at the first row, one older page is named; re-anchored as each lands, the window grows to 300 rows', async () => {
   const app = await rig.app(); await app.dial();
   const channel = rig.fixture.world.generalChannelId, history = rig.fixture.world.messages[channel], path = historyPath(channel);

@@ -345,7 +345,7 @@ component Excord
     every(2500, trafficTick)
   task scrollQuiet when scrolling key=scrollTick
     after(200, scrollSettled)
-  task unhighlight when highlight != "" key=highlight
+  task unhighlight when highlight != "" and target == "" key=highlight
     after(2500, clearHighlight)
   // A jump, a restored place or a return to the present lands once the window
   // holding it has.
@@ -363,7 +363,7 @@ component Excord
   task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
   // The lead (F1), with no scroll event: a page a step to the window's top while fewer than 100 rows stand above a reader in
-  // history (not a short live tail); after a jump, once its highlight clears, so its placement has settled.
+  // history (not a short live tail); after a jump, once its highlight clears (2.5 s after it lands), so it has settled.
   task leadOlder when reading and current and target == "" and highlight == "" and (away or (anchor != "" and win.hasAfter)) and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
     after(1, older)
   // The page the window lacks while the channel is read; a failed one is asked again, at most three times.

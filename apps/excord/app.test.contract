@@ -868,13 +868,16 @@ test "a jump whose history arrives later still lands on its target (review: Sol 
   expect state target == ""
   expect state highlight == "1518635600276626020"
   expect tree has "message-1518635600276626020"
-  // The lead waits for the highlight to clear, then pages above the target, which stays on screen.
+  expect state topKey == "1518631444790909538"
+  // The lead waits for the highlight to clear, then pages above the target; the reader's first
+  // visible row stays the same (macOS lost it when a page landed as the jump was placed).
   clock +3000
   clock settle
   clock +3000
   clock settle
   expect state highlight == ""
   expect state win.firstId == "1516268419677166056"
+  expect state topKey == "1518631444790909538"
   expect tree has "message-1518635600276626020"
 
 // The reviews' second round (Sol, Grok): one test a finding.
