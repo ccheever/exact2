@@ -4,8 +4,9 @@
 // The world's newest message is five minutes before this epoch; #general holds
 // 10,000 messages with its last 37 unread, #help 1,200 with its last 260 unread.
 // A channel opens on one page of 50 messages (49 shown: the first waits for the
-// one before it), and the window grows a page at a time as the reader nears its
-// top (llp/0001 §2), so a test reads back by landing the reader there.
+// one before it), and the window grows a page at a time, each the moment the last
+// lands, while the reader is within 100 rows of its top (llp/0001 §2; x2-perf4's
+// fling plan, F1), so a test reads back by landing the reader there.
 // A test asserts what every host reports alike: the window (`anchor`, `win`), the
 // rows mounted, the reader's first visible row where nothing has just been
 // estimated. Where a property is a position on screen, a drive measures it.
@@ -56,7 +57,7 @@ test "unread: the bar says how many since when, and lands on the New divider (§
   tap "unread-bar"
   clock settle
   expect tree has "new-divider"
-  expect state anchor == "1554504989743776684"
+  expect state anchor == "1552174792428225378"
   expect state target == ""
   expect tree missing "unread"
 
@@ -89,7 +90,7 @@ test "a channel reopens where its reader left it (§3.3)"
   tap "transcript" into "1562755578936174328"
   clock settle
   expect state away == true
-  expect state anchor == "1562740055536051951"
+  expect state anchor == "1562033782335219374"
   back
   clock settle
   tap "channel-random"
@@ -98,7 +99,7 @@ test "a channel reopens where its reader left it (§3.3)"
   clock settle
   tap "channel-general"
   clock settle
-  expect state anchor == "1562740055536051951"
+  expect state anchor == "1562033782335219374"
   expect state away == true
   expect tree has "message-1562755578936174328"
 
@@ -111,9 +112,9 @@ test "reading back moves the window a page ahead of the reader, who stays put (�
   tap "mark-read"
   tap "transcript" into "1562732896249194217"
   clock settle
-  expect state anchor == "1562618399954052832"
-  expect state win.firstId == "1562033782335219374"
-  expect state win.rows.0 .key == "1562033782335219374"
+  expect state anchor == "1562033782335219374"
+  expect state win.firstId == "1561326527558198858"
+  expect state win.rows.0 .key == "1561326527558198858"
   expect tree has "message-1562732896249194217"
 
 test "changes above the viewport leave the reader's row where it is (§3.5)"
@@ -154,7 +155,7 @@ test "a reply's original far back loads around it, lit, and Jump to Present retu
   clock settle
   tap "reply-to-1562624645306263268"
   clock settle
-  expect state anchor == "1518635600276626020"
+  expect state anchor == "1517079087703661082"
   expect state highlight == "1518635600276626020"
   expect tree has "message-1518635600276626020"
   expect state win.hasAfter == true
@@ -196,7 +197,7 @@ test "away from the end nothing moves, and a pill counts what arrived (§3.8)"
   tap "fixture"
   tap "inject-burst"
   clock settle
-  expect state anchor == "1562740055536051951"
+  expect state anchor == "1562033782335219374"
   expect tree has "message-1562755578936174328"
   expect text "jump-present" == "6 new messages"
   tap "jump-present"
@@ -576,7 +577,7 @@ test "a send from history returns to the live tail and lands at its end (review:
   tap "mark-read"
   tap "transcript" into "1562732896249194217"
   clock settle
-  expect state anchor == "1562618399954052832"
+  expect state anchor == "1562033782335219374"
   type "composer" "Back to the present"
   tap "send"
   clock settle
@@ -778,10 +779,10 @@ test "a reply to a deleted message does not jump (review: Grok 5)"
   clock settle
   tap "transcript" into "1562068155507943107"
   clock settle
-  expect state anchor == "1562618399954052832"
+  expect state anchor == "1562033782335219374"
   tap "reply-to-1562068155507943107"
   clock settle
-  expect state anchor == "1562618399954052832"
+  expect state anchor == "1562033782335219374"
   expect state highlight == ""
 
 test "what was read at the end is acknowledged (review: Grok 4)"
@@ -815,7 +816,7 @@ test "paging is not refused while another refresh is in flight (review: Grok 6)"
   tap "transcript" into "1562732896249194217"
   clock +400
   clock settle
-  expect state win.firstId == "1562033782335219374"
+  expect state win.firstId == "1561797858988926588"
 
 test "a jump whose history arrives later still lands on its target (review: Sol 3)"
   clock settle
@@ -831,11 +832,11 @@ test "a jump whose history arrives later still lands on its target (review: Sol 
   clock data
   tap "reply-to-1562624645306263268"
   clock data
-  expect state win.anchor == "1562618399954052832"
+  expect state win.anchor == "1562033782335219374"
   expect state target == "1518635600276626020"
   clock +400
   clock settle
-  expect state win.anchor == "1518635600276626020"
+  // (landed: the window's anchor then follows the lead toward older pages, F1, so it isn't asserted)
   expect state target == ""
   expect state highlight == "1518635600276626020"
   expect tree has "message-1518635600276626020"
@@ -973,7 +974,7 @@ test "paging continues while the pin request is out (re-check: Grok new 3)"
   tap "transcript" into "1562624645306263268"
   clock +400
   clock settle
-  expect state win.firstId == "1562033782335219374"
+  expect state win.firstId == "1561797858988926588"
 
 // The wiring's reviews (Sol, Grok): one test a finding the view shows.
 
@@ -1116,9 +1117,12 @@ test "a failed older page does not block a jump to a different history page"
   clock settle
   expect text "history-error" == "Couldn’t load more messages."
   expect state pageTries == 3
+  // (the jump's own window then reads older pages ahead of its reader, F1: they load)
+  pass fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
   tap "reply-to-1562624645306263268"
   clock settle
-  expect state anchor == "1518635600276626020"
+  // (landed: the anchor then follows the lead toward older pages, F1, so it isn't asserted)
+  expect state target == ""
   expect tree has "message-1518635600276626020"
   expect tree missing "history-error"
   expect state pageTries == 0

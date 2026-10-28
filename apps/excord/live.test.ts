@@ -4,7 +4,7 @@ import * as S from './discord/store.ts';
 import { snowflakeFromMs } from './discord/ids.ts';
 import { readyPayload, startFixture } from './fixture/server.ts';
 import { constants as zlibConstants, createDeflate } from 'node:zlib';
-import { applyEvent, call, clock, connect, createLive, digest, loadSession, pastedToken, recordIdentify, signIn, signOut } from './live.ts';
+import { abortPages, applyEvent, call, clock, connect, createLive, digest, loadSession, page, pastedToken, recordIdentify, signIn, signOut, view } from './live.ts';
 import { unlockSession } from './lock.ts';
 import { createRenderer, windowOf, type Stored } from './render.ts';
 
@@ -773,6 +773,79 @@ test('19. a REST reply that lands after a sign-out leaves the next account\'s li
     await expect(first).rejects.toThrow('Signed out');
     lands[1](new Response('{}', { status: 200 }));
     expect(await second).toEqual({});
+  } finally { fetchSpy.mockRestore(); }
+});
+
+// F1 (x2-perf4's fling plan): a page still loading is aborted when the reader leaves its channel or opens another,
+// and a jump aborts its channel's page toward the old window's edge but never its own.
+test('F1. with the anchor at the first row, older pages are named one after another until 100 rows stand above it', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, history = rig.fixture.world.messages[channel], path = historyPath(channel);
+  expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
+  const top = (await app.window(channel)).firstId;
+  // No scroll moves the anchor: each page that lands names the next, while fewer than 100 rows stand above it.
+  for (let pages = 1; pages <= 2; pages++) {
+    const edge = await app.window(channel, top);
+    // The cursor is the oldest cached message, the one that only supplies the first row's grouping.
+    expect(edge).toMatchObject({ need: 'before', cursor: history.at(-50 * pages)!.id });
+    expect(await app.ask('loadPage', [channel, edge.need, edge.cursor])).toEqual({ ok: true, error: '' });
+  }
+  const led = await app.window(channel, top);
+  expect(led.need).toBe('');
+  expect(ids(led.rows).indexOf(top)).toBeGreaterThanOrEqual(100);
+  expect(rig.counts.get(path)).toBe(3);
+  // The window holds at most 300 rows, and the rows a page just brought are never shed from it.
+  let anchor = led.firstId, longest = 0;
+  for (let pages = 0; pages < 6; pages++) {
+    const edge = await app.window(channel, anchor);
+    if (edge.need !== 'before') break;
+    expect(await app.ask('loadPage', [channel, edge.need, edge.cursor])).toEqual({ ok: true, error: '' });
+    const grown = await app.window(channel, anchor);
+    expect(grown.rows.length).toBeLessThanOrEqual(300);
+    const at = history.findIndex(m => m.id === edge.cursor);
+    expect(ids(grown.rows).slice(0, 50)).toEqual(ids(history.slice(Math.max(0, at - 49), at + 1)));
+    anchor = grown.firstId; longest = Math.max(longest, grown.rows.length);
+  }
+  // 300 cached rows, the oldest supplying only the first row's grouping.
+  expect(longest).toBe(299);
+});
+
+test('a history page in flight is aborted by leaving or switching channels, and a jump keeps only its own', async () => {
+  const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
+  live.token = 'a'.repeat(60);
+  const signals: AbortSignal[] = [];
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(((_url: string, init: RequestInit) => new Promise<Response>((_, reject) => {
+    signals.push(init.signal!);
+    init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+  })) as any);
+  try {
+    // Reading A, its older page out; opening B aborts it, and A may page again.
+    view(live, 'A');
+    const older = page(live, 'A', { before: '900', limit: 50 });
+    expect(live.paging.has('A')).toBe(true);
+    view(live, 'B');
+    expect(signals[0].aborted).toBe(true);
+    await expect(older).rejects.toThrow();
+    expect(live.paging.has('A')).toBe(false);
+    // B's own page stands while B is read; leaving (viewing none) aborts it.
+    const own = page(live, 'B', { before: '800', limit: 50 });
+    view(live, 'B');
+    expect(signals[1].aborted).toBe(false);
+    view(live, '');
+    expect(signals[1].aborted).toBe(true);
+    await expect(own).rejects.toThrow();
+    // A jump in C: the page toward the old edge goes, the jump's own page around its target stays.
+    view(live, 'C');
+    const edge = page(live, 'C', { before: '700', limit: 50 });
+    const jump = { around: '500', limit: 50 };
+    abortPages(live, (channel, query) => channel !== 'C' || JSON.stringify(query) === JSON.stringify(jump));
+    expect(signals[2].aborted).toBe(true);
+    await expect(edge).rejects.toThrow();
+    const around = page(live, 'C', jump);
+    abortPages(live, (channel, query) => channel !== 'C' || JSON.stringify(query) === JSON.stringify(jump));
+    expect(signals[3].aborted).toBe(false);
+    view(live, '');
+    await expect(around).rejects.toThrow();
   } finally { fetchSpy.mockRestore(); }
 });
 
