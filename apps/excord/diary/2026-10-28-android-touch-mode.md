@@ -14,8 +14,10 @@ task: Excord on an Android emulator against the fixture, and the focus ring a Ba
   back in its keyless state, as Windows starts, and a route's arrival follows it. A
   hardware Enter in a hosted field does not end touch mode: the presenter cannot tell it
   from the soft keyboard's action key.
-- Channel and DM rows end in `symbol:forward-chevron`, which Android draws as the iOS
-  disclosure chevron; Material list rows and Discord's Android app have none (QUEUE.md).
+- Channel and DM rows ended in `symbol:forward-chevron`, which Android drew as the iOS
+  disclosure chevron. Discord's iOS and Android channel lists have none, nor do Messages'
+  conversations, and the split beside the chat already hid them: the rows now say nothing
+  there.
 - The newest message's two avatars are empty grey circles once the older page has
   loaded, keyboard or not; what was ruled out is in QUEUE.md.
 
