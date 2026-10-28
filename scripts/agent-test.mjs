@@ -524,6 +524,52 @@ export async function serverRequest(base, st) {
 /** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
 const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed: 'seed' };
 
+/** Literal `always` predicates over the driver's JSON values (LLP 1151 D8). */
+export function propertyHolds(line, state, previous) {
+  const bag = { ...state.derives, ...state.slots };
+  if (!Object.hasOwn(bag, line.name)) return false;
+  const value = bag[line.name], before = { ...previous?.derives, ...previous?.slots }[line.name];
+  const literal = (got, v) => {
+    switch (v.kind) {
+      case 'none': return got === null;
+      case 'some': return got !== undefined && got !== null;
+      case 'empty-list': return Array.isArray(got) && got.length === 0;
+      default: return Object.is(got, v.value);
+    }
+  };
+  switch (line.test) {
+    case 'equal': return literal(value, line.value);
+    case 'in': return line.values.some(v => literal(value, v));
+    case 'at-least': return typeof value === 'number' && value >= line.number;
+    case 'at-most': return typeof value === 'number' && value <= line.number;
+    case 'whole': return Number.isInteger(value);
+    case 'stays': return !literal(before, line.value) || literal(value, line.value);
+    default: throw new Error(`unknown always predicate ${line.test}`);
+  }
+}
+
+async function propertyFailure(p, line, state, previous, s, file, test, step, index, host) {
+  const label = step.op === 'clock' ? `clock ${step.arg}` : `${step.op} ${JSON.stringify(step.target)}${step.op === 'type' ? ` ${JSON.stringify(step.text)}` : ''}`;
+  const location = at => `${at.file}:${at.line}:${at.col}`;
+  const out = [`PROPERTY ${JSON.stringify(p.name)} is false on ${host}`,
+    `  property line: ${file}:${line.line}`,
+    `  at step ${index + 1}: ${label} (${file}:${step.line}; test ${JSON.stringify(test)})`];
+  if (step.target) {
+    const at = (await s.layout(step.target).catch(() => null))?.node?.sourceMap;
+    if (at?.status === 'compatible') out.push(`  the element ${JSON.stringify(step.target)} is ${location(at)}`);
+  }
+  const at = await s.declaration(line.name, state);
+  if (at) out.push(`  ${line.name} is declared at ${location(at)}`);
+  const value = snapshot => {
+    const kind = Object.hasOwn(snapshot?.slots ?? {}, line.name) ? 'slot' : 'derive';
+    const got = snapshot?.[kind === 'slot' ? 'slots' : 'derives']?.[line.name];
+    return `${kind} ${line.name} ${got === undefined ? '<not printed>' : JSON.stringify(got)}`;
+  };
+  out.push(`  ${host}: ${value(state)}`);
+  if (line.test === 'stays') out.push(`  before ${host}: ${value(previous)}`);
+  return out.join('\n');
+}
+
 /**
  * Run a `test "…"` file against a host. Each test is a session of its own
  * from the first frame, opened with its launch lines — `size`, `epoch`,
@@ -563,7 +609,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, when no web
   // admission file exists.
   const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? backendOrigin(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
-  const tests = backendFetchPrefixes(JSON.parse(c.stdout).tests, granted.length ? granted : appOrigin ? [appOrigin] : []);
+  const authored = JSON.parse(c.stdout), properties = authored.properties.filter(p => p.kind === 'always');
+  const unchecked = authored.properties.filter(p => p.kind !== 'always').reduce((n, p) => n + Math.max(1, p.lines.length), 0);
+  console.error(`properties on ${host}: ${unchecked} lines not checked (after, its frames and commands, and never refuses); the driver exposes no commit trace`);
+  let propertyChecks = 0, propertyFalse = 0;
+  const tests = backendFetchPrefixes(authored.tests, granted.length ? granted : appOrigin ? [appOrigin] : []);
   const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
   if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];
@@ -720,6 +770,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         try { await prefer(st); } catch (e) { failures.push(`${t.name}: line ${st.line}: ${e.message}`); break; }
       }
       try { if (!failures.length) await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
+      let previous = properties.some(p => p.lines.some(l => l.test === 'stays')) && !failures.length ? await s.state() : undefined;
       // A counted fault that matched no fetch fails the test at the line that armed it (LLP 1103 D3).
       // A table the host never made (no fetch consulted it) matched nothing either; an unreadable state is said so.
       const unfired = async (prefix) => {
@@ -946,6 +997,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         current = st.line;
         try {
           await runStep(st, n, at);
+          if (closedAt == null && properties.length) {
+            const state = mutationClock.state;
+            if (['tap', 'type', 'clock', 'key'].includes(st.op)) for (const p of properties) for (const line of p.lines) {
+              propertyChecks++;
+              if (!propertyHolds(line, state, previous)) {
+                propertyFalse++;
+                failures.push(await propertyFailure(p, line, state, previous, s, file, t.name, st, n, host));
+              }
+            }
+            previous = state;
+          }
           if (atStep && closedAt == null && (INPUTS.has(st.op) || st.op === 'reload')) {
             const next = await atStep(s, { name: t.name, line: st.line, op: st.op });
             if (next === 'done') done = true;
@@ -986,6 +1048,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
   const failed = results.filter((r) => r.failures.length).length, skipped = results.filter((r) => r.skipped).length;
+  if (properties.length) console.error(`properties on ${host}: ${propertyChecks} always line checks after authored inputs and clocks; ${propertyFalse} false${propertyChecks ? '' : '; not exercised'}`);
   return { passed: results.length - failed - skipped, failed, skipped, results };
 }
 
@@ -1029,13 +1092,15 @@ export { driverCapabilities } from './help.mjs';
 /** One millisecond per source mutation request, counted once across data continuations.
  * Action arguments retain their atomic snapshot; the next action sees the advanced clock. */
 export function testMutationClock() {
-  let cursor=0;
+  let cursor=0, state;
   return {
-    reset() { cursor=0; },
+    get state() { return state; },
+    reset() { cursor=0; state=undefined; },
     async advance(s) {
       let total=0;
       for(let round=0;round<16;round++) {
-        const requests=(await s.state()).mutationRequests;
+        state=await s.state();
+        const requests=state.mutationRequests;
         if (!Number.isSafeInteger(requests) || requests<cursor) throw new Error('test clock: driver did not return a monotonic mutation request count');
         const mutations=requests-cursor;
         cursor=requests;

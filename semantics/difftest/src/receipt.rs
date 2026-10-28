@@ -74,6 +74,7 @@ pub(crate) struct Receipt<'a> {
     pub property_files: &'a [PathBuf],
     pub report: &'a Report,
     pub semantics: &'a Semantics,
+    pub js: &'a str,
     pub runner_seconds: f64,
     pub candidates: usize,
 }
@@ -97,6 +98,9 @@ impl Receipt<'_> {
         );
         if o.runner_only {
             command.push_str(" --runner-only");
+        }
+        if o.js {
+            command.push_str(" --js");
         }
         if o.types {
             command.push_str(" --types");
@@ -174,10 +178,13 @@ impl Receipt<'_> {
             self.runner_seconds, s.seconds, self.candidates, s.candidates
         );
         if let Some(reason) = &s.reason {
-            println!("  semantics: did not run: {reason}; {cost}; js: not run");
+            println!(
+                "  semantics: did not run: {reason}; {cost}; js: {}",
+                self.js
+            );
         } else {
             let outside: BTreeSet<_> = s.outside.iter().cloned().collect();
-            println!("  semantics: agreed on {} of {} scripts, {} outside ({}); configurations {} advance on every step; {cost}; js: not run", s.agreed, s.run, s.outside.len(), names(&outside.into_iter().collect::<Vec<_>>()), if s.trace_disagreed { "did not match" } else { "matched" });
+            println!("  semantics: agreed on {} of {} scripts, {} outside ({}); configurations {} advance on every step; {cost}; js: {}", s.agreed, s.run, s.outside.len(), names(&outside.into_iter().collect::<Vec<_>>()), if s.trace_disagreed { "did not match" } else { "matched" }, self.js);
         }
     }
 }

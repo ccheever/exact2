@@ -7,13 +7,14 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const USAGE: &str = "usage: contract verify <file.contract> [--runner-only] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]
+const USAGE: &str = "usage: contract verify <file.contract> [--runner-only] [--js] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]
 
 Runs delivered test prefixes, an explore script and adaptive walks on the runner,
 including seeded stores. Shrinks findings before Lean confirms the tests, explore,
 findings and a walk sample. Prints property suggestions and a reproducing receipt.
 Defaults: --walks 20 --steps 40 --confirm 2; --walk-seed defaults to the app path.
 Without Lean or with --runner-only, the receipt says the semantics did not run.
+--js also compares every search script on the web JS target and checks always lines.
 --types runs the Lean type checker; --prove <Module> regenerates the embedding
 and builds semantics/Apps/Proofs/<Module>.lean.";
 
@@ -32,7 +33,7 @@ pub fn run(args: &[String]) -> ExitCode {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
             }
-            "--types" | "--runner-only" => rest.push(a.clone()),
+            "--types" | "--runner-only" | "--js" => rest.push(a.clone()),
             "--prove" | "--walks" | "--steps" | "--walk-seed" | "--confirm" => match it.next() {
                 Some(m) if !m.starts_with('-') => rest.extend([a.clone(), m.clone()]),
                 _ => {

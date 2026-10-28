@@ -254,6 +254,33 @@ from that field's authored tests, then source literals, then the generator. Ever
 script also runs from a seeded store when the app persists state, with the same
 oracle answers as its empty-store run.
 
+State properties beside the `test` blocks in `app.test.contract`:
+
+```contract-test
+always "the phone is on one of its five screens"
+  expect state screen in "lock" "home" "settings" "display" "messages"
+
+after "increment" "increment adds one"
+  expect state counter == old + 1
+
+never refuses "reset"
+```
+
+Use blocks that name your app's states and actions; [the properties recipe](../docs/recipes/properties.md)
+explains the literal forms and receipt. `bun exact.mjs verify` checks `always` on
+the device after authored inputs and clocks, then always runs `contract verify`.
+Either failure fails the command. Keep its receipt unchanged in the diary: the
+digests identify the sources, and the counts identify the scripts and world checked.
+“In the semantics' world” means the seeded oracle answers synchronously and never
+fails; it does not include a device's reloads, late replies or host inputs.
+
+`contract verify --js apps/<app>/app.contract` replays every search script, including
+stored variants, and the shrunk findings on the web JS target. It checks `always`
+on the JS observation and compares configurations with the runner. The receipt's
+`js:` entry gives agreements, outside cases, errors and property line checks;
+without the flag it says `not run`. JS and device runs count `after`, its frames
+and commands, and `never refuses` as unchecked because they expose no commit trace.
+
 The runner checks properties and classifies refusals on these scripts, then shrinks
 each distinct property-line or refusal-class/action finding in each script. Lean
 confirms the delivered tests and explore script, each shrunk finding, and `--confirm N` walks (default 2). A divergence is shrunk with both
@@ -375,7 +402,13 @@ this checks the step's outcome and configuration, without commit attribution.
 cargo run -p contract-difftest -- corpus --js
 cargo run -p contract-difftest -- explore contract/corpus apps/*/app.contract --js-only
 cargo run -p contract-difftest -- random --seed 7 --count 2000 --js-only
+cargo run -p contract-difftest -- verify --js apps/typetour/app.contract
 ```
+
+These commands build `exact-web-js` locally with `cargo build -p exact-web-js`.
+The driver needs the repository's pinned Bun and installed dependencies; it
+downloads nothing. A build or driver failure fails verification and is named in
+the receipt.
 
 `difftest/js/drive.mjs` is the headless driver. Each case's program is
 compiled by `exact-web-js` (the build's compiler), bundled with the runtime

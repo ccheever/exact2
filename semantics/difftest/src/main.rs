@@ -38,7 +38,7 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   difftest corpus [<dir|file>…] [--js|--js-only]
   difftest explore <dir|file>… [--js|--js-only]
-  difftest verify <file.contract> [--runner-only] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]
+  difftest verify <file.contract> [--runner-only] [--js] [--walks N] [--steps M] [--walk-seed N] [--confirm N] [--types] [--prove <Module>]
   difftest quick [--base <rev>]
   difftest random [--seed <u64>] [--count <n>] [--batch <n>] [--js|--js-only]
   difftest numbers [--seed <u64>] [--count <n>]
@@ -225,6 +225,7 @@ fn run_verify(args: &[String]) -> Result<bool, String> {
         match a.as_str() {
             "--types" => options.types = true,
             "--runner-only" => options.runner_only = true,
+            "--js" => options.js = true,
             "--walks" | "--steps" | "--confirm" | "--walk-seed" => {
                 let value = it.next().ok_or_else(|| format!("{a} needs a number"))?;
                 let value = if let Some(hex) = value.strip_prefix("0x") {

@@ -798,6 +798,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       await sourceMaps.refresh();
       return identifyResources(reply, sourceMaps);
     },
+    async declaration(name, state) {
+      await sourceMaps.refresh();
+      const digest = state?.planDigest ?? (mapLocator && !/^https?:/.test(mapLocator) && existsSync(mapLocator)
+        ? createHash('sha256').update(readFileSync(mapLocator)).digest('hex') : null);
+      const map = sourceMaps.get(digest);
+      return map?.slots?.[name] ?? map?.derives?.[name] ?? null;
+    },
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs({all = false} = {}) {
       const since = all ? 0 : s.logCursor;

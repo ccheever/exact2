@@ -1,4 +1,4 @@
-//! Root property reads closed over derive and function bodies (LLP 1148 D1).
+//! Root property reads closed over derive and function bodies (LLP 1151 D1).
 
 use super::AnalyzeError;
 use contract_syntax::{Component, Expr, FnDecl, PropertyDecl, PropertyForm, TemplatePart};

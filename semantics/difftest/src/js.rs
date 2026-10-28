@@ -21,7 +21,10 @@ use std::process::Command;
 #[derive(Debug, Clone)]
 pub enum JsVerdict {
     /// The JS target printed the runner's observation.
-    Agree,
+    Agree {
+        /// The JS observation, retained for property checks.
+        js: Vec<String>,
+    },
     /// The compiler refused the program (the runner never ran it).
     Refused(String),
     /// `exact-web-js` refused it: outside the JS target.
@@ -299,7 +302,7 @@ fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
     // what each evaluates before refusing is not observable).
     let at = r.iter().zip(&j).position(|(a, b)| a != b);
     match at {
-        None if r.len() == j.len() => JsVerdict::Agree,
+        None if r.len() == j.len() => JsVerdict::Agree { js },
         None => JsVerdict::Diverge {
             at: r.len().min(j.len()),
             rust,
@@ -481,7 +484,7 @@ pub fn report(
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for (i, (case, v)) in cases.iter().zip(verdicts).enumerate() {
         match v {
-            JsVerdict::Agree => agree += 1,
+            JsVerdict::Agree { .. } => agree += 1,
             JsVerdict::Refused(_) => refused += 1,
             JsVerdict::Outside(why) => {
                 outside += 1;
@@ -559,6 +562,29 @@ pub fn report(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agreeing_js_observations_are_retained_for_always_checks() {
+        let lines = vec![
+            "== boot".into(),
+            "outcome ok".into(),
+            "slot ready true".into(),
+            "== tap \"go\"".into(),
+            "ran handler go ok".into(),
+            "outcome ok".into(),
+            "slot ready false".into(),
+        ];
+        let json = serde_json::json!({ "lines": lines.iter().filter(|l: &&String| !l.starts_with("ran ")).collect::<Vec<_>>() });
+        let JsVerdict::Agree { js } = verdict(lines, &json.to_string()) else {
+            panic!("configurations agree")
+        };
+        let properties =
+            contract::properties("always \"ready stays\"\n  expect state ready stays true\n")
+                .unwrap();
+        let report = crate::property::evaluate(&properties, &js);
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(report.failures[0].step, 1);
+    }
 
     /// The driver's key for `sin(4)` answers the runner's bits, which
     /// JavaScriptCore's `Math.sin` misses by one unit in the last place.

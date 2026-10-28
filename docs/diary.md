@@ -69,6 +69,7 @@ Rough entry. Leave out steps you didn't reach.
 - iOS build
 - macOS build
 - driving the app (`exact.mjs agent`, `exact.mjs test`)
+- properties (`contract verify app.contract`; keep its receipt unchanged)
 - deploy
 
 Write `smooth` whenever a step went smoothly, even with nothing else to say. That is

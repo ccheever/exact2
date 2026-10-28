@@ -7,10 +7,92 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, refusalExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
+import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, propertyHolds, refusalExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
+
+test('always predicates preserve JSON types, option kinds and the previous state', () => {
+  const state = { slots: { n: 2, flag: false, absent: null, answer: { ok: true }, empty: [], text: '2' }, derives: { doubled: 4 } };
+  const check = (name, test, rest = {}, previous) => propertyHolds({ name, test, ...rest }, state, previous);
+  expect(check('n', 'whole')).toBe(true);
+  expect(check('text', 'whole')).toBe(false);
+  expect(check('doubled', 'at-least', { number: 4 })).toBe(true);
+  expect(check('doubled', 'at-most', { number: 3 })).toBe(false);
+  expect(check('text', 'at-least', { number: 1 })).toBe(false);
+  expect(check('n', 'in', { values: [{ kind: 'number', value: 2 }] })).toBe(true);
+  expect(check('text', 'in', { values: [{ kind: 'number', value: 2 }] })).toBe(false);
+  expect(check('absent', 'in', { values: [{ kind: 'none' }] })).toBe(true);
+  expect(check('answer', 'in', { values: [{ kind: 'some' }] })).toBe(true);
+  expect(check('absent', 'in', { values: [{ kind: 'some' }] })).toBe(false);
+  expect(check('empty', 'equal', { value: { kind: 'empty-list' } })).toBe(true);
+  expect(check('missing', 'in', { values: [{ kind: 'some' }] })).toBe(false);
+  expect(check('flag', 'stays', { value: { kind: 'bool', value: true } }, { slots: { flag: true } })).toBe(false);
+  expect(check('flag', 'stays', { value: { kind: 'bool', value: true } }, { slots: { flag: false } })).toBe(true);
+  expect(check('flag', 'stays', { value: { kind: 'bool', value: true } })).toBe(true);
+});
+
+test('device properties see boot, typing and clock changes, and reset stays between tests', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-properties-')), contract = join(dir, 'app.contract'), file = join(dir, 'app.test.contract');
+  const plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
+  writeFileSync(contract, `component App
+  state ready = true
+  state textValue = ""
+  state n = 0
+  derive doubled = n * 2
+  task tick mount
+    every(100, step)
+  action step
+    n = n + 1
+  action toggle
+    ready = not ready
+  action edit(v: string)
+    textValue = v
+  view
+    column
+      button testId="toggle" press=toggle
+        text "Toggle"
+      input testId="field" value=textValue input=edit
+`);
+  writeFileSync(file, `always "ready stays"
+  expect state ready stays true
+always "short input"
+  expect state textValue in "" "ok"
+always "small derive"
+  expect state doubled <= 1
+after "toggle" "unchecked"
+  writes none
+  command focus "field"
+never refuses "toggle"
+test "the three observations"
+  tap "toggle"
+  type "field" "bad"
+  clock +100
+test "a fresh history"
+  type "field" "ok"
+`);
+  const root = new URL('..', import.meta.url).pathname;
+  const compiler = join(process.env.CARGO_TARGET_DIR ?? join(root, 'target'), 'debug', 'contract');
+  const compile = spawnSync(compiler, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+  expect(compile.status, compile.stderr).toBe(0);
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: root, encoding: 'utf8' });
+  expect(build.status, build.stderr).toBe(0);
+  const server = createServer((req, res) => serveBuildTree(dist, req, res));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const r = await runTests({ host: 'web', file, app: 'caltrain', url: `http://127.0.0.1:${server.address().port}/` });
+    expect([r.passed, r.failed]).toEqual([1, 1]);
+    const failures = r.results[0].failures.join('\n');
+    expect(failures).toContain('PROPERTY "ready stays" is false on web');
+    expect(failures).toContain('at step 1: tap "toggle"');
+    expect(failures).toContain('before web: slot ready true');
+    expect(failures).toContain('PROPERTY "short input" is false on web');
+    expect(failures).toContain('at step 3: clock +100');
+    expect(failures).toContain('web: derive doubled 2');
+    expect(failures).not.toContain('PROPERTY "unchecked"');
+    expect(r.results[1].failures).toEqual([]);
+  } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 180_000);
 
 test('a presented popover belongs to its AppKit modal for outside-modal findings', () => {
   const elements = [

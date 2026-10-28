@@ -14,6 +14,8 @@ pub struct Options {
     pub types: bool,
     /// Run delivery, expectations, the refusal census and coverage without Lean.
     pub runner_only: bool,
+    /// Compare all search scripts on the web JS target and check `always`.
+    pub js: bool,
     /// Regenerate this module's embedding and build its proofs.
     pub prove: Option<String>,
     /// Number of adaptive walks.
@@ -31,6 +33,7 @@ impl Default for Options {
         Self {
             types: false,
             runner_only: false,
+            js: false,
             prove: None,
             walks: 20,
             steps: 40,
@@ -391,6 +394,13 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         }
         semantics.seconds = then.elapsed().as_secs_f64();
     }
+    let js = if options.js {
+        let (passed, summary) = verify_js(&located, &found, &properties, &property_files, &map);
+        ok &= passed;
+        summary
+    } else {
+        "not run".into()
+    };
     print_properties(&properties, &property_files, &totals);
     println!("world: settle omits host waits on motion, scrolling and hatches, and advances to animation ends");
     suggestions.print(&properties);
@@ -411,11 +421,156 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         property_files: &property_files,
         report: &totals,
         semantics: &semantics,
+        js: &js,
         runner_seconds,
         candidates,
     }
     .print();
     Ok(ok)
+}
+
+fn verify_js(
+    located: &[Located],
+    found: &[Found],
+    properties: &[contract_syntax::PropertyDecl],
+    files: &[PathBuf],
+    map: &contract::SourceMap,
+) -> (bool, String) {
+    use crate::js::{self, JsVerdict};
+    use contract_syntax::PropertyKind;
+    let unchecked: usize = properties
+        .iter()
+        .filter(|p| p.kind != PropertyKind::Always)
+        .map(|p| p.lines.len().max(1))
+        .sum();
+    let scope = format!("{unchecked} lines not checked (after, its frames and commands, and never refuses); no JS commit trace");
+    let started = std::time::Instant::now();
+    let run = || -> Result<(bool, String), String> {
+        let compiler = js::build()?;
+        let selected: Vec<_> = located
+            .iter()
+            .chain(found.iter().map(|f| &f.located))
+            .collect();
+        let cases: Vec<_> = selected.iter().map(|l| l.scripted.case.clone()).collect();
+        let verdicts = js::check(&compiler, &cases, 16, "verify")?;
+        let mut passed = js::report(&compiler, &cases, &verdicts, None, false, true)?;
+        let always: Vec<_> = properties
+            .iter()
+            .filter(|p| p.kind == PropertyKind::Always)
+            .cloned()
+            .collect();
+        let always_files: Vec<_> = properties
+            .iter()
+            .zip(files)
+            .filter(|(p, _)| p.kind == PropertyKind::Always)
+            .map(|(_, f)| f.clone())
+            .collect();
+        let mut totals = crate::property::Report::new(&always);
+        let (mut agree, mut diverge, mut outside, mut errors) = (0, 0, 0, 0);
+        for (l, verdict) in selected.iter().zip(&verdicts) {
+            let observation = match verdict {
+                JsVerdict::Agree { js } => {
+                    agree += 1;
+                    Some(js)
+                }
+                JsVerdict::Diverge { js, .. } => {
+                    diverge += 1;
+                    Some(js)
+                }
+                JsVerdict::Outside(_) => {
+                    outside += 1;
+                    None
+                }
+                JsVerdict::Refused(_) | JsVerdict::Error(_) => {
+                    errors += 1;
+                    passed = false;
+                    None
+                }
+            };
+            let Some(observation) = observation else {
+                continue;
+            };
+            let report = crate::property::evaluate(&always, observation);
+            passed &= report.passed();
+            totals.merge(&report);
+            for failure in &report.failures {
+                let p = &always[failure.property];
+                let line = &p.lines[failure.line];
+                println!(
+                    "PROPERTY {:?} is false on web JS\n  property line: {}\n  script: {}",
+                    p.name,
+                    at_span(&always_files[failure.property], line.span),
+                    l.scripted.case.name
+                );
+                if failure.step == 0 {
+                    println!("  at boot");
+                } else {
+                    println!(
+                        "  at step {}: {}{}",
+                        failure.step,
+                        l.scripted.case.events[failure.step - 1].label(),
+                        l.steps
+                            .get(failure.step - 1)
+                            .map(|(f, s)| format!(" ({})", at_span(f, *s)))
+                            .unwrap_or_default()
+                    );
+                }
+                if let contract_syntax::PropertyForm::Hold { name, .. } = &line.form {
+                    if let Some((f, span)) = map.declared(name) {
+                        println!("  {name} is declared at {}", at_span(f, span));
+                    }
+                }
+                println!("  js: {}", readable(&failure.observed));
+                if let Some(previous) = &failure.previous {
+                    println!("  before js: {}", readable(previous));
+                }
+                let dir = work_dir().join("failures");
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let stem = dir.join(format!(
+                    "{}-js-property-{:x}",
+                    std::process::id(),
+                    crate::seed_of(&l.scripted.case.name)
+                ));
+                std::fs::write(stem.with_extension("contract"), &l.scripted.case.source)
+                    .map_err(|e| e.to_string())?;
+                std::fs::write(
+                    stem.with_extension("events"),
+                    l.scripted
+                        .case
+                        .events
+                        .iter()
+                        .map(Event::label)
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+                .map_err(|e| e.to_string())?;
+                std::fs::write(stem.with_extension("js.txt"), observation.join("\n"))
+                    .map_err(|e| e.to_string())?;
+                println!("  kept: {}.{{contract,events,js.txt}}", stem.display());
+            }
+        }
+        let checked: usize = totals.counts.iter().flatten().map(|c| c.checked).sum();
+        let false_: usize = totals.counts.iter().flatten().map(|c| c.false_).sum();
+        let counted: usize = totals.counts.iter().flatten().map(|c| c.counted).sum();
+        Ok((passed, format!("{agree} of {} scripts agreed; {diverge} diverged; {outside} outside; {errors} errors; always: {checked} line checks, {false_} false, {counted} counted only", cases.len())))
+    };
+    let (passed, summary) = match run() {
+        Ok(result) => result,
+        Err(e) => {
+            println!("ERROR-JS {e}");
+            (
+                false,
+                format!("did not complete: {}", e.lines().next().unwrap_or(&e)),
+            )
+        }
+    };
+    (
+        passed,
+        format!(
+            "{summary}; {scope}; {:.3}s",
+            started.elapsed().as_secs_f64()
+        ),
+    )
 }
 
 fn print_finding(
