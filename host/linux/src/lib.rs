@@ -70,6 +70,7 @@ pub mod gpu;
 pub mod hatches;
 pub mod host;
 pub mod image;
+pub mod ink;
 #[cfg(target_os = "linux")]
 pub mod input;
 mod kept;

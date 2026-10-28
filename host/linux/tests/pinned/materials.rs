@@ -21,12 +21,13 @@ const CASES: [&str; 8] = [
 
 #[test]
 fn named_materials_match_chrome() {
-    let mut choices = vec![PainterChoice::Cpu];
-    if exact_linux::gpu::Gpu::new().is_ok() {
-        choices.push(PainterChoice::Gpu);
-    }
+    let choices = crate::paint::painters();
     let mut failures = Vec::new();
     for choice in choices {
+        // C3: every material crop requires a backdrop filter.
+        if choice == PainterChoice::Ink {
+            continue;
+        }
         let name = format!("{choice:?}");
         let mut p = boot(choice, "materials.contract");
         failures.extend(held_to_chrome(&mut p, "materials.web.png", &name, &CASES));

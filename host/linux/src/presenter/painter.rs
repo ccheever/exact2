@@ -9,6 +9,8 @@ pub enum PainterChoice {
     Auto,
     /// vello over wgpu; a boot error when there is no adapter.
     Gpu,
+    /// Instanced geometry over wgpu (LLP 1149).
+    Ink,
     /// tiny-skia.
     Cpu,
     /// Recorded for Android's Canvas (`canvas.rs`).
@@ -29,10 +31,11 @@ pub fn set_custom_painter(name: &'static str, make: PainterFactory) {
     let _ = CUSTOM.set((name, make));
 }
 impl PainterChoice {
-    /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
+    /// `EXACT_PAINTER`: `gpu`, `ink`, `cpu`, or unset (auto).
     pub fn from_env() -> PainterChoice {
         match std::env::var("EXACT_PAINTER").as_deref() {
             Ok("gpu") => PainterChoice::Gpu,
+            Ok("ink") => PainterChoice::Ink,
             Ok("cpu") => PainterChoice::Cpu,
             Ok("custom") => PainterChoice::Custom,
             #[cfg(any(target_os = "android", test))]
@@ -45,7 +48,7 @@ impl PainterChoice {
 /// What the painter is, for the smoke's report.
 #[derive(Debug, Clone)]
 pub struct PainterInfo {
-    /// `"gpu"` or `"cpu"`.
+    /// The selected backend's name.
     pub name: &'static str,
     /// The adapter and API, on the GPU.
     pub adapter: Option<String>,
@@ -119,6 +122,18 @@ pub(super) fn open_backend(
     let cpu = || (Box::new(Raster::new()) as Box<dyn Backend>, cpu_info());
     match choice {
         PainterChoice::Cpu => Ok(cpu()),
+        PainterChoice::Ink => {
+            let ink = crate::ink::Ink::new()?;
+            let device = ink.info();
+            let info = PainterInfo {
+                name: "ink",
+                adapter: Some(format!("{} ({})", device.adapter, device.api)),
+                device_ms: device.device_ms,
+                shaders_ms: device.shaders_ms,
+                cached: device.cached,
+            };
+            Ok((Box::new(ink), info))
+        }
         PainterChoice::Custom => {
             let (name, make) = CUSTOM
                 .get()

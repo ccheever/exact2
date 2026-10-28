@@ -197,7 +197,9 @@ impl<D: DataSource> Presenter<D> {
         };
         let mut painted = paint(&mut self.brush);
         if let Err(e) = &painted {
-            if self.choice == PainterChoice::Auto && self.brush.backend() == "gpu" {
+            if (self.choice == PainterChoice::Auto && self.brush.backend() == "gpu")
+                || self.brush.backend() == "ink"
+            {
                 eprintln!("exact: paint: {e}; painting on the CPU from here");
                 self.brush.replace_backend(Box::new(Raster::new()));
                 self.painter = cpu_info();

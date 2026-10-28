@@ -161,6 +161,12 @@ fn held_to_chrome_with_band(
 ) -> Vec<String> {
     let chrome = Pixmap::load_png(fixtures().join(reference)).unwrap();
     let frame = p.frame();
+    if painter == "Ink" {
+        assert_eq!(
+            p.painter.name, "ink",
+            "parity must not use the CPU fallback"
+        );
+    }
     assert_eq!(
         (frame.width(), frame.height()),
         (chrome.width(), chrome.height())
@@ -185,10 +191,7 @@ fn held_to_chrome_with_band(
 
 #[test]
 fn every_border_case_matches_chrome_light_then_flipped_and_dark() {
-    let mut choices = vec![PainterChoice::Cpu];
-    if exact_linux::gpu::Gpu::new().is_ok() {
-        choices.push(PainterChoice::Gpu);
-    }
+    let choices = crate::paint::painters();
     let mut failures = Vec::new();
     for choice in choices {
         let name = format!("{choice:?}");
@@ -226,10 +229,7 @@ fn dotted_and_dashed_borders_match_chrome() {
         "underline-dot",
         "underline-dash",
     ];
-    let mut choices = vec![PainterChoice::Cpu];
-    if exact_linux::gpu::Gpu::new().is_ok() {
-        choices.push(PainterChoice::Gpu);
-    }
+    let choices = crate::paint::painters();
     let mut failures = Vec::new();
     for choice in choices {
         let mut p = boot(choice, "border-patterns.contract");

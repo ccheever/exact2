@@ -41,6 +41,7 @@ pub mod flags {
     pub const BLEND_MASK: u32 = 15 << BLEND_SHIFT;
     pub const RAMP_SHIFT: u32 = 16;
     pub const RAMP_MASK: u32 = 1023 << RAMP_SHIFT;
+    pub const SHADOW_LOCAL: u32 = 1 << 26;
 }
 
 /// Twelve 16-byte vertex attributes, with no storage-buffer dependency.
@@ -52,6 +53,8 @@ pub mod flags {
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct Instance {
+    /// Coverage quads use device bounds; their affine still maps brush space
+    /// to device space, so a path mask and its gradient share one instance.
     pub rect: [f32; 4],
     /// [a, b, c, d, tx, ty]: (a*x + c*y + tx, b*x + d*y + ty).
     pub xform: [f32; 6],

@@ -61,7 +61,7 @@ impl WindowLayer {
 /// What draws the walk's output. Coordinates are viewport points with a
 /// transform (points → points); a backend applies the device scale itself.
 pub trait Backend {
-    /// `"gpu"` or `"cpu"`.
+    /// The selected backend's name.
     fn name(&self) -> &'static str;
     /// Whether geometry queries must draw through this backend to keep its
     /// recordings or native state current. Stateless raster backends may opt out.

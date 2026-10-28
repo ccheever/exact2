@@ -10,6 +10,7 @@ use exact_runner::DataSource;
 use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
+mod geometry;
 
 fn assets() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"))
@@ -21,6 +22,11 @@ fn gpu_available() -> bool {
     match exact_linux::gpu::Gpu::new() {
         Ok(_) => true,
         Err(e) => {
+            assert_ne!(
+                std::env::var("EXACT_REQUIRED").as_deref(),
+                Ok("1"),
+                "missing gpu: {e}"
+            );
             eprintln!("no GPU here ({e}); the GPU painter's pixels are not checked");
             false
         }
@@ -28,12 +34,30 @@ fn gpu_available() -> bool {
 }
 
 /// Every painter that can run here.
-fn painters() -> Vec<PainterChoice> {
+pub(crate) fn painters() -> Vec<PainterChoice> {
     let mut v = vec![PainterChoice::Cpu];
     if gpu_available() {
         v.push(PainterChoice::Gpu);
     }
+    if ink_available() {
+        v.push(PainterChoice::Ink);
+    }
     v
+}
+
+fn ink_available() -> bool {
+    match exact_linux::ink::Ink::new() {
+        Ok(_) => true,
+        Err(e) => {
+            assert_ne!(
+                std::env::var("EXACT_REQUIRED").as_deref(),
+                Ok("1"),
+                "missing ink: {e}"
+            );
+            eprintln!("Ink painter unavailable: {e}");
+            false
+        }
+    }
 }
 
 fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
@@ -172,10 +196,13 @@ fn text_and_images_leave_ink_in_their_boxes() {
         let mut p = boot(choice);
         let frame = p.frame();
         let name = rect(&mut p, "station-name");
-        assert!(
-            darkest(&frame, name) < 120,
-            "24 pt bold text is dark ink ({choice:?})"
-        );
+        // C3: Ink's glyph atlas is not implemented yet.
+        if choice != PainterChoice::Ink {
+            assert!(
+                darkest(&frame, name) < 120,
+                "24 pt bold text is dark ink ({choice:?})"
+            );
+        }
         let logo = rect(&mut p, "logo");
         assert!(
             darkest(&frame, logo) < 700,
@@ -207,10 +234,13 @@ fn motion_presents_as_a_transform_and_a_group_opacity() {
         // the button above it, whose text is at full opacity.
         let lower = (after.0, after.1 + after.3 / 2.0, after.2, after.3 / 2.0);
         let ink_after = darkest(&p.frame(), lower);
-        assert!(
-            ink_after > ink_before + 60,
-            "opacity 0.5 lightens the ink: {ink_before} → {ink_after} ({choice:?})"
-        );
+        // C3: this fixture measures the opacity of text.
+        if choice != PainterChoice::Ink {
+            assert!(
+                ink_after > ink_before + 60,
+                "opacity 0.5 lightens the ink: {ink_before} → {ink_after} ({choice:?})"
+            );
+        }
     }
 }
 
@@ -250,10 +280,13 @@ fn a_scroll_container_clips_what_it_scrolled_out() {
         let above = rect(&mut p, "above");
         let _ = p.wheel(view(&p, "row-1"), 0.0, 100.0);
         let frame = p.frame();
-        assert!(
-            darkest(&frame, above) < 200,
-            "text above the container still shows"
-        );
+        // C3: Ink's glyph atlas is not implemented yet.
+        if choice != PainterChoice::Ink {
+            assert!(
+                darkest(&frame, above) < 200,
+                "text above the container still shows"
+            );
+        }
         let row0 = rect(&mut p, "row-0");
         assert!(row0.1 < rows.1, "row 0 is above the container's top");
         // Between the container's top and the first visible row there is only
@@ -280,7 +313,10 @@ fn a_device_scale_paints_more_pixels_for_the_same_points() {
         );
         let above = rect(&mut p, "above");
         let scaled = (above.0 * 2.0, above.1 * 2.0, above.2 * 2.0, above.3 * 2.0);
-        assert!(darkest(&frame, scaled) < 200, "ink where the box is, at 2×");
+        // C3: Ink's glyph atlas is not implemented yet.
+        if choice != PainterChoice::Ink {
+            assert!(darkest(&frame, scaled) < 200, "ink where the box is, at 2×");
+        }
     }
 }
 
@@ -339,6 +375,30 @@ fn the_two_painters_agree_within_a_band() {
     let gpu = boot(PainterChoice::Gpu).frame();
     let (mean, over) = band(&cpu, &gpu);
     eprintln!("cpu vs gpu at 390x844: mean {mean:.2}/255, {over:.2}% of pixels differ by > 32");
+    assert!(mean < 5.0, "mean {mean:.2}/255");
+    assert!(over < 6.0, "{over:.2}% of pixels differ by > 32");
+}
+
+#[test]
+fn the_cpu_and_ink_painters_agree_within_a_band() {
+    if !ink_available() {
+        return;
+    }
+    // C3: compare geometry with the CPU's glyph painting omitted too.
+    let mut reference = boot(PainterChoice::Cpu);
+    reference.reader_replaced(Box::new(geometry::WithoutText(
+        exact_linux::raster::Raster::new(),
+    )));
+    reference.repaint();
+    let cpu = reference.frame();
+    let mut painter = boot(PainterChoice::Ink);
+    let ink = painter.frame();
+    assert_eq!(
+        painter.painter.name, "ink",
+        "parity must not use the CPU fallback"
+    );
+    let (mean, over) = band(&cpu, &ink);
+    eprintln!("cpu vs ink at 390x844: mean {mean:.2}/255, {over:.2}% of pixels differ by > 32");
     assert!(mean < 5.0, "mean {mean:.2}/255");
     assert!(over < 6.0, "{over:.2}% of pixels differ by > 32");
 }
@@ -1203,4 +1263,41 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
         split.take_window_underlay().is_none(),
         "backdrop effects require ordinary capture"
     );
+}
+
+#[test]
+#[ignore = "measurement: ten interleaved Caltrain frames per painter and viewport"]
+fn caltrain_ink_and_vello_frame_times() {
+    assert!(gpu_available() && ink_available());
+    for (width, height) in [(390., 844.), (1920., 1080.)] {
+        let mut ink = boot(PainterChoice::Ink);
+        let mut gpu = boot(PainterChoice::Gpu);
+        ink.resize(width, height);
+        gpu.resize(width, height);
+        let mut times = [Vec::new(), Vec::new()];
+        for frame in 0..10 {
+            for index in if frame % 2 == 0 { [0, 1] } else { [1, 0] } {
+                let p = if index == 0 { &mut ink } else { &mut gpu };
+                p.repaint();
+                let started = std::time::Instant::now();
+                let pixels = p.frame();
+                let wall_ms = started.elapsed().as_secs_f64() * 1000.;
+                assert_eq!(
+                    (pixels.width(), pixels.height()),
+                    (width as u32, height as u32)
+                );
+                assert_eq!(p.painter.name, if index == 0 { "ink" } else { "gpu" });
+                let (encode, readback) = p.last_frame_ms().unwrap();
+                times[index].push((encode, readback, wall_ms));
+            }
+        }
+        for (name, values) in ["ink", "vello"].into_iter().zip(times) {
+            let median = |mut v: Vec<f64>| {
+                v.sort_by(f64::total_cmp);
+                (v[4] + v[5]) / 2.
+            };
+            eprintln!("{name} {width}x{height}, 10 frames: encode+render {:.3} ms, readback {:.3} ms, frame wall {:.3} ms (medians)",
+                median(values.iter().map(|v| v.0).collect()), median(values.iter().map(|v| v.1).collect()), median(values.iter().map(|v| v.2).collect()));
+        }
+    }
 }

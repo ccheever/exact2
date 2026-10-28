@@ -52,9 +52,16 @@ fn vs_main(a: Attributes, @builtin(vertex_index) vertex: u32,
     if (a.data.z & 65535u) <= 1u {
         fringe = vec2<f32>(length(a.affine.zw), length(a.affine.xy)) / max(det, 0.000001);
     }
-    let local = a.rect.xy - fringe + corner * (a.rect.zw + 2.0 * fringe);
-    let device = vec2<f32>(a.affine.x * local.x + a.affine.z * local.y,
+    var local = a.rect.xy - fringe + corner * (a.rect.zw + 2.0 * fringe);
+    var device = vec2<f32>(a.affine.x * local.x + a.affine.z * local.y,
                            a.affine.y * local.x + a.affine.w * local.y) + bitcast<vec2<f32>>(a.data.xy);
+    if (a.data.z & 65535u) == 4u {
+        device = a.rect.xy + corner * a.rect.zw;
+        let p = device - bitcast<vec2<f32>>(a.data.xy);
+        let determinant = a.affine.x * a.affine.w - a.affine.y * a.affine.z;
+        local = vec2<f32>(a.affine.w * p.x - a.affine.z * p.y,
+                          a.affine.x * p.y - a.affine.y * p.x) / determinant;
+    }
     var out: Vertex;
     out.position = vec4<f32>(device / viewport.size * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
     out.local = local;
@@ -211,7 +218,7 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
             if (flags & 32u) != 0u { color = textureSample(color_atlas, filtering, uv); }
             else { alpha = textureSample(glyph_atlas, filtering, uv).r; }
         }
-        case 4u: { alpha = textureSample(path_atlas, filtering, mapped(v.local, v.rect, v.uv)).r; }
+        case 4u: { alpha = textureSample(path_atlas, filtering, mapped(v.position.xy, v.rect, v.uv)).r; }
         case 5u: {
             color = textureSample(picture, filtering, mapped(v.local, v.rect, v.uv));
             alpha = v.param.x;
@@ -222,7 +229,9 @@ fn fs_main(v: Vertex) -> @location(0) vec4<f32> {
         alpha *= shape_coverage(v.position.xy, v.clip0, unpack_radii(v.clip_radii.xy));
     }
     if (flags & 128u) != 0u {
-        var clip = shape_coverage(v.position.xy, v.clip1, unpack_radii(v.clip_radii.zw));
+        var point = v.position.xy;
+        if kind == 2u && (flags & 67108864u) != 0u { point = v.local; }
+        var clip = shape_coverage(point, v.clip1, unpack_radii(v.clip_radii.zw));
         // Shadow's second slot is its border box, excluded for an outer shadow.
         if kind == 2u && (flags & 2u) == 0u { clip = 1.0 - clip; }
         alpha *= clip;
