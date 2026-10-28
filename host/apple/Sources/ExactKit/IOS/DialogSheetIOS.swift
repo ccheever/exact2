@@ -500,6 +500,18 @@ final class DialogSheets: NSObject, UIAdaptivePresentationControllerDelegate {
         return true
     }
 
+    /// The agent's `back` at the top sheet, as Escape takes it: nil with
+    /// none open, else why it was refused ("" when it closed).
+    func agentCancel() -> String? {
+        // A sheet still leaving holds the route beneath it.
+        guard !entries.isEmpty else { return nil }
+        if inTransition { return "the sheet is still moving: `clock settle` first" }
+        guard let entry = entries.last(where: { !$0.closing }) else { return nil }
+        if refuses(entry.dialog) { return "its closedby is \"none\"" }
+        dismiss(entry, animated: !ExactEnv.agentFreezes, cancelled: true)
+        return ""
+    }
+
     // UIKit's own dismissal: the swipe down, and whatever else it gives a sheet.
     func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
         guard let entry = entries.first(where: { $0.controller === presentationController.presentedViewController }) else { return true }
