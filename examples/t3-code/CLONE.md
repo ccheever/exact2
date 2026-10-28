@@ -29,10 +29,10 @@ require them.
   parity and final integrated checks remain unverified.
 - The InlineShortcut comparison has no complete verdict. Its cached test
   executable is missing, so another test run needs a fresh build.
-- Live EAS status on October 28 reports `1.0.0 (20261026153804)` as `VALID`,
-  `IN_BETA_TESTING` internally, and `BETA_APPROVED` externally. The earlier
-  export-compliance blocker has cleared. Intended tester access still needs
-  verification for each new checkpoint build.
+- Live App Store Connect status on October 28 reports POC build
+  `1.0.0 (20261028070658)` as `VALID` and `IN_BETA_TESTING` internally. Its exact
+  build is assigned to `Team (Expo)`, with one installed tester and one invited
+  tester. External distribution was not extended.
 
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
@@ -55,7 +55,7 @@ The restored draft reaches the server intact. Final acceptance on an available
 existing checkout creates a new thread, receives a real reply, sends a follow-up,
 and stops its provider run. After relaunch, the environment, reply and interrupted
 conversation remain available. The functional iPhone POC is verified; its signed
-production build is signed; TestFlight processing and tester availability remain pending.
+production build is signed and available to the existing internal TestFlight group.
 The first Home fix is pushed in PR216 at `122646f95` and independently reviewed.
 
 POC build `1.0.0 (20261028070658)` comes from pushed commit `900e56c72`.
@@ -65,8 +65,12 @@ compiling package sources for that probe's target. The builder regression suite
 passes 49 tests with one skipped. The earlier device-only package output blocked
 all roster probes; the fix preserves production qualification.
 [EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/70e7839c-9380-405d-b9fc-8952a9c982ac)
-uses that exact IPA and the existing internal `Team (Expo)` group. Verify its
-Apple processing and group availability before calling this checkpoint delivered.
+uses that exact IPA and the existing internal `Team (Expo)` group. Apple processing
+is `VALID`, internal state is `IN_BETA_TESTING`, and the group includes this build.
+Its App Store Connect build ID is `acd29416-0652-434a-85e2-1ad1aa7e18cc`.
+The IPA SHA-256 is `399275d9e98c0bf0d72db6b8387b592949426f8e6111fcebda587078c181ae68`.
+The POC TestFlight checkpoint is delivered. Full phone, iPad and desktop parity
+remain incomplete and need their own acceptance evidence.
 
 Direct pairing accepts HTTPS, with HTTP limited to loopback. The LAN HTTP drive
 shows that restriction through the real form. This Mac's T3 Connect tunnel is
