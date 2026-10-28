@@ -246,8 +246,9 @@ describe('the chips and rows a context reference draws', () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const { appText } = await import('../support/app-files');
     const thumb = contractComponent('timeline-attachments.contract', 'ChipThumb'), sent: unknown[][] = [];
-    thumb.call('failed', thumb.state(), { target: 'att-svg', local: (...args: unknown[]) => sent.push(args) }, ['decode failed']);
-    expect(sent).toEqual([['chip-preview-failed', 'att-svg', '']]);
+    const url = 'http://127.0.0.1:1/api/assets/att-svg?sig=1';
+    thumb.call('failed', thumb.state(), { target: 'att-svg', url, local: (...args: unknown[]) => sent.push(args) }, ['decode failed']);
+    expect(sent).toEqual([['chip-preview-failed', 'att-svg', url]]);
     expect(appText('markdown.contract').match(/ChipThumb\(url=entry\.url, target=chip\.target, local=local\)/g)).toHaveLength(2);
   });
   test('a secret request draws its card and no divider under it', async () => {

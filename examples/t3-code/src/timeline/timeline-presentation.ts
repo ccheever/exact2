@@ -156,7 +156,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('plan-')) return planAction(client, native, op, id, value);
   if (op === 'tree-all' || op === 'tree-dir') return toggleTree(client, view, op, id, value);
   if (op === 'image-open' && isSentSvg(client, id)) return surfaceLocal(client, native, 'linked-attachment', id, value); // SvgFileChip's onOpen
-  if (op === 'chip-preview-failed') { noteChipPreviewFailed(client, id); return ''; } // a chip's thumbnail reported an error
+  if (op === 'chip-preview-failed') { noteChipPreviewFailed(client, id, value); return ''; } // a chip's thumbnail at `value` reported an error
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);

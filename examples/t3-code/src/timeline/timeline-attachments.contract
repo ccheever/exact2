@@ -99,8 +99,8 @@ component AttachmentTile
             text image.appName line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="0.875rem" color="#ffffff"
             text image.windowTitle line-clamp=1 font-size="0.625rem" line-height="0.875rem" color="#ffffffb3"
 
-// A sent picture's thumbnail in its context chip (ImageChipButton). A picture that does not load turns the chip into
-// the file chip (contextChipParts.tsx), which the data module draws from the next snapshot.
+// A sent picture's thumbnail in its context chip (ImageChipButton). It reports a picture that does not load: a sent
+// SVG's chip is then the file chip (contextChipParts.tsx SvgFileChip), drawn from the next snapshot.
 component ChipThumb
   props
     url: string
@@ -108,7 +108,7 @@ component ChipThumb
     target: string
     local: action
   action failed(message: string)
-    local("chip-preview-failed", target, "")
+    local("chip-preview-failed", target, url)
   view
     image url error=failed aria-hidden=true width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.25rem" object-fit="cover"
 

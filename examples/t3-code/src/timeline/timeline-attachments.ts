@@ -64,16 +64,20 @@ export function isSentSvg(client: T3Client, id: string): boolean {
   return !!id && arr(client.projection.visibleTurnItems).some(row => obj(row.item).type === 'user_message'
     && arr(obj(row.item).attachments).some(attachment => attachment.type === 'file' && str(attachment.id) === id && isSvgAttachment(attachment)));
 }
-// SvgFileChip's failed previews (its picture reported an error), by connection, environment and attachment.
-const failedSvgs = new WeakMap<T3Client, Set<string>>();
+// SvgFileChip's failedPreviewUrl: per sent SVG (keyed as `urls` is), the signed URL whose picture did not load.
+const failedSvgs = new WeakMap<T3Client, Map<string, string>>();
 const svgKey = (client: T3Client, id: string) => JSON.stringify([client.generation, client.environmentId, id]);
-/** A chip's thumbnail did not load: a sent SVG's chip becomes its file chip from then on. */
-export function noteChipPreviewFailed(client: T3Client, id: string): void {
-  if (!isSentSvg(client, id)) return;
-  const failed = failedSvgs.get(client) ?? new Set<string>();
-  failed.add(svgKey(client, id)); failedSvgs.set(client, failed);
+/** A chip's thumbnail at `url` did not load. */
+export function noteChipPreviewFailed(client: T3Client, id: string, url: string): void {
+  if (!url || !isSentSvg(client, id)) return;
+  const failed = failedSvgs.get(client) ?? new Map<string, string>();
+  failed.set(svgKey(client, id), url); failedSvgs.set(client, failed);
 }
-export function svgPreviewFailed(client: T3Client, id: string): boolean { return failedSvgs.get(client)?.has(svgKey(client, id)) ?? false; }
+/** Whether a sent SVG's chip is its file chip: its picture failed at the URL it still has (a URL signed again is tried). */
+export function svgPreviewFailed(client: T3Client, id: string): boolean {
+  const key = svgKey(client, id), failed = failedSvgs.get(client)?.get(key);
+  return failed !== undefined && urls.get(key)?.url === failed;
+}
 const CONTEXT_FILE_REFERENCE = /!?\[[^\]\n]{0,512}\]\(t3-context:\/\/v1\/file\/([a-z0-9_-]{1,128})\)/gi;
 /**
  * A sent sound's reference leaves the prompt: TimelineUserMessageRow's renderContextReference returns null for a file
