@@ -1,7 +1,8 @@
 //! `grant-device-missing`: a device the view reaches through the runner
 //! answers only under the app's grant (LLP 1069.008 D3; `runner/src/device.rs`):
-//! `exactMIDI()` reads `denied` on every host, at run time. The grants are the data module's (`export const grants`
-//! in `app.ts`, `fn grants()` in a Rust data crate) and may be computed, so
+//! `exactMIDI()` reads `denied` on every host, at run time. The grants are the
+//! data module's (`export const grants` in `app.ts`, `fn grants()` in a Rust
+//! data crate) and may be computed, so
 //! this reads the string literals of the app's source ([`literals`]) and
 //! says something only when it is certain: a `device.midi <key>` whose key
 //! the strings table has is the grant; a grant built otherwise, or a file

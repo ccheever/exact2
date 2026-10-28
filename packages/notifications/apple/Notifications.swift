@@ -102,15 +102,16 @@ public final class NotificationsModule: NSObject, ExactPackage {
         content.userInfo = context.activation("notificationclick", [tag, event], navigate: args["navigate"] as? String)
         if let words = args["apple"] as? [String: Any] { apply(words, to: content) }
         let at = (args["showTrigger"] as? NSNumber)?.doubleValue
-        let wait = at.map { $0 / 1000 - Date().timeIntervalSince1970 } ?? 0
-        let trigger = wait > 0 ? UNTimeIntervalNotificationTrigger(timeInterval: max(1, wait), repeats: false) : nil
-        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         let center = UNUserNotificationCenter.current()
         // While `notDetermined` a post asks first (Q4); while denied it refuses.
         // A refusal is journaled once, by the runner, from the reply.
         center.requestAuthorization(options: [.alert, .sound, .badge]) { [self] granted, _ in
             status { status in DispatchQueue.main.async { self.announce(status) } }
             guard granted else { return DispatchQueue.main.async { reply(["error": "NotAllowedError"]) } }
+            // The wait from now, once the person answered: `showTrigger` is an instant.
+            let wait = at.map { $0 / 1000 - Date().timeIntervalSince1970 } ?? 0
+            let trigger = wait > 0 ? UNTimeIntervalNotificationTrigger(timeInterval: max(1, wait), repeats: false) : nil
+            let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
             center.add(request) { [self] error in
                 DispatchQueue.main.async { [self] in
                     if error == nil { context.log(trigger == nil ? "showNotification: shown" : "showNotification: scheduled") }

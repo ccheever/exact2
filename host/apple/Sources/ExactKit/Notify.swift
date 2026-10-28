@@ -50,7 +50,9 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     /// A module's activation entry (LLP 1133.004 D6, D7): the session that
     /// posted it, and a location to open or an event to raise.
     func deliver(id: String, date: Date, info: [AnyHashable: Any]) {
-        guard let entry = info["exact"] as? [AnyHashable: Any],
+        // A notification an older build scheduled carries its session fields
+        // and `navigate` at the top level of `userInfo`.
+        guard let entry = info["exact"] as? [AnyHashable: Any] ?? (info["navigate"] != nil ? info : nil),
               let label = entry["session"] as? String,
               let owner = entry["owner"] as? String else { return }
         let location = (entry["navigate"] as? String).flatMap { $0.isEmpty ? nil : $0 }

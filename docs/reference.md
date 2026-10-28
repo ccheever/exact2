@@ -1432,7 +1432,7 @@ request are refused (`notifications.showNotification: refused, grant-missing
   number for a flag (`•` on the Mac's Dock tile, `1` on iOS), 0 to clear;
   `clearAppBadge()` clears it. The badge is the app's: an embedded host's
   sessions share one. It needs no grant. A negative count is refused
-  `TypeError`.
+  `TypeError` on every host, under the agent too.
 - `notificationStatus()` reads `{available, state, badge, apple}` (`state`
   `granted`, `prompt`, `denied` or `unknown`), read again when the app comes
   back to the front; `requestNotificationPermission()` asks while `prompt` and

@@ -8,12 +8,16 @@
 // with the real shape.js.
 import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
 import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { standIns } from './stand-ins.mjs';
 
-const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
+// The runtime in a `web-js` directory, as built: modules.js imports the web host's `../web/address-space.js`, stood in.
+const root = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-')), dir = resolve(root, 'web-js');
+mkdirSync(dir);
+mkdirSync(resolve(root, 'web'));
+writeFileSync(resolve(root, 'web/address-space.js'), 'export const setSpaceState = () => {};');
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
 
 // The collection protocol and index run unchanged; only DOM row construction
@@ -171,7 +175,7 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js'];
+const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
@@ -1024,6 +1028,25 @@ test('a module\'s activation: only a trusted event raises, and a navigate opens 
     }
     expect(mismatches).toEqual([]);
   } finally { if (previousFocus === undefined) delete globalThis.focus; else globalThis.focus = previousFocus; navigateTo(null); }
+});
+
+// LLP 1133.030 D2: the declaration's `checks` hold a send under the agent, as the runner's do.
+test('a declared check refuses a send on the JS target, and leaves its state', async () => {
+  const { clock, journal } = await import(resolve(dir, 'rt.js'));
+  const { modules } = await import(resolve(dir, 'modules.js'));
+  clock.agent = true;
+  const checks = [{ min: { contents: 0 }, error: 'TypeError' }, { one: ['a', 'b'], error: 'TypeError' }, { nonEmpty: ['title'], error: 'TypeError' }];
+  modules({ badge: ['chk.badge', true, { admission: 'none', effect: true, checks: checks.slice(0, 1), set: { state: 'badge', from: 'contents' } }, 'u', 'never', null, false],
+    pick: ['chk.pick', true, { admission: 'none', effect: true, checks: checks.slice(1) }, 'u', 'never', null, false] }, {});
+  const call = (send, args) => globalThis.exact.extensions.call({ extension: 'chk', send, args });
+  expect(await call('badge', { contents: 3 })).toBe(null);
+  expect(await call('badge', { contents: -1 })).toEqual({ error: 'TypeError' });
+  expect(journal.at(-1).replace(/^t=\S+ /, '')).toBe('badge: refused: TypeError');
+  expect(globalThis.exact.extensions.declared().badge).toBe(3);
+  expect(await call('pick', { a: 1, b: 2, title: 't' })).toEqual({ error: 'TypeError' });
+  expect(await call('pick', { a: 1, title: '' })).toEqual({ error: 'TypeError' });
+  expect(await call('pick', { b: 2, title: 't' })).toBe(null);
+  clock.agent = false;
 });
 
 // LLP 1133.004 D6, LLP 1133.002 D12: a module event's origin on the JS target.

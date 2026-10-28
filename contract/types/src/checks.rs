@@ -868,7 +868,6 @@ pub(super) fn check_command(
             Some(owner) if owner != component => format!(
                 "`{name}` is an action of `{owner}`, not in `{component}`'s scope; pass it as an `action` prop or `provide` it"
             ),
-            // Host commands until LLP 1133.004 moved them into a package.
             None if matches!(name, "showNotification" | "closeNotification" | "setAppBadge" | "clearAppBadge") => format!(
                 "`{name}` is `@exact/notifications`' (LLP 1133.004): `exact add notifications`, then `use {name} from \"@exact/notifications\"` (`closeNotification` takes `tag=`)"
             ),

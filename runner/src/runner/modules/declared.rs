@@ -831,8 +831,8 @@ impl<D: DataSource> Runner<D> {
         let Some(event) = tap["event"].as_str() else {
             return Ok(json!({ "ref": reference, "delivery": "substituted" }).to_string());
         };
-        // An entry posted with no key carries "" for it, as the web's
-        // untagged notification's `tag` is.
+        // In every keyed list, an entry posted without its key is tapped
+        // with "" for it (the Notifications API's untagged `tag`).
         let mut entry = entry.clone();
         if let Some(key) = self.substitute(row)["list"]["key"].as_str() {
             if entry.is_object() && entry.get(key).is_none_or(Json::is_null) {

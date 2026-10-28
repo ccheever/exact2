@@ -603,6 +603,20 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     return null;
   };
   /** One call: done (`null`), refused (`{error}`), or held on the permission ticket until it is answered. */
+  // The declaration's `checks` every route holds a send to, as the runner's (LLP 1133.030 D2): exactly `one` of some
+  // options, options at least a `min`, options `nonEmpty`; each refused with its `error`. An instant option `after`
+  // now is the runner's alone: this clock is not the epoch's.
+  const checked = (row, args) => {
+    const given = o => args?.[o] != null;
+    for (const c of row.sub.checks ?? []) {
+      const fails = Array.isArray(c.one) ? c.one.filter(given).length !== 1
+        : c.min ? Object.entries(c.min).some(([o, m]) => typeof args?.[o] === "number" && args[o] < m)
+        : Array.isArray(c.nonEmpty) ? c.nonEmpty.some(o => typeof args?.[o] !== "string" || args[o] === "")
+        : false;
+      if (fails) return { error: c.error };
+    }
+    return null;
+  };
   const effect = (row, args, from = originNow()) => {
     const before = origin;
     if (from === "device") origin = "device";
@@ -616,6 +630,8 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     if (row.sub.unsupported?.includes("web") && route(row) !== "real") { say(`${name}: refused: NotSupportedError`); return Promise.resolve({ error: "NotSupportedError" }); }
     const why = admit(row, args, from);
     if (why) { say(`${row.key}: refused, ${why}`); return Promise.resolve(why.startsWith("person-required") ? { error: "NotAllowedError", message: "person-required" } : { error: "NotAllowedError" }); }
+    const failed = checked(row, args);
+    if (failed) { say(`${name}: refused: ${failed.error}`); return Promise.resolve(failed); }
     const real = route(row) === "real" ? viaImplementation(row, args, null, { origin: from }) : null;
     if (real) return real.then(r => { if (errorCode(r)) say(`${name}: refused: ${errorCode(r)}`); return errorCode(r) ? r : null; });
     sp.resolveOf(row, args);
@@ -691,7 +707,7 @@ export function modules(rows, bound = {}, views = {}, events = {}) {
     const tap = row.sub.list.tap ?? {}, location = tap.navigate ? entry[tap.navigate] : null;
     if (typeof location === "string") { navigateRoot(locationOf(location)); return { ref, navigate: location, delivery: "substituted" }; }
     if (!tap.event) return { ref, delivery: "substituted" };
-    // An entry posted with no key carries "" for it, as an untagged notification's `tag` is.
+    // In every keyed list, an entry posted without its key is tapped with "" for it (the Notifications API's untagged `tag`).
     const key = row.sub.list.key;
     raise(`${extensionOf(row)}.${tap.event}`, entryArgs(tap, key && entry[key] == null ? { ...entry, [key]: "" } : entry), "app");
     return { ref, event: tap.event, delivery: "substituted" };
