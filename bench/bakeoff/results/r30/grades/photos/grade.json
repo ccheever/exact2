@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Four-across grid of centre-cropped squares with ~2pt gaps, oldest at top, opens at the newest. Day headings ('Saturday', 'Yesterday', 'Thu, Feb 19'). At the largest text size it opens slightly short of the bottom, so the newest row sits under the tab bar."},
+      {"n": 2, "status": "partial", "note": "Opens full screen at the photo's aspect ratio. Swiping left and right pages correctly, and swiping down closes it. But the top bar is drawn under the status bar: the back chevron sits under the clock and '1,496 of 1,500' overlaps the signal and battery icons. Tapping the back button does nothing, so swiping down is the only way out."},
+      {"n": 3, "status": "pass", "note": "The heart in the viewer toggles favorite and unfavorite. A white heart appears bottom-left on grid thumbnails."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title and a two-column grid of all 8 albums, each with cover, name and count. Counts update after deletion. Each album opens a day-sectioned grid."},
+      {"n": 5, "status": "pass", "note": "Select, then tap several photos, shows a '3 Photos Selected' bar with favorite and delete. Delete asks for confirmation ('Delete 2 Photos'). Both work."},
+      {"n": 6, "status": "pass", "note": "After relaunch, the count stays at 1,498 and the favorites remain."}
+    ],
+    "bugs": [
+      "The full-screen viewer's top bar ignores the safe area: the back button, date and 'N of 1,500' counter overlap the status-bar clock and icons, and tapping the back button does not close the viewer.",
+      "At the largest text size the library opens scrolled short of the bottom: the newest day's header and photos are hidden under the tab bar.",
+      "At the largest text size the viewer's bottom bar and the selection bar wrap: the icons grow huge, the next-arrow drops to a second line, and the bars cover much of the photo or grid."
+    ],
+    "tells": [
+      "The viewer chrome is a grey custom bar laid over the status bar rather than a system navigation bar and toolbar, and the bottom bar sits on the home indicator.",
+      "The viewer has hand-made previous/next arrow buttons, which Photos doesn't have.",
+      "The favorite control in the viewer is exposed to VoiceOver as a Switch, and every grid thumbnail is labelled just 'Photo' (no date).",
+      "Select mode shows an empty circle on every thumbnail; Photos shows a checkmark only on selected items.",
+      "The selection bar is a custom bar, not a system toolbar, and its glyphs scale with Dynamic Type until they wrap.",
+      "Album cover images look soft/upscaled.",
+      "The large 'Library' title has a tiny subtitle under it at the top of the grid, which reads a little hand-built."
+    ],
+    "scroll": "Smooth: flings and slow drags showed no blank rows or pop-in, rubber-banding at the top works, tapping the status bar scrolls to the top, and the scroll position is kept across tab switches.",
+    "scores": {"features": 7, "platform": 5, "polish": 5, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Native collection view: four across, thin gaps, centre-cropped squares, oldest at top, opens at the newest. Full-date day headings ('Sunday, October 25', 'Yesterday') and a '1,500 Photos' footer, like Photos."},
+      {"n": 2, "status": "partial", "note": "Opens with a zoom transition into a full-screen view at the photo's aspect ratio, with a glass close button, a date/time title and system toolbar buttons. Swiping left moves to the next photo and swiping down closes it. But every rightward swipe dismisses the viewer instead of moving to the previous photo, so you can't swipe back to older photos (reproduced 4 times at different speeds and positions)."},
+      {"n": 3, "status": "pass", "note": "The heart toolbar button toggles Favorite and Unfavorite. A heart.fill appears on grid cells."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title and an inset-grouped list of all 8 albums, each with a rounded cover thumbnail, count and chevron. Counts update after deletion. Each album opens a grid with its count as a subtitle."},
+      {"n": 5, "status": "pass", "note": "In Select mode the title becomes '3 Photos Selected', the Cancel button is prominent, and selected items get Photos-style checkmarks. Favorite and delete are in the toolbar. Delete confirms with a popover ('Delete 2 Photos')."},
+      {"n": 6, "status": "pass", "note": "Deletions (1,498) and favorites/unfavorites survive relaunch."}
+    ],
+    "bugs": [
+      "In the full-screen viewer, swiping right (to the previous photo) closes the viewer instead of paging back. Only left swipes page."
+    ],
+    "tells": [
+      "At the largest text size, the '1,498 Photos' footer runs into the floating favorite and delete buttons in select mode.",
+      "The album list is a settings-style inset list rather than Photos' album grid (still idiomatic iOS)."
+    ],
+    "scroll": "Feels like a native collection view: flings are smooth with no blank cells or pop-in, rubber-banding and tap-status-bar-to-top work, and the position is kept across tab switches.",
+    "scores": {"features": 7, "platform": 9, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps have every feature and both persist changes. Each has one viewer flaw: A's viewer top bar collides with the status bar and its back button can't be tapped, and B's viewer closes on a right swipe instead of going back a photo. Otherwise B is clearly native throughout (zoom transition, system toolbar and glass buttons, 'N Selected' title, inset-grouped albums, good large-text behaviour), while A has hand-built viewer and selection bars that break at large text and a grey custom chrome that gives it away."
+}

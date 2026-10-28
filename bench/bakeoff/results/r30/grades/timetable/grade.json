@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Whole day in time order, grouped by hour. Each hour heading is an opaque tinted bar with a departure count and stays pinned cleanly while its hour scrolls. Rows show time, a coloured letter badge, destination, platform, and amber 'Delayed N min' or red 'Cancelled' when not on time."},
+      {"n": 2, "status": "pass", "note": "Big station name with a chevron under 'Departing from'. Tapping it opens a sheet with an alphabetical, searchable list of 20 stations, a checkmark on the current one and a proper 'No stations found' empty state. Choosing one updates the board."},
+      {"n": 3, "status": "pass", "note": "Opens at the next departure. The Now button scrolls back to it, and that row is tinted and labelled NEXT."},
+      {"n": 4, "status": "pass", "note": "A horizontal row of chips (All, R, B, G, Y, O), each tinted in its line colour. At the largest text size it turns into an 'All lines' menu button. The filtered list has a sensible footer."},
+      {"n": 5, "status": "pass", "note": "Past departures have greyed text and faded badges."},
+      {"n": 6, "status": "pass", "note": "The star toggles and fills. The Saved tab lists starred departures with their station, and saves and the chosen station survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Custom header: the station name, date and filter chips sit in fixed chrome above the table and never scroll away, so the list gets only about 500 pt of the screen. There is no large title.",
+      "The table stops with a hard edge above the floating tab bar instead of scrolling underneath it.",
+      "Custom warm off-white and teal theme with tinted hour bars; it looks more designed than system-standard.",
+      "Line filter uses hand-made chips; Yellow and Orange are off-screen to the right with no hint that they are there.",
+      "The Saved list has no swipe-to-delete; you can only remove a saved departure with the star.",
+      "The Saved screen repeats its title: a 'Saved' nav title plus a big 'Saved departures' heading."
+    ],
+    "scroll": "Smooth through slow drags and flings, with no blank rows or popping. The opaque pinned hour headers hand over cleanly. The scrollable area is short because of the fixed header block.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Whole day in time order with hour sections. Rows show time, destination, a coloured 'R · Red' style pill, platform, and 'Delayed N min' or red 'Cancelled'. The hour heading pins but has no background: the rows scrolling under it show through and overlap the heading text (seen in light and dark). Headings are grey, so they barely stand out from dimmed past rows."},
+      {"n": 2, "status": "pass", "note": "The station is a glass button at the top left of the nav bar. It opens a sheet with a searchable list (checkmark, 'No Stations Found' empty state). The list is in data order, not alphabetical. The chosen station persists."},
+      {"n": 3, "status": "pass", "note": "Opens near the next departure and the Now button scrolls back to it. The next row is not marked."},
+      {"n": 4, "status": "pass", "note": "A filter button in the nav bar opens a 'Filter by Line' sheet with a checkmark list. The subtitle under the title shows the current line."},
+      {"n": 5, "status": "pass", "note": "Past rows have grey text and faded badges."},
+      {"n": 6, "status": "pass", "note": "The star toggles. The Saved tab has a large title, station names, swipe-to-delete and a footer hint. Saves and the station survive relaunch."}
+    ],
+    "bugs": [
+      "The pinned hour header is transparent: rows scrolling beneath it show through and overlap the hour text (for example, a ghosted badge and destination behind '22:00' or '15:00')."
+    ],
+    "tells": [
+      "The pinned section header has no material or background, which iOS would never do with a plain-list header.",
+      "Hour headings are grey and look disabled, not like section headers.",
+      "The station picker is not sorted alphabetically.",
+      "The nav bar is crowded with four items (station, title plus subtitle, Now, filter); at the largest text size the title squeezes between them."
+    ],
+    "scroll": "Fluid, with no stutter or blank rows. Content runs under the glass nav bar and tab bar as in iOS 26+. The see-through pinned header is the one visual blemish while scrolling.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist correctly. B uses more stock iOS pieces: glass nav buttons, sheet pickers, a large-title Saved tab and swipe-to-delete. But its pinned hour headers are see-through and overlap the rows beneath them, and they are hard to tell apart from past rows. A is a custom-themed but carefully finished board with clean pinned headers, a NEXT marker and adaptive large-text layout, so it is the one I would rather ship."
+}

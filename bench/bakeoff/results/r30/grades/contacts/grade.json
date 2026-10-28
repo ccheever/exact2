@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list sorted by last name, sticky letter headers, A–Z section index that jumps correctly (tapped M, landed on M). A contact with only a first name ('Pat') files under P."},
+      {"n": 2, "status": "pass", "note": "System search field in the bottom toolbar filters as you type by name, company ('quarry'), formatted or bare phone ('320-2405', '9483202405') and email; the index narrows to the matching letters; there is a 'No Contacts Found' empty state with a Clear Search button; clearing restores the full list."},
+      {"n": 3, "status": "pass", "note": "Inset-grouped details: placeholder avatar, name, company, then phone, email and birthday rows. Birthday is left out when unknown. Phone and email are drawn in blue as links."},
+      {"n": 4, "status": "pass", "note": "'Add to / Remove from Favorites' row on the details screen; the Favorites section at the top of the list updates and stays sorted; survives relaunch."},
+      {"n": 5, "status": "pass", "note": "Add/Edit sheet with Cancel/Done. Done stays disabled until there is a first or last name (whitespace-only is rejected), with a footer hint. Names are trimmed; phone pad and email keyboards; Return moves to the next field. Edit re-sorts the contact into its new section. The typed phone is saved as raw digits, not formatted like the seed data."},
+      {"n": 6, "status": "pass", "note": "System swipe-to-delete on list rows (deletes at once, no confirmation). On the details screen, Delete Contact asks for confirmation in a system alert, then pops back to the list."},
+      {"n": 7, "status": "pass", "note": "Adds, edits, deletes and favorite changes all survive relaunch."}
+    ],
+    "bugs": [
+      "Phone numbers entered in the form are stored and shown unformatted ('5551234567') while every seeded number reads '(948) 320-2405'."
+    ],
+    "tells": [
+      "List rows show only the name: no company subtitle and no avatar, so search hits on company, phone or email give no hint why they matched.",
+      "At the largest text size, list rows wrap names onto two lines with almost no vertical padding; the text nearly touches the separators.",
+      "The details screen has a 'Contact' nav-bar title, which iOS Contacts doesn't have; the avatar is a generic grey silhouette rather than initials.",
+      "Swipe-delete removes the contact with no confirmation and no undo."
+    ],
+    "scroll": "Native list feel: smooth drags and flings, sticky letter headers, large title collapses and rubber-bands on pull-down, and scroll position is kept when returning from a contact. No blank or popping rows.",
+    "scores": {"features": 9, "platform": 9, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Sorted by last name with sticky letter headers and a ★/A–Z section index that jumps correctly. Rows show an initials avatar, name and company."},
+      {"n": 2, "status": "pass", "note": "Search field filters by name, company, phone (formatted or digits) and email; 'No Results for \"…\"' empty state; clearing restores the full list. Search sits pinned under the title."},
+      {"n": 3, "status": "pass", "note": "Initials avatar, name, company, Call and Email buttons, then phone/email/birthday rows with icons. Birthday is left out when unknown. Phone and email are drawn in the tint colour."},
+      {"n": 4, "status": "pass", "note": "Add/Remove Favorites on the details screen; favorites show at the top as a horizontal carousel of cards with a count; survives relaunch."},
+      {"n": 5, "status": "pass", "note": "Add/Edit sheet with Cancel/Save; Save is disabled until there is a first or last name (whitespace rejected), with a footer hint; Return advances fields. Edit re-sorts. The typed phone is saved unformatted."},
+      {"n": 6, "status": "pass", "note": "Swipe on a row shows a custom Delete action that asks for confirmation; Delete Contact on the details screen also confirms. Both work."},
+      {"n": 7, "status": "pass", "note": "Adds, edits, deletes and favorite changes survive relaunch."}
+    ],
+    "bugs": [
+      "The list opens slightly scrolled, with the large title already collapsed to an inline 'Contacts'; the large title only appears after pulling down.",
+      "In the add/edit form the Phone field ends up under the keyboard's accessory bar: tapping it doesn't move focus, and text keeps going into the previous field. You must use Return or scroll to reach it. The form also jumps around as fields gain focus.",
+      "The delete confirmation popover sits at the top of the screen and its arrow points at the wrong thing (another row in the list; the name on the details screen), not at the control that was tapped.",
+      "Phone numbers entered in the form are saved unformatted, unlike the seed data."
+    ],
+    "tells": [
+      "Swipe-to-delete is drawn by hand: a green rounded trash pill with a 'Delete' caption underneath instead of the system red action, and the section index draws on top of it.",
+      "Favorites are a horizontal card carousel rather than a list section; the section index overlaps and clips the fourth card.",
+      "Marketing-style copy in a utility app: '320 people, always close.' header and 'A new connection' on the new-contact form.",
+      "Form fields repeat each label as a caption above an identical placeholder ('First name' / 'First name').",
+      "At the largest text size the search placeholder, avatar initials and several icons stay small while the text around them grows; the search field balloons into a large pill.",
+      "Custom green tint throughout, and the large title is missing at launch."
+    ],
+    "scroll": "Smooth flings and drags with sticky headers and rows that load cleanly, and scroll position is kept on returning from a contact; but the list opens part-way scrolled with the large title collapsed, and the custom swipe action and index overlap look hand-made.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all seven requirements and persist correctly. A reads as a stock UIKit/SwiftUI contacts list: system swipe actions, alerts, keyboard handling and a large title that behaves. B is richer (avatars, company subtitles, Call/Email buttons) but full of hand-built parts: a green custom swipe pill, a misplaced confirmation popover, a favorites carousel overlapped by the index, a form field hidden behind the keyboard bar, and a collapsed title at launch."
+}

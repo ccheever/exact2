@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Edge-to-edge 3-column grid with 2pt gutters, like Photos. Newest first, all 600 tiles, HSL squares with centred emoji (the emoji are small in the grid)."},
+      {"n": 2, "status": "pass", "note": "A native pull-down menu offers All Boards plus ten boards, with a checkmark and a tile count. The filter is kept across relaunch. The button has an odd fixed width, which leaves a gap between 'Harbor' and the chevron."},
+      {"n": 3, "status": "pass", "note": "The large view is a push with the title in the nav bar and title, board and date below. Swiping left and right moves through the filtered list (position 'n of 49'), with prev/next buttons too."},
+      {"n": 4, "status": "pass", "note": "A heart button in the nav bar toggles like and unlike. The Liked tab uses the same grid, newest first, and updates immediately on unlike."},
+      {"n": 5, "status": "pass", "note": "Select mode shows circle checkmarks and Select All. Bulk Like works, and bulk Delete asks for confirmation in a system alert; counts update."},
+      {"n": 6, "status": "pass", "note": "Deleted tiles (597 left) and likes (65 liked) survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Main screen uses a small inline nav title 'Moodboard' rather than a large title.",
+      "The filter menu button has a fixed width, so a short board name leaves a gap before the chevron.",
+      "The selection action bar is a hand-built grey panel with capsule Like/Delete buttons above the tab bar, not a system toolbar.",
+      "The large view adds round prev/next buttons and a 'Swipe the tile to browse' hint, which is non-native instructional chrome.",
+      "At the largest text size the emoji in the large view looks soft, as if upscaled, and the 'n of N' label sits behind the floating tab bar until you scroll.",
+      "Grid emoji are rather small for the tile size."
+    ],
+    "scroll": "The grid scrolls smoothly when dragged slowly and when flung across all 40 pages, with no blank or popping tiles. The nav bar blurs over content as expected, and the scroll position is kept after opening and closing a tile.",
+    "scores": {"features": 9, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "3-column grid of rounded-corner tiles with ~7pt gutters, newest first, 600 tiles, emoji centred and larger. Under a 'THE COLLECTION · 600 tiles' header."},
+      {"n": 2, "status": "pass", "note": "A native pull-down menu offers All boards plus ten boards, with a checkmark. The section header changes to the board name and count."},
+      {"n": 3, "status": "pass", "note": "The large view is a push with a paged horizontal swipe through the current list (Tile n of N). It shows board, serif title and date, with prev/next chevrons. The nav bar title is 'All tiles'/'Liked tiles', not the tile name."},
+      {"n": 4, "status": "pass", "note": "A large 'Like this tile'/'Liked' button toggles the like. The Liked tab uses the same grid, and unliking updates the count immediately."},
+      {"n": 5, "status": "pass", "note": "Select mode shows checkmark circles, a tinted border, a 'n SELECTED' header and Select all. Bulk Like works, and Delete asks for confirmation in a system alert."},
+      {"n": 6, "status": "pass", "note": "Deletions (597 left) and likes (65 liked) survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "No navigation bar on the main screens: a hand-made header (eyebrow 'A SPACE FOR INSPIRATION', serif 'Moodboard', tagline) replaces the large title. When scrolled, tiles slide under the status bar with no inline title or bar.",
+      "Custom rust brand accent and a serif display font throughout give it an editorial, web-like look rather than system styling.",
+      "The large view has a big filled capsule 'Like this tile' button instead of a toolbar or nav-bar heart. The nav title shows the list name instead of the tile.",
+      "The selection action bar is a custom gradient panel. At the largest text size it fills almost half the screen and leaves about one row of grid visible.",
+      "A decorative 'Newest first' label that looks tappable but is not a control.",
+      "Rounded cards with wide gutters read as Pinterest or web rather than an iOS photo grid."
+    ],
+    "scroll": "The grid scrolls smoothly when dragged and flung across all 36 pages, with no blank or late tiles. The scroll position is kept after viewing a tile. With no bar, content runs under the status bar while scrolling.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet all six requirements with no bugs, keep likes and deletions across relaunch, and scroll cleanly. B is the more designed and visually cohesive app, but its custom header, missing nav bar on scroll, branded big buttons and oversized selection panel at large text make it read as a styled web-like app. A behaves and looks closer to a stock iOS photo grid, despite its plain inline title and a few odd hand-made bits."
+}

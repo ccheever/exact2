@@ -1,0 +1,54 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first list of all 420 episodes. Each row shows show, title, date, length and a Played/Unplayed indicator with artwork. A 'Fresh off the mic' hero card sits above the list."},
+      {"n": 2, "status": "pass", "note": "An All episodes / Unplayed segmented control filters the list, and the count updates (420 → 293). An episode marked played while filtered drops out of the list straight away."},
+      {"n": 3, "status": "partial", "note": "The Shows screen lists all 12 shows with episode and unplayed counts, and tapping one opens that show's episode list with its own filter. But tapping an episode inside a show does not open it: the cell stays highlighted. Going Back then leads to a blank screen with a yellow warning triangle, and the navigation stack gets scrambled (Shows › Episode › Deep Water)."},
+      {"n": 4, "status": "pass", "note": "The episode screen shows the summary, date and length. Play marks the episode played, the button turns into 'Playing' with a pause icon, and a Now Playing mini player appears above the tab bar."},
+      {"n": 5, "status": "pass", "note": "Each row has a played/unplayed toggle. A full leading swipe toggles played, and the ••• menu (a native menu) has Mark Played/Unplayed."},
+      {"n": 6, "status": "pass", "note": "Episodes can be added from the ••• menu, a trailing swipe action or the episode screen. The Up Next tab has a native Edit mode (red minus buttons and drag handles), and drag-to-reorder works. Swiping to Remove works. The tab shows a count badge."},
+      {"n": 7, "status": "pass", "note": "Played state, Up Next membership and the reordered queue all survived relaunch."}
+    ],
+    "bugs": [
+      "Opening an episode from inside a show (Shows › show › episode) does nothing: the cell stays selected. Back then shows a blank page with a yellow exclamation triangle and the stack ends up out of order (an Episode page under a show page). It reproduces every time.",
+      "After this happens, stray taps can land on the wrong destination (one tap ended on Deep Water pushed on top of an Episode page)."
+    ],
+    "tells": [
+      "Heavy custom branding (cream background, serif display headings, hand-drawn artwork tiles, hero card). It is attractive but not stock iOS.",
+      "The Episodes and Shows screens open with a small centred inline title. On Episodes the large title only appears after pulling down; Shows never uses one, while the show and Up Next screens do. This is inconsistent.",
+      "The Shows tab has a marketing-style header ('Find your next favorite. 12 shows. A world of stories.').",
+      "The list scroll position jumps about 58 pt after popping back from an episode.",
+      "Played toggles are text buttons ('○ Unplayed') rather than a standard accessory."
+    ],
+    "scroll": "The 420-row list scrolls and flings smoothly with no blank or late-loading rows, and content blurs under the floating search field and tab bar as on iOS 26. Pulling past the top reveals the large title. Position is kept across tab switches, with a small jump after returning from an episode.",
+    "scores": {"features": 7, "platform": 8, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Large-title 'Latest' list of 420 episodes, newest first, with the subtitle '420 episodes · Newest first'. Rows show show, title, date · length, a Played/Unplayed button and an Up Next button."},
+      {"n": 2, "status": "pass", "note": "A filter button in the nav bar opens a native menu (All Episodes / Unplayed Only). The list drops to 293 and marking an episode played removes it immediately. The filter resets on relaunch."},
+      {"n": 3, "status": "pass", "note": "An inset-grouped Shows list with all 12 shows and 'N episodes · M unplayed' on each. Tapping one pushes its episodes, and those episodes open normally."},
+      {"n": 4, "status": "pass", "note": "The episode screen is a grouped card with show, title, date · length, status and a Play button. Play marks the episode played, and the button and status change to Pause/'Playing'. A 'Playing' tag also appears in Up Next."},
+      {"n": 5, "status": "pass", "note": "Each row has an inline Played/Unplayed toggle button. There are no swipe actions and no context menu."},
+      {"n": 6, "status": "pass", "note": "Rows have an '+ Up Next' button, which changes to a disabled 'Queued'. The Up Next screen has Edit mode with drag-handle reordering (works), Remove buttons, and Move Earlier / Move Later buttons."},
+      {"n": 7, "status": "pass", "note": "Played state and the Up Next contents and order survived relaunch."}
+    ],
+    "bugs": [
+      "Toggling a row's played state changes the button's width, so the Up Next button next to it jumps sideways (158 → 135 pt)."
+    ],
+    "tells": [
+      "No swipe actions on any list. A horizontal swipe on a row just opens the episode, and swiping in Up Next does not delete.",
+      "No long-press context menus on episodes.",
+      "Episode rows have no separators, and their two text-button controls sit inline under each row. It looks like a web list (the rows are exposed as Links).",
+      "The Up Next Edit mode is hand-built: a red 'Remove' text button and 'Move Earlier / Move Later' text buttons on every row instead of the standard delete control with a swipe to delete.",
+      "The Up Next tab has no badge, and nothing shows that something is playing outside the episode screen (no mini player).",
+      "Every show uses the same generic mic glyph, and a single magenta tint is used everywhere.",
+      "At the largest text size the 'Latest' subtitle truncates to '420 episodes · New…'.",
+      "The show page has an inline title and no header (no counts or filter)."
+    ],
+    "scroll": "The list scrolls and flings smoothly with no blank rows, and the large title collapses into an inline title with a subtitle. Scroll position is kept exactly when returning from an episode or switching tabs.",
+    "scores": {"features": 8, "platform": 5, "polish": 6, "overall": 7}
+  },
+  "better": "B",
+  "why": "A looks far more like a finished iOS app (native menus, swipe actions, a segmented filter, a tab badge, a mini player, a system Edit mode), but you cannot open an episode from a show's page, and trying leaves a blank page with a warning triangle and a scrambled navigation stack. B is plainer and web-like (no swipe actions or context menus, hand-built edit controls, no separators), but every requirement works reliably, so it is the one I would ship as it stands."
+}

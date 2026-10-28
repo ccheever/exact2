@@ -1,0 +1,11 @@
+{
+  "spec": "podcasts",
+  "key": {
+    "A": "swiftui",
+    "B": "exact"
+  },
+  "exit": 0,
+  "minutes": 10.03,
+  "shots": 50,
+  "graded": true
+}

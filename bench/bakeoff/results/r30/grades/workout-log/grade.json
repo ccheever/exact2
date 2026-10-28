@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list grouped by month, newest first. Each row shows name, date, exercise count and volume. Volume is rounded to whole pounds (6,768 for 6,767.5)."},
+      {"n": 2, "status": "pass", "note": "Detail has a summary section (date, exercises, sets, total volume), then one section per exercise listing its sets with a per-exercise volume footer. Exercise rows push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Inline name field. Multi-select picker with a search field (proper 'No Results' state) and muscle filter chips. Add Set sheet uses a number pad, +/- buttons and prefills from the last set. Tapping a set edits it, and the edit sheet has Delete Set. Swipe-to-delete works and volume updates. Finish shows a confirmation popover that notes exercises with no sets will be dropped, then switches to History and pushes the new workout."},
+      {"n": 4, "status": "pass", "note": "Library tab lists all exercises grouped by muscle, with a search field in the navigation bar."},
+      {"n": 5, "status": "pass", "note": "Shows muscle and equipment, the best set (72.5 lb × 14, linked to its workout) and every workout the exercise appears in, with a count footer."},
+      {"n": 6, "status": "pass", "note": "After relaunch the in-progress workout comes back with its sets, the timer and the selected tab. The finished workout is still in History after relaunch."}
+    ],
+    "bugs": [
+      "On the exercise screen opened from a workout, that workout's row stays highlighted in grey (the selection never clears)."
+    ],
+    "tells": [
+      "The reps and weight steppers are hand-drawn round −/+ buttons, not UIStepper. At the largest text size the − and + buttons are different sizes.",
+      "The weight field starts with a literal '0' rather than a placeholder, so typing 135 gives '0135'. The next set's sheet is prefilled, so typing appends to the old value.",
+      "The Library tab uses a small inline title while History and Workout use large titles.",
+      "History volumes are rounded to whole pounds, so the half-pound precision in the data is hidden."
+    ],
+    "scroll": "History and Library scroll like native lists: momentum, no blank or popping rows, the large title collapses, rubber-banding works at the top, and scroll position is kept after pushing a detail and coming back.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list grouped by month, newest first. Each row shows name, full date, exercise count and exact volume (6,767.5 lb). A 'Workout in Progress' resume row appears at the top when one exists."},
+      {"n": 2, "status": "pass", "note": "Summary section (date, exercises, sets, volume), then a section per exercise listing its sets. Exercise rows push to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "A name sheet (with suggestions) starts the workout. The picker has a bottom search field and a muscle pop-up menu. It is single-select, so each exercise needs its own trip. The Add Set sheet uses a decimal pad and prefills from the last set. Tapping a set edits it (the sheet has Delete Set), and swipe-to-delete works. Finish adds the workout to History straight away, with no confirmation."},
+      {"n": 4, "status": "pass", "note": "Exercises tab lists the library grouped by muscle, with a search field that appears when you pull down."},
+      {"n": 5, "status": "pass", "note": "Best set appears prominently (72.5 lb × 14, with a note on how ties are broken), above muscle, equipment and a 'Workouts (4)' list of linked rows."},
+      {"n": 6, "status": "pass", "note": "After relaunch the in-progress workout is restored, with a resume row in History. The finished workout is still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The 'No Workout in Progress' empty state is hand-built: its title is regular weight rather than the bold ContentUnavailableView style.",
+      "The Add Set sheet is prefilled, so typing appends to the old value (95 becomes 95100) instead of replacing it.",
+      "The exercise picker is single-select, so adding several exercises means opening the sheet several times.",
+      "Finish commits immediately with no confirmation, which makes an accidental tap easy."
+    ],
+    "scroll": "History and Exercises scroll like native lists: smooth momentum, the large title collapses, the search field appears on pull-down, no row popping, and scroll position is kept on returning from a detail.",
+    "scores": {"features": 8, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement, persist correctly and look like native iOS 26-style apps in light, dark and at the largest text size. A's workout flow is richer: a multi-select picker with filter chips and a no-results state, prefilled steppers, best-set hints while logging, and a confirm-on-finish popover that warns about exercises with no sets. B is slightly cleaner in places (exact volumes, no stuck highlight) but its logging flow is clunkier."
+}

@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Newest-first feed with avatar, author, handle, relative time, full text, full-width rounded images at their own aspect ratio, and paging carousels with titles. Carousel cards are sloppy, though: portrait or square images are letterboxed on a grey card, cards in one row have different heights (232 vs 185 pt), and the title position moves between cards."},
+      {"n": 2, "status": "pass", "note": "The heart fills red and the count goes up or down; a reply count is shown."},
+      {"n": 3, "status": "pass", "note": "Tapping the text pushes a Post screen with a slightly larger image (386 vs 362 pt), a timestamp and a filler 'A moment shared with everyone.' line. Images and carousel cards open on black full screen; swipe down or X dismisses."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts (some with images) at the top, and the post count updates to 403."},
+      {"n": 5, "status": "pass", "note": "Compose button opens a sheet with avatar, placeholder and auto-focused keyboard; Post is disabled when empty; the new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "Likes, the refreshed posts and the composed post all survived relaunch; relative times keep advancing (2m, 3m)."}
+    ],
+    "bugs": [
+      "Carousel cards in the same row have different heights, and non-landscape images are letterboxed with grey bars instead of filling the card."
+    ],
+    "tells": [
+      "No large navigation title: a small inline 'Feed' plus a custom serif 'A little closer.' header with a tracked 'THE LATEST' label reads as a designed web or landing page, not an iOS list.",
+      "Decorative layers icon in a glass circle at top left that looks like a button but does nothing.",
+      "Avatar initials, the share-style arrow and the header icons do not scale with Dynamic Type while the text grows very large.",
+      "Carousel card styling (grey letterbox background, mismatched heights) looks hand-built.",
+      "Detail screen padding text 'A moment shared with everyone.' is filler."
+    ],
+    "scroll": "Slow drags and flings are smooth with no blank or popping rows. Flinging back to the top and pulling past it rubber-bands normally, and scroll position is kept after a push and pop.",
+    "scores": {"features": 8, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed with author, handle, relative time, full text, full-width rounded images at their own aspect ratio, and carousels of uniform cropped rounded cards with titles below. There are no avatars, but the spec does not ask for them."},
+      {"n": 2, "status": "pass", "note": "The heart fills pink-red and the count changes; a reply count is shown. VoiceOver reads the like as a switch, which is semantically odd but works."},
+      {"n": 3, "status": "pass", "note": "Tapping the text or the chevron pushes a Post screen with an edge-to-edge (larger) image. Images and cards open on black full screen; swipe down or X dismisses."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up text posts at the top."},
+      {"n": 5, "status": "pass", "note": "Compose sheet with a placeholder and auto-focused keyboard; Post is disabled when empty; the new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "Likes, the refreshed posts and the composed post all survived relaunch."}
+    ],
+    "bugs": [
+      "Relative time for new and refreshed posts stays at 'Just now' minutes later and after a relaunch; it never advances.",
+      "In dark mode the disabled Post button in compose does not look dimmed."
+    ],
+    "tells": [
+      "A blue chevron button sits in each post's action row as the 'open post' affordance, which is odd for a feed; at the largest text size it wraps onto its own line.",
+      "No avatars, so posts look a bit bare compared with a typical iOS social app.",
+      "The like control is exposed as a Switch rather than a button.",
+      "The full-screen image is not exposed as an accessibility element."
+    ],
+    "scroll": "Smooth slow drags and flings with no blank rows or popping images. The large title collapses into an inline title as a native navigation bar should, the bar blurs content scrolling under it, and scroll position is kept after returning from a post.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement, including persistence. B looks like a standard iOS app: a large title that collapses, plain separated rows and uniform carousel cards. A wraps the feed in a custom editorial header with an inline title, and its carousel cards are uneven and letterboxed. A has nicer touches (avatars, refreshed posts with images, times that update), but B's frozen 'Just now' and odd chevron cost less than A's web-like look and carousel flaws."
+}

@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Every section is present in a native inset-grouped list. Account has an avatar header, editable name and email, and Sign Out with a confirmation popover; signing out shows a Not Signed In state with Sign In. Reading has a stepped slider with tick marks, a font picker with 5 fonts and a segmented control. Notifications reveal a native time picker plus three toggles, and turning them on brings up the real iOS permission prompt. Storage has a usage bar with a legend, and Clear Cache confirms before setting the cache to None. Privacy and Terms are pushed screens; Rate brings up the system review prompt."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort push checkmark lists like iOS Settings, each name drawn in its own typeface. Confirmations are system confirmation dialogs anchored to their buttons. The time is set with the native compact DatePicker wheel popover."},
+      {"n": 3, "status": "pass", "note": "The preview updates live for font (Palatino), size (18→30 pt) and spacing (Relaxed visibly opens up the lines)."},
+      {"n": 4, "status": "pass", "note": "After relaunch, size, font, spacing, theme (Sepia), sort, both library toggles, notifications with their sub-toggles, the 7:00 PM reminder, the name, the signed-out state and the cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings sits at the bottom with a confirmation dialog and restores the defaults, which survive relaunch. It is disabled while everything is already at default, a nice touch."}
+    ],
+    "bugs": [
+      "Signing back in after sign-out shows a placeholder 'Paperback Reader / No email address' with empty fields; the earlier account is not restored (minor, arguably by design)."
+    ],
+    "tells": [
+      "The screen jumps back to the top after Reset, and after changing Theme the list was back near the top on return; scroll position is lost when the whole view rebuilds.",
+      "The back button is a bare chevron pill with no 'Settings' title. That is acceptable on iOS 26+, but B shows the title.",
+      "The preview at the largest font with Relaxed spacing becomes a very tall card (about 830 pt) showing the whole paragraph."
+    ],
+    "scroll": "A native collection-view list: slow drags, flings and the fling back to the top are smooth with rubber-banding, and the large title collapses correctly. Scroll position is lost only after theme changes and Reset.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Every section is present in a native inset-grouped list with helpful footers. Sign Out confirms with an alert and leads to a Not signed in / Sign In state. The slider has A/A buttons, the font picker has 5 fonts, and the segmented control and preview are there. Notifications reveal a native time picker and three toggles. Storage shows Used, Downloaded and Cache, and Clear Cache confirms before setting the cache to Zero KB. Privacy and Terms are pushed screens; Rate opens the App Store write-review URL."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort push checkmark lists with footers and pop back automatically after a choice. Font names are drawn in their own typefaces. The reminder uses the native compact time picker."},
+      {"n": 3, "status": "partial", "note": "Font and size update the preview live, but line spacing does nothing: Compact and Relaxed render identical previews at 18 pt (same 100 pt height) and at 32 pt."},
+      {"n": 4, "status": "pass", "note": "After relaunch, size, font, spacing, theme, sort, the toggles, notifications with the 7:00 PM reminder, the name, the signed-out state and the cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings at the bottom asks for confirmation in an alert and restores the defaults, which survive relaunch; account and downloads are kept, as its footer says."}
+    ],
+    "bugs": [
+      "The line-spacing segmented control has no effect on the preview paragraph; Compact, Normal and Relaxed look identical.",
+      "After tapping a line-spacing segment, accessibility still reports 'Normal' as selected until relaunch, so the control's selected state is out of sync."
+    ],
+    "tells": [
+      "At the largest text size the Email value truncates ('alex.morgan…') instead of wrapping or stacking.",
+      "The Sepia theme only tints the preview card; the rest of the screen stays plain light.",
+      "Clear Cache and Reset use centred alerts rather than the action-sheet / confirmation-dialog style iOS Settings uses for destructive actions (acceptable but less idiomatic).",
+      "Rate the App leaves the app to open a web/App Store URL rather than the in-app review prompt."
+    ],
+    "scroll": "A native list: slow drags, flings, flinging back to the top and pulling past the top all behave like iOS, and the large title collapses correctly. No blank rows or stutter.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both are convincing native inset-grouped settings screens that keep every setting across relaunch, but B's preview ignores line spacing, which breaks requirement 3. A goes further on platform fidelity: the real notification-permission prompt, the system review prompt, anchored confirmation dialogs, a Sepia theme that tints the whole app, a storage usage bar, and Reset disabled when nothing has changed."
+}

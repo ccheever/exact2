@@ -1,0 +1,55 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers in dense 52pt rows: symbol, name, price, % change since open in green/red. Header reads '260 tickers · Simulated live · USD'."},
+      {"n": 2, "status": "pass", "note": "Prices tick every second in place. With sort by change the rows reorder live too, which also happens during scrolling."},
+      {"n": 3, "status": "pass", "note": "System pull-down menu with Symbol/Price/Change and Ascending/Descending (Change defaults to descending). Bottom search field matches symbol and name ('cedar' gives 16). Proper 'No Matching Tickers' empty state with a Show All action."},
+      {"n": 4, "status": "pass", "note": "Star on each row and in the detail nav bar. Segmented All / My List works, and an empty My List shows a 'Your Watchlist' empty state."},
+      {"n": 5, "status": "pass", "note": "Detail is an inset-grouped screen: large price, change, open, volume, and a live line chart (sample count rose 41→45 of 60) with high/low labels. History is recorded from launch."},
+      {"n": 6, "status": "pass", "note": "My List (2 stars) and sort (Change ↓) both survived relaunch. The search text is restored as well."}
+    ],
+    "bugs": [
+      "In sorted-by-change view rows reorder every second under the finger, so a tap aimed at one row's star can land on a different ticker (happened in testing)",
+      "Accessibility: the segmented control keeps reporting 'All' as selected after My List is chosen (it looks right on screen)",
+      "The search query ('zzq') comes back after relaunch, so the app can open to a 'No Matching Tickers' screen"
+    ],
+    "tells": [
+      "Small inline 'Watchlist' title instead of a large title on the root list",
+      "Segmented control and sort button sit in the first list cell and scroll away with the content instead of living in the nav bar or a pinned header",
+      "Back button reads 'Back' instead of the previous screen's title or a bare chevron",
+      "Star is exposed as a Switch",
+      "No swipe actions on rows (a left drag just opens the detail)",
+      "At the largest text size the sort icon wraps onto its own line under the segmented control, which doesn't grow with the text; the layout otherwise reflows cleanly"
+    ],
+    "scroll": "Full-height system list that scrolls under the nav bar and the floating search field. Slow drags, flings, fling back and pull past the top all feel native, with no blank or popping rows while prices tick.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers: star, symbol, name, bold price, and a Stocks-style tinted pill showing an arrow and % change (green/red)."},
+      {"n": 2, "status": "pass", "note": "Prices tick every second in place, with a LIVE indicator. Rows reorder live when sorted by change."},
+      {"n": 3, "status": "pass", "note": "System menu with icons for Symbol/Price/Change and Ascending/Descending. The sort button shows the current key and direction ('Change ↓'). Search matches symbol and name, with a 'No matches' empty state."},
+      {"n": 4, "status": "pass", "note": "Star at the left of each row, in the detail nav bar, and as a large 'In My List / Tap to remove' button. Segmented All / My List works."},
+      {"n": 5, "status": "pass", "note": "Detail shows price, % and $ change, open, volume, and a live area chart with gridlines, an end dot, L/H labels and 'Last N of 60 samples'. History is recorded from launch."},
+      {"n": 6, "status": "pass", "note": "My List and sort (Change ↓, later Symbol ↑) both survived relaunch."}
+    ],
+    "bugs": [
+      "In sorted-by-change view rows reorder every second under the finger, so a tap can hit a different ticker than intended (stars landed on unintended tickers in testing)",
+      "'16 of 260 symbols' / '0 of 260 symbols' wraps onto two lines at the default text size while searching",
+      "Accessibility tree exposes every off-screen row's buttons stacked at the list origin (VoiceOver clutter)"
+    ],
+    "tells": [
+      "The list is a rounded card in a fixed frame between a pinned header and a pinned footer strip. It doesn't scroll under the nav bar, and the large title never collapses, which feels web-like",
+      "Persistent 'SIMULATED PRICES · USD · EVERY SECOND' footer above the search bar uses up screen space",
+      "Rows are 89pt tall, so only about 6 tickers fit on screen (about 3.5 while searching with the keyboard up)",
+      "At the largest text size the fixed header takes about 40% of the screen and only about one row of the list is visible; the row star doesn't scale",
+      "Custom green brand tint and a hand-styled detail page (uppercase caps labels, big filled 'Add to My List' button) instead of system grouped styling",
+      "Dark mode: the selected segment looks darker than the track, unlike the system look",
+      "No swipe actions on rows"
+    ],
+    "scroll": "Scrolling is smooth with no blank or popping rows, but it happens inside a short clipped window, so flings cover little ground with 89pt rows (47 pages). The title and filters never collapse, so it doesn't feel like a full-screen iPhone list.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements, including live updates, sort and search, My List, the live chart and persistence. A's list is a full-screen, dense, system-feeling list that scrolls under the bars like a real iPhone app, and its detail is clean inset-grouped. B is more stylish (Stocks-like pills, a richer chart), but its fixed header and footer with a clipped card list, tall rows and space-starved layout at large text and with the keyboard up make it feel less native and less usable."
+}

@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of all 160 recipes showing title, category · time and a star rating, with a summary header ('All Recipes · 160 recipes · by Name')."},
+      {"n": 2, "status": "pass", "note": "A Category pull-down menu in the nav bar lists All plus the nine categories with a checkmark on the current one. The search field matches title or ingredient. Desserts + 'egg' gives 9 results, the same as B. Searching 'zzzq' shows a 'No Recipes' state with a hint. The current category only shows in the header text, not on the button."},
+      {"n": 3, "status": "pass", "note": "A Sort By menu offers Name, Time and Rating with a checkmark, and orders correctly (rating high→low, time short→long). The choice survives a relaunch."},
+      {"n": 4, "status": "partial", "note": "Shows category, time, rating, a servings stepper (clamped at 1) and ingredients that scale correctly with fractions (½, 1½, ⅔), plus a 'Scaled from 6 servings' note. But the numbered steps are laid out like key/value rows: the step number sits on the left and the instruction is right-aligned in grey secondary text, which reads badly."},
+      {"n": 5, "status": "pass", "note": "A heart in the detail nav bar toggles Add/Remove from Favorites. The Favorites tab lists saved recipes with a count, and its empty state ('No Favorites Yet', with a hint and a Browse Recipes button) is helpful. There is no swipe-to-delete in Favorites: a horizontal drag opens the recipe instead."},
+      {"n": 6, "status": "pass", "note": "After a relaunch, Favorites still listed the saved recipe."}
+    ],
+    "bugs": [
+      "At the largest text size, list titles break inside a word: 'Basil Miso Muffin' / 's' wraps the final letter onto its own line.",
+      "The detail screen's steps put the instruction text right-aligned and greyed, like a value cell, far from its step number. This is hard to read and wrong for content."
+    ],
+    "tells": [
+      "No swipe actions on rows: you can't swipe to remove in Favorites or swipe to favourite in the list, and there's no Edit button.",
+      "Steps are rendered as LabeledContent-style rows (number as label, instruction as trailing secondary value) rather than as a numbered list.",
+      "The filled 'favourited' heart in the nav bar is black/label-coloured rather than tinted.",
+      "The category filter is hidden in a toolbar menu. The only sign of the active filter is the grey header text, and the filter button gives no visual cue.",
+      "The search keyboard came up showing uppercase keys after typing lowercase text.",
+      "The app is mostly system blue with orange stars and has no identity of its own. It is plain but native-looking."
+    ],
+    "scroll": "The UICollectionView list scrolls smoothly with no blank rows or pop-in. The large title collapses and the search bar hides on scroll as expected, the bounce at the top is normal, and scroll position is kept on returning from a recipe.",
+    "scores": {"features": 7, "platform": 7, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "A list of all 160 recipes with a coloured category SF Symbol, bold title, and 'category · time · ★ rating', plus a disclosure chevron. A heart replaces the chevron on favourited rows."},
+      {"n": 2, "status": "pass", "note": "A horizontally scrolling row of category chips (All plus nine, each with its count as an accessibility value) and a search field for titles or ingredients. They combine: Desserts + 'egg' gives 9 results, and ingredient matches show a 'Contains eggs' line. Searching 'zzzq' shows a 'No Results' state that echoes the query."},
+      {"n": 3, "status": "pass", "note": "A native Sort By menu with Name (A to Z), Time (Quickest first) and Rating (Highest first), with icons and a checkmark. Ordering is correct and persists across a relaunch."},
+      {"n": 4, "status": "pass", "note": "A header shows the category and a large title, then cards for Time, Servings and Rating. A servings stepper (min 1, decrement disabled at 1) scales quantities with fractions (½, ⅔, ⅛), and the ingredients header becomes 'Ingredients for 3 servings'. Steps are numbered with circled-number symbols."},
+      {"n": 5, "status": "pass", "note": "There are three ways to favourite: the heart in the detail nav bar (which turns red), a full leading swipe on a list row, and swipe-to-Remove or the Edit button in the Favorites tab. The empty state ('No Favorites Yet') explains both ways to add a recipe and has a Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "After a relaunch, Favorites still listed the saved recipe."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The pinned category-chip bar sits on an opaque grey band under a translucent nav bar. When scrolled, it looks like a plain-table section header rather than part of the bar.",
+      "The Sort menu items and the empty-state text are missing from the accessibility tree: the Favorites empty view is exposed only as 'Empty list'.",
+      "At the largest text size, the search-field placeholder stays small inside a huge field, and the ingredient bullets don't scale.",
+      "Category icons are sometimes odd choices (a popcorn bucket for Desserts)."
+    ],
+    "scroll": "The table scrolls smoothly with no blank rows or jumps. The search field and category chips stay pinned while rows scroll beneath them, the bounce at the top is normal, and scroll position is kept on returning from a recipe.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet the core spec, and their filtering, sorting, scaling and persistence give identical results. B adds visible category chips, ingredient-match hints, native swipe actions, an Edit mode and a properly numbered steps list. A lays out its steps as right-aligned grey value cells, has no swipe actions, and breaks a title mid-word at the largest text size."
+}

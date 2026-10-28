@@ -1,0 +1,11 @@
+{
+  "spec": "watchlist",
+  "key": {
+    "A": "exact",
+    "B": "uikit"
+  },
+  "exit": 0,
+  "minutes": 10.23,
+  "shots": 37,
+  "graded": true
+}

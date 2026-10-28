@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen: Today 22 and All 135 at the top, then My Lists with coloured icons and open counts. Counts update after changes."},
+      {"n": 2, "status": "pass", "note": "Open tasks first, then a collapsible 'N Completed' row with Show/Hide that expands the completed tasks. Tapping the circle completes a task (it moves to the completed section) or reopens it."},
+      {"n": 3, "status": "partial", "note": "The add sheet (title, notes, priority menu, list menu) and the edit sheet both work. But switching on 'Due Date' freezes the app every time: tree stops answering and the sheet stays stuck mid-toggle until the app is killed. Seen 3 times, in both New Task and Edit Task. So no due date can be set or changed."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are shown in red with an exclamation icon and 'Overdue · Sat, Oct 17'. High priority shows a red '!!!'. Medium and low priority are not marked at all."},
+      {"n": 5, "status": "pass", "note": "Native swipe-to-delete action. Edit mode gives delete badges and system reorder grips, and drag-reordering works and persists."},
+      {"n": 6, "status": "pass", "note": "Add List alert pushes straight into the new list, which has a proper empty state. The ••• menu offers Rename (alert with clear button), Color, and Delete List (confirmation). All work."},
+      {"n": 7, "status": "pass", "note": "A renamed list, a new task, an edited note and a reordered list all survived relaunch."}
+    ],
+    "bugs": [
+      "The app hangs every time the Due Date switch is turned on, in both New Task and Edit Task. The UI freezes with the switch half-animated and the app stops responding, so due dates cannot be added or edited.",
+      "During a reorder in edit mode, the first two rows lost their detail lines (notes and date) until edit mode ended."
+    ],
+    "tells": [
+      "At the largest text size, task notes truncate to one line ('See the email fro…'), and the date wraps onto a second line after its weekday ('Tue,' / 'Nov 17').",
+      "The expand indicator on the completed-section header is a thin 'v'-like glyph next to a 'Show/Hide' text button, which is slightly unusual.",
+      "Medium and low priority are not shown anywhere in the rows."
+    ],
+    "scroll": "The 180-task All list (grouped by list) scrolls smoothly as a native table: slow drags, flings and the fling back to the top all behaved with no blank or popping rows, and the large title collapses correctly.",
+    "scores": {"features": 6, "platform": 9, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Lists screen with Today (22, then 23 after adding an overdue task) and All 135, plus My Lists with open counts. Plain rows with no list icons or colours."},
+      {"n": 2, "status": "pass", "note": "Open tasks, then a '9/10 Completed' header with Show/Hide that expands the completed list with blue checkmarks. Tapping a checkbox completes or reopens a task."},
+      {"n": 3, "status": "pass", "note": "The add sheet has title, notes, a due-date switch with a compact date picker, a priority segmented control and a list menu, with Add disabled and a hint until a title is entered. Tapping a task opens Details for editing, with Delete Task. A past date, priority and notes all saved correctly."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with an icon ('Overdue · Oct 5'). High priority shows a red '!!!'; medium '!!' and low '!' are shown in grey."},
+      {"n": 5, "status": "pass", "note": "Grip handles are always visible and drag-reordering works directly and persists. Swiping left reveals Delete, which works."},
+      {"n": 6, "status": "pass", "note": "A + button opens a New List sheet. The ••• menu offers Rename List (a sheet) and Delete List. Swiping a list on the main screen gives Delete with a confirmation alert. All work."},
+      {"n": 7, "status": "pass", "note": "A renamed list, the added task, an edited title and priority, a reorder and a deleted list all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The swipe-to-delete action is drawn by hand: a small red rounded pill with a 'Delete' caption underneath, not a full-height iOS swipe action.",
+      "Task rows are exposed as web-style 'Link' elements in accessibility, and the main screen's 'My Lists' header is a row rather than a section header, which suggests a non-native list.",
+      "Plain list style with reorder grips always showing, rather than revealed by an Edit mode. Some row separators are missing (for example, between 'Write the plumber' and 'Buy the library books').",
+      "The Rename List text field has no clear button.",
+      "No list icons or colours on the main screen, which looks sparse next to Reminders."
+    ],
+    "scroll": "The All list scrolls smoothly through flings and the return to the top, with no blank rows or jumps, and the large title collapses as expected. It feels close to native.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "A looks more like a hand-built UIKit app (inset-grouped tables, native swipe actions, edit mode, list colours), but it hangs every time you switch on Due Date. That makes a core part of requirement 3 unusable and kills the app. B's swipe action and list styling show some non-native tells, but every requirement works end to end, including due dates and overdue marking, and it handles the largest text size without truncating."
+}
