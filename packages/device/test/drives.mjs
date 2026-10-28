@@ -15,12 +15,13 @@
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { decodePng } from '../../../scripts/png.mjs';
 import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dir, '../../..');
 const argv = process.argv.slice(2);
 const host = argv.find((a) => ['web', 'macos', 'ios'].includes(a)) ?? 'macos';
-const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1].split(',').map(Number) : null;
+const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1].split(',') : null;
 if (argv.includes('--sim')) process.env.EXACT_SIM = argv[argv.indexOf('--sim') + 1];
 const web = host === 'web';
 const { open } = await import(resolve(root, 'scripts/agent.mjs'));
@@ -36,7 +37,8 @@ async function node(s, testId) {
   const { nodes } = await s.tree();
   return { node: nodes.find((n) => n.props?.testId === testId), byId: new Map(nodes.map((n) => [n.id, n])) };
 }
-const label = async (s) => (await node(s, 'pause-sky')).node?.props?.['aria-label'];
+// The tree names the label `aria-label` on native hosts and `accessibilityLabel` on the web.
+const label = async (s) => { const p = (await node(s, 'pause-sky')).node?.props; return p?.['aria-label'] ?? p?.accessibilityLabel; };
 const revision = async (s) => (await s.state()).slots?.revision;
 const prefer = async (s, source, value) => { await s.prefer({ extension: `device.${source}=${JSON.stringify(value)}` }); await s.clock('settle'); };
 
@@ -113,8 +115,10 @@ const drives = {
     const s = await weatherlight();
     try {
       await s.clock('settle');
-      const device = (await s.state()).extensions?.device;
-      check(5, 'state.extensions shows powerState failed NotSupportedError', JSON.stringify(device ?? {}).includes('NotSupportedError'), JSON.stringify(device));
+      // The web's `state.extensions` lists readers, not answers: the failure is the resource's, in `state.failed`.
+      const state = await s.state();
+      check(5, 'powerState failed NotSupportedError', String(state.failed?.power ?? '').includes('NotSupportedError'), JSON.stringify(state.failed));
+      check(5, 'the placeholder stands: no thermal state', state.resources?.power?.thermalState == null, JSON.stringify(state.resources?.power));
     } finally { await s.close(); }
   },
 };
@@ -132,7 +136,22 @@ async function mark(s) {
   const { node: svg, byId } = await node(s, 'battery-mark');
   const children = (svg?.children ?? []).map((id) => byId.get(id));
   const fill = children.filter((c) => c?.props?.width != null)[1];
-  return { width: Number(fill?.props?.width), color: fill?.props?.fill, bolt: children.some((c) => c?.props?.['stroke-linejoin'] === 'round') };
+  if (fill) return { width: Number(fill.props.width), color: fill.props.fill, bolt: children.some((c) => c?.props?.['stroke-linejoin'] === 'round') };
+  return measured(s, children.length);
+}
+/** The web's tree carries no SVG attributes: the fill measured on the screen instead, to a quarter unit. In the mark's 28-unit viewBox
+ * the fill starts at 2.5 and a full one ends at 20; a column is filled where it differs from the empty inside at 22.
+ * The row is the fill's top quarter, above the bolt. The bolt is the mark's fourth child. */
+async function measured(s, count) {
+  const { space } = (await s.layout('battery-mark')).node;
+  const shot = await s.screenshot(join(shots, `mark-${Date.now()}.png`));
+  const image = decodePng(readFileSync(shot.screenshot));
+  const k = image.width / shot.w, unit = space.viewport.w / 28;
+  const at = (x) => { const px = Math.floor((space.viewport.x + x * unit) * k), py = Math.floor((space.viewport.y + 4 * unit) * k), i = (py * image.width + px) * 4; return [...image.data.subarray(i, i + 3)]; };
+  const empty = at(22), filled = [];
+  for (let x = 2.5; x < 21; x += 0.25) if (at(x).reduce((d, c, i) => d + Math.abs(c - empty[i]), 0) > 90) filled.push(x);
+  const width = filled.length ? filled.at(-1) + 0.25 - 2.5 : 0;
+  return { width, color: `rgb(${at(5).join(', ')})`, bolt: count === 4 };
 }
 const row = async (s) => {
   const { node: r, byId } = await node(s, 'row-battery');
@@ -144,7 +163,7 @@ Object.assign(drives, {
     const s = await expose();
     try {
       const m = await mark(s);
-      check(6, 'nothing preferred: the full mark with a bolt', m.width === 17.5 && m.bolt, JSON.stringify(m));
+      check(6, 'nothing preferred: the full mark with a bolt', Math.abs(m.width - 17.5) <= 0.5 && m.bolt, JSON.stringify(m));
       check(6, 'Settings shows 100%', (await row(s)).includes('100%'), await row(s));
       await s.screenshot(join(shots, 'expose-default.png'));
     } finally { await s.close(); }

@@ -40,16 +40,13 @@ component App
 ```
 
 What to do with the facts is the app's. Apple asks an app in Low Power Mode
-to "reduce the use of animations, lower frame rates, stop location updates,
-disable syncs and backups" ([Energy Efficiency Guide for iOS Apps](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/EnergyGuide-iOS/LowPowerMode.html)),
-and at `serious` to "reduce CPU and GPU usage, reduce the target framerate"
-(`NSProcessInfo.h`). Android's `isPowerSaveMode()` says "applications should
-reduce their functionality in order to conserve battery as much as
-possible". What the person presses wins over the device: a sky they pressed
-play on keeps playing.
+to "reduce the use of animations, lower frame rates, … disable syncs"
+([Energy Efficiency Guide](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/EnergyGuide-iOS/LowPowerMode.html)).
+What the person presses wins over the device: a sky they pressed play on
+keeps playing.
 
-Whether the app is online is `exactPage().onLine`, not `connection()`: ask
-`onLine` whether there is a network, and `connection()` what kind it is.
+Whether there is a network is `exactPage().onLine`; `connection()` says
+what kind it is.
 How capable the GPU is, is `exactViewport().gpuTier`.
 
 Data code reads the same sources as Promises, as a wake does to decide
@@ -62,7 +59,5 @@ if (net.saveData || power?.lowPowerMode) return { deferred: true };
 ```
 
 Under the agent the declaration answers (a full battery, `type`
-`unknown`); a drive sets a fact with `prefer extension
-device.powerState={"lowPowerMode":true}`, which is laid over the default,
-and `=clear` restores it. Each `prefer` replaces the last, so a drive that
-holds two fields names both.
+`unknown`); `prefer extension device.powerState={"lowPowerMode":true}` lays
+a fact over it, `=clear` restores it, and each `prefer` replaces the last.
