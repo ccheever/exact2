@@ -158,20 +158,18 @@ extension NodeView {
             var base = textRun("")
             base.fixedInk = style["text_color"]?.fixesInk == true
             let atoms = MarkdownAtoms(kinds: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", styles: props["atomStyles"] ?? "", dark: night, contrast: contrast == true)
-            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night),
+            // A link's piece is in the node's ink by the link's tint, where the ink names it, and so is
+            // an atom's where a press acts on it (`pressAtom`)
+            let row = style["text_color"], atomsAct = handlers.contains("atompress")
+            let linkInk = linked.flatMap { t in row?.namesTint == true ? row?.textChannels(dark: night, contrast: contrast, elevated: elevated, tint: t) : nil }
+            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night), linkColor: linkInk, atomColor: atomsAct ? linkInk : nil,
                                                   boldText: text?.boldTextSteps(base.family) == true, atoms: atoms) ?? [textRun(source)]
             if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
-            // A link's piece is in the node's ink, or a share of it: by the link's tint, where the ink names it.
-            if let linked, let row = style["text_color"], row.namesTint, let full = textChannels("text_color", dark: night),
-               let linkInk = row.textChannels(dark: night, contrast: contrast, elevated: elevated, tint: linked), full[3] > 0 {
-                for i in runs.indices where !runs[i].href.isEmpty {
-                    var c = Array(linkInk.prefix(4)); c[3] *= (runs[i].color?[3] ?? full[3]) / full[3]; runs[i].color = c
-                }
-            }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
             let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
             for i in runs.indices {
-                (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: runs[i].href.isEmpty ? tint : linked ?? tint, color: runs[i].color ?? own)
+                let acts = !runs[i].href.isEmpty && (atomsAct || !runs[i].href.hasPrefix(Self.readerAtomScheme))
+                (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: acts ? linked ?? tint : tint, color: runs[i].color ?? own)
             }
         } else if let value = props["text"] {
             let href = props["href"] ?? ""

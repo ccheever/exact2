@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+import ExactMarkdown
 
 /// A control's face greys as one while UIKit dims tints behind a sheet or an alert, and comes
 /// back when the dimming ends; a status outside a control keeps its colour, and a link in the
@@ -387,6 +388,46 @@ final class TintDimmingIOSTests: XCTestCase {
         embedder.tintAdjustmentMode = .automatic
     }
 
+    /// Text in the tint flying in its controller's view keeps that view's tint while an alert dims the
+    /// view and not the window, whose tint is another: the flight's layer keeps it as a mount does,
+    /// and still goes when its flight lands
+    func testAStatusInAFlightKeepsItsTintWhileDimmed() throws {
+        // Every node carries a testId, so none is drawn as a flat leaf of its parent: a flight needs views
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "props": ["testId": "n1"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["testId": "n2"]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["testId": "n3"]],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 100.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+        ])
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.tintColor = color(green)
+        controller.view.frame = window.bounds
+        controller.view.tintColor = color(red)
+        controller.view.addSubview(p.viewport)
+        p.apply(wireBatch([
+            ["op": "flight", "id": 4, "from": 2], ["op": "destroy", "id": 2],
+            ["op": "create", "id": 4, "kind": "text", "props": ["testId": "n4", "text": "Sent"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 250.0, "w": 200.0, "h": 50.0],
+            ["op": "present", "id": 4, "property": "flight", "x": 0.5, "y": 0.0]]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let status = try XCTUnwrap(p.views[4])
+        let layer = try XCTUnwrap((status.superview as? FlightClip)?.superview as? FlightLayer, "the status flies")
+        XCTAssertTrue(layer.superview === controller.view, "in its controller's view")
+        assertChannels(try runChannels(status), red, "the controller's tint before the dimming")
+        // An alert dims its presenting controller's view and leaves the window undimmed
+        controller.view.tintAdjustmentMode = .dimmed
+        window.layoutIfNeeded()
+        assertChannels(try runChannels(status), red, "the controller's tint while dimmed")
+        controller.view.tintAdjustmentMode = .automatic
+        p.apply(wireBatch([["op": "land", "id": 4]]))
+        XCTAssertNil(layer.superview, "the layer goes with its flight, its probe in it")
+    }
+
     /// Text in the tint in a dialog's sheet keeps the tint the sheet had undimmed while an alert over
     /// the sheet dims it and its window: the sheet's view keeps it, as a route's does
     func testAStatusInADialogSheetKeepsItsTintWhileTheSheetIsDimmed() throws {
@@ -561,6 +602,46 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try runChannels(paragraph, 2), green, "a fixed-colour link beside one in the tint")
         dim(p, false)
         assertChannels(try runChannels(paragraph, 1), blue, "the link once the dimming ends")
+    }
+
+    /// A Markdown link in the tint greys as UIKit dims it outside a control, and so does an atom in
+    /// the tint a press acts on; the paragraph's own text and an atom no press acts on keep the tint,
+    /// and an atom in its kind's own colour keeps that
+    func testAMarkdownLinkAndAPressedAtomDimAndOtherAtomsKeepTheirInk() throws {
+        ExactMarkdown.install()
+        let props: [String: Any] = [
+            "markup": "markdown", "text": "Ask [Quote](t3-citation:1), [Memo](t3-note:2) or [go](https://example.com)",
+            "atoms": #"[{"name":"citation","link":"t3-citation:"},{"name":"note","link":"t3-note:"}]"#,
+            "atomStyles": ##"{"citation":[[75,"#ff3b30"]]}"##,
+            "atomFaces": #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"The quoted passage"},{"source":"[Memo](t3-note:2)","label":"A memo","icon":"","title":"The memo"}]"#,
+        ]
+        let ink: [String: Any] = ["text_color": ["sys": "@tint", "c": blue]]
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "text", "props": props, "style": ink],
+            ["op": "create", "id": 2, "kind": "text", "props": props, "handlers": ["atompress"], "style": ink],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 22.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 30.0, "w": 400.0, "h": 22.0],
+            ["op": "roots", "ids": [1, 2]],
+        ])
+        p.viewport.tintColor = color(blue)
+        func piece(_ id: UInt32, _ text: String) throws -> [Double] {
+            let runs = try XCTUnwrap(p.views[id]).paragraphSpec().runs
+            return try XCTUnwrap(runs.first { $0.text.contains(text) }?.color, "a piece with \"\(text)\" has a colour")
+        }
+        assertChannels(try piece(1, "quote"), red, "the atom before the dimming")
+        assertChannels(try piece(2, "memo"), blue, "the pressed atom before the dimming")
+        dim(p, true)
+        let grey = uikitGrey(blue, uikitAlpha: true)
+        for id: UInt32 in [1, 2] {
+            assertChannels(try piece(id, "Ask"), blue, "the paragraph's own text in \(id)")
+            assertChannels(try piece(id, "quote"), red, "the atom in its kind's colour in \(id)")
+            assertChannels(try piece(id, "go"), grey, "the link in \(id), as UIKit dims it")
+        }
+        assertChannels(try piece(1, "memo"), blue, "an atom no press acts on")
+        assertChannels(try piece(2, "memo"), grey, "an atom a press acts on, as a link")
+        dim(p, false)
+        assertChannels(try piece(1, "go"), blue, "the link once the dimming ends")
+        assertChannels(try piece(2, "memo"), blue, "the pressed atom once the dimming ends")
     }
 
     /// A link in a neutral tint greys as UIKit dims that tint, its alpha included, as a text view's

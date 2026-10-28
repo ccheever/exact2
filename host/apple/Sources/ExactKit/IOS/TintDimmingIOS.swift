@@ -49,9 +49,9 @@ enum TintDimming {
 
 /// A view a session's nodes are mounted in: the viewport, the `DocumentMount` native navigation
 /// holds the document fixed in, a route's or a modal's `PresentationMount`, a dialog sheet's view,
-/// or a `PopoverLayer`. Its tint undimmed, its embedder's or its window's, is what a status outside
-/// a control keeps while UIKit dims tints (`NodeView.restingTint`), as it is now: an embedder's tint
-/// changed while dimmed, or one the mount joined while already dimmed, included.
+/// a `PopoverLayer`, or a `FlightLayer`. Its tint undimmed, its embedder's or its window's, is what
+/// a status outside a control keeps while UIKit dims tints (`NodeView.restingTint`), as it is now:
+/// an embedder's tint changed while dimmed, or one the mount joined while already dimmed, included.
 protocol RestsTint: UIView {
     var restingTint: UIColor { get }
 }

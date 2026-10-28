@@ -59,8 +59,9 @@ final class Flight {
     init(id: UInt32, source: FlightSource) { self.id = id; self.source = source }
 }
 
-/// The flight layer: draws its flights, takes no touches.
-final class FlightLayer: UIView {
+/// The flight layer: draws its flights, takes no touches, and keeps its
+/// nodes' tint at rest as a mount does (`RestsTint`).
+final class FlightLayer: RestingTintView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
 }
 
@@ -367,7 +368,7 @@ extension Presenter {
     }
 
     private static func dropEmptyLayer(_ layer: UIView) {
-        if layer.subviews.isEmpty { layer.removeFromSuperview() }
+        if layer.subviews.allSatisfy({ $0 is TintProbe }) { layer.removeFromSuperview() }
     }
 
     /// Where a flying image is drawn in its shown box, at `progress`: the
