@@ -49,6 +49,8 @@ pub(crate) fn queued(_shared: &Shared, _ticket: u64) -> Option<u64> {
 
 pub(crate) fn quit(_shared: &Shared) {}
 
+pub(crate) fn launched(_shared: &Arc<Shared>) {}
+
 impl Core {
     pub(crate) fn allow_processes(&self) {}
 

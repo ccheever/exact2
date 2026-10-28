@@ -153,6 +153,18 @@ pub enum FsOp {
     Rename,
     CopyFile,
     Realpath,
+    /// Exact patch 22 (exact2 LLP 1133.007 D6a): `stat` without following a
+    /// link, a link's target, whether this user may read, write or execute a
+    /// path, its permission bits, a symbolic link, a file's digest, and an
+    /// advisory lock and its release.
+    Lstat,
+    Readlink,
+    Access,
+    Chmod,
+    Symlink,
+    Digest,
+    Flock,
+    Unlock,
 }
 
 impl FsOp {
@@ -163,7 +175,18 @@ impl FsOp {
     /// write on the source because it removes that directory entry.
     pub fn required(self) -> (bool, bool) {
         match self {
-            FsOp::ReadFile | FsOp::ReadDir | FsOp::Stat | FsOp::Realpath => (true, false),
+            FsOp::ReadFile
+            | FsOp::ReadDir
+            | FsOp::Stat
+            | FsOp::Realpath
+            | FsOp::Lstat
+            | FsOp::Readlink
+            | FsOp::Access
+            | FsOp::Digest => (true, false),
+            // A lock takes its file, made if absent; a link is written where it lives.
+            FsOp::Chmod | FsOp::Symlink | FsOp::Flock => (false, true),
+            // A lock's release names its handle, which its taking admitted.
+            FsOp::Unlock => (false, false),
             FsOp::WriteFile
             | FsOp::AppendFile
             | FsOp::AtomicWriteFile
@@ -330,6 +353,10 @@ pub struct Stat {
     pub is_file: bool,
     pub is_directory: bool,
     pub modified_ms: u64,
+    /// Its permission bits (`0o7777`); on Windows `0o444` or `0o666`.
+    pub mode: u32,
+    /// An `lstat` of a symbolic link.
+    pub is_symlink: bool,
 }
 
 /// Run an operation whose paths have already been normalized and admitted.
@@ -396,20 +423,17 @@ pub fn perform(
                 Err(e) => Err(failed(e)),
             }
         }
-        FsOp::Stat => {
-            let meta = std::fs::metadata(path).map_err(failed)?;
-            let modified_ms = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            Ok(FsResult::Stat(Stat {
-                size: meta.len(),
-                is_file: meta.is_file(),
-                is_directory: meta.is_dir(),
-                modified_ms,
-            }))
+        FsOp::Stat => std::fs::metadata(path)
+            .map(|m| FsResult::Stat(stat_of(&m)))
+            .map_err(failed),
+        FsOp::Lstat => std::fs::symlink_metadata(path)
+            .map(|m| FsResult::Stat(stat_of(&m)))
+            .map_err(failed),
+        FsOp::Readlink => std::fs::read_link(path)
+            .map(|p| FsResult::Text(p.to_string_lossy().into_owned()))
+            .map_err(failed),
+        FsOp::Access | FsOp::Chmod | FsOp::Symlink | FsOp::Digest | FsOp::Flock | FsOp::Unlock => {
+            super::fs_more::perform(op, path, data)
         }
         FsOp::Rename => std::fs::rename(
             path,
@@ -431,6 +455,32 @@ pub fn perform(
     }
 }
 
+/// A `Stat` from a file's metadata.
+pub(crate) fn stat_of(meta: &std::fs::Metadata) -> Stat {
+    let modified_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    #[cfg(unix)]
+    let mode = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o7777;
+    #[cfg(not(unix))]
+    let mode = if meta.permissions().readonly() {
+        0o444
+    } else {
+        0o666
+    };
+    Stat {
+        size: meta.len(),
+        is_file: meta.is_file(),
+        is_directory: meta.is_dir(),
+        modified_ms,
+        mode,
+        is_symlink: meta.file_type().is_symlink(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FsResult {
     Done,
@@ -438,6 +488,142 @@ pub enum FsResult {
     Text(String),
     Names(Vec<String>),
     Stat(Stat),
+}
+
+/// The host's directories behind `home:/` and `bundle:/` (Exact patch 22:
+/// exact2 LLP 1133.007 D6): the person's home directory and the app's
+/// installed bundle, read only. A host that has neither leaves them unset,
+/// and those paths refuse as unsupported.
+#[derive(Debug, Clone, Default)]
+pub struct Roots {
+    pub home: Option<PathBuf>,
+    pub bundle: Option<PathBuf>,
+}
+
+static ROOTS: std::sync::RwLock<Roots> = std::sync::RwLock::new(Roots {
+    home: None,
+    bundle: None,
+});
+
+/// Name the host's `home:/` and `bundle:/` directories, once a process.
+pub fn set_roots(roots: Roots) {
+    *ROOTS.write().unwrap_or_else(|e| e.into_inner()) = roots;
+}
+
+/// A `home:` or `bundle:` path's native path, lexically normalized and kept
+/// under its root; `None` for any other path.
+fn namespaced(path: &str) -> Option<Result<PathBuf, HostError>> {
+    let (namespace, rest) = match path.strip_prefix("home:/") {
+        Some(rest) => ("home", rest),
+        None => ("bundle", path.strip_prefix("bundle:/")?),
+    };
+    let roots = ROOTS.read().unwrap_or_else(|e| e.into_inner());
+    let root = match namespace {
+        "home" => roots.home.clone(),
+        _ => roots.bundle.clone(),
+    };
+    Some((|| {
+        let root = root.ok_or_else(|| {
+            HostError::Failed(format!("unsupported: no {namespace}: directory here"))
+        })?;
+        if rest.split('/').any(|part| part == ".." || part == ".") {
+            return Err(HostError::Failed(format!(
+                "TypeError: path has a . or .. part: {path}"
+            )));
+        }
+        Ok(root.join(rest.trim_start_matches('/')))
+    })())
+}
+
+/// The grant prefixes in `namespace` (`home:` or `bundle:`) that cover
+/// `spelled`, as native paths realized: a path is admitted only if its own
+/// realized path stays under one of them, as `admit` does for native paths.
+fn realized_within(
+    grants: &GrantSet,
+    write: bool,
+    spelled: &str,
+    native: &Path,
+    leaf: bool,
+) -> bool {
+    use crate::grant::Grant;
+    // An operation on a link itself (`lstat`, `readlink`, `symlink`'s new
+    // link) follows its parent's links, not its own.
+    let real = match (leaf, native.parent(), native.file_name()) {
+        (true, Some(parent), Some(name)) => realize(parent).join(name),
+        _ => realize(native),
+    };
+    grants.iter().any(|grant| {
+        let prefix = match (grant, write) {
+            (Grant::FsRead(prefix), false) | (Grant::FsWrite(prefix), true) => prefix,
+            _ => return false,
+        };
+        let spelt = prefix.to_string();
+        prefix.covers(spelled)
+            && namespaced(&spelt)
+                .and_then(Result::ok)
+                .is_some_and(|granted| real.starts_with(realize(&granted)))
+    })
+}
+
+/// A `home:` or `bundle:` operation: admitted as spelt and as realized, a
+/// `bundle:` path read only, then run on the native paths.
+fn run_namespaced(
+    grants: &GrantSet,
+    op: FsOp,
+    path: &str,
+    destination: Option<&str>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    let native = |p: &str| -> Result<PathBuf, HostError> {
+        match namespaced(p) {
+            Some(result) => result,
+            None => normalize(p),
+        }
+    };
+    let (source, target) = (native(path)?, destination.map(native).transpose()?);
+    let (needs_read, needs_write) = op.required();
+    // What each path needs: a two-path operation reads its source (and, a
+    // rename, removes it) and writes its destination; one path, either.
+    let mut needs: Vec<(&str, &Path, bool)> = Vec::new();
+    match (destination, target.as_deref()) {
+        (Some(spelled), Some(native)) => {
+            needs.push((path, &source, false));
+            if op == FsOp::Rename {
+                needs.push((path, &source, true));
+            }
+            needs.push((spelled, native, true));
+        }
+        _ => needs.push((path, &source, needs_write && !needs_read)),
+    }
+    if let Some((spelled, ..)) = needs
+        .iter()
+        .find(|(spelled, _, write)| *write && spelled.starts_with("bundle:"))
+    {
+        return Err(HostError::Failed(format!(
+            "denied: bundle: is read only: {spelled}"
+        )));
+    }
+    admit_as(grants, op, Path::new(path), destination.map(Path::new))?;
+    let realized = grants.realized_fs();
+    let leaf = matches!(op, FsOp::Lstat | FsOp::Readlink | FsOp::Symlink);
+    for (spelled, native, write) in needs {
+        let ok = if spelled.starts_with("home:") || spelled.starts_with("bundle:") {
+            realized_within(grants, write, spelled, native, leaf)
+        } else {
+            let as_op = if write {
+                FsOp::WriteFile
+            } else {
+                FsOp::ReadFile
+            };
+            admit_as(&realized, as_op, &realize(native), None).is_ok()
+        };
+        if !ok {
+            return Err(HostError::Failed(format!(
+                "denied: {spelled} is outside its grant once its links are followed"
+            )));
+        }
+    }
+    perform(op, &source, target.as_deref(), data)
 }
 
 /// Execute a filesystem operation with authority checked in its original namespace.
@@ -456,6 +642,13 @@ pub fn run(
     }
     if path.starts_with("doc:") || destination.is_some_and(|p| p.starts_with("doc:")) {
         return Err(HostError::Failed("unsupported: no document service".into()));
+    }
+    if op == FsOp::Unlock {
+        return super::fs_more::perform(op, Path::new(path), data);
+    }
+    let namespace = |p: &str| p.starts_with("home:") || p.starts_with("bundle:");
+    if namespace(path) || destination.is_some_and(namespace) {
+        return run_namespaced(grants, op, path, destination, data);
     }
     #[cfg(windows)]
     {
@@ -648,7 +841,7 @@ pub fn run_with_limits(
                 .and_then(|n| n.checked_add(13)),
             FsResult::Text(text) => serde_json::to_string(text).ok().map(|s| s.len()),
             FsResult::Names(names) => serde_json::to_vec(names).ok().map(|s| s.len()),
-            FsResult::Stat(stat) => serde_json::to_vec(&serde_json::json!({"size":stat.size,"isFile":stat.is_file,"isDirectory":stat.is_directory,"modifiedMs":stat.modified_ms})).ok().map(|s| s.len()),
+            FsResult::Stat(stat) => serde_json::to_vec(&serde_json::json!({"size":stat.size,"isFile":stat.is_file,"isDirectory":stat.is_directory,"modifiedMs":stat.modified_ms,"mode":stat.mode,"isSymbolicLink":stat.is_symlink})).ok().map(|s| s.len()),
             FsResult::Done => Some(4),
         };
         if size.is_none_or(|n| n > limits.bytes) {
@@ -657,6 +850,10 @@ pub fn run_with_limits(
         Ok(result)
     })
 }
+
+#[cfg(all(test, unix))]
+#[path = "fs_namespaces_tests.rs"]
+mod namespaces_tests;
 
 #[cfg(all(test, unix))]
 mod bounded_tests {

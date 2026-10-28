@@ -469,9 +469,13 @@ fn an_operation_for_an_ended_incarnation_reaches_no_later_one() {
     clock.advance(0.0);
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut seen = Vec::new();
+    // The restart waits the 100 ms floor, though the delay says 0.
+    clock.advance(99.0);
+    std::thread::sleep(Duration::from_millis(20));
+    assert!(!events(&taken(&core)).contains(&"spawn 72 1".to_string()));
     while !seen.iter().any(|e: &String| e == "stdout two") {
         assert!(Instant::now() < deadline, "{seen:?}");
-        clock.advance(0.0);
+        clock.advance(100.0);
         seen.extend(events(&taken(&core)));
     }
     // Checked while the first ran, sent after the second began: dropped.
@@ -491,13 +495,13 @@ fn an_operation_for_an_ended_incarnation_reaches_no_later_one() {
     // The second's stdin is open, and counts what it was sent until read.
     let write = |n: usize| ops(vec![(2, ProcessOp::Write(vec![b'x'; n]))]);
     core.socket(&write(100_000)).unwrap();
-    for t in [1.0, 2.0, 3.0] {
+    for t in [101.0, 102.0, 103.0] {
         clock.advance(t);
         assert_eq!(core.socket_reader()(1), Some(100_000));
     }
     core.socket(&write(50_000)).unwrap();
     assert_eq!(core.socket_reader()(1), Some(150_000));
-    clock.advance(10.0);
+    clock.advance(110.0);
     let deadline = Instant::now() + Duration::from_secs(5);
     while core.socket_reader()(1) != Some(80_000) {
         assert!(Instant::now() < deadline, "{:?}", core.socket_reader()(1));

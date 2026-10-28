@@ -905,7 +905,7 @@
     });
   }
   var files = { directories: Object.freeze({ data:"app:/data", cache:"app:/cache", temporary:"app:/tmp" }) };
-  ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath"].forEach(function (method) {
+  ["readFile", "writeFile", "atomicWriteFile", "appendFile", "readdir", "mkdir", "rm", "stat", "rename", "copyFile", "realpath", "lstat", "readlink", "access", "chmod", "symlink", "digest"].forEach(function (method) {
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
   // LLP 1069.010.000 D4: a kept file the app replaces with its own atomic write stays kept: the host reads what the write replaces, then carries the entry to the file written.
@@ -921,6 +921,9 @@
     };
   });
   // LLP 1069.010.000 D1: the answer is asked again when the doc:/ path (a folder's own entries, or `recursive` its subtree) changes on disk.
+  // An advisory lock (LLP 1133.007 D6a), natively only: released by its `unlock()`, the end of the answer that took it (`freeLocks`), or the session's.
+  files.flock = function (path, options) { var t = options && options.timeout, fs = nativeStorage && nativeStorage.fs, by = currentCall; return storageCall(fs, "flock", [path, t === undefined ? 0 : t], function (h) { var lock = { h: h, by: by }; heldLocks.add(lock); if (by && by.replied) freeLocks(); return Object.freeze({ unlock: function () { return heldLocks.delete(lock) ? storageCall(fs, "unlock", [h]) : Promise.resolve(); } }); }); };
+  function freeLocks() { heldLocks.forEach(function (l) { if (!l.by || l.by === background || !l.by.replied) return; heldLocks.delete(l); try { Promise.resolve(nativeStorage.fs.unlock(l.h)).then(undefined, function () {}); } catch (e) {} }); }
   files.watch = function (path, options) {
     if (overlaying) throw inOverlay("storage.fs.watch()");
     if (!currentCall || currentCall.status !== "pending") throw new Error("storage.fs.watch() outside an answer");
@@ -964,7 +967,8 @@
   // whose answer outlived a collection owes a full one, once no answer awaits (shim.cc).
   var captureString = global.__exact_capture_string, gcEpoch = global.__exact_gc_epoch || function () { return 0; };
   delete global.__exact_capture_string; delete global.__exact_gc_epoch;
-  function cleanUp() { var waiting = false; calls.forEach(function (c) { if (!c.stream && !c.letGo) waiting = true; }); if (gcOwed && !waiting) { gcOwed = false; gcEpoch(true); } }
+  var heldLocks = new Set();
+  function cleanUp() { freeLocks(); var waiting = false; calls.forEach(function (c) { if (!c.stream && !c.letGo) waiting = true; }); if (gcOwed && !waiting) { gcOwed = false; gcEpoch(true); } }
   function ok(value, held) {
     var reply = { tag: 0, value: value === undefined ? null : value };
     if (typeof captureString !== "function") return JSON.stringify(reply);

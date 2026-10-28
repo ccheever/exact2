@@ -478,6 +478,8 @@ impl AppDirectories {
             FsOp::Stat => {
                 let m = self.open(path)?.metadata().map_err(error)?;
                 Ok(FsResult::Stat(Stat {
+                    mode: std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o7777,
+                    is_symlink: false,
                     size: m.len(),
                     is_file: m.is_file(),
                     is_directory: m.is_dir(),
@@ -507,6 +509,22 @@ impl AppDirectories {
                     dir = directory(&dir, part).map_err(error)?;
                 }
                 Ok(FsResult::Done)
+            }
+            FsOp::Digest => {
+                let file = self.open(path)?;
+                let algorithm = String::from_utf8_lossy(data).trim().to_string();
+                crate::stdlib::fs_more::digest(file, &algorithm)
+                    .map(FsResult::Text)
+                    .map_err(error)
+            }
+            FsOp::Lstat
+            | FsOp::Readlink
+            | FsOp::Access
+            | FsOp::Chmod
+            | FsOp::Symlink
+            | FsOp::Flock => {
+                let (parent, leaf) = self.open_parent(path)?;
+                at_parent(op, &parent, &leaf, data)
             }
             FsOp::CopyFile => {
                 let source = self.open(path)?;
@@ -547,6 +565,87 @@ impl AppDirectories {
         }
     }
 }
+/// LLP 1133.007 D6a's operations on an app path's leaf, through its retained
+/// parent directory, as every other app operation goes.
+fn at_parent(op: FsOp, parent: &File, leaf: &str, data: &[u8]) -> Result<FsResult, HostError> {
+    use std::os::fd::AsRawFd;
+    let c = CString::new(leaf).map_err(|_| error("a NUL in a path"))?;
+    let fd = parent.as_raw_fd();
+    let argument = || String::from_utf8_lossy(data).trim().to_string();
+    let last = |r: libc::c_int| {
+        if r == 0 {
+            Ok(())
+        } else {
+            Err(error(io::Error::last_os_error()))
+        }
+    };
+    // SAFETY: `fd` is a directory this call holds; `c` is NUL-terminated.
+    unsafe {
+        match op {
+            FsOp::Lstat => {
+                let mut st: libc::stat = std::mem::zeroed();
+                last(libc::fstatat(
+                    fd,
+                    c.as_ptr(),
+                    &mut st,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                ))?;
+                let kind = st.st_mode & libc::S_IFMT;
+                Ok(FsResult::Stat(Stat {
+                    size: u64::try_from(st.st_size).unwrap_or(0),
+                    is_file: kind == libc::S_IFREG,
+                    is_directory: kind == libc::S_IFDIR,
+                    modified_ms: u64::try_from(st.st_mtime).unwrap_or(0).saturating_mul(1000),
+                    mode: mode_bits(st.st_mode),
+                    is_symlink: kind == libc::S_IFLNK,
+                }))
+            }
+            FsOp::Readlink => {
+                let mut buf = vec![0u8; 4096];
+                let n = libc::readlinkat(fd, c.as_ptr(), buf.as_mut_ptr().cast(), buf.len());
+                if n < 0 {
+                    return Err(error(io::Error::last_os_error()));
+                }
+                buf.truncate(n as usize);
+                Ok(FsResult::Text(String::from_utf8_lossy(&buf).into_owned()))
+            }
+            FsOp::Access => {
+                let mode = argument()
+                    .parse::<i32>()
+                    .map_err(|_| error("access needs a mode"))?;
+                last(libc::faccessat(fd, c.as_ptr(), mode, libc::AT_EACCESS))
+                    .map(|()| FsResult::Done)
+            }
+            FsOp::Chmod => {
+                let mode = argument()
+                    .parse::<u32>()
+                    .map_err(|_| error("chmod needs a mode"))?;
+                last(libc::fchmodat(
+                    fd,
+                    c.as_ptr(),
+                    (mode & 0o7777) as libc::mode_t,
+                    0,
+                ))
+                .map(|()| FsResult::Done)
+            }
+            FsOp::Symlink => {
+                let target =
+                    CString::new(argument()).map_err(|_| error("a NUL in a link target"))?;
+                last(libc::symlinkat(target.as_ptr(), fd, c.as_ptr())).map(|()| FsResult::Done)
+            }
+            FsOp::Flock => {
+                let file = open_at_mode(parent, leaf, libc::O_RDWR | libc::O_CREAT, 0o644)
+                    .map_err(error)?;
+                let timeout = argument().parse::<u64>().unwrap_or(0).min(600_000);
+                crate::stdlib::fs_more::lock(file, std::time::Duration::from_millis(timeout))
+                    .map(|handle| FsResult::Text(handle.to_string()))
+                    .map_err(error)
+            }
+            _ => Err(error("not an operation on a leaf")),
+        }
+    }
+}
+
 /// Native recursive removal shares the bounded raw-name iterator used by app roots.
 pub(crate) fn remove_native(path: &Path) -> Result<FsResult, HostError> {
     let parent_path = path
@@ -690,6 +789,8 @@ pub(crate) fn document(
         FsOp::Stat => {
             let meta = document_metadata(parent, leaf)?;
             Ok(FsResult::Stat(Stat {
+                mode: mode_bits(meta.st_mode),
+                is_symlink: false,
                 size: u64::try_from(meta.st_size).unwrap_or(0),
                 is_file: meta.st_mode & libc::S_IFMT == libc::S_IFREG,
                 is_directory: meta.st_mode & libc::S_IFMT == libc::S_IFDIR,
@@ -1216,4 +1317,11 @@ mod tests {
         assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/cache/db").is_err());
         assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/data/../cache/db").is_err());
     }
+}
+
+/// A `stat`'s permission bits: `st_mode` is a `u16` on Apple platforms and
+/// a `u32` on Linux.
+#[allow(clippy::useless_conversion)]
+fn mode_bits(mode: libc::mode_t) -> u32 {
+    u32::from(mode) & 0o7777
 }

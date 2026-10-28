@@ -364,6 +364,31 @@ refuses a tool's, a wake's or a package event's reach to the local network
 while the person has not decided. Without a gate nothing changes. Replay on a
 refresh.
 
+## Local patch 22, Exact's desktop processes: the transport and file operations
+
+For exact2 LLP 1133.007. `process/` starts a child in a process group of
+its own with default signals and only its three pipes (`posix_spawn` on
+macOS, `fork` and `execve` with `PR_SET_PDEATHSIG` on Linux), `argv[0]` as
+the caller names it, the parent's pipe ends raising no `SIGPIPE` on Apple
+platforms, and answers what the host's supervision needs: waiting,
+readiness of a pipe, signalling a group and listing its members, a
+process's start time and session, the boot's identity, the password
+database's home directory and login shell, and a wait at the process's
+exit (`wait_at_exit`). It moves the child's descriptors above 2 before
+putting them in place, and `fork` runs with every signal blocked until the
+child's handlers are defaults. A `PATH` lookup skips relative entries.
+`stdlib/fs.rs` resolves `home:/` and `bundle:/` (the namespaces `grant.rs`
+reads) against roots the host sets (`set_roots`), the bundle read only,
+each path admitted as spelt and once its links are followed (a link's own
+parent's, for `lstat`, `readlink` and `symlink`), and reads `stat`'s
+`mode` and `isSymbolicLink`; `fs_more.rs` adds `lstat`, `readlink`,
+`access`, `chmod`, `symlink`, `digest` and `flock`/`unlock`, host opcodes
+122 to 129 in `host_opcodes.rs` and `boundary_abi.rs`, the methods in
+`bindings/install.cc` and `storage.d.ts`; a lock moves to the
+`RuntimeState` that asked, whose `unlock` alone releases it and whose
+shutdown releases them all. The process lines are exact2's own and never
+reach `grant.rs`. Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.
