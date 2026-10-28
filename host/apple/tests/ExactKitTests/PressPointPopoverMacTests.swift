@@ -25,6 +25,8 @@ final class PressPointPopoverMacTests: XCTestCase {
           text `${x},${y} ${pointed}` testId="status"
           column id="pop" testId="pop" popover="auto" margin=0 padding=0 border-width=0 width=120 height=80 left=(pointed ? `${x}px` : "auto") top=(pointed ? `${y}px` : "auto")
             box height=80
+          button testId="native" press=open position="absolute" left=40 top=395
+            text "Native"
           column id="menu" testId="menu" popover="auto" role="menu" margin=0 left=30 top=8
             button testId="row"
               text "Row"
@@ -87,6 +89,32 @@ final class PressPointPopoverMacTests: XCTestCase {
         XCTAssertEqual(f.status, "0,0 false")
         let box = try opened(f, "pop")
         XCTAssertEqual(box.minX, 40, accuracy: 0.5)
+    }
+
+    /// AppKit's button sends its action from its tracking loop: the click it
+    /// tracked is the press's, as a node's own is.
+    func testANativeButtonsClickCarriesItsPoint() throws {
+        let f = try make()
+        let button = try XCTUnwrap(f.presenter.controls.controls[try f.node("native").id] as? NativeButtonMac)
+        let at = button.convert(NSPoint(x: 10, y: button.bounds.midY), to: nil)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: f.window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+        }
+        let up = try event(.leftMouseUp)
+        NSApp.postEvent(up, atStart: true)
+        NSApp.sendEvent(try event(.leftMouseDown))
+        if NSApp.nextEvent(matching: [.leftMouseUp], until: nil, inMode: .default, dequeue: true) != nil { NSApp.sendEvent(up) }
+        f.settle()
+        let want = f.presenter.client(at), said = f.status.split(separator: " ")
+        let got = said[0].split(separator: ",").compactMap { Double($0) }
+        XCTAssertEqual(said.last, "true", f.status)
+        XCTAssertEqual(got.first ?? 0, Double(want.x), accuracy: 0.5); XCTAssertEqual(got.last ?? 0, Double(want.y), accuracy: 0.5)
+        XCTAssertNil(f.presenter.nativeClick)
+        // VoiceOver's press, whatever click is still current, has none.
+        XCTAssertTrue(button.accessibilityPerformPress())
+        f.settle()
+        XCTAssertEqual(f.status, "0,0 false")
     }
 
     /// A menu whose author wrote `left` and `top` pops up at that point, not
