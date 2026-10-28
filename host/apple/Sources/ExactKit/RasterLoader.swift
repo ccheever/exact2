@@ -619,7 +619,7 @@ final class RasterLoader {
         }
         refusedPictures[view.id] = nil
         if let session = view.presenter?.session, let refusal = pictures.admit(source, session: session) {
-            view.presenter?.session?.log("image refused: \(RasterRetry.withoutQueries(source)): \(refusal) (LLP 1133.019 D2)")
+            view.presenter?.session?.log("image refused: \(RasterRetry.withoutQuery(source)): \(refusal) (LLP 1133.019 D2)")
             refusedPictures[view.id] = ({ [weak view] in view }, source, resolver)
             refuse(refusal); return false
         }

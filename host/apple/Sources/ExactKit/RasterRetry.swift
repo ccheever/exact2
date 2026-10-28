@@ -72,6 +72,11 @@ enum RasterRetry {
         return formatter
     }()
 
+    /// A source as a log names it: cut whole at its first `?` or `#` (a
+    /// CDN's signature never follows).
+    static func withoutQuery(_ source: String) -> String {
+        source.unicodeScalars.firstIndex(where: { $0 == "?" || $0 == "#" }).map { String(source.unicodeScalars[..<$0]) } ?? source
+    }
     /// `text` about source `source` with no link's query.
     static func redacted(_ text: String, source: String) -> String {
         // The source quoted whole (a space in it too) is cut at its query and
