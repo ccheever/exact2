@@ -59,7 +59,10 @@ function streamTiming(start) {
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
 import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, settleValue, animationClocks, pageReporter } from './navigation.js';
-import { guestOutline, guestTap, guestType, backButton, viewBox, reveal, selectAll, scrollRange, typeControl } from './input-glue.js';
+import { guestOutline, guestTap, guestType, backButton, viewBox, reveal, selectAll, scrollRange, typeControl, watchGlides, glidesSettled } from './input-glue.js';
+watchGlides();
+// How long `clock settle` waits for a scroller gliding on its own, as a native host waits (agent.mjs reason `scroll`).
+const GLIDE_BOUND_MS = 4000;
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['data-alertpart', 'alertPart'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-current', 'accessibilityCurrent'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
@@ -453,7 +456,10 @@ export function install(exact) {
           // Rounds that ran out with a list's reader's scroll event in the last
           // (fired in its scroll wait or its frame) found no quiet round.
           let quiet = false, lastRound = exact.lists?.scrollsFired?.() ?? 0;
+          const glideEnd = performance.now() + GLIDE_BOUND_MS;
           for (let round = 0; round < 16; round++) {
+            // A scroller still gliding from the last input moves on its own: it ends first (input-glue.js).
+            if (!(await glidesSettled(glideEnd))) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
             lastRound = exact.lists?.scrollsFired?.() ?? 0;
             // A held request is in flight until the agent answers it: never waited on.
             do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > unwaited() && performance.now() < end && !looping());

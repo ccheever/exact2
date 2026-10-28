@@ -128,7 +128,7 @@ export const TESTS = `test "Discover's poll: a timer's re-ask lands within clock
   clock data
   expect state posts == 30
   expect tree missing "loadLatestBtn"
-  tap "feed" drag 0 -400 hold 300
+  tap "feed" drag 0 -400
   clock settle
   expect state down == true
   expect tree has "loadLatestBtn"

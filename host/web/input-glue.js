@@ -1130,5 +1130,32 @@ export function typeControl(el, request, inertAncestor, settleValue) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
-export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl };
+// A scroller moving on its own after an input (a fling's glide, a smooth scroll, a page that scrolls it every frame):
+// a `scroll` event came within the last two frames. `clock settle` waits until none has, 4 s at most, as a native
+// host waits for a scroll view a finger left moving (agent.mjs reason `scroll`). (Not `scrollend`: a page's instant
+// step each frame ends each time.) Watched from the agent's first operation on: never in an app's own run.
+let scrolls = 0, lastScroll = -Infinity, glides = false;
+export function watchGlides() {
+  if (glides) return;
+  glides = true;
+  addEventListener('scroll', () => { scrolls += 1; lastScroll = performance.now(); }, { capture: true, passive: true });
+}
+/** Waits until two frames pass with no `scroll` event (one, when nothing has scrolled lately), or `deadline`
+ * (performance.now()): whether they did. */
+export async function glidesSettled(deadline) {
+  const frame = () => new Promise(r => requestAnimationFrame(() => r()));
+  // One frame first, for a scroll begun since the last (its event comes at the frame's rendering step); then, with
+  // nothing scrolled in the last 500 ms, longer than any frame of a page in view takes, settled.
+  const first = scrolls;
+  await frame();
+  if (scrolls === first && performance.now() - lastScroll > 500) return true;
+  for (;;) {
+    const before = scrolls;
+    await frame();
+    await frame();
+    if (scrolls === before) return true;
+    if (performance.now() >= deadline) return false;
+  }
+}
+export const agentInput = { backButton, guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, watchGlides, glidesSettled };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });
