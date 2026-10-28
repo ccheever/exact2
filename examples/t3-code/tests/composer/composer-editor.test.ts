@@ -173,10 +173,34 @@ describe('$ skill menu', () => {
 });
 
 describe('@ mention menu', () => {
+  // matchComposerThreadItems (bb7783e295): ⌘K's ranking, five at most, never the open, archived or subagent threads.
+  test('threads rank as the palette ranks them, five at most, without the open, archived or subagent threads', () => {
+    const now = Date.parse('2026-10-28T00:00:00Z'), day = 86_400_000;
+    const at = (days: number) => new Date(now - days * day).toISOString();
+    const threads = [
+      { id: 'old', title: 'deploy notes', createdAt: at(30), latestUserAuthoredMessageAt: at(30) },
+      { id: 'new', title: 'deploy notes v2', createdAt: at(1), latestUserAuthoredMessageAt: at(1) },
+      { id: 'exact', title: 'deploy', createdAt: at(40), latestUserAuthoredMessageAt: at(40) },
+      { id: 'open', title: 'deploy the open one', createdAt: at(0), latestUserAuthoredMessageAt: at(0) },
+      { id: 'archived', title: 'deploy archive', createdAt: at(2), archivedAt: at(1) },
+      { id: 'child', title: 'deploy subagent', createdAt: at(2), lineage: { relationshipToParent: 'subagent', parentThreadId: 'new' } },
+      ...[1, 2, 3, 4].map(n => ({ id: `more-${n}`, title: `more deploy ${n}`, createdAt: at(50 + n) })),
+    ];
+    const ids = threadRows(threads, 'open', 'deploy', now).map(row => row.id);
+    expect(ids).toHaveLength(5);
+    expect(ids.every(id => !['thread:open', 'thread:archived', 'thread:child'].includes(id))).toBe(true);
+    // The exact title leads; among equal matches the thread used last ranks first.
+    expect(ids[0]).toBe('thread:exact');
+    expect(ids.indexOf('thread:new')).toBeLessThan(ids.indexOf('thread:old'));
+    // Typing is folded as the palette folds it.
+    expect(threadRows(threads, 'open', '  DEPLOY V2 ', now)[0]?.id).toBe('thread:new');
+  });
+
   test('threads lead (query required), then entries with basename and directory', () => {
+    const now = Date.parse('2026-01-04T00:00:00Z');
     const threads = [{ id: 'a', title: 'fixture complete', updatedAt: '2026-01-02' }, { id: 'b', title: 'fixture complete fork', updatedAt: '2026-01-03' }, { id: 'c', title: 'other' }];
-    expect(threadRows(threads, 'b', 'fix').map(row => [row.label, row.description, row.icon])).toEqual([['fixture complete', 'Thread', 'messages-square']]);
-    expect(threadRows(threads, '', '')).toEqual([]);
+    expect(threadRows(threads, 'b', 'fix', now).map(row => [row.label, row.description, row.icon])).toEqual([['fixture complete', 'Thread', 'messages-square']]);
+    expect(threadRows(threads, '', '', now)).toEqual([]);
     const rows = pathRows([{ path: 'fixture-result.md', kind: 'file' }, { path: 'src/app/main.ts', kind: 'file' }, { path: 'src', kind: 'directory' }]);
     expect(rows.map(row => [row.label, row.description, row.icon, row.insert])).toEqual([
       ['fixture-result.md', '', 'pierre-markdown', '[fixture-result.md](fixture-result.md) '],
@@ -244,6 +268,8 @@ describe('# pull request menu', () => {
     expect(pullRequestRows(entries, 'p', 'acme/app', 'merged').map(row => row.label)).toEqual(['#7']);
     expect(pullRequestRows(entries, 'p', 'acme/app', '').map(row => row.label)).toEqual(['#12', '#120', '#7']);
     expect(repositorySelector({ owner: 'acme', name: 'app' })).toBe('acme/app');
+    // A remote spells a space as `%20`, and `az repos pr list --repository` reads that literally.
+    expect(repositorySelector({ provider: 'azure-devops', displayName: 'contoso/payments%20(eu)/_git/checkout%20(eu)', owner: 'contoso', name: 'checkout%20(eu)' })).toBe('checkout (eu)');
   });
   test('numbers match anywhere in the number, newest first after the exact one; text ranks by score', () => {
     const dated = [

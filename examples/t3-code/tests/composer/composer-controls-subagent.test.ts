@@ -9,6 +9,7 @@ import { formatSubagentStatus, selectionEffort, subagentBar } from '../../src/co
 import { subagentTraits } from '../../src/sidebar/subagent-card';
 import { formatDuration } from '../../src/timeline/timeline-worklog';
 import { opened } from '../support/composer-controls-fixture';
+import { contractComponent } from '../support/contract-action-fixture';
 
 describe('provider subagent bar', () => {
   test('durations and status lines read as the reference formats them', () => {
@@ -19,7 +20,7 @@ describe('provider subagent bar', () => {
     expect(formatSubagentStatus({ status: 'completed', startedAt: start, completedAt: '2026-10-03T01:00:34.000Z' }, 0)).toBe('Completed in 34s');
     expect(formatSubagentStatus({ status: 'failed', startedAt: start, completedAt: '' }, 0)).toBe('Failed');
   });
-  test('a provider-native subagent thread replaces the composer with the bar and drops its dock', async () => {
+  test('a provider-native subagent thread replaces the composer with the bar and drops its notices', async () => {
     const { client } = await opened();
     expect(snapshot(client, Date.now()).composer.subagent).toBe(false);
     const thread = obj(client.thread!.projection.thread);
@@ -28,9 +29,9 @@ describe('provider subagent bar', () => {
     client.thread!.projection.nodes = [{ id: 'n1', kind: 'root_turn', runId: null, status: 'running', startedAt: '2026-10-03T01:00:00.000Z', completedAt: null }];
     const bar = subagentBar(client, Date.parse('2026-10-03T01:00:05.000Z'));
     expect(bar).toEqual({ subagent: true, subagentModel: 'Model A', subagentEffort: 'High', subagentStatus: 'Working 5.0s',
-      subagentAnnounce: 'Model A, High subagent: Working', subagentParent: 't2' });
+      subagentAnnounce: 'Model A, High subagent: Working', subagentParent: 't2', subagentWidth: 0 });
     const view = snapshot(client, Date.parse('2026-10-03T01:00:05.000Z')).composer;
-    expect(view).toMatchObject({ subagent: true, notices: [], queued: [], activity: '' });
+    expect(view).toMatchObject({ subagent: true, notices: [] });
     Object.assign(thread, { creationSource: 'web' });
     expect(subagentBar(client, 0).subagent).toBe(false);
   });
@@ -83,5 +84,21 @@ describe('Stop on the waiting-on-background-work notice', () => {
   });
   test('with no pending work and no active run, only pull request watches stop', async () => {
     expect(await stop([run('r1', 'completed')], [])).toEqual([{ type: 'thread.pull-request.watch', commandId: 'c1', threadId: 't1', host: 'github.com', repository: 'o/r', number: 7, watching: false }]);
+  });
+});
+
+// ProviderSubagentComposerBar at 7c3b3b3605ef (60b35a1ee0): container widths on the bar's own frame.
+describe('the subagent bar by its width', () => {
+  const bar = contractComponent('src/composer/composer-controls.contract', 'SubagentBar');
+  const at = (subagentWidth: number) => ({ data: { providerDriver: '', composer: { subagentWidth, subagentParent: 't1', subagentEffort: '' } } });
+  test('under 560pt the status takes its own line at 12pt', () => {
+    expect([0, 559, 560].map(width => bar.derives({ over: false }, at(width)).narrow)).toEqual([false, true, false]);
+  });
+  test('under 640pt "Runs on its own" is for VoiceOver only; under 320pt "Open parent" is its icon', () => {
+    const hidden = 'text "Runs on its own" position="absolute"', shown = 'text "Runs on its own" font-size';
+    expect([639, 640].map(width => [bar.drawn(hidden, { over: false }, at(width)), bar.drawn(shown, { over: false }, at(width))])).toEqual([[true, false], [false, true]]);
+    expect([319, 320].map(width => bar.drawn('text "Open parent"', { over: false }, at(width)))).toEqual([false, true]);
+    // Unmeasured (0), the bar is drawn wide.
+    expect(bar.drawn(shown, { over: false }, at(0))).toBe(true);
   });
 });

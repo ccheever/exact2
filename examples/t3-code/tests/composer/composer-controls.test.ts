@@ -7,7 +7,8 @@ import { arr, obj, str, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import { noteNow, composerNow, resolveDispatchMode, withDispatchMode, resolvePlanSubmission, proposedPlanTitle, decodeComposerControls, latestProposedPlan, resumeState } from '../../src/composer/composer-controls';
 import { applyOptionChoice, providerLock, wokeAt } from '../../src/composer/composer-controls-commands';
-import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork, tasksProgress } from '../../src/composer/composer-controls-view';
+import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork } from '../../src/composer/composer-controls-view';
+import { queuedTurnRows, threadNowRows } from '../../src/composer/thread-end';
 import { traitsMenu, withNoticeDetails } from '../../src/composer/composer-presentation';
 import { probeKey } from '../../src/composer/composer-menus';
 import { antigravitySendBlockReason } from '../../src/composer/composer-provider-selection';
@@ -258,62 +259,24 @@ describe('docked banners, activity and the provider control', () => {
     Object.assign(client.shell.threads[0]!, { settledOverride: 'settled', snoozedUntil: null });
     expect(threadStatusLine(client, now)).toMatchObject({ title: 'Settled', actionLabel: 'Un-settle', detail: 'unsettle' });
   });
-  test('several notices: the first stays attached, the rest wait behind the peek; activity leads when present', async () => {
+  test('what the thread is doing is not above the composer: background work, its goal and its tasks leave the dock', async () => {
     const { client } = await opened();
-    Object.assign(client.shell.threads[0]!, { settledOverride: 'settled', pendingBackgroundTasks: [{ taskId: 'a', kind: 'command', description: 'npm test' }] });
-    const notices = snapshot(client).composer.notices;
-    expect(notices.map(notice => [notice.title, notice.front])).toEqual([['Running: npm test', true]]);
+    Object.assign(client.shell.threads[0]!, { settledOverride: 'settled', pendingBackgroundTasks: [{ taskId: 'a', kind: 'command', description: 'npm test' }],
+      goal: { objective: 'Ship it', status: 'active', tokensUsed: 0 } });
+    expect(snapshot(client).composer.notices).toEqual([]);
+    expect(threadNowRows(client).map(row => row.id)).toEqual(['background-work:t1', 'goal:t1']);
     running(client);
-    client.thread!.projection.plans = [{ id: 'todo', kind: 'todo_list', runId: 'r1', steps: [{ text: 'Read', status: 'completed', durationMs: 1200 }, { text: 'Write', status: 'running' }, { text: 'Test', status: 'pending' }] }];
-    const view = snapshot(client).composer;
-    expect(view).toMatchObject({ activity: 'tasks', tasksTotal: 3, tasksDone: 1, tasksCurrent: 'Write' });
-    expect(view.tasks.map(step => [step.text, step.status, step.duration])).toEqual([['Read', 'completed', '1.2s'], ['Write', 'inProgress', 'now'], ['Test', 'pending', '']]);
-    expect(view.notices.every(notice => !notice.front)).toBe(true);
-    expect(view).toMatchObject({ activityFront: true, activityLast: false });
+    client.thread!.projection.plans = [{ id: 'todo', kind: 'todo_list', runId: 'r1', steps: [{ text: 'Read', status: 'completed', durationMs: 1200 }, { text: 'Write', status: 'running' }] }];
+    expect(snapshot(client).composer.notices).toEqual([]);
     expect(presentBackgroundWork([{ kind: 'subagent' }, { kind: 'command' }, { kind: 'command' }])!.title).toBe('Waiting on 1 subagent and 2 commands');
-    client.thread!.projection.runs = [];
-    expect(tasksProgress(client).tasksTotal).toBe(0);
   });
-  test('a Claude task list stays between turns of its session, without "now" (1ba3c781d0)', async () => {
+  test('the usage-limit notice keeps its card while the goal waits at the end of the timeline', async () => {
     const { client } = await opened();
-    const projection = client.thread!.projection;
-    projection.providerThreads = [{ id: 'pt', driver: 'claudeAgent' }, { id: 'px', driver: 'codex' }];
-    projection.runs = [{ id: 'r1', ordinal: 1, status: 'completed', startedAt: '2026-10-03T00:00:00Z', providerThreadId: 'pt' }];
-    projection.plans = [{ id: 'old', kind: 'todo_list', runId: 'r1', status: 'superseded', steps: [{ text: 'Old', status: 'pending' }] },
-      { id: 'todo', kind: 'todo_list', runId: 'r1', steps: [{ text: 'Read', status: 'completed' }, { text: 'Write', status: 'running' }] }];
-    expect(snapshot(client).composer).toMatchObject({ activity: 'tasks', tasksTotal: 2, tasksDone: 1, tasksCurrent: 'Write' });
-    expect(tasksProgress(client).tasks.map(step => step.duration)).toEqual(['', '']);
-    // A newer run on the same session keeps the list; it is "now" again only for the run that owns it.
-    // A settled run the runtime still names active is live: its step in progress is "now".
-    Object.assign(client.shell.threads[0]!, { activeRunId: 'r1' });
-    expect(tasksProgress(client).tasks[1]!.duration).toBe('now');
-    Object.assign(client.shell.threads[0]!, { activeRunId: null });
-    projection.runs = [...arr(projection.runs), { id: 'r2', ordinal: 2, status: 'running', startedAt: '2026-10-03T00:01:00Z', providerThreadId: 'pt' }];
-    expect(tasksProgress(client)).toMatchObject({ tasksTotal: 2, tasksCurrent: 'Write' });
-    expect(tasksProgress(client).tasks[1]!.duration).toBe('');
-    // A finished list, another provider's session, or another driver drops it.
-    projection.runs = [arr(projection.runs)[0]!, { id: 'r2', ordinal: 2, status: 'completed', startedAt: '2026-10-03T00:01:00Z', providerThreadId: 'px' }];
-    expect(tasksProgress(client).tasksTotal).toBe(0);
-    projection.runs = [arr(projection.runs)[0]!];
-    arr(projection.providerThreads)[0]!.driver = 'codex';
-    expect(tasksProgress(client).tasksTotal).toBe(0);
-    arr(projection.providerThreads)[0]!.driver = 'claudeAgent';
-    arr(arr(projection.plans)[1]!.steps)[1]!.status = 'completed';
-    expect(tasksProgress(client).tasksTotal).toBe(0);
-  });
-  test('an urgent or warning notice stays attached ahead of the activity strip, which waits in the stack', async () => {
-    const { client } = await opened();
-    running(client);
-    client.thread!.projection.plans = [{ id: 'todo', kind: 'todo_list', runId: 'r1', steps: [{ text: 'Write', status: 'running' }] }];
-    Object.assign(client.shell.threads[0]!, { status: 'failed', lastErrorClass: 'usage_limit', usageLimitResetAt: new Date(Date.now() + 3_600_000).toISOString(), latestRunId: 'r9', updatedAt: new Date().toISOString() });
+    Object.assign(client.shell.threads[0]!, { status: 'failed', lastErrorClass: 'usage_limit', usageLimitResetAt: new Date(Date.now() + 3_600_000).toISOString(), latestRunId: 'r9', updatedAt: new Date().toISOString(),
+      goal: { objective: 'Ship it', status: 'active', tokensUsed: 0 } });
     const view = snapshot(client, Date.now()).composer;
-    expect(view).toMatchObject({ activity: 'tasks', activityFront: false, activityLast: true });
-    expect(view.notices.map(notice => [notice.title, notice.front, notice.activityBefore])).toEqual([['Usage limit reached', true, false]]);
-    // An activity-tier notice ranks after the strip: the strip floats just before it.
-    Object.assign(client.shell.threads[0]!, { goal: { objective: 'Ship it', status: 'active', tokensUsed: 0 } });
-    const withGoal = snapshot(client, Date.now()).composer;
-    expect(withGoal.notices.map(notice => [notice.id.split(':')[0], notice.front, notice.activityBefore])).toEqual([['usage-limit-recovery', true, false], ['goal', false, true]]);
-    expect(withGoal.activityLast).toBe(false);
+    expect(view.notices.map(notice => [notice.id.split(':')[0], notice.group, notice.stacked])).toEqual([['usage-limit-recovery', 'attention', false]]);
+    expect(threadNowRows(client).map(row => row.id)).toEqual(['goal:t1']);
   });
   test('a notice offers its details only while its description is clipped', () => {
     const text = 'Server update failed: The package could not be verified.';
@@ -383,16 +346,15 @@ describe('queued messages control', () => {
     queued(client);
     const state = queueState(client.projection);
     expect(state.queued.map(entry => [entry.run.id, entry.text, entry.images])).toEqual([['q1', 'First  follow-up', 0], ['q2', 'Second', 1]]);
-    expect(state).toMatchObject({ canReorder: true, canSteer: true });
-    const view = snapshot(client).composer;
-    expect(view.queued.map(row => [row.runId, row.text, row.index, row.last])).toEqual([['q1', 'First follow-up', 0, false], ['q2', 'Second', 1, true]]);
-    expect(view).toMatchObject({ queueSteer: true, queueSteerReason: '' });
+    expect(state).toMatchObject({ canSteer: true });
+    // The bubbles show the message in full, as a sent turn reads.
+    expect(queuedTurnRows(client).map(row => [row.runId, row.body, row.actionLabel])).toEqual([['q1', 'First  follow-up', 'Send now'], ['q2', 'Second', 'Send now']]);
     await command('cc:queued-steer', 'q1');
     expect(native.committed.at(-1)).toMatchObject({ type: 'queued-message.promote-to-steer', queuedRunId: 'q1', targetRunId: 'r1' });
     await command('cc:queued-remove', 'q2');
     expect(native.committed.at(-1)).toMatchObject({ type: 'queued-run.cancel', runId: 'q2' });
     client.thread!.projection.runs = arr(client.thread!.projection.runs).filter(run => run.status === 'queued');
-    expect(snapshot(client).composer).toMatchObject({ queueSteer: false, queueSteerReason: 'There is no active run to steer' });
+    expect(queuedTurnRows(client).map(row => row.actionLabel)).toEqual(['', '']);
   });
   test('editing loads the composer, saves with queued-run.edit and restores the draft; cancel restores too', async () => {
     const { client, native, command } = await opened();
@@ -494,6 +456,23 @@ describe('usage limits', () => {
     expect(client.error).toBe('');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not snooze thread', description: 'The reset time has passed. Retry the thread manually.' });
   });
+  test('snoozed, Snooze reads Wake now; the reset ends the snooze and disables Snooze; it says the reset in the Time format', async () => {
+    const { client, native, command } = await opened();
+    const now = Date.parse('2026-10-20T12:00:00.000Z'), reset = new Date(Date.parse('2026-10-20T12:00:00.000Z') + 30 * 60_000).toISOString();
+    snapshot(client, now);
+    Object.assign(client.shell.threads[0]!, { status: 'failed', lastErrorClass: 'usage_limit', usageLimitResetAt: reset, latestRunId: 'r9', updatedAt: new Date(now - 60_000).toISOString(),
+      snoozedUntil: reset, limitRecovery: { runId: 'r9', resetAt: reset, snooze: true } });
+    client.local.deviceSettings.timestampFormat = '24-hour';
+    const notice = () => snapshot(client, now).composer.notices[0]!;
+    const time = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(reset));
+    expect(notice()).toMatchObject({ action2Label: 'Wake now', action2Disabled: false, description: `Resets ${time}` });
+    await command('cc:limit-snooze');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'thread.metadata.update', limitRecovery: { runId: 'r9', resetAt: reset, snooze: false } });
+    // Under a minute from the reset the root's clock ticks each second; past it the snooze is over.
+    expect(snapshot(client, Date.parse(reset) - 30_000).composer).toMatchObject({ resetSoon: true, resetKey: `r9:${reset}` });
+    expect(snapshot(client, Date.parse(reset) + 1_000).composer.notices[0]).toMatchObject({ action2Label: 'Snooze until reset', action2Disabled: true });
+    expect(snapshot(client, Date.parse(reset) + 1_000).composer.resetSoon).toBe(false);
+  });
 });
 
 test('older resource arguments cannot rewind the shared client clock', () => {
@@ -531,7 +510,7 @@ describe('local checkout branch mismatch', () => {
     expect(branchMismatchNotice(client)).toBeNull();
     client.local.drafts[client.draftKey] = 'Continue';
     const notice = branchMismatchNotice(client)!;
-    expect(notice).toMatchObject({ title: 'Branch changed — was feature', actionLabel: 'Restore branch', dismissLabel: 'Dismiss branch change notice' });
+    expect(notice).toMatchObject({ title: 'Branch changed from', code: 'feature', actionLabel: 'Restore branch', dismissLabel: 'Dismiss branch change notice' });
     client.local.drafts[client.draftKey] = '';
     expect(branchMismatchNotice(client)).not.toBeNull();
     status('feature'); expect(branchMismatchNotice(client)).toBeNull();
