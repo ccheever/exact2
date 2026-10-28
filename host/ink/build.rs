@@ -2,7 +2,11 @@
 
 use naga::back::{glsl, hlsl, msl, spv};
 use naga::valid::{Capabilities, ValidationFlags, Validator};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn main() {
     println!("cargo:rerun-if-changed=shaders/ink.wgsl");
@@ -62,10 +66,21 @@ fn main() {
     let (msl_source, translated) =
         msl::write_string(&module, &info, &metal, &msl::PipelineOptions::default())
             .expect("MSL translation");
-    for entry in translated.entry_point_names {
-        entry.expect("MSL entry point");
-    }
+    let entries: Vec<_> = translated
+        .entry_point_names
+        .into_iter()
+        .map(|entry| entry.expect("MSL entry point"))
+        .collect();
+    fs::write(
+        out.join("metal_entries.rs"),
+        format!(
+            "const VERTEX: &str = {:?};\nconst FRAGMENT: &str = {:?};\n",
+            entries[0], entries[1]
+        ),
+    )
+    .unwrap();
     fs::write(out.join("ink.metal"), msl_source).unwrap();
+    build_metal(&out);
 
     let mut hlsl_source = String::new();
     let pipeline = hlsl::PipelineOptions::default();
@@ -113,6 +128,74 @@ fn main() {
         );
         fs::write(out.join(format!("{}.glsl", entry.name)), source).unwrap();
     }
+}
+
+// SDKs and minima follow canvas/vello/build.rs. @ref LLP 1149 D6.1.
+fn build_metal(out: &Path) {
+    println!("cargo:rustc-check-cfg=cfg(exact_ink_metal)");
+    let target = std::env::var("TARGET").unwrap();
+    let sdk = if target.ends_with("apple-ios-sim") || target == "x86_64-apple-ios" {
+        Some(("iphonesimulator", "-mios-simulator-version-min=17.0"))
+    } else if target.ends_with("apple-ios") {
+        Some(("iphoneos", "-mios-version-min=17.0"))
+    } else if target.ends_with("apple-tvos-sim") || target == "x86_64-apple-tvos" {
+        Some(("appletvsimulator", "-mtvos-simulator-version-min=17.0"))
+    } else if target.ends_with("apple-tvos") {
+        Some(("appletvos", "-mtvos-version-min=17.0"))
+    } else if target.ends_with("apple-darwin") {
+        Some(("macosx", "-mmacosx-version-min=14.0"))
+    } else {
+        None
+    };
+    let Some((sdk, min)) = sdk else { return };
+    if !Command::new("xcrun")
+        .args(["-sdk", "macosx", "-f", "metal"])
+        .output()
+        .is_ok_and(|o| o.status.success())
+        || !Command::new("xcrun")
+            .args(["-sdk", "macosx", "metal", "--version"])
+            .output()
+            .is_ok_and(|o| o.status.success())
+    {
+        println!("cargo:warning=exact-ink: no Metal toolchain (`xcodebuild -downloadComponent MetalToolchain`); the direct Metal device is unavailable");
+        return;
+    }
+    metallib(sdk, min, &out.join("ink.metal"), &out.join("ink.metallib"));
+    println!("cargo:rustc-cfg=exact_ink_metal");
+}
+
+fn metallib(sdk: &str, min: &str, src: &Path, out: &Path) {
+    let run = |args: &[&str]| {
+        let o = Command::new("xcrun")
+            .arg("-sdk")
+            .arg(sdk)
+            .args(args)
+            .output();
+        match o {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => panic!(
+                "xcrun -sdk {sdk} {}: {}\n(the Metal toolchain: `xcodebuild -downloadComponent MetalToolchain`)",
+                args.join(" "), String::from_utf8_lossy(&o.stderr)
+            ),
+            Err(e) => panic!("xcrun: {e}"),
+        }
+    };
+    let air = out.with_extension("air");
+    run(&[
+        "metal",
+        "-std=metal3.0",
+        min,
+        "-c",
+        src.to_str().unwrap(),
+        "-o",
+        air.to_str().unwrap(),
+    ]);
+    run(&[
+        "metallib",
+        air.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+    ]);
 }
 
 /// Naga 30 emits SM5.1 sampler heaps even with V5_0. Ink has exactly one

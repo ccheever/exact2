@@ -47,8 +47,30 @@ fn source(app: &str, out: &Path) -> exact_js::Module {
     data
 }
 
+fn ink_arm(arm: &str) -> bool {
+    arm.starts_with('C') || arm == "D"
+}
+
+fn select_device(arm: &str) {
+    std::env::set_var(
+        "EXACT_INK_DEVICE",
+        if arm == "D" { "metal" } else { "wgpu" },
+    );
+}
+
+fn memory_phase(phase: &str) {
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("INK_MEMORY_TRACE").is_some() {
+        eprintln!(
+            "INK_PHASE {phase} {:?}",
+            exact_ink::device::process_usage().unwrap()
+        );
+    }
+    let _ = phase;
+}
+
 fn painter(arm: &str) -> (Box<dyn Backend>, Option<crate::ink::StatisticsReader>) {
-    if arm.starts_with('C') {
+    if ink_arm(arm) {
         let ink = crate::ink::Ink::new().unwrap();
         let stats = ink.statistics();
         (Box::new(ink), Some(stats))
@@ -145,10 +167,13 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
             p.clock(p.host.now() + 20_000.);
         }
     }
+    memory_phase("before device");
     let (backend, stats) = painter(arm);
+    memory_phase("after device");
     p.reader_replaced(backend);
-    p.painter.name = if arm.starts_with('C') { "ink" } else { "gpu" };
+    p.painter.name = if ink_arm(arm) { "ink" } else { "gpu" };
     p.frame();
+    memory_phase("first frame complete");
     let boxes = p.boxes().to_vec();
     let limits = p.collection_scroll_limits();
     let list_name = match app {
@@ -203,7 +228,9 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
         let mut values = Vec::new();
         let mut max_rss = 0.;
         let mut counters = [0u64; 9];
+        memory_phase("before cpu sample");
         let cpu_start = cpu_ms();
+        memory_phase("after cpu sample");
         for frame in 0..300 {
             let step = Instant::now();
             if mode == "scroll" {
@@ -246,10 +273,7 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
             let pixels = p.frame();
             let wall = started.elapsed().as_secs_f64() * 1000.;
             assert_eq!(pixels.width(), width as u32);
-            assert_eq!(
-                p.painter.name,
-                if arm.starts_with('C') { "ink" } else { "gpu" }
-            );
+            assert_eq!(p.painter.name, if ink_arm(arm) { "ink" } else { "gpu" });
             let (encode, readback) = p.last_frame_ms().unwrap();
             values.push([wall, encode, readback, step.elapsed().as_secs_f64() * 1000.]);
             if let Some(stats) = &stats {
@@ -267,7 +291,9 @@ fn measure<D: DataSource>(plan: &[u8], data: D, app: &str, width: f32, height: f
                 counters[8] = counters[8].max(s.layer_bytes);
             }
             if frame % 20 == 19 {
+                memory_phase("before rss sample");
                 max_rss = f64::max(max_rss, rss_kib());
+                memory_phase("after rss sample");
             }
         }
         let cpu = (cpu_ms() - cpu_start) / 300.;
@@ -287,9 +313,17 @@ fn ps(field: &str) -> String {
     String::from_utf8(out.stdout).unwrap().trim().to_owned()
 }
 fn rss_kib() -> f64 {
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("INK_SAMPLE_PS").is_none() {
+        return exact_ink::device::process_usage().unwrap()[1] / 1024.;
+    }
     ps("rss=").parse().unwrap()
 }
 fn cpu_ms() -> f64 {
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("INK_SAMPLE_PS").is_none() {
+        return exact_ink::device::process_usage().unwrap()[0];
+    }
     ps("time=")
         .split(':')
         .fold(0., |n, part| n * 60. + part.parse::<f64>().unwrap())
@@ -301,6 +335,7 @@ fn cpu_ms() -> f64 {
 fn worker() {
     assert!(!cfg!(debug_assertions), "measure an optimized profile");
     let arm = std::env::var("INK_ARM").expect("INK_ARM");
+    select_device(&arm);
     let app = std::env::var("INK_APP").expect("INK_APP");
     std::env::set_var("EXACT_AGENT", "1");
     std::env::set_var("EXACT_AGENT_STORAGE", format!("ink-{}", std::process::id()));
@@ -357,19 +392,23 @@ fn worker() {
 fn boot_worker() {
     assert!(!cfg!(debug_assertions), "measure an optimized profile");
     let arm = std::env::var("INK_ARM").unwrap();
-    let result = if arm == "C" {
+    select_device(&arm);
+    let started = Instant::now();
+    let result = if ink_arm(&arm) {
         let ink = crate::ink::Ink::new().unwrap();
+        let boot_ms = started.elapsed().as_secs_f64() * 1000.;
         let i = ink.info();
-        serde_json::json!({"arm":arm,"device_ms":i.device_ms,"shaders_ms":i.shaders_ms,"cached":i.cached,"adapter":i.adapter,"api":i.api})
+        serde_json::json!({"arm":arm,"boot_ms":boot_ms,"device_ms":i.device_ms,"shaders_ms":i.shaders_ms,"cached":i.cached,"adapter":i.adapter,"api":i.api})
     } else {
         let gpu = crate::gpu::Gpu::new().unwrap();
-        serde_json::json!({"arm":arm,"device_ms":gpu.device_ms,"shaders_ms":gpu.shaders_ms,"cached":gpu.cached,"adapter":gpu.adapter,"api":gpu.api})
+        let boot_ms = started.elapsed().as_secs_f64() * 1000.;
+        serde_json::json!({"arm":arm,"boot_ms":boot_ms,"device_ms":gpu.device_ms,"shaders_ms":gpu.shaders_ms,"cached":gpu.cached,"adapter":gpu.adapter,"api":gpu.api})
     };
     println!("INK_BOOT {result}");
 }
 
 #[test]
-#[ignore = "S0: five interleaved rounds of four arms, optimized profile only"]
+#[ignore = "S0: five interleaved rounds, optimized profile only"]
 fn series() {
     use std::io::Write;
     assert!(!cfg!(debug_assertions), "measure an optimized profile");
@@ -377,12 +416,25 @@ fn series() {
     let exe = std::env::current_exe().unwrap();
     let shelf = baked("shelf");
     let excord = baked("excord");
-    let cache = root().join("target/ink-c4-cache");
-    let mut log = std::fs::File::create(root().join("target/ink-c4-results.jsonl")).unwrap();
+    let direct = std::env::var("INK_ARM").as_deref() == Ok("D");
+    let chunk = if direct { "c5" } else { "c4" };
+    let arms: &[&str] = if direct {
+        &["C", "D"]
+    } else {
+        &["A", "B", "C", "C-rows"]
+    };
+    let boot_arms: &[&str] = if direct {
+        &["C", "D"]
+    } else {
+        &["A", "B", "C"]
+    };
+    let cache = root().join(format!("target/ink-{chunk}-cache"));
+    let mut log =
+        std::fs::File::create(root().join(format!("target/ink-{chunk}-results.jsonl"))).unwrap();
     for round in 0..5 {
         for app in ["messages-stress", "shelf", "excord"] {
             for width in [390, 1920] {
-                for arm in ["A", "B", "C", "C-rows"] {
+                for arm in arms {
                     let output = Command::new("/usr/bin/time")
                         .arg("-l")
                         .arg(&exe)
@@ -417,6 +469,13 @@ fn series() {
                         let mut result: serde_json::Value = serde_json::from_str(line).unwrap();
                         result["round"] = round.into();
                         result["process_peak_bytes"] = peak.into();
+                        result["footprint_peak_bytes"] = stderr
+                            .lines()
+                            .find(|l| l.contains("peak memory footprint"))
+                            .and_then(|l| l.split_whitespace().next())
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .unwrap()
+                            .into();
                         writeln!(log, "{result}").unwrap();
                     }
                     log.flush().unwrap();
@@ -428,7 +487,7 @@ fn series() {
     }
     for round in 0..10 {
         for cached in [false, true] {
-            for arm in ["A", "B", "C"] {
+            for arm in boot_arms {
                 let arm_cache = cache.join(arm);
                 if !cached && arm_cache.exists() {
                     std::fs::remove_dir_all(&arm_cache).unwrap();
