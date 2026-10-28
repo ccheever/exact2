@@ -75,10 +75,12 @@ export function threadPhase(projection: Obj): string {
   return 'ready';
 }
 
+const UNAVAILABLE_BADGE = 'Unavailable';
+
 /** ChatComposer.tsx placeholder chain (74541bab17; one default line since 3816296021, composerPlaceholder.ts). */
 export function composerPlaceholder(input: { connected: boolean; approval: boolean; question: boolean; choiceOnly: boolean;
-  projectRequired: boolean; providerUnavailable: boolean; phase: string; planReady?: boolean }): string {
-  if (input.approval) return 'Send a message to decline and redirect the agent';
+  projectRequired: boolean; providerUnavailable: boolean; phase: string; planReady?: boolean; feedback?: boolean }): string {
+  if (input.approval) return input.feedback ? 'Send feedback to decline this request' : 'Send a message to decline and redirect the agent';
   if (input.question) return input.choiceOnly ? 'Choose an option above' : 'Type your own answer, or leave this blank to use the selected option';
   if (input.planReady) return 'Add feedback to refine the plan, or leave this blank to implement it';
   if (!input.connected) return 'Connect to your T3 server to send a message';
@@ -165,7 +167,7 @@ function fieldLabel(client: ComposerSource): string {
   const title = client.threadId ? shellTitle || str(obj(client.projection.thread).title) : 'New thread';
   return title ? `Message ${title}` : 'Message';
 }
-export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
+export function composerView(client: ComposerSource, requests: { approval: boolean; feedback?: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
   const keyContext = { terminalOpen: requests.terminalOpen === true }; // ChatComposer: the real terminalOpen, terminalFocus false
   const providers = arr(client.config.providers);
   // resolveComposerProviderSelection + deriveEffectiveComposerModelState: the instance and model the turn runs on.
@@ -190,9 +192,11 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   // shortcut (ProviderModelPicker triggerTooltipContent). The trigger's text and accessible name are the snapshot's.
   const modelTitle = model ? triggerModelName(model, str(provider?.driver)) : modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
   const modelLabel = model ? `${displayModelName(model)}${model.isUnavailable === true ? ' (Unavailable)' : ''}` : modelTitle;
+  // ProviderModelPicker's Unavailable Badge (outline, sm): its text with 3pt padding and the 1pt border each side.
+  const badge = model?.isUnavailable === true && !fanoutSelections(client as unknown as T3Client) ? measured(client.presentation, UNAVAILABLE_BADGE, 10, 500) + 8 : 0;
   const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: display.label !== '',
     runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
-    measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
+    measure: measuredLabels(client.presentation), previous: footerSteps.get(client), badge });
   footerSteps.set(client, steps);
   // The "More composer controls" rows for the expanded and the resting footer.
   const runtimeRows = runtimes.map(option => ({ mode: option.mode, label: option.label, selected: option === runtime }));
@@ -260,7 +264,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const requests = requestPresentation(client);
   const question = requests.questions[0];
   const phase = client.threadId ? threadPhase(client.projection) : 'disconnected';
-  const view = composerView(client, { approval: requests.approvals.length > 0, question: !!question,
+  const view = composerView(client, { approval: requests.approvals.length > 0, feedback: requests.approvals[0]?.feedback === true, question: !!question,
     choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question, terminalOpen: terminalOpen(client) });
   // ComposerBannerStack: each notice an attached card; consecutive cards join edge to edge (`stacked`).
   const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
@@ -291,12 +295,14 @@ export function composerSnapshot(client: T3Client, now = 0) {
     // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes, and the texts the notices
     // and the timeline's end lines measure by.
     ...composerMenus(client.presentation, view, runOnLabels(environmentView(client)),
-      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500)), ...threadNowProbes(client)]),
+      [probe(action.sendTooltip, 12, 400), probe(UNAVAILABLE_BADGE, 10, 500), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500)), ...threadNowProbes(client)]),
     stripCompact: stripLabelsCompact(client, rootFontSize),
     // ScrollToEndButton's summary: what waits at the end of the timeline while it is out of view.
     endSummary: endSummary(client),
     // Images taken into the draft and still being prepared: their tiles show at once, disabled (preparingComposerImages).
     preparingImages: preparingImages(client),
+    // The shown approval's reason and why full access still asked (ComposerPendingApprovalPanel).
+    approvalReason: requests.approvals[0]?.reason ?? '', approvalWhy: requests.approvals[0]?.whyAsked ?? '',
     notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), ...usageResetClock(client, now) }, rootFontSize);
 }
 

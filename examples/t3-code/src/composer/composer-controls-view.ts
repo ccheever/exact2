@@ -50,7 +50,9 @@ export function textWidth(text: string, small = false): number {
  * cluster showed, for the promotion slack.
  */
 export type FooterSteps = { sm: number; xs: number; smHidden?: boolean; xsHidden?: boolean };
-export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: FooterSteps }) {
+export function footerLayout(input: { model: string; traits: string; traitsIcon: boolean; runtime: string; plan: string; host: number; measure?: Measure; previous?: FooterSteps;
+  /** An unavailable model's badge, which follows its name inside the picker (0 without one). */
+  badge?: number }) {
   // Label widths come from laid-out probes (composer-measure.ts); the estimate stands in until then.
   const width = (text: string, small: boolean, kind: ProbeKind) => labelWidth(text, small, kind, input.measure, textWidth);
   const steps = (small: boolean) => {
@@ -60,7 +62,9 @@ export function footerLayout(input: { model: string; traits: string; traitsIcon:
     // icons and a 10pt chevron; "xs" ones pad 7+7 with 4pt gaps, 12pt icons and an 8pt chevron.
     // The picker sits at margin-left -8 (resting -10) and, resting, at most 168pt wide (ProviderModelPicker
     // max-w-42); its minimum is the trigger's min-width (48 / 40) less that margin.
-    const picker = small ? Math.min(158, 34 + width(input.model, true, 'model')) : 48 + width(input.model, false, 'model');
+    // The badge sits after the name across the trigger's gap (4pt resting, 6pt otherwise).
+    const badge = input.badge ? input.badge + (small ? 4 : 6) : 0;
+    const picker = small ? Math.min(158, 34 + width(input.model, true, 'model') + badge) : 48 + width(input.model, false, 'model') + badge;
     const traits = !input.traits && !input.traitsIcon ? 0
       : (small ? 26 : 34) + (input.traitsIcon ? (small ? 16 : 22) : 0) + (input.traits ? width(input.traits, small, 'traits') : 0);
     const traitsIcon = !traits ? 0 : small ? 38 : 50;

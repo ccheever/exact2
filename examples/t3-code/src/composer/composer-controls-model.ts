@@ -4,12 +4,11 @@
 // normalizeModelSlug, getProviderOptionCurrentValue/Label/StatedValue),
 // packages/contracts/src/model.ts (MODEL_SLUG_ALIASES_BY_PROVIDER),
 // apps/web/src/components/chat/providerIconUtils.ts (getDisplayModelName, getTriggerDisplayModelName),
-// packages/provider-core/src/modelShortName.ts and packages/client-runtime/src/providerClients.ts
-// (modelFamilies, resolveModelShortName) at 7c3b3b3605ef,
 // packages/client-runtime/src/state/threadExecution.ts
 // (deriveReportedModelSelection, REASONING_EFFORT_OPTION_IDS at 74541bab17), and, at 9c161462c9, TraitsPicker.tsx
 // (buildTraitsTriggerDisplay) and TraitsSpeed.tsx (getTraitsSpeedDisplay).
 import { arr, obj, str, type Obj } from '../client/domain';
+import { resolveModelShortName as resolveShortName } from '../client/model-short-name';
 
 const ALIASES: Record<string, Record<string, string>> = {
   codex: { 'gpt-5-codex': 'gpt-5.4', '5.4': 'gpt-5.4', '5.3': 'gpt-5.3-codex', 'gpt-5.3': 'gpt-5.3-codex',
@@ -40,35 +39,8 @@ export function formatModelSlugName(slug: string): string {
   return prefix + name.replace(/^(claude-[a-z]+-\d+)-(\d{1,2})(?=-|\[|$)/i, '$1.$2').split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 }
 
-// The model families each driver's catalog names natively (providerClients modelFamilies).
-const MODEL_FAMILIES: Record<string, string[]> = { codex: ['GPT-', 'GPT '], claudeAgent: ['Claude '], cursor: ['Grok '], grok: ['Grok '],
-  antigravity: ['Gemini '], muse: ['Muse '] };
-const FAMILY_PREFIXES = ['Claude ', 'GPT-', 'GPT ', 'Gemini ', 'Muse ', 'Grok '];
-// Words that describe a variant within a family rather than name a model. Off the family's native provider there is no
-// icon saying which family "4 Pro" belongs to.
-const VARIANT_WORDS = new Set(['pro', 'flash', 'mini', 'max', 'lite', 'nano', 'ultra', 'plus', 'fast', 'turbo', 'preview', 'latest', 'thinking',
-  'reasoning', 'build', 'code', 'image', 'vision', 'audio', 'live', 'custom', 'tools', 'exp', 'experimental', 'chat', 'tts', 'stt', 'non', 'transcribe']);
-const VERSION = /^v?\d+(?:\.\d+)*[a-z]?$/i;
-const VENDOR_PREFIX = /^[A-Z][\w.&\- ]{0,24}: (?=\S)/;
-const nonVersionWords = (text: string) => text.replace(/\(.*?\)/g, ' ').split(/[\s-]+/).filter(word => word.length > 0 && !VERSION.test(word));
-const namesModel = (text: string) => nonVersionWords(text).some(word => !VARIANT_WORDS.has(word.toLowerCase()));
-function withoutFamily(name: string, nativeFamilies: readonly string[]): string | undefined {
-  const prefix = FAMILY_PREFIXES.find(candidate => name.startsWith(candidate));
-  if (!prefix) return undefined;
-  const rest = name.slice(prefix.length).trim();
-  if (!(nativeFamilies.includes(prefix) ? nonVersionWords(rest).length > 0 : namesModel(rest))) return undefined;
-  return /\s/.test(rest) ? rest : rest.replace(/-/g, ' ');
-}
-/** modelShortName: the name you would say out loud ("Opus 5.5", "6.1 Sol"), or undefined when it is the name itself. */
-export function modelShortName(name: string, nativeFamilies: readonly string[]): string | undefined {
-  const unprefixed = name.replace(VENDOR_PREFIX, '');
-  const short = withoutFamily(unprefixed, nativeFamilies) ?? (namesModel(unprefixed) ? unprefixed : name);
-  return short === name ? undefined : short;
-}
-/** resolveModelShortName: the server's `shortName`, else the spoken name on the driver's native families. */
-export function resolveModelShortName(model: Obj, driver: string): string {
-  return str(model.shortName) || (modelShortName(str(model.name), MODEL_FAMILIES[driver] ?? []) ?? '');
-}
+/** resolveModelShortName (client/model-short-name.ts): the server's `shortName`, else the spoken name on `driver`'s icon. */
+const resolveModelShortName = (model: Obj, driver: string): string => resolveShortName(model, driver) ?? '';
 
 const withoutQualifier = (name: string, subProvider: unknown) => {
   const qualifier = str(subProvider).trim();
