@@ -1,0 +1,12 @@
+{
+  "name": "@exact/maps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "exact-map, a map as a package view: MapKit on Apple, the Maps SDK on Android, the app's raster tiles on the web (LLP 1133.021 Part I).",
+  "exports": {
+    ".": "./exact.json",
+    "./android": "./android/exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

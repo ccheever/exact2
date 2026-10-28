@@ -488,7 +488,7 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
   executed the same way on four hosts.
 - **No escape hatch; access hatches.** Nothing steps outside the plan. Where an app
   needs a platform widget, it uses a *native module*: a hyphenated tag like
-  `native-map`, backed by Swift or Rust, laid out by the kernel like any other box.
+  `exact-map`, backed by Swift, Kotlin or Rust, laid out by the kernel like any other box.
   Where it needs the platform object Exact itself built (a `UIView`, a navigation
   controller, a DOM element), it marks the node `hatch="word"` and its native code is
   handed that object: an *access hatch*, the panel a machine is built with so its

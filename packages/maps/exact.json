@@ -1,0 +1,55 @@
+{
+  "kind": "interface",
+  "name": "@exact/maps",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "MapMarker": {
+      "id": "string",
+      "latitude": "number",
+      "longitude": "number",
+      "title": "option<string>"
+    },
+    "MapCamera": {
+      "latitude": "number",
+      "longitude": "number",
+      "zoom": "number",
+      "apple": "option<AppleMapCamera>",
+      "android": "option<AndroidMapCamera>"
+    },
+    "AppleMapCamera": {
+      "heading": "number",
+      "pitch": "number"
+    },
+    "AndroidMapCamera": {
+      "bearing": "number",
+      "tilt": "number"
+    }
+  },
+  "config": {
+    "web": {
+      "tiles": { "type": "string", "required": true, "missing": "maps-tiles-missing" },
+      "attribution": { "type": "string" },
+      "maxZoom": { "type": "number" }
+    },
+    "android": {
+      "apiKey": { "type": "env", "required": "release", "missing": "maps-key-missing" }
+    }
+  },
+  "views": {
+    "exact-map": {
+      "props": {
+        "latitude": "number",
+        "longitude": "number",
+        "zoomLevel": "option<number>",
+        "markers": "option<MapMarker[]>",
+        "selected": "option<string>"
+      },
+      "events": [
+        "change",
+        { "event": "moveend", "args": ["MapCamera"] }
+      ]
+    }
+  },
+  "names": []
+}
