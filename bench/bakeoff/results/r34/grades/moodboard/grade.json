@@ -1,0 +1,105 @@
+{
+  "A": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "3-column grid of rounded HSL tiles with centred emoji, newest first, 600 tiles with count shown; fills width with 12pt margins."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "System pull-down menu 'All boards' with ten boards plus All, each with counts and checkmark; filtered grid and count update (Coast 64)."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Paged detail with large tile, board, title, 'Added' date, HSL readout; horizontal swipe moves to neighbours within the filtered set ('1 of 64'), plus prev/next buttons."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Big Like/Liked button in detail; Liked tab shows liked tiles in the same grid; unliking from Liked removes it on return."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Select → tap tiles (check circles, '3 selected', Select all) → Like or Delete bar; delete asks for confirmation; count goes 600→598."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Likes and deletions intact after relaunch."
+      }
+    ],
+    "bugs": [],
+    "tells": [
+      "Heavily custom theme: serif display title with logo glyph instead of a large navigation title, cream background, custom red accent pills — reads as a branded/web-styled app rather than stock iOS",
+      "Header (tagline, filter pill, count) is fixed above an inner scroll view; it never scrolls away, so the grid gets only ~600pt and a swipe starting on the header does not scroll the page",
+      "Liked tab still titled 'Moodboard' with a different tagline instead of a 'Liked' navigation title",
+      "Detail screen has no navigation title, just a '1 of 64' counter; decorative 'THE COLLECTION' eyebrow and 'A little moment of color.' filler text",
+      "Hand-drawn full-width Like pill and circular prev/next buttons in a custom bottom bar instead of toolbar items",
+      "Custom app title in the nav bar does not scale with Dynamic Type at the largest size, while the rest of the header does"
+    ],
+    "scroll": "Smooth with no blank or popping rows when flung, and position is kept on return from detail; but only the lower grid pane scrolls under a fixed header, which feels unlike an iPhone list.",
+    "scores": {
+      "features": 9,
+      "platform": 5,
+      "polish": 7,
+      "overall": 6
+    }
+  },
+  "B": {
+    "requirements": [
+      {
+        "n": 1,
+        "status": "pass",
+        "note": "Edge-to-edge 3-column grid (Photos-like, 3pt gutters) of HSL tiles with centred emoji, newest first, '600 tiles · Newest first'."
+      },
+      {
+        "n": 2,
+        "status": "pass",
+        "note": "Filter button in the nav bar opens a system menu with All plus ten boards and a checkmark; Coast shows 64 tiles."
+      },
+      {
+        "n": 3,
+        "status": "pass",
+        "note": "Detail shows full-width tile, title, board, date, Like button and '1 of 600' with prev/next; swiping left/right changes tile."
+      },
+      {
+        "n": 4,
+        "status": "pass",
+        "note": "Like in the detail body and as a heart in the nav bar; Liked tab with its own large title shows liked tiles in the same grid with heart badges."
+      },
+      {
+        "n": 5,
+        "status": "pass",
+        "note": "Select → check circles, 'N Selected', Select All, bottom toolbar with Like / Unlike / Delete; delete confirms with an alert; 600→598."
+      },
+      {
+        "n": 6,
+        "status": "pass",
+        "note": "Likes and deletions intact after relaunch."
+      }
+    ],
+    "bugs": [
+      "Select-mode toolbar buttons (like, unlike, delete) have no accessibility element or label; they can only be hit by coordinates"
+    ],
+    "tells": [
+      "Grid tiles are exposed as Switches (value 0/1) rather than buttons/cells",
+      "In select mode the large title disappears but its space stays empty, leaving a blank band above the content, and '3 Selected' sits off-centre beside the buttons",
+      "Select-mode toolbar icons are black and untinted, and the toolbar sits above the tab bar rather than replacing it",
+      "A 'Library updated' status line appears after a batch action and pushes the grid down",
+      "Detail nav title is a generic 'Tile'; at the largest text size the Like button sits under the floating tab bar until you scroll"
+    ],
+    "scroll": "Native feel: large title collapses into the inline bar, flings are smooth with no blank or popping rows, pull past the top bounces, and scroll position is roughly kept on return from detail.",
+    "scores": {
+      "features": 9,
+      "platform": 7,
+      "polish": 7,
+      "overall": 7
+    }
+  },
+  "better": "B",
+  "why": "Both apps meet all six requirements and keep likes and deletions across a relaunch. B is built from stock iOS parts: a collapsing large title, a Photos-style edge-to-edge grid, a system menu, and a toolbar with tab bar. A's custom branded theme and fixed non-scrolling header give it away as not a standard iOS app. B's flaws (unlabelled toolbar icons, Switch semantics, blank band in select mode) are smaller than A's structural departures."
+}

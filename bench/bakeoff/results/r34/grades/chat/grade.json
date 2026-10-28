@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "My bubbles are blue on the right, Sam's are grey on the left, oldest at top. A centred date heading appears at each day change, shown iMessage-style as date plus time ('Jul 3, 2026 at 4:20 PM', 'Today at 1:29 PM'). Opens at the newest message."},
+      {"n": 2, "status": "partial", "note": "Sending works, the composer clears, and the send button is disabled for empty or whitespace/newline-only text. But Sam's reply then lands half hidden behind the composer while the keyboard is up, so the thread does not truly stay at the bottom."},
+      {"n": 3, "status": "pass", "note": "The composer rides above the keyboard and the newest messages stay visible when it opens. The composer grows with multiline input and the thread adjusts. Dragging the list dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "A '… Sam is typing…' bubble appears, then a canned reply ('Okay!', 'Sure thing') about 2 s later."},
+      {"n": 5, "status": "pass", "note": "Long-press opens the system context menu with a lifted preview, Copy and a red Delete. Copy puts the text on the pasteboard (pasted into the composer). Delete removes the message and stays deleted after relaunch."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches the first message (Jul 1) with no blank rows or jumps. A circular jump-to-newest button appears when scrolled up and scrolls back to the newest message."},
+      {"n": 7, "status": "pass", "note": "Sent messages, Sam's replies and deletions survive a relaunch."}
+    ],
+    "bugs": [
+      "After sending with the keyboard open, Sam's reply bubble settles underneath the composer, half hidden (frame overlaps the composer by about 30 pt), and stays there until you scroll."
+    ],
+    "tells": [
+      "Plain capsule bubbles with no tails or grouping shape, and Sam's 👍 sits in a grey bubble rather than iMessage's large bare emoji.",
+      "Navigation bar is just the text 'Sam', with no avatar or subtitle.",
+      "The send button sits inside the text field as a pale grey circle even when it is enabled, and the keyboard Return key inserts a newline rather than sending (acceptable, but less refined).",
+      "The jump-to-newest button is a small glass circle that overlaps bubble text."
+    ],
+    "scroll": "Smooth through the whole history with natural deceleration and rubber-banding at the top. No blank or popping rows seen, though the scroll-bar page count shifts (26→37), which suggests estimated row heights.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "My bubbles are blue on the right, Sam's are light grey on the left, oldest at top. Day headings read 'Wednesday, July 1' or 'Today'. Opens at the newest message. Emoji-only messages render large without a bubble, as in iMessage."},
+      {"n": 2, "status": "pass", "note": "Sending works, the composer clears, and the thread stays at the bottom showing both my message and Sam's reply. The send button is disabled for empty or whitespace-only text."},
+      {"n": 3, "status": "pass", "note": "The composer sits above the keyboard and the newest messages stay visible. Dragging the list dismisses the keyboard. Small issue: when the field grows with several newlines, it overlaps the last bubble."},
+      {"n": 4, "status": "pass", "note": "A typing bubble with animated dots plus 'Sam is typing…' appears in the thread, and the nav title also shows 'typing…' under Sam's name. A canned reply ('Love that', 👍) follows about 2 s later."},
+      {"n": 5, "status": "pass", "note": "System context menu with Copy and Delete. Copy works, and Delete works and persists across relaunch."},
+      {"n": 6, "status": "pass", "note": "Flings reach the first message with headings intact. A floating ↓ button appears when scrolled up. Once (tapped soon after a fling from the top) it scrolled only to about 42% and needed a second tap; at rest it went straight to the newest message."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive a relaunch."}
+    ],
+    "bugs": [
+      "The multiline composer grows over the last message instead of pushing the thread up (seen after Return-key newlines).",
+      "Jump-to-newest from the very top once stopped partway (about 42%) and needed a second tap."
+    ],
+    "tells": [
+      "The keyboard Return key is styled as a blue send arrow but inserts a newline instead of sending.",
+      "The send button is a separate grey circle outside the field, even when it is enabled.",
+      "The ↓ jump button overlaps bubble text near the composer."
+    ],
+    "scroll": "Smooth and native-feeling all the way to the first message, with rubber-banding at the top and no blank or popping rows. The scroll-bar page estimate varies (35→44), which is typical of a lazy stack.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both cover the whole spec with native context menus, typing indicators, persistence and smooth history. B keeps the newest reply visible after sending, while A consistently hides Sam's reply behind the composer. B is also closer to Messages: avatar title with 'typing…', bubble tails, large bare emoji, and weekday day headings."
+}

@@ -305,7 +305,7 @@ fn solid(c: [u8; 4]) -> Paint<'static> {
 }
 
 /// A border part's path for tiny-skia.
-fn tiny_path(ops: &[PathOp]) -> Option<Path> {
+pub(crate) fn tiny_path(ops: &[PathOp]) -> Option<Path> {
     let mut b = PathBuilder::new();
     for op in ops {
         match *op {

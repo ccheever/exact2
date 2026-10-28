@@ -32,7 +32,7 @@ pub(crate) mod controls;
 mod pixels;
 mod shaders;
 #[cfg(windows)]
-mod window;
+pub(crate) mod window;
 
 const LIMIT: usize = 256 * 1024 * 1024;
 type Read = unsafe extern "C" fn(u32) -> u32;
@@ -424,6 +424,10 @@ pub(crate) struct Surfaces {
     window_layers: Option<window::Layers>,
     #[cfg(windows)]
     window_artifact: Option<String>,
+    #[cfg(windows)]
+    window_owner: Option<exact_ink::device::d3d11::Window>,
+    #[cfg(windows)]
+    pub(crate) direct_window: Option<window::DirectWindow>,
     /// Each opened artifact by name, "" the primary; each is tried once.
     abis: BTreeMap<String, Abi>,
     attempted: BTreeSet<String>,

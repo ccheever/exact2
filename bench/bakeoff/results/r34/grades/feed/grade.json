@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "One long feed, newest first. Shows author, handle and relative time ('16 min. ago'). Text is shown in full. Images are full width with rounded corners at their own aspect ratio. Carousels scroll horizontally with titled cards."},
+      {"n": 2, "status": "pass", "note": "Like toggles a red filled heart and the count (872→873). Reply count is shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a Post screen with an edge-to-edge (larger) image. Tapping the image opens a black full-screen viewer with a close button, and a swipe down dismisses it."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top. There is also a refresh button in the nav bar."},
+      {"n": 5, "status": "pass", "note": "The compose sheet has Cancel/Post. Post is disabled when empty or whitespace-only. The new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "A like, the composed post and the refreshed posts all survive relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the compose sheet opens scrolled so the author header is gone and the placeholder sits half under the nav bar."
+    ],
+    "tells": [
+      "The like control is exposed to accessibility as a Switch rather than a button.",
+      "The compose text view reports horizontal scroll bars (2 pages at large text): the content is wider than the view.",
+      "Avatars are plain grey initials circles, all the same tint. Plain, but system-like.",
+      "Detail screen image is edge to edge with square corners, while the feed's images are rounded. Minor inconsistency."
+    ],
+    "scroll": "Smooth on slow drags and flings, with no blank rows or pop-in. The large title collapses into an inline title with the scroll-edge blur. Scroll position is kept on returning from a post (a ~28 pt drift was seen once).",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed of rounded cards with author, handle and compact time ('16m'). Full text, rounded images at the image's aspect ratio, and horizontal titled carousels."},
+      {"n": 2, "status": "pass", "note": "Like toggles a filled (rust-coloured) heart and the count. Reply count is shown."},
+      {"n": 3, "status": "pass", "note": "The post screen shows a larger rounded image, a timestamp and a 'Part of the conversation' footer. The full-screen viewer has a caption and close button, and a swipe down dismisses it. Carousel cards also open full screen."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top."},
+      {"n": 5, "status": "pass", "note": "The compose sheet has Cancel/Post, with Post disabled for empty or whitespace-only text. The new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "A like, the composed post and the refreshed posts survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Heavily custom, editorial look: cream background, a serif 'Life, as it happens.' hero, a 'LATEST / A space to share' kicker, rust accent and a decorative stacked-layers logo button. It reads as a designed brand more than a stock iOS app, and there is no large title.",
+      "At the largest text size the heart and reply icons stay tiny next to huge numbers, and the avatar shrinks to a small dot beside the name.",
+      "Accessibility labels leak raw image names: 'Hdr', 'Love', 'Speech Bubble'.",
+      "In the feed the carousel's right-hand card bleeds past the post card's edge.",
+      "Whimsical filler copy ('Just you, your words, and this little corner.', 'A little piece of your day')."
+    ],
+    "scroll": "Smooth on slow drags and flings, with images in place and no blank cards or jumps. Content blurs under the nav bar. Scroll position is kept exactly on returning from a post or the image viewer.",
+    "scores": {"features": 9, "platform": 6, "polish": 8, "overall": 8}
+  },
+  "better": "A",
+  "why": "Both meet every requirement with persistence and smooth scrolling. A looks and behaves like a stock iOS app: large collapsing title, system grey palette, plain list rows. B is more polished visually but uses a custom editorial skin, icons that don't scale with text, and leaked accessibility labels. Those mark it as non-native, while A's only notable flaw is the compose sheet at the largest text size."
+}

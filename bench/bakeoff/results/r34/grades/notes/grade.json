@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset grouped list with Pinned and Notes sections, newest first; title plus a one-line preview with a short or relative date (time today, weekday this week, otherwise m/d/yy)."},
+      {"n": 2, "status": "pass", "note": "Search field under the large title filters by title and body as you type, keeping the Pinned/Notes sections; has a clear button and a Close button."},
+      {"n": 3, "status": "pass", "note": "Tapping a row pushes an editor with title and body text views. Edits save on Back with no Save button and the note moves to the top of its section."},
+      {"n": 4, "status": "pass", "note": "The compose button opens a blank note with the keyboard up. Leaving it empty discards it (count unchanged); a note with text is kept (count 90 to 91)."},
+      {"n": 5, "status": "pass", "note": "Swipe right on a row to pin or unpin (a full swipe works), swipe left to delete, and long-press for a context menu with Pin/Unpin Note and Delete."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' appears in the bottom toolbar, like Apple Notes, and updates on create and delete."},
+      {"n": 7, "status": "pass", "note": "The new note, the edits, the pin, unpin and delete all survived a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "At the largest text size the long title in the editor breaks inside a word ('recommendat / ions').",
+      "The note count in the bottom toolbar stays small at the largest text size, while the list text scales."
+    ],
+    "scroll": "Native table scrolling: slow drags, flings and the rubber-band past the top all feel right. No blank or popping rows, and the scroll position is kept when you come back from a note.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset grouped list with Pinned and Notes sections, newest first; title plus a one-line preview with a short or relative date."},
+      {"n": 2, "status": "pass", "note": "Search field in the bottom toolbar (iOS 26 style) filters by title and body as you type and returns the same results as A."},
+      {"n": 3, "status": "pass", "note": "Tapping a row pushes an editor. Title and body edits save automatically and the note moves to the top, showing 'Today at …'."},
+      {"n": 4, "status": "pass", "note": "The compose button in the nav bar opens a blank note with the keyboard up. An empty note is discarded and a note with text is kept (91 Notes)."},
+      {"n": 5, "status": "partial", "note": "Swipe left deletes and long-press gives Pin Note/Delete, but there is no swipe right to pin: the drag opens the note instead. Pin is also in the editor's toolbar."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' subtitle under the large title, updated live."},
+      {"n": 7, "status": "pass", "note": "Created, edited, pinned, unpinned and deleted notes all survived a relaunch."}
+    ],
+    "bugs": [
+      "Swiping a row to the right opens the note as though it had been tapped, where an iPhone list would do nothing or show leading actions."
+    ],
+    "tells": [
+      "No leading swipe action to pin. In Apple Notes and native lists, pin is a leading swipe.",
+      "At the largest text size, list rows stay one line and truncate hard ('Podcast rec…', '9/27/26 May…'), where a native cell would wrap and grow.",
+      "At the largest text size the long title in the editor breaks inside a word ('recommenda / tions').",
+      "Rows show up to accessibility as one Button inside a cell rather than as a cell with its own label and text."
+    ],
+    "scroll": "Smooth, native-feeling scrolling with no blank or popping rows. Flings and the rubber-band at the top behave, and the scroll position is kept after visiting a note.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet nearly the whole spec with a convincing iOS 26 look in light and dark. A also has the leading swipe to pin and list rows that wrap at the largest text size. B has no leading swipe (a right swipe opens the note instead), and its rows truncate to unreadable fragments at the largest text size, so A feels more like a hand-built iPhone app."
+}

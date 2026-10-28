@@ -51,6 +51,18 @@ final class GroupedCell: UICollectionViewListCell {
         c.image = FaceSymbol.image(pathSymbol, points: Self.pathPoints(traitCollection))
         contentConfiguration = c
     }
+    /// Its standard row's content. UIKit's list content view hides a label
+    /// a new configuration drops but keeps its text, which UIKit's
+    /// accessibility still reads: a reused cell's Privacy Policy row read
+    /// the Font row's "Georgia" to VoiceOver (iOS 27). A cell that drops a
+    /// text starts from a new content view.
+    func show(_ c: UIListContentConfiguration) {
+        if let old = contentConfiguration as? UIListContentConfiguration,
+           old.secondaryText != nil && c.secondaryText == nil || old.text != nil && c.text == nil {
+            contentConfiguration = nil
+        }
+        contentConfiguration = c
+    }
     #if os(iOS)
     /// A touch its row leaves to no control goes to the row's one field: the
     /// cell is the field (LLP 1116.005 D2).
