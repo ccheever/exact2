@@ -405,8 +405,8 @@ mod find_tests {
             assert!(blocks
                 .iter()
                 .all(|block| matches!(block, Value::Record(fields)
-                    if fields.len() == 20 && matches!(fields[18], Value::Number(_))
-                        && matches!(fields[19], Value::List(_)))));
+                    if fields.len() == 21 && matches!(fields[18], Value::Number(_))
+                        && fields[19].is_str() && matches!(fields[20], Value::List(_)))));
         }
     }
     #[test]
@@ -442,9 +442,10 @@ mod find_tests {
         let Value::Record(block) = &blocks[0] else {
             panic!("block")
         };
-        assert_eq!(block.len(), 20);
+        assert_eq!(block.len(), 21);
         assert!(matches!(block[18], Value::Number(_)));
-        assert!(matches!(block[19], Value::List(_)));
+        assert!(block[19].is_str());
+        assert!(matches!(block[20], Value::List(_)));
         let Value::List(runs) = &block[7] else {
             panic!("runs")
         };
