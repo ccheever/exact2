@@ -9,9 +9,8 @@
 //! Every export takes a runtime handle (LLP 1031 D2): `exact_create` returns
 //! a never-reused `u32` from the thread-local [`Registry`], never a pointer.
 //! Invalid/destroyed handles are refused; `exact_destroy` frees the session.
-//! Calls stay on the thread that created the runtime: on Apple, ExactKit's
-//! owner thread (LLP 1072 T1). Re-entrant calls return a `busy`
-//! batch instead of trapping. [`host!`] exports one app's source and baked plan;
+//! Calls stay on their runtime's creating thread: ExactKit's owner thread on Apple (LLP 1072 T1).
+//! Re-entrant calls return `busy` instead of trapping. [`host!`] exports one app's source and baked plan;
 //! each process links one app archive because the C names are fixed.
 mod control_text;
 mod navigation;

@@ -12,8 +12,7 @@ let Media = null; export function useMedia(m) { Media = m; } // and media.js onl
 // Semantics kept from the runner (LLP 1005 §6):
 // - an action's writes land together at its commit (the VM collects `StoreSlot`s), then one
 //   synchronous flush updates the DOM, then its commands run (focus after the tree is there);
-// - derives and resources settle lazily and glitch-free (a pull, not a push);
-//   an equal value keeps its old object, so nothing downstream reruns;
+// - derives and resources settle by glitch-free, lazy pulls; equal values keep their identity, so nothing downstream reruns;
 // - a resource admits its compiled value only while its arguments equal the
 //   compiled ones; a source not ready keeps the value and asks again when it
 //   is; a later answer lands in its own commit, if its ticket is current;

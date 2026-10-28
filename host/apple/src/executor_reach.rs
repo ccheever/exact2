@@ -16,7 +16,7 @@
 use exact_runner::local_network::{self, Reach};
 use exact_runner::CallOrigin;
 use ibex2::boundary::{HopGate, HostError};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use std::net::{IpAddr, ToSocketAddrs};
 use std::sync::Arc;
 
 struct Gate(Reach);
@@ -90,7 +90,8 @@ fn address_risk(address: IpAddr) -> bool {
 #[allow(unsafe_code)] // getifaddrs(3), whose list is read and freed here.
 mod interfaces {
     //! The device's broadcast-capable interfaces, by `getifaddrs(3)`.
-    use super::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use super::IpAddr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
     use std::os::raw::{c_char, c_int, c_uint, c_void};
 
     #[repr(C)]
