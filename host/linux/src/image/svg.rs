@@ -185,15 +185,25 @@ pub(super) fn decode(
     cancelled: impl Fn() -> bool,
 ) -> Result<Decoded, Refusal> {
     // No link's query, a CDN's signature, is logged: the source is named cut
-    // at its query, and a downloaded file's diagnostics, which quote what the
-    // file holds (its own links among it), are counted, not quoted; a bundled
-    // file's, the app's own, are quoted for its developer.
-    let remote = super::remote::is_remote(name);
-    let name = super::remote::without_query(name);
+    // at its query (a `data:` one by its media type alone), and the
+    // diagnostics of a file that is not the app's own (downloaded, a `data:`
+    // source, an `app:/` file), which quote what it holds, links and all, are
+    // counted, not quoted; a bundled file's are quoted for its developer.
+    let foreign =
+        super::remote::is_remote(name) || name.starts_with("data:") || name.starts_with("app:/");
+    let data_name;
+    let name = match name.strip_prefix("data:") {
+        Some(rest) => {
+            let kind = &rest[..rest.find([',', ';']).unwrap_or(rest.len())];
+            data_name = format!("data:{kind},\u{2026}");
+            data_name.as_str()
+        }
+        None => super::remote::without_query(name),
+    };
     let log = |line: String| eprintln!("{}", super::remote::redacted(&line, name));
     let quoted = |what: &dyn std::fmt::Display| {
-        if remote {
-            "(not quoted: a downloaded file's)".to_string()
+        if foreign {
+            "(not quoted: not the app's own file)".to_string()
         } else {
             what.to_string()
         }
@@ -209,9 +219,9 @@ pub(super) fn decode(
         ));
         Refusal::DecodeFailed
     })?;
-    if remote && !loaded.document.warnings.is_empty() {
+    if foreign && !loaded.document.warnings.is_empty() {
         let count = loaded.document.warnings.len();
-        log(format!("exact: image `{name}`: {count} parts this host does not draw (not quoted: a downloaded file's)"));
+        log(format!("exact: image `{name}`: {count} parts this host does not draw (not quoted: not the app's own file)"));
     } else {
         for warning in &loaded.document.warnings {
             log(format!("exact: image `{name}`: {warning}"));
