@@ -83,7 +83,7 @@ export async function filePickerView(client: T3Client, native: Native | null | u
   if (!can(client, 'filesystem:read')) return { ...base, empty: 'This connection requires filesystem:read.', accessoryEnabled: false };
   const trimmed = query.trim().slice(0, 256);
   const result = await cached(fileCache, client, native, `${client.generation}:${target.cwd}:${trimmed}`, 'projects.searchEntries', { cwd: target.cwd, query: trimmed, limit: FILE_RESULT_LIMIT });
-  const rows = flatten([{ value: 'project-files', label: target.projectName, items: fileRows(arr(result.value.entries), result.error ? '' : trimmed).map(entry => ({ row: entry, terms: [] })) }]);
+  const rows = flatten([{ value: 'project-files', label: target.projectName, items: fileRows(arr(result.value.entries), result.error ? '' : trimmed).map(entry => ({ row: entry, terms: [] })) }], false);
   const empty = result.error ? result.error : trimmed ? 'No matching files.' : 'No files found.';
   return { ...base, rows, count: rows.length, empty: rows.length ? '' : empty };
 }

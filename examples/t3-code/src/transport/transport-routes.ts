@@ -1,4 +1,4 @@
-// One environment, several routes: the route walk and the better-route check (T3 Code 9c161462c9,
+// One environment, several routes: the route walk and the better-route check (T3 Code 7c3b3b3605ef,
 // MIT, see LICENSE-T3: packages/client-runtime/src/connection/driver.ts connectOverRoutes,
 // preflight and checkRoute, supervisor.ts checkBetterRoutes). The app
 // (connection-routes.ts) owns the route model and writes each environment's ordered routes to the
@@ -9,7 +9,8 @@
 // reads the token of the route it was learned over (`credential`); the token goes out only after the
 // address answered as this environment, and never over plain HTTP it was not paired over
 // (connection-routes.ts sendsTokenInClear: such a route is left out of the walk and the checks). Checks run in the answer that connects (it may fetch); the
-// 60 s cadence is the transport's tick.
+// 60 s cadence is the transport's tick. The walk's shared head start is a second check of each direct route with a
+// 500 ms deadline, since a data module has no timers (LLP 1016.000 D7).
 import { TransportFailure, letGoAbort, origin as parseOrigin, path, trimmed } from './transport-wire';
 import type { Catalog, Entry } from './transport-catalog';
 import { sendsCredentialInClear, type ConnectionRoute } from '../connections/connection-routes';
@@ -51,6 +52,11 @@ export function homeRoute(origin: string): WalkRoute {
 
 /** How long a direct route has to answer before it counts as unreachable from here. */
 export const CHECK_TIMEOUT_MS = 2_500;
+/**
+ * The head start the walk's direct checks share (ROUTE_CHECK_HEAD_START_MS): a route silent by then waits for the
+ * second pass, so a dead first route costs half a second, not the full check.
+ */
+export const CHECK_HEAD_START_MS = 500;
 /** A better route that answered but then failed to connect is not tried again for this long. */
 export const BETTER_ROUTE_COOLDOWN_MS = 300_000;
 /** While connected over a fallback route, how often to look for a better one (BETTER_ROUTE_CHECK_INTERVAL). */
@@ -59,6 +65,9 @@ export const BETTER_ROUTE_CHECK_MS = 60_000;
 export const blocks = (failure: TransportFailure) => ['Authentication', 'Credential', 'Keychain', 'Address', 'Limit'].includes(failure.kind);
 
 type Check = 'answered' | 'silent' | 'unchecked';
+/** A route's checks in one walk: the head start's, the full one's and, once known, the full one's outcome. */
+type Probe = { head: Promise<Check>; full: Promise<Check>; outcome: Check | null };
+const settledProbe = (outcome: Check): Probe => ({ head: Promise.resolve(outcome), full: Promise.resolve(outcome), outcome });
 
 export class RouteState {
   environmentId = '';
@@ -68,9 +77,10 @@ export class RouteState {
   walking = false;
   private walkEpoch = 0;
   private order: WalkRoute[] = [];
-  private results: Array<Promise<Check>> = [];
+  private probes: Probe[] = [];
   private cursor = 0;
   private silent: number[] = [];
+  private silentSorted = false;
   private silentCursor = 0;
   current: WalkRoute | null = null;
   /** The credential owner whose token the session holds. */
@@ -114,36 +124,47 @@ export class RouteState {
 
   // MARK: The walk
 
-  /** Starts a walk: every direct route is checked at once; a route waits only for its own check. */
+  /** Starts a walk: every direct route is checked at once, twice (the head start's check and the full one). */
   beginWalk(catalog: Catalog): void {
     this.reload(catalog);
-    this.walkEpoch++; this.walking = true; this.cursor = 0; this.silent = []; this.silentCursor = 0;
+    this.walkEpoch++; this.walking = true; this.cursor = 0; this.silent = []; this.silentSorted = false; this.silentCursor = 0;
     this.current = null; this.transient = null; this.blocked = null;
     this.order = usable(this.routes);
     const wanted = this.preferred;
     const at = wanted ? this.order.findIndex(route => route.id === wanted) : -1;
     if (at > 0) this.order.unshift(...this.order.splice(at, 1));
     this.switchingTo = this.preferred; this.preferred = null;
-    if (this.order.length <= 1) { this.results = [Promise.resolve('unchecked')]; return; }
+    if (this.order.length <= 1) { this.probes = [settledProbe('unchecked')]; return; }
     // A check rejects only when its answer was let go; `next` passes that on, and the checks it never reaches are handled here.
-    this.results = this.order.map(route => {
-      if (!direct(route)) return Promise.resolve<Check>('unchecked');
-      const checked = this.check(route);
-      checked.catch(() => undefined);
-      return checked;
+    this.probes = this.order.map(route => {
+      if (!direct(route)) return settledProbe('unchecked');
+      const probe: Probe = { head: this.check(route, CHECK_HEAD_START_MS), full: this.check(route), outcome: null };
+      probe.head.catch(() => undefined);
+      probe.full.then(outcome => { probe.outcome = outcome; }, () => undefined);
+      return probe;
     });
   }
 
-  /** The next route worth trying, in order; silent routes go last, since a check is not proof. null when none is left. */
+  /**
+   * The next route worth trying, in order. A route counts by its own check when that is in, else by the head start's;
+   * one silent by then goes to a second pass, where routes that answered late come before those still silent, since a
+   * check is not proof. null when none is left.
+   */
   async next(): Promise<WalkRoute | null> {
     const epoch = this.walkEpoch;
     while (this.cursor < this.order.length) {
-      const index = this.cursor;
-      const outcome = await this.results[index]!;
+      const index = this.cursor, probe = this.probes[index]!;
+      const outcome = probe.outcome ?? await Promise.race([probe.full, probe.head]);
       if (epoch !== this.walkEpoch) return null;
       this.cursor = Math.max(this.cursor, index + 1);
       if (outcome === 'silent') { this.silent.push(index); continue; }
       return this.current = this.order[index]!;
+    }
+    if (!this.silentSorted) {
+      const late = await Promise.all(this.silent.map(index => this.probes[index]!.full));
+      if (epoch !== this.walkEpoch) return null;
+      this.silentSorted = true;
+      this.silent = [...this.silent.filter((_, at) => late[at] !== 'silent'), ...this.silent.filter((_, at) => late[at] === 'silent')];
     }
     if (this.silentCursor < this.silent.length) return this.current = this.order[this.silent[this.silentCursor++]!]!;
     return this.current = null;
@@ -180,14 +201,14 @@ export class RouteState {
 
   // MARK: Checks
 
-  /** checkRoute: the public descriptor answers as this environment; no credential is sent. */
-  async check(route: WalkRoute): Promise<Check> {
+  /** checkRoute: the public descriptor answers as this environment within `timeoutMs`; no credential is sent. */
+  async check(route: WalkRoute, timeoutMs = CHECK_TIMEOUT_MS): Promise<Check> {
     if (!direct(route)) return 'unchecked';
     let url: string;
     try { url = path('/.well-known/t3/environment', parseOrigin(route.origin)); } catch { return 'silent'; }
     const expected = this.environmentId;
     try {
-      const reply = await this.http(url, { headers: { Accept: 'application/json' }, timeoutMs: CHECK_TIMEOUT_MS });
+      const reply = await this.http(url, { headers: { Accept: 'application/json' }, timeoutMs });
       const body = json(reply) as Record<string, unknown> | null | undefined;
       const ok = reply.status >= 200 && reply.status < 300 && typeof body?.environmentId === 'string' && (!expected || body.environmentId === expected);
       return ok ? 'answered' : 'silent';

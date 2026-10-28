@@ -22,7 +22,7 @@ import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from '../compose
 import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection'; // the sent selection
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../composer/composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from '../composer/composer-feedback';
-import { threadContextRecords, withMessageContext } from '../composer/composer-editor';
+import { messageContext, threadContextRecords, withMessageContext } from '../composer/composer-editor';
 import { projectPendingUserInputAnswer } from '../timeline/thread-links';
 import { holdSubmitting, questionDraftKey } from '../composer/question-attachments';
 import { pendingThreadImports } from '../composer/composer-thread-import';
@@ -44,6 +44,7 @@ import { autoBalanceSend } from '../composer/auto-balance';
 import { providersHost, routedNative } from '../providers/providers-scope';
 import { toggleModelFavorite } from '../providers/model-preferences';
 import { obj, str, arr, type Obj } from './domain';
+import { letGo } from './let-go';
 import { ClientError, activeRun, providerAvailable, modelSelection, sendPayload,
   launchPayload, type Native, type Files } from './protocol';
 
@@ -135,6 +136,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   };
   // What Send was pressed on: the approvals the composer showed, the follow-up behavior they make "steer", and the draft.
   const shownApprovals = composerRequests(this).approvals.map(approval => approval.requestId), followUp = followUpBehavior(this);
+  // The first approval shown takes the message as its decline's feedback when its agent can (useComposerSend.ts).
+  const feedbackTarget = feedbackApproval(this, shownApprovals[0]);
   const promptAtSend = this.local.drafts[this.draftKey] ?? '';
   // The Compact chip as the composer showed it when Send was pressed (read before the send's own writes make it busy).
   const compactOffered = !!selection.threadId && resumeCompactionTokens(this, composerNow(this), contextSnapshot(this.projection)) !== null;
@@ -188,12 +191,13 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   // An unstarted server thread set to New worktree starts in one with its first message (ChatView onSend).
   const setupQueue = sendQueuesBehindSetup(this);
   const serverWorkspace = selection.threadId && !setupQueue ? serverThreadWorkspace(this) : null;
+  if (selection.threadId && feedbackTarget && (attachmentsAtSend || messageContext(this, text))) throw new ClientError('Send approval feedback without attachments or added context.');
   const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
   assertOwner();
   const title = launchTitle(text, attachments); // onSend's titleSeed
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // a draft launches as its own id
   assertOwner();
-  if (selection.threadId && !(await declineForRedirect.call(this, native, storage, { shownApprovals, draftKey, prompts: [promptAtSend, value, text], attachmentsAtSend, owner: selection }))) return;
+  if (selection.threadId && !(await declineForRedirect.call(this, native, storage, { shownApprovals, feedbackTarget, text, draftKey, prompts: [promptAtSend, value, text], attachmentsAtSend, owner: selection }))) return;
   assertOwner();
   if (selection.threadId) {
     const key = this.draftKey, staged = stagedFor(this);
@@ -211,14 +215,16 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
         description: 'Send', threadId: selection.threadId, text, uncertain: false }, assertOwner);
     } else {
       // A stale Claude session compacts before this message, so the turn does not re-read the old history (the Compact chip,
-      // composer-controls-resume.ts). The message queues behind the /compact run, since steering into it is rejected.
-      const compactFirst = compactOffered && !keepsFullHistory(this, selection.threadId) && text.trim().toLowerCase() !== '/compact';
+      // composer-controls-resume.ts). The message queues behind the /compact run, since steering into it is rejected. A
+      // typed `/compact`, with or without instructions, is already the compaction.
+      const compactFirst = compactOffered && !keepsFullHistory(this, selection.threadId) && !COMPACT_COMMAND.test(text);
       const mode = compactFirst || setupQueue ? 'queue' : submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUp, intent === 'alternate', !isCompacting(this));
       const turnSelection = dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options));
       if (compactFirst) {
         const [compactCommandId, compactMessageId] = await this.ids(native, 2);
         assertOwner();
-        await this.dispatch(native, storage, withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), 'Compact context', assertOwner);
+        // T3 Code's own compaction says why it ran (OrchestrationV2IdleCompaction), so it reads as compacting after being idle.
+        await this.dispatch(native, storage, { ...withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), idleCompaction: 'onReturn' }, 'Compact context', assertOwner);
       }
       const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, outgoingText, attachments, title), text), mode, turnSelection);
       if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
@@ -248,29 +254,45 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     await this.openThread(native, this.threadId);
   }
 }
+/** COMPACT_COMMAND_PATTERN (ChatView.logic.ts): `/compact` alone or with instructions. */
+const COMPACT_COMMAND = /^\/compact(?:\s|$)/i;
 /** The draft's images and attached files, in order (draftChangedSinceSend compares both). */
 const attachmentIds = (client: T3Client, key: string) => [...(client.local.snapshotDrafts[key] ?? []).map(image => str(image.id)),
   ...draftFiles(client.local).filter(file => file.draftKey === key).map(file => str(file.id))].join('\n');
 const LEFT = Symbol('left the thread');
+/** derivePendingThreadRequests' `supportsFeedback` (threadRequests.ts): a live request whose agent reads a decline's feedback. */
+function feedbackApproval(client: T3Client, requestId: string | undefined): string {
+  const request = requestId ? arr(client.projection.runtimeRequests).find(entry => entry.id === requestId) : undefined;
+  const capability = obj(request?.responseCapability);
+  return request?.status === 'pending' && capability.type === 'live' && capability.supportsFeedback === true ? requestId! : '';
+}
 /**
  * ChatView onSend's redirect: a message sent while approvals are pending declines the approvals the composer showed,
  * here, after everything else accepted the send, so a local command or a refused draft leaves them alone. A draft
  * edited since Send, an approval already being answered, or one that arrived during the decline keeps the draft unsent
  * with a toast; a refused decline fails the send with its error, the draft kept. Leaving the thread meanwhile ends the
- * send silently: the approvals shown then are another thread's.
+ * send silently: the approvals shown then are another thread's. When the first approval shown takes feedback, the
+ * message declines it as that feedback instead (sendApprovalFeedback), and the draft clears once it is sent.
  */
-async function declineForRedirect(this: T3Client, native: Native, storage: Files, sent: { shownApprovals: string[]; draftKey: string; prompts: string[];
+async function declineForRedirect(this: T3Client, native: Native, storage: Files, sent: { shownApprovals: string[]; feedbackTarget: string; text: string; draftKey: string; prompts: string[];
   attachmentsAtSend: string; owner: { generation: number; environmentId: string; origin: string; threadId: string } }): Promise<boolean> {
   const left = () => sent.owner.generation !== this.generation || sent.owner.environmentId !== this.environmentId || sent.owner.origin !== this.origin || sent.owner.threadId !== this.threadId;
   if (left()) return false;
   const approvals = pendingRequests(this.projection).approvals.filter(approval => sent.shownApprovals.includes(approval.requestId));
-  if (!approvals.length) return true;
+  if (!approvals.length && !sent.feedbackTarget) return true;
   const changed = () => !sent.prompts.includes(this.local.drafts[sent.draftKey] ?? '') || attachmentIds(this, sent.draftKey) !== sent.attachmentsAtSend;
   const pendingBefore = pendingRequests(this.projection).approvals.map(approval => approval.requestId);
   const answering = this.pending?.payload.type === 'runtime-request.respond' ? str(this.pending.payload.requestId) : '';
   const responding = approvals.some(approval => approval.requestId === answering), changedBefore = changed();
-  const declined = !changedBefore && !responding;
   const stay = () => { if (left()) throw LEFT; };
+  if (sent.feedbackTarget) {
+    if (changedBefore || responding || !sent.text.trim()) return false;
+    const answered = await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: sent.owner.threadId,
+      requestId: sent.feedbackTarget, decision: 'decline', feedback: sent.text.trim() }, 'Decline approval', stay).then(() => true, error => { if (letGo(error)) throw error; return false; });
+    if (answered && !changed() && !left()) delete this.local.drafts[sent.draftKey];
+    return false;
+  }
+  const declined = !changedBefore && !responding;
   try {
     if (declined) await declinePendingApprovals(approvals, requestId => (stay(), dispatchRequest.call(this, native, storage,
       { type: 'runtime-request.respond', threadId: sent.owner.threadId, requestId, decision: 'decline' }, 'Decline approval', stay)));
