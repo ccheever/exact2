@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
-import { encodeMobileShellCache } from './mobile-client-cache-codec';
+import { encodeMobileShellCache, encodeMobileConfigCache } from './mobile-client-cache-codec';
 import { encodeMobileCatalogPayload, decodeMobileCatalogPayload, mobileCacheCatalogCurrent, mobileCacheCatalogIdentity, mobileCacheCatalogPrepare } from './mobile-client-cache-catalog';
 
 function fixture() {
@@ -70,11 +70,14 @@ test('catalog wrapper preserves native environment and rejects mismatched outer,
   const inner = encodeMobileShellCache(environmentId, { sequence: 7, projects: [], threads: [] });
   const encoded = encodeMobileCatalogPayload(catalog, inner), record = JSON.parse(encoded);
   expect(record.environmentId).toBe(environmentId);
+  expect(record.format).toBe(2);
+  expect(record.payload).toEqual(JSON.parse(inner));
   expect(decodeMobileCatalogPayload(encoded, catalog)).toBe(inner);
   const missing = { ...record }; delete missing.environmentId;
   const other = encodeMobileShellCache('other', { sequence: 0, projects: [], threads: [] });
   for (const changed of [missing, { ...record, environmentId: 'other' }, { ...record, catalogIdentity: '["other","https://source.invalid"]' },
-    { ...record, payload: other }, { ...record, payload: '{}' }, { ...record, payload: 'null' }, { ...record, payload: 'invalid-json' }])
+    { ...record, payload: JSON.parse(other) }, { ...record, payload: {} }, { ...record, payload: null },
+    { ...record, payload: [] }, { ...record, payload: inner }, { ...record, format: 1, payload: inner }])
     expect(decodeMobileCatalogPayload(JSON.stringify(changed), catalog)).toBeNull();
   expect(() => encodeMobileCatalogPayload(catalog, other)).toThrow('environment changed');
   expect(() => encodeMobileCatalogPayload(catalog, '{}')).toThrow('environment changed');
@@ -83,4 +86,14 @@ test('catalog wrapper preserves native environment and rejects mismatched outer,
     expect(() => encodeMobileCatalogPayload(invalid, inner)).toThrow();
     expect(decodeMobileCatalogPayload(encoded, invalid)).toBeNull();
   }
+});
+
+test('quoted catalogues fit the native request budget without losing config', () => {
+  const environmentId = 'large-catalogue', catalog = mobileCacheCatalogIdentity([{ environmentId, origin: 'https://source.invalid' }], environmentId);
+  const config = { environment: { environmentId }, providers: [{ instanceId: 'provider', workspaceSnapshots: [{ cwd: '/repo',
+    slashCommands: Array.from({ length: 1000 }, (_, index) => ({ name: `command-${index}`, description: '\\"'.repeat(300) + ' 🧭\ntext' })) }] }] };
+  const inner = encodeMobileConfigCache(environmentId, config), payload = encodeMobileCatalogPayload(catalog, inner);
+  const body = JSON.stringify({ op: 'mobileClientCache', action: 'write', environmentId, kind: 'server-config', key: 'config', ticket: 'ticket', schemaVersion: 1, payload });
+  expect(new TextEncoder().encode(body).byteLength).toBeLessThan(4 * 1024 * 1024);
+  expect(JSON.parse(decodeMobileCatalogPayload(payload, catalog) ?? 'null')).toEqual(JSON.parse(inner));
 });

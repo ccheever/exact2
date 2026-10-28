@@ -134,9 +134,9 @@ test('only synchronized live entries persist, after ticket, as immutable values'
   const held = delay(f, 'ticket', 'shell'), pending = f.sync(); await held.entered;
   f.shell.projects[0]!.title = 'Latest capture'; held.resolve(); await pending;
   const writes = f.calls.filter(call => call.action === 'write'); expect(writes).toHaveLength(2);
-  expect(JSON.parse(JSON.parse(String(writes[0]!.payload)).payload).snapshot.projects[0].title).toBe('Latest capture');
+  expect(JSON.parse(String(writes[0]!.payload)).payload.snapshot.projects[0].title).toBe('Latest capture');
   f.shell.projects[0]!.title = 'Later mutation';
-  expect(JSON.parse(JSON.parse(String(writes[0]!.payload)).payload).snapshot.projects[0].title).toBe('Latest capture');
+  expect(JSON.parse(String(writes[0]!.payload)).payload.snapshot.projects[0].title).toBe('Latest capture');
   expect(f.display()).toEqual([]);
 });
 
@@ -306,7 +306,7 @@ test('a late superseded fleet write leaves the latest snapshot retryable until d
   await f.sync(); held.resolve(); await old;
   const before = f.calls.filter(call => call.action === 'write').length; await f.sync();
   expect(writtenKinds(f.calls).slice(before)).toEqual(['shell']);
-  expect(JSON.parse(JSON.parse(f.payloads.get(`${f.environmentId}:shell`)!).payload).snapshot.snapshotSequence).toBe(22);
+  expect(JSON.parse(f.payloads.get(`${f.environmentId}:shell`)!).payload.snapshot.snapshotSequence).toBe(22);
   const repaired = f.calls.length; await f.sync();
   expect(f.calls.slice(repaired).every(call => call.action === 'ticket')).toBe(true);
 });

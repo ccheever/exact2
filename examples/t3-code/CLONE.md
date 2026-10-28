@@ -139,8 +139,16 @@ the JavaScript turn budget. An instrumented drive finds repeated connection
 serialization of about 3.77 million characters. Outbox rendering now computes
 that stamp only for waiting tasks that need it; those tasks retain the complete
 comparison. Its regression fails the previous source, and all 40 outbox tests pass.
-Strict TypeScript, boot and the normal native build pass. A separate oversized
-server-config cache request remains unresolved. No phone parity or new TestFlight
+Strict TypeScript, boot and the normal native build pass.
+The oversized server-config cache write now carries a structured format-2 catalog
+payload, removing one JSON escape layer without filtering display data. The live
+native host accepts the complete 3,958,101-byte request; SQLite reports a successful,
+nonstale write. Catalog provenance, storage tickets, conditional removal and native
+size limits remain unchanged. Old disposable wrappers use existing conditional
+cleanup. All 157 cache tests and 86 native cache checks pass. The full mobile suite
+passes 3,722 tests. Temporary probes are removed; the normal build restores the
+saved environment, conversation and photo reply after restart. Actual delivery
+still compares complete server configurations. No phone parity or new TestFlight
 checkpoint is claimed.
 The inactive native NewTask editor prerequisite reserves eight final-source slots
 and retains teardown receipts until explicit acknowledgment. Its actual UIKit

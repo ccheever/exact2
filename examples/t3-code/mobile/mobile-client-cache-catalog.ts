@@ -28,15 +28,16 @@ function catalogEnvironment(catalogIdentity: string): string {
 }
 export function encodeMobileCatalogPayload(catalogIdentity: string, payload: string): string {
   const environmentId = catalogEnvironment(catalogIdentity);
-  if (obj(JSON.parse(payload)).environmentId !== environmentId) throw new Error('Mobile cache payload environment changed.');
+  const snapshot = obj(JSON.parse(payload));
+  if (snapshot.environmentId !== environmentId) throw new Error('Mobile cache payload environment changed.');
   // The native store validates this top-level field before accepting any bytes.
-  return JSON.stringify({ format: 1, environmentId, catalogIdentity, payload });
+  return JSON.stringify({ format: 2, environmentId, catalogIdentity, payload: snapshot });
 }
 export function decodeMobileCatalogPayload(payload: string, catalogIdentity: string): string | null {
   try {
     const environmentId = catalogEnvironment(catalogIdentity), record = obj(JSON.parse(payload));
-    return record.format === 1 && record.environmentId === environmentId && record.catalogIdentity === catalogIdentity
-      && typeof record.payload === 'string' && obj(JSON.parse(record.payload)).environmentId === environmentId ? record.payload : null;
+    return record.format === 2 && record.environmentId === environmentId && record.catalogIdentity === catalogIdentity
+      && obj(record.payload).environmentId === environmentId ? JSON.stringify(record.payload) : null;
   } catch { return null; }
 }
 function observe(owner: object, rows: readonly Obj[]): Catalog {

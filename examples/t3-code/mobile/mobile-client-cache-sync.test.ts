@@ -160,9 +160,9 @@ test('capture waits for a ticket and writes immutable live data only', async () 
   f.shell.projects[0]!.title = 'Latest before ticket'; held.resolve(); await syncing;
   const writes = f.calls.filter(call => call.action === 'write'); expect(writes).toHaveLength(1);
   const written = String(writes[0]!.payload);
-  expect(JSON.parse(JSON.parse(written).payload).snapshot.projects[0].title).toBe('Latest before ticket');
+  expect(JSON.parse(written).payload.snapshot.projects[0].title).toBe('Latest before ticket');
   f.shell.projects[0]!.title = 'Changed after capture';
-  expect(JSON.parse(JSON.parse(written).payload).snapshot.projects[0].title).toBe('Latest before ticket');
+  expect(JSON.parse(written).payload.snapshot.projects[0].title).toBe('Latest before ticket');
 });
 
 test('scope change while waiting for ticket refuses write', async () => {
@@ -350,7 +350,7 @@ test('unchanged focused snapshots reread native tickets without serializing or r
   expect(f.client.thread.historyExpanded).toBe(true);
   await f.sync(); expect(persistedKinds(f.calls)).toHaveLength(6);
   const lastThreadWrite = f.calls.filter(call => call.action === 'write' && call.kind === 'thread').at(-1)!;
-  expect(JSON.parse(JSON.parse(String(lastThreadWrite.payload)).payload).snapshot.historyCursor).toBe('opaque');
+  expect(JSON.parse(String(lastThreadWrite.payload)).payload.snapshot.historyCursor).toBe('opaque');
   f.client.thread = f.thread; await f.sync();
   expect(persistedKinds(f.calls).at(-1)).toBe('thread');
   expect(persistedKinds(f.calls)).toHaveLength(7);
@@ -368,7 +368,7 @@ test.each(['preparing', 'starting', 'running'])('a %s run skips thread publicati
   } });
   await f.sync();
   expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
-  expect(JSON.parse(JSON.parse(String(f.calls.at(-1)!.payload)).payload).snapshot.projection.runs[0].status).toBe('completed');
+  expect(JSON.parse(String(f.calls.at(-1)!.payload)).payload.snapshot.projection.runs[0].status).toBe('completed');
 });
 
 test.each(['waiting', 'failed', 'interrupted', 'completed'])('source permits settled publication for %s run status', async status => {
@@ -397,7 +397,7 @@ test('expanded history stays lossless in memory, skips disk publication across l
     historyCursor: 'new-boundary', hasMoreHistory: true, latestLocalTurnOrdinal: 100 });
   expect(f.client.thread.historyExpanded).toBeUndefined(); expect(f.client.thread.projection).toBe(fullProjection);
   await f.sync(); expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
-  const wire = JSON.parse(JSON.parse(String(f.calls.at(-1)!.payload)).payload).snapshot;
+  const wire = JSON.parse(String(f.calls.at(-1)!.payload)).payload.snapshot;
   expect(wire.projection.turnItems[0].output).toBe(output); expect(wire.historyCursor).toBe('new-boundary');
 });
 
@@ -473,7 +473,7 @@ test('a late superseded focused write leaves the latest snapshot retryable until
   await f.sync(); held.resolve(); await old;
   const before = f.calls.filter(call => call.action === 'write').length; await f.sync();
   expect(persistedKinds(f.calls).slice(before)).toEqual(['shell']);
-  expect(JSON.parse(JSON.parse(f.payloads.shell!).payload).snapshot.snapshotSequence).toBe(22);
+  expect(JSON.parse(f.payloads.shell!).payload.snapshot.snapshotSequence).toBe(22);
   const repaired = f.calls.length; await f.sync();
   expect(f.calls.slice(repaired).every(call => call.action === 'ticket')).toBe(true);
 });
