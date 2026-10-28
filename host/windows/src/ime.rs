@@ -5,8 +5,6 @@ use std::{cell::Cell, rc::Rc};
 use winit::{
     dpi::{LogicalPosition, LogicalSize},
     event::Ime,
-    event_loop::EventLoopBuilder,
-    platform::windows::EventLoopBuilderExtWindows,
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::Window,
 };
@@ -21,14 +19,11 @@ pub(super) struct InputMethod {
 }
 
 impl InputMethod {
-    pub(super) fn install<T: 'static>(builder: &mut EventLoopBuilder<T>) -> Self {
-        let this = Self::default();
-        let hwnd = this.hwnd.clone();
-        builder.with_msg_hook(move |message| {
+    pub(super) fn message_hook(&self) -> impl Fn(*const std::ffi::c_void) + 'static {
+        let hwnd = self.hwnd.clone();
+        move |message| {
             complete_before_pointer(message, hwnd.get());
-            false
-        });
-        this
+        }
     }
 
     pub(super) fn sync<D: DataSource>(&mut self, window: &Window, presenter: &Presenter<D>) {

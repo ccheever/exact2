@@ -144,13 +144,8 @@ mod imp {
     }
 
     impl Desktop {
-        /// The services for app `name`, its `WM_HOTKEY` heard through the
-        /// loop's message hook.
-        pub(crate) fn install<T: 'static>(
-            name: &str,
-            builder: &mut winit::event_loop::EventLoopBuilder<T>,
-        ) -> Rc<Desktop> {
-            use winit::platform::windows::EventLoopBuilderExtWindows;
+        /// The services for app `name`.
+        pub(crate) fn install(name: &str) -> Rc<Desktop> {
             let args: Vec<String> = std::env::args().collect();
             let desktop = Rc::new(Desktop {
                 name: name.to_owned(),
@@ -160,16 +155,16 @@ mod imp {
                 launch: super::login_launch(&args),
                 wake: RefCell::new(None),
             });
-            let heard = desktop.clone();
-            builder.with_msg_hook(move |message| {
-                let message = unsafe { &*(message as *const MSG) };
-                if message.message == WM_HOTKEY && message.hwnd.is_null() {
-                    heard.pressed(message.wParam as i32);
-                }
-                false
-            });
             exact_linux::desktop::install(desktop.clone());
             desktop
+        }
+
+        /// Hear thread hot keys from the loop's shared message hook.
+        pub(crate) fn message(&self, message: *const std::ffi::c_void) {
+            let message = unsafe { &*(message as *const MSG) };
+            if message.message == WM_HOTKEY && message.hwnd.is_null() {
+                self.pressed(message.wParam as i32);
+            }
         }
 
         /// The window whose taskbar button attention flashes.

@@ -15,6 +15,7 @@ use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
+    platform::windows::EventLoopBuilderExtWindows,
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{CursorIcon, Fullscreen, Theme, Window, WindowId},
 };
@@ -180,8 +181,16 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         config.size = (opening.width, opening.height);
     }
     let mut builder = EventLoop::<crate::accessibility::Event>::with_user_event();
-    let ime = crate::ime::InputMethod::install(&mut builder);
-    let desktop = crate::desktop::Desktop::install(name, &mut builder);
+    let ime = crate::ime::InputMethod::default();
+    let desktop = crate::desktop::Desktop::install(name);
+    let ime_message = ime.message_hook();
+    let desktop_message = desktop.clone();
+    // Winit keeps one hook; replacing it would lose composition completion on clicks.
+    builder.with_msg_hook(move |message| {
+        ime_message(message);
+        desktop_message.message(message);
+        false
+    });
     let event_loop = match builder.build() {
         Ok(value) => value,
         Err(e) => {
