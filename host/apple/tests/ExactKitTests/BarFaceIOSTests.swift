@@ -64,8 +64,8 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertGreaterThan(image.size.width, 14 + 5)
     }
 
-    /// A face read while UIKit dims tints takes its colours as written: the bar item's image is
-    /// baked once, UIKit leaves it undimmed, and it stays as baked when the dimming ends
+    /// A face read while UIKit dims tints takes its colours as written: UIKit keeps the image baked
+    /// from them undimmed, and after the dimming ends
     func testAFaceReadWhileDimmedKeepsItsColours() throws {
         let red: [Double] = [255, 59, 48, 255]
         let (p, node) = button([dot, label(["text_color": red, "written": ["text_color"]])])

@@ -30,6 +30,7 @@ final class TintDimmingIOSTests: XCTestCase {
             dim(p, true)
             p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityLabel": "Go now"]]]))
             p.controls.sync()
+            assertChannels(try components(try XCTUnwrap(button.written?.accent).cgColor), red, "the accent (\(accent)) the button keeps while dimmed")
             dim(p, false)
             assertChannels(try components(button.tintColor.cgColor), red, "the accent (\(accent)) the button shows once the dimming ends")
         }
@@ -266,11 +267,7 @@ final class TintDimmingIOSTests: XCTestCase {
         let session = ExactApp.shared.makeSession(label: "dim-placeholder-\(UUID().uuidString)")
         defer { session.destroy() }
         let p = session.presenter
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
-        window.overrideUserInterfaceStyle = .light
-        p.viewport.frame = window.bounds
-        window.addSubview(p.viewport)
-        window.makeKeyAndVisible()
+        mount(p)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
             ["op": "create", "id": 2, "kind": "input", "handlers": ["change"], "props": ["placeholder": "Garage"], "style": ["placeholder_color": red]],
@@ -816,11 +813,7 @@ final class TintDimmingIOSTests: XCTestCase {
         let session = ExactApp.shared.makeSession(label: "dim-field-\(UUID().uuidString)")
         defer { session.destroy() }
         let p = session.presenter
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
-        window.overrideUserInterfaceStyle = .light
-        p.viewport.frame = window.bounds
-        window.addSubview(p.viewport)
-        window.makeKeyAndVisible()
+        mount(p)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": blue, "written": ["background_color"]]],
             ["op": "create", "id": 2, "kind": "input", "handlers": ["change"], "props": ["value": "Garage"], "style": ["text_color": red, "written": ["text_color"]]],
@@ -853,13 +846,18 @@ final class TintDimmingIOSTests: XCTestCase {
     private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:]) -> Presenter {
         let p = Presenter()
         p.buttonFace = { faces[$0] ?? ButtonFace() }
+        mount(p)
+        p.apply(wireBatch(ops))
+        return p
+    }
+
+    /// Mounts `p`'s viewport in a new light window of 400 points
+    private func mount(_ p: Presenter) {
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         window.overrideUserInterfaceStyle = .light
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
-        p.apply(wireBatch(ops))
-        return p
     }
 
     /// A box the host sends flat: only its fill and size, which its author wrote
