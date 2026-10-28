@@ -109,7 +109,9 @@ describe('background work (151c241cd2, a5b34b2537)', () => {
     expect(presentBackgroundWork([{ kind: 'command', description: 'Start the dev server' }])).toEqual({ title: 'Running: Start the dev server', description: '', waiting: false, segments: [] });
     expect(presentBackgroundWork([{ kind: 'command' }])!.title).toBe('Running a command');
     expect(presentBackgroundWork([{ kind: 'command' }, { kind: 'command', description: 'b' }])).toMatchObject({ title: 'Running 2 commands', waiting: false });
-    expect(presentBackgroundWork([{ kind: 'monitor' }])).toMatchObject({ title: 'Waiting on a monitor', waiting: true });
+    // A monitor waits only when the agent awaits it (91ea0e18eb); unmarked, it runs as a command does.
+    expect(presentBackgroundWork([{ kind: 'monitor', awaited: true }])).toMatchObject({ title: 'Waiting on a monitor', waiting: true });
+    expect(presentBackgroundWork([{ kind: 'monitor' }])).toMatchObject({ title: 'Running a monitor', waiting: false });
   });
   test('the banner dot is static for commands and pulses otherwise', async () => {
     const { client } = await opened();

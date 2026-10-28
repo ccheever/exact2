@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
-import { applyDeviceSnapshot, resetLaunch, visibleMini } from '../../src/device/floating-player';
+import { applyDeviceSnapshot, resetLaunch, threadDevices, visibleMini } from '../../src/device/floating-player';
 import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import { surfaceStore } from '../../src/panel/panel-surfaces';
 import { closeMiniDevice, floatMiniDevice, miniDeviceOf, miniStoreOf, deviceMini } from '../../src/device/device-session';
@@ -54,6 +54,20 @@ describe('floating device preview (shouldRenderPreviewMiniPlayer)', () => {
     expect(visibleMini(mini, { hostId: 'local', deviceId: 'OTHER', platform: 'ios', name: '' }).show).toBe(true);
     expect(visibleMini(mini, { hostId: 'other', deviceId: 'IPHONE', platform: 'ios', name: '' }).show).toBe(true);
     expect(visibleMini(mini, undefined).show).toBe(true);
+  });
+});
+
+// agentOpenedPreviews.ts startAgentOpenedPreviews: watchEnvironmentDevices follows every connected environment.
+describe('a background environment\'s devices', () => {
+  test('a device an agent opens in a background environment\'s thread floats over that thread', async () => {
+    resetLaunch();
+    const client = thread('t1', 'env'), source = new EnvironmentFleet();
+    const background = { environmentId: 'env-b', phase: 'connected', generation: 1, synchronized: 1, shell: { projects: [], threads: [{ id: 'bt1' }] }, deviceState: state([]) };
+    source.entries.set('https://box.example.com\nenv-b', background as never);
+    await threadDevices(client, null, false, source); // the baseline
+    background.deviceState = state([open('bt1')]);
+    await threadDevices(client, null, false, source);
+    expect(miniDeviceOf(client, 'bt1')).toMatchObject({ deviceId: 'IPHONE' });
   });
 });
 

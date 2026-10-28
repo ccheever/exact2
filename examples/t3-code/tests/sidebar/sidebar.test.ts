@@ -108,7 +108,7 @@ describe('sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/t
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'running', blockedOnThreadWait: true }))).toBe('waiting');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'running', blockedOnThreadWait: false }))).toBe('working');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'running', blockedOnThreadWait: true, pendingRuntimeRequest: { kind: 'command_approval' } }))).toBe('approval');
-    expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'completed', pendingBackgroundTasks: [{ id: 'x' }] }))).toBe('waiting');
+    expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'completed', pendingBackgroundTasks: [{ id: 'x', kind: 'background_task' }] }))).toBe('waiting');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'failed', lastErrorClass: 'usage_limit' }))).toBe('limited');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'failed' }))).toBe('failed');
     expect(sidebarStatus(shell('a', { latestRunId: 'r', status: 'completed' }))).toBe('ready');
@@ -488,7 +488,8 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     const tracked = fake([shell('a', { updatedAt: iso(-10), lastVisitedAt: iso(-60_000) })], { threadId: 'a' });
     visitOpenThread(tracked.client, native); visitOpenThread(tracked.client, native);
     return new Promise<void>(resolve => setTimeout(() => {
-      expect(strip(tracked.dispatched)).toEqual([{ type: 'thread.visit', threadId: 'a', visitedAt: iso(-10) }]);
+      // The first visit carries `opened` too unless the window opened this thread minutes ago (visit-open-thread.test.ts).
+      expect(strip(tracked.dispatched).map(({ opened: _opened, ...visit }) => visit)).toEqual([{ type: 'thread.visit', threadId: 'a', visitedAt: iso(-10) }]);
       const local = fake([shell('b', { updatedAt: iso(-5) })], { threadId: 'b', caps: { threadVisitedTracking: false } });
       visitOpenThread(local.client, native);
       expect(sidebarPrefs(local.client).visited.b).toBe(iso(-5));

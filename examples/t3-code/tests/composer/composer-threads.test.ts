@@ -51,7 +51,9 @@ describe('server-owned setup and compaction', () => {
     expect(isCompacting(client)).toBe(false);
   });
   test('a named monitor shows its descriptive label once', () => {
-    expect(presentBackgroundWork([{ kind: 'monitor', description: 'Waiting for checks' }])?.title).toBe('Waiting for checks');
+    // An awaited monitor is waited on; one the agent left unmarked runs (91ea0e18eb).
+    expect(presentBackgroundWork([{ kind: 'monitor', description: 'Waiting for checks', awaited: true }])?.title).toBe('Waiting for checks');
+    expect(presentBackgroundWork([{ kind: 'monitor', description: 'Dev server watchdog' }])).toMatchObject({ title: 'Running: Dev server watchdog', waiting: false });
     expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review' }])?.title).toBe('Waiting on subagent Review');
   });
 });
