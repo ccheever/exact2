@@ -265,6 +265,9 @@ final class T3MobileModule: ExactModule {
         if request["op"] as? String == "composerEditorFinalizations" {
             reply.send(composerOperations.performFinalizations(request)); return
         }
+        if request["op"] as? String == "composerEditorHandoff" {
+            reply.send(composerOperations.performHandoff(request)); return
+        }
         if request["op"] as? String == "forgetEnvironment" {
             forgetEnvironment(request, reply: reply)
             return

@@ -4,7 +4,7 @@
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-focus-restoration
 import UIKit
 
-struct ComposerTokenPayload: Decodable {
+struct ComposerTokenPayload: Codable, Equatable {
   let type: String
   let source: String
   let label: String

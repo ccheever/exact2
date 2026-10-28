@@ -71,6 +71,9 @@ final class ComposerEditorUIKitTests {
         do { try await voiceCapture() } catch { check(false, "voice capture threw: \(error)") }
         do { try await richObservation() } catch { check(false, "rich observation threw: \(error)") }
         do { try bundledIcons() } catch { check(false, "bundled icons threw: \(error)") }
+        for (name, body) in [("handoff transitions", handoffTransitions), ("held retirement", heldRetirement), ("handoff refusal", handoffRefusal), ("handoff Undo", handoffUndo), ("rebased handoff Undo", handoffRebasedTokens)] {
+            do { try body() } catch { check(false, "\(name) threw: \(error)") }
+        }
         do { try finalSourceRecovery() } catch { check(false, "final source recovery threw: \(error)") }
         do { try registryLifetime() } catch { check(false, "registry lifetime threw: \(error)") }
         for port in instances { port.destroy(); port.view.removeFromSuperview() }
@@ -338,6 +341,189 @@ final class ComposerEditorUIKitTests {
         check(replacement.composerIdentity?.owner == owner && replacement.composerEventCount == 1, "Failed admission can retry after successful save")
         replacement.destroy(); replacement.view.removeFromSuperview()
         check(receipts().isEmpty, "Destroying an unacknowledged seed does not retain another source")
+    }
+
+    private func handoffRequest(_ port: T3MobileComposerEditor, retireUndo: Bool, revision: Int = 1) -> [String: Any] {
+        ["op": "composerEditorHandoff", "generation": 3, "identity": port.composerIdentity!.json,
+         "action": "freeze", "operationId": UUID().uuidString, "operationRevision": revision, "retireUndo": retireUndo]
+    }
+    private func sourceReceipts() -> [[String: Any]] {
+        let result = operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 3, "action": "read"])
+        return (result["value"] as? [String: Any])?["receipts"] as? [[String: Any]] ?? []
+    }
+    private func saveReceipt(_ id: String) {
+        _ = operations.performFinalizations(["op": "composerEditorFinalizations", "generation": 3, "action": "acknowledge", "receiptId": id])
+    }
+    private func resumeRequest(_ freeze: [String: Any], receipt: [String: Any], value: String, tokens: String = "[]") -> [String: Any] {
+        var result = freeze; result.removeValue(forKey: "retireUndo")
+        result["action"] = "resume"; result["receiptId"] = receipt["receiptId"]
+        result["document"] = ["value": value, "selection": ["start": value.utf16.count, "end": value.utf16.count], "tokensJson": tokens, "isNativeEcho": false]
+        return result
+    }
+    private func handoffTransitions() throws {
+        let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:handoff", "birth"])
+        let tokens = try json([["type": "file", "source": "@file", "label": "file", "start": 3, "end": 8]])
+        var (port, control) = try makePort("🙂 @file", selection: 8, tokens: tokens, owner: owner)
+        try acknowledge(port, &control)
+        let view = editor(port), text = view.textView
+        text.becomeFirstResponder()
+        text.textStorage.append(NSAttributedString(string: " latest")); text.selectedRange = NSRange(location: text.textStorage.length, length: 0)
+        view.textViewDidChange(text)
+        let before = port.composerEventCount, freeze = handoffRequest(port, retireUndo: false)
+        let response = operations.performHandoff(freeze), receipt = (response["value"] as? [String: Any])?["receipt"] as? [String: Any]
+        guard let receipt, let receiptId = receipt["receiptId"] as? String else { check(false, "Freeze returns a native source receipt"); return }
+        let event = receipt["event"] as! [String: Any], source = "🙂 @file latest"
+        check(event["value"] as? String == source && event["eventCount"] as? Int == before + 1, "Freeze captures latest unacknowledged UIKit source and chip offsets")
+        check(!text.isEditable && !view.isUserInteractionEnabled && text.isReadOnly && !text.isFirstResponder && !text.pasteAllowed() && !port.composerMounted,
+              "Freeze synchronously retires every interactive writer and focus")
+        let frozenCount = port.composerEventCount
+        check((operations.performHandoff(freeze)["value"] as? NSDictionary) == response["value"] as? NSDictionary && port.composerEventCount == frozenCount,
+              "Lost freeze reply replays its exact receipt without a new event")
+        control["mountId"] = port.composerIdentity!.mountId; control["acknowledgedEventCount"] = frozenCount
+        control["document"] = ["value": "stale props", "selection": ["start": 0, "end": 0], "tokensJson": "[]", "isNativeEcho": false]
+        control["focusIntent"] = ["serial": "frozen-focus", "attempt": 0, "operation": "focus"]
+        try apply(port, control)
+        check(port.composerSnapshot?.value == source && !text.isEditable && !text.isFirstResponder, "Acknowledged stale props cannot rewrite, thaw or refocus a held editor")
+        let replacement: [String: Any] = ["op": "composerEditorApply", "generation": 3, "identity": port.composerIdentity!.json,
+            "command": command(port, id: "held-command", revision: 1, value: "not allowed", caret: 0)]
+        check((operations.perform(replacement)["error"] as? [String: Any])?["kind"] as? String == "busy" && port.composerSnapshot?.value == source,
+              "Legacy native replacement cannot cross a frozen NewTask handoff")
+        let oldItems = UIPasteboard.general.items; defer { UIPasteboard.general.items = oldItems }
+        UIPasteboard.general.string = "not allowed"
+        text.paste(nil)
+        check(port.composerSnapshot?.value == source && port.composerEventCount == frozenCount, "Actual paste cannot mutate or publish through a held editor")
+        let producer = source + " imported", resume = resumeRequest(freeze, receipt: receipt, value: producer, tokens: tokens)
+        check((operations.performHandoff(resume)["error"] as? [String: Any])?["kind"] as? String == "busy" && !text.isEditable,
+              "Resume refuses an unpersisted frozen source")
+        saveReceipt(receiptId)
+        let resumed = operations.performHandoff(resume)
+        check(resumed["ok"] as? Bool == true && port.composerSnapshot?.value == producer && text.isEditable && view.isUserInteractionEnabled && !text.isReadOnly,
+              "Acknowledgment hands writing back with the producer's explicit source document")
+        text.textStorage.append(NSAttributedString(string: "!")); text.selectedRange = NSRange(location: text.textStorage.length, length: 0); view.textViewDidChange(text)
+        let typedCount = port.composerEventCount
+        check((operations.performHandoff(resume)["value"] as? NSDictionary) == resumed["value"] as? NSDictionary
+              && port.composerSnapshot?.value == producer + "!" && port.composerEventCount == typedCount,
+              "Lost resume reply replays without restoring older source over new typing")
+        check((operations.performHandoff(freeze)["error"] as? [String: Any])?["kind"] as? String == "superseded", "Completed freeze cannot suspend the resumed writer again")
+        port.destroy(); port.view.removeFromSuperview()
+        let final = sourceReceipts().first!
+        check((final["event"] as? [String: Any])?["value"] as? String == producer + "!" && final["retired"] as? Bool == true,
+              "Resumed native teardown retains the newest source rather than its older frozen copy")
+        saveReceipt(final["receiptId"] as! String)
+    }
+    private func heldRetirement() throws {
+        let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:held-retirement", "birth"])
+        var (port, control) = try makePort("captured", selection: 8, owner: owner)
+        try acknowledge(port, &control)
+        let freeze = handoffRequest(port, retireUndo: false)
+        let receipt = (operations.performHandoff(freeze)["value"] as! [String: Any])["receipt"] as! [String: Any]
+        port.destroy(); port.view.removeFromSuperview()
+        let retained = sourceReceipts().first!
+        check(retained["receiptId"] as? String == receipt["receiptId"] as? String && retained["retired"] as? Bool == true
+              && retained["event"] as? NSDictionary == receipt["event"] as? NSDictionary, "Destroying a frozen port retains the exact outstanding handoff and marks it retired")
+        let reconnectOwner = try json(["ordinary", "https://t3.test", "environment", 4, "new-task:held-retirement", "birth"])
+        do { _ = try makePort("older saved source", selection: 0, owner: reconnectOwner); check(false, "Reconnect admitted a second writer") }
+        catch { check((error as? T3ComposerOperationFailure)?.kind == "busy", "A different transport generation cannot bypass an unsaved native source") }
+        saveReceipt(retained["receiptId"] as! String)
+        var (savedPort, savedControl) = try makePort("saved source", selection: 12, owner: reconnectOwner)
+        try acknowledge(savedPort, &savedControl)
+        let savedFreeze = handoffRequest(savedPort, retireUndo: false)
+        let savedReceipt = (operations.performHandoff(savedFreeze)["value"] as! [String: Any])["receipt"] as! [String: Any]
+        saveReceipt(savedReceipt["receiptId"] as! String)
+        savedPort.destroy(); savedPort.view.removeFromSuperview()
+        check(sourceReceipts().isEmpty, "Teardown after a saved handoff cannot publish stale source after another producer")
+    }
+    private func handoffRefusal() throws {
+        let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:handoff-refusal", "birth"])
+        var (port, control) = try makePort("draft", selection: 5, owner: owner)
+        try acknowledge(port, &control)
+        let view = editor(port), text = view.textView
+        text.becomeFirstResponder(); text.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0))
+        let freeze = handoffRequest(port, retireUndo: true)
+        check((operations.performHandoff(freeze)["error"] as? [String: Any])?["kind"] as? String == "busy" && text.isEditable && text.markedTextRange != nil,
+              "Freeze refuses active composition without changing writer authority")
+        text.unmarkText()
+        let commandId = "handoff-command", invocation: [String: Any] = ["op": "composerEditorApply", "generation": 3, "identity": port.composerIdentity!.json,
+            "command": command(port, id: commandId, revision: 1, value: "with file", caret: 9)]
+        check(operations.perform(invocation)["ok"] as? Bool == true, "Replacement prepares an unsettled native command")
+        check((operations.performHandoff(freeze)["error"] as? [String: Any])?["kind"] as? String == "busy" && text.isEditable,
+              "Freeze cannot erase or bypass an unsettled replacement outcome")
+        try acknowledge(port, &control, terminal: commandId)
+        let receipt = (operations.performHandoff(freeze)["value"] as! [String: Any])["receipt"] as! [String: Any]
+        check(text.undoManager?.canUndo != true, "Destructive handoff retires native Undo before bytes can be removed")
+        saveReceipt(receipt["receiptId"] as! String)
+        let resume = resumeRequest(freeze, receipt: receipt, value: "after removal")
+        check(operations.performHandoff(resume)["ok"] as? Bool == true && text.undoManager?.canUndo != true, "Destructive resume cannot register restoration of removed source")
+        text.undoManager?.undo()
+        check(port.composerSnapshot?.value == "after removal", "Native Undo cannot restore removed references after destructive handoff")
+        port.destroy(); port.view.removeFromSuperview(); saveReceipt(sourceReceipts().first!["receiptId"] as! String)
+    }
+    private func handoffUndo() throws {
+        let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:handoff-undo", "birth"])
+        var (port, control) = try makePort("draft", selection: 5, owner: owner)
+        try acknowledge(port, &control)
+        let text = editor(port).textView
+        text.becomeFirstResponder()
+        let invocation: [String: Any] = ["op": "composerEditorApply", "generation": 3, "identity": port.composerIdentity!.json,
+            "command": command(port, id: "undo-handoff", revision: 1, value: "typed draft", caret: 11)]
+        _ = operations.perform(invocation); try acknowledge(port, &control, terminal: "undo-handoff")
+        let undo = text.undoManager!
+        while undo.groupingLevel > 0 { undo.endUndoGrouping() }
+        let freeze = handoffRequest(port, retireUndo: false)
+        let receipt = (operations.performHandoff(freeze)["value"] as! [String: Any])["receipt"] as! [String: Any]
+        check(undo.canUndo, "Nondestructive freeze keeps the existing Undo history")
+        saveReceipt(receipt["receiptId"] as! String)
+        _ = operations.performHandoff(resumeRequest(freeze, receipt: receipt, value: "typed draft"))
+        check(undo.canUndo, "Unchanged-source resume preserves the existing Undo history")
+        let insertion = handoffRequest(port, retireUndo: false, revision: 2)
+        let insertionReceipt = (operations.performHandoff(insertion)["value"] as! [String: Any])["receipt"] as! [String: Any]
+        saveReceipt(insertionReceipt["receiptId"] as! String)
+        undo.beginUndoGrouping()
+        _ = operations.performHandoff(resumeRequest(insertion, receipt: insertionReceipt, value: "typed draft imported"))
+        undo.endUndoGrouping()
+        while undo.groupingLevel > 0 { undo.endUndoGrouping() }
+        check(undo.canUndo, "Producer insertion registers a native Undo action")
+        undo.undo()
+        check(port.composerSnapshot?.value == "typed draft", "Native Undo restores the exact source captured before a nondestructive producer")
+        port.destroy(); port.view.removeFromSuperview(); saveReceipt(sourceReceipts().first!["receiptId"] as! String)
+    }
+    private func handoffRebasedTokens() throws {
+        let owner = try json(["ordinary", "https://t3.test", "environment", 3, "new-task:rebased-handoff", "birth"])
+        let source = "🙂 @file tail"
+        let originalTokens = try json([["type": "file", "source": "@file", "label": "file", "start": 3, "end": 8]])
+        let movedTokens = try json([["end": 9, "start": 4, "label": "file", "source": "@file", "type": "file"]])
+        var (port, control) = try makePort(source, selection: 0, tokens: originalTokens, owner: owner)
+        try acknowledge(port, &control)
+        let view = editor(port), text = view.textView
+        text.becomeFirstResponder()
+        let undo = text.undoManager!
+        undo.beginUndoGrouping(); text.insertText("X"); undo.endUndoGrouping()
+        check(port.composerSnapshot?.value == "X" + source && view.matchesSourceTokens(movedTokens), "Real typing before a chip rebases the current source tokens before props arrive")
+        while undo.groupingLevel > 0 { undo.endUndoGrouping() }
+        undo.removeAllActions()
+        let freeze = handoffRequest(port, retireUndo: false)
+        let receipt = (operations.performHandoff(freeze)["value"] as! [String: Any])["receipt"] as! [String: Any]
+        saveReceipt(receipt["receiptId"] as! String)
+        var unchanged = resumeRequest(freeze, receipt: receipt, value: "X" + source, tokens: movedTokens)
+        var unchangedDocument = unchanged["document"] as! [String: Any]
+        unchangedDocument["selection"] = (receipt["event"] as! [String: Any])["selection"]
+        unchanged["document"] = unchangedDocument
+        _ = operations.performHandoff(unchanged)
+        check(!undo.canUndo && text.undoManager?.canUndo != true, "Unchanged rebased resume creates no replacement Undo action")
+        undo.undo()
+        check(port.composerSnapshot?.value == "X" + source && text.textStorage.attribute(.attachment, at: 4, effectiveRange: nil) is ComposerTextAttachment,
+              "Undo after unchanged rebased resume leaves its source and rendered chip intact")
+        let producerUndo = text.undoManager!
+        let producer = handoffRequest(port, retireUndo: false, revision: 2)
+        let producerReceipt = (operations.performHandoff(producer)["value"] as! [String: Any])["receipt"] as! [String: Any]
+        saveReceipt(producerReceipt["receiptId"] as! String)
+        producerUndo.beginUndoGrouping()
+        _ = operations.performHandoff(resumeRequest(producer, receipt: producerReceipt, value: "X" + source + " imported", tokens: movedTokens))
+        producerUndo.endUndoGrouping()
+        producerUndo.undo()
+        check(port.composerSnapshot?.value == "X" + source && text.textStorage.attribute(.attachment, at: 4, effectiveRange: nil) is ComposerTextAttachment
+              && view.matchesSourceTokens(movedTokens), "Producer Undo captures the rebased token ranges and restores the rendered chip")
+        port.destroy(); port.view.removeFromSuperview(); saveReceipt(sourceReceipts().first!["receiptId"] as! String)
     }
 
     @MainActor private func richObservation() async throws {

@@ -17,6 +17,24 @@ private final class T3ComposerContainer: UIView {
 }
 
 final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoint {
+    private struct Frozen {
+        let operation: T3ComposerHandoffRequest.Operation
+        let retireUndo: Bool
+        let receipt: T3ComposerFinalizations.Receipt
+    }
+    private struct Resumed {
+        let operation: T3ComposerHandoffRequest.Operation
+        let receiptId: String
+        let document: T3ComposerDocument
+        let event: [String: Any]
+        func matches(_ operation: T3ComposerHandoffRequest.Operation, _ receiptId: String, _ document: T3ComposerDocument) -> Bool {
+            self.operation == operation && self.receiptId == receiptId && self.document.value == document.value
+                && self.document.selection == document.selection && self.document.tokensJson == document.tokensJson
+        }
+    }
+    private enum Handoff { case editing(Resumed?), frozen(Frozen) }
+    private var handoffState = Handoff.editing(nil)
+    private var frozen: Bool { if case .frozen = handoffState { return true }; return false }
     private let root = T3ComposerContainer()
     private weak var voice: T3MobileVoiceEditor?
     private weak var fileHolds: T3MobileComposerFileHolds?
@@ -39,7 +57,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     var composerSnapshot: T3ComposerSnapshot? { editor?.sourceSnapshot() }
     var composerEventCount: Int { state?.count ?? 0 }
     var composerMounted: Bool {
-        alive && root.window != nil && state?.readyAcknowledged == true && control?.active == true
+        alive && !frozen && root.window != nil && state?.readyAcknowledged == true && control?.active == true
             && control?.editable == true && control?.readOnly == false && UIApplication.shared.applicationState == .active
     }
 
@@ -74,6 +92,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         applying = true
         configurePresentation(next.presentation, editor: editor)
         applying = false
+        guard !frozen else { return }
         if let command = next.command {
             _ = try? applyInvocation(identity: next.identity, command: command)
         } else if next.acknowledgedEventCount == self.state?.count, editor.textView.markedTextRange == nil {
@@ -111,7 +130,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     private func bind(_ editor: T3MobileOwnedComposerView) {
         editor.textView.pasteAllowed = { [weak self, weak editor] in
             guard let self, let editor else { return false }
-            return self.alive && self.editor === editor && self.state?.readyAcknowledged == true && self.control?.active == true
+            return self.alive && !self.frozen && self.editor === editor && self.state?.readyAcknowledged == true && self.control?.active == true
                 && self.control?.editable == true && self.control?.readOnly == false && self.root.window != nil
         }
         editor.onComposerChange = { [weak self, weak editor] _ in self?.receive("text", from: editor) }
@@ -127,7 +146,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     }
 
     private func receive(_ kind: String, from sender: T3MobileOwnedComposerView?, extra: [String: Any] = [:]) {
-        guard alive, !applying, let sender, sender === editor, state?.readyAcknowledged == true else { return }
+        guard alive, !applying, !frozen, let sender, sender === editor, state?.readyAcknowledged == true else { return }
         if kind == "submit", control?.active != true || control?.editable != true || control?.readOnly == true || sender.textView.markedTextRange != nil { return }
         emit(kind, extra: extra)
     }
@@ -145,7 +164,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     }
     // Separate source-rich callback channel. Parent must integrate explicit handlers before activation.
     private func rich(_ kind: String, from sender: T3MobileOwnedComposerView?, payload: [String: Any]) {
-        guard alive, !applying, let sender, sender === editor, var state, state.readyAcknowledged,
+        guard alive, !applying, !frozen, let sender, sender === editor, var state, state.readyAcknowledged,
               let snapshot = composerSnapshot, let identity = composerIdentity else { return }
         if kind != "contentSize", control?.active != true { return }
         if kind.hasPrefix("paste"), control?.editable != true || control?.readOnly == true || snapshot.composing || root.window == nil || UIApplication.shared.applicationState != .active { return }
@@ -181,6 +200,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
               let editor, let control, root.window != nil else {
             throw T3ComposerOperationFailure("superseded", "The captured editor is no longer mounted.")
         }
+        guard !frozen else { throw T3ComposerOperationFailure("busy", "The editor source is held.") }
         if !state.terminalID.isEmpty {
             if let terminalCommand, terminalCommand.commandId == command.commandId {
                 guard terminalCommand.sameRequest(command), let terminalEnvelope else {
@@ -208,6 +228,69 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         }
         throw T3ComposerOperationFailure("superseded", "The replacement was already handled.")
     }
+    func handoff(_ request: T3ComposerHandoffRequest) throws -> [String: Any] {
+        guard alive, var state, state.identity == request.identity, state.readyAcknowledged,
+              let editor, let control, let operations else {
+            throw T3ComposerOperationFailure("superseded", "The captured editor is no longer mounted.")
+        }
+        switch request.action {
+        case .freeze(let retireUndo):
+            if case .frozen(let held) = handoffState {
+                guard held.operation == request.operation, held.retireUndo == retireUndo else {
+                    throw T3ComposerOperationFailure("busy", "Another editor handoff is active.")
+                }
+                return ["receipt": held.receipt.json]
+            }
+            if case .editing(let prior?) = handoffState,
+               request.operation.revision <= prior.operation.revision || request.operation.id == prior.operation.id {
+                throw T3ComposerOperationFailure("superseded", "The editor handoff was already completed.")
+            }
+            guard composerMounted, state.terminalID.isEmpty else {
+                throw T3ComposerOperationFailure("busy", "Wait for the active editor command to finish.")
+            }
+            let snapshot = editor.sourceSnapshot()
+            guard !snapshot.composing else { throw T3ComposerOperationFailure("busy", "Finish text composition before continuing.") }
+            let event = state.event("frozen", snapshot: snapshot, extra: ["operationId": request.operation.id, "operationRevision": request.operation.revision])
+            let receipt = try operations.freeze(self, event: event)
+            self.state = state; handoffState = .frozen(.init(operation: request.operation, retireUndo: retireUndo, receipt: receipt))
+            applying = true
+            if retireUndo { editor.textView.undoManager?.removeAllActions() }
+            configureInteraction(control, acknowledged: true)
+            editor.blurEditor()
+            applying = false
+            send(event, rich: false)
+            return ["receipt": receipt.json]
+        case .resume(let receiptId, let document):
+            if case .editing(let prior?) = handoffState, prior.matches(request.operation, receiptId, document) {
+                return ["event": prior.event]
+            }
+            guard case .frozen(let held) = handoffState, held.operation == request.operation, held.receipt.id == receiptId else {
+                throw T3ComposerOperationFailure("superseded", "The held editor changed before resuming.")
+            }
+            guard editor.textView.markedTextRange == nil else {
+                throw T3ComposerOperationFailure("busy", "Finish text composition before resuming.")
+            }
+            try operations.resume(self, receiptId: receiptId)
+            applying = true
+            if held.retireUndo {
+                setDocument(document, editor: editor)
+                editor.textView.undoManager?.removeAllActions()
+            } else if editor.sourceSnapshot().value == document.value, editor.matchesSourceTokens(document.tokensJson) {
+                setDocument(document, editor: editor)
+            } else if let selection = document.selection {
+                editor.setReadOnly(false)
+                editor.applyReplacement(value: document.value, selection: selection, tokensJson: document.tokensJson)
+            }
+            let event = state.event("resumed", snapshot: editor.sourceSnapshot(), extra: ["operationId": request.operation.id, "operationRevision": request.operation.revision, "receiptId": receiptId])
+            self.state = state; handoffState = .editing(.init(operation: request.operation, receiptId: receiptId, document: document, event: event))
+            configureInteraction(control, acknowledged: true)
+            applying = false
+            voice?.refresh(self, owner: voiceOwner, selectionRevision: control.voiceSelectionRevision ?? 0)
+            applyFocus(control)
+            send(event, rich: false)
+            return ["event": event]
+        }
+    }
     private func setDocument(_ document: T3ComposerDocument, editor: T3MobileOwnedComposerView) {
         let selection: Any = document.selection.map { ["start": $0.start, "end": $0.end] } ?? NSNull()
         let value: [String: Any] = ["value": document.value, "selection": selection, "tokensJson": document.tokensJson,
@@ -216,11 +299,11 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     }
     private func configureInteraction(_ next: T3ComposerControl, acknowledged: Bool) {
         guard let editor else { return }
-        let editable = acknowledged && next.active && next.editable
+        let editable = acknowledged && next.active && next.editable && !frozen
         if !editable || next.readOnly { editor.textView.invalidatePendingPaste() }
         if editor.textView.isEditable != editable { editor.setEditable(editable) }
-        editor.isUserInteractionEnabled = acknowledged && next.active
-        editor.setReadOnly(next.readOnly)
+        editor.isUserInteractionEnabled = acknowledged && next.active && !frozen
+        editor.setReadOnly(next.readOnly || frozen)
     }
     private func configurePresentation(_ p: T3ComposerPresentation?, editor: T3MobileOwnedComposerView) {
         guard let p, p != presentation else { return }
@@ -242,6 +325,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         if let value = p.clipboardFragment, value != prior?.clipboardFragment { editor.setClipboardFragment(value) }
     }
     private func applyFocus(_ next: T3ComposerControl) {
+        guard !frozen else { return }
         guard focusIntent != next.focusIntent else { return }
         focusIntent = next.focusIntent
         guard let editor else { return }
@@ -285,6 +369,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         editor?.destroyOwned(); editor?.removeFromSuperview(); editor = nil; root.editor = nil
         state = nil; control = nil; focusIntent = nil; presentation = nil; voiceRevision = 0; voiceOwner = ""
         terminalCommand = nil; terminalEnvelope = nil
+        handoffState = .editing(nil)
         applying = false
     }
     override func destroy() { guard alive else { return }; alive = false; retireEditor() }

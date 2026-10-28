@@ -87,7 +87,9 @@ and restarting clears the failure header and restores the existing conversation.
 Source tests cover pending ownership, foreign/ambiguous origins, background
 failure and recovery. The shared source pins are unchanged.
 This drive changes the saved origin, which invalidates its old local cache; it
-does not qualify cached conversations during a real network outage. Canceling
+does not qualify cached conversations during a real network outage. The simulator
+Local Network settings page has an empty app list, so it provides no clone-specific
+toggle for that acceptance. No permission or saved origin changed. Canceling
 the system file picker restores an enabled composer.
 
 The normal iPhone build imports a 2 KB Markdown file through Choose Files, opens
@@ -180,7 +182,7 @@ and interrupted state return. The numbered output checks arrived as complete
 responses, so this refresh does not independently repeat the earlier growing-text
 acceptance. Keep that verification open.
 Signed archive `1.0.0 (20261028202307)` contains that clean pushed source and excludes
-the held native editor unit. Signature, store provisioning, identity, version and
+the later native editor changes. Signature, store provisioning, identity, version and
 source-stamp checks pass. The held files and original Git index restore exactly.
 Its IPA SHA-256 is `f9b4ba61b9484d2c5163aa3940cab221195a5addf59340e07f20392dec11c85e`.
 [EAS submission](https://expo.dev/accounts/exponathan/projects/t3-code/submissions/5acee506-6607-48d9-8e54-12b1f62fa043)
@@ -190,24 +192,25 @@ with one installed tester and one invited tester; installation of this new build
 by an individual tester is not established. Its App Store Connect build ID is
 `d1ba4f4f-ec9a-449d-9e26-f8a13c3e66f1`. Distribution remains internal TestFlight.
 This POC maintenance build is delivered. Phone and iPad parity remain incomplete.
-The inactive native NewTask editor prerequisite reserves eight final-source slots
-and retains teardown receipts until explicit acknowledgment. Its actual UIKit
-fixture passes 86 checks, including text/chip source recovery, repeated reads,
-blocked replacement and retry. The normal app builds and the textarea remains
-active. Activation still requires freeze/resume, the client-lifetime Root save
-drain, stable draft/incarnation blocking across transport generations, and native
+The inactive native NewTask editor reserves eight final-source slots and retains
+teardown receipts until explicit acknowledgment. Its handoff freezes the writer,
+retains the captured source until save acknowledgment, and resumes with the
+producer's explicit document. Reservations follow stable draft identity across
+transport generations. Rebased token arrays decide unchanged resumes and supply
+Undo capture after native typing. The actual UIKit fixture passes 114 checks,
+including chip restoration, producer Undo and strict unchanged-resume checks.
+An isolated focused UITextView proves that the fixture's explicit empty Undo
+group itself makes `canUndo` true. Removing that group preserves both strict assertions
+and resolves the former 113-pass/one-failure result without another production
+comparison change. The Foundation protocol and operation suites pass 37 and 84
+checks. Independent source review finds no introduced blocker. The normal app
+using these native sources restores an ordinary draft exactly after restart.
+Clearing survives another restart, and the saved environment and conversation
+remain available. No QA draft remains. NewTask retains
+its textarea. Activation still requires the client-lifetime Root save drain and
+admission, producer integration, voice and paste ownership acceptance, and native
 node recreation after a factory refusal. Direct editor-object retry alone does
-not qualify recovery through the host. Source review found no introduced blocker
-in this prerequisite.
-The uncommitted native handoff unit freezes its writer, retains its captured source
-until save acknowledgment, and resumes with the producer's explicit document.
-Its reservation follows stable draft identity across transport generations. Review
-found stale serialized chip offsets after native typing; the current correction
-uses the rebased token array for comparison and Undo capture. In the latest UIKit
-fixture, chip restoration and producer Undo pass, but an unchanged-resume Undo
-assertion fails. The result is 113 passed and one failed. This reached the
-three-round fix limit. The unit remains inactive and uncommitted. Root drain,
-producer integration and native-node recreation also gate activation.
+not qualify recovery through the host.
 
 A large-catalogue cold launch exposed a blank transcript, unready Send and a
 Hermes allocation failure. Composer preparation copied and fingerprinted command
@@ -308,7 +311,10 @@ enabled Files tap; the second tap opens Files. Three instrumented and three
 normal cold launches then open Files on the first tap. Another normal restart
 reproduces the miss while the saved-message ownership warning clears. The second
 tap opens Files. The successful traces do not establish the cause. No admission
-policy changed, and the temporary native probe is removed. Keep this symptom open.
+policy changed, and the temporary native probe is removed. A later cross-boundary
+diagnostic build lost its native header and was discarded. That approach reached
+the three-round limit and supplies no acceptance evidence. Its four source files
+are restored, and the normal header returns. Keep this symptom open.
 Unclosed/nested fences and reference links across preview chunks remain open.
 The draft file route shares this projection but has no new native acceptance.
 Files rows now align their labels beside the icons without

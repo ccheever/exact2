@@ -12,7 +12,6 @@ final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDel
   var ownedEventCount: Int { nativeEventCount }
   private let placeholderLabel = UILabel()
   private var value = ""
-  private var tokensJson = "[]"
   private var tokens: [ComposerTokenPayload] = []
   private var requestedSelection: ComposerSelectionPayload?
   private var theme = ComposerThemePayload(
@@ -114,6 +113,8 @@ final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDel
     return .init(value: textView.serializedText(), selection: .init(start: selection.start, end: selection.end),
                  composing: textView.markedTextRange != nil, focused: textView.isFirstResponder)
   }
+  private var sourceTokensJson: String { String(decoding: try! JSONEncoder().encode(tokens), as: UTF8.self) }
+  func matchesSourceTokens(_ json: String) -> Bool { decode([ComposerTokenPayload].self, from: json) == tokens }
 
   private func compositionChanged() {
     guard alive, !isApplyingControlledValue else { return }
@@ -129,8 +130,8 @@ final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDel
   }
 
   func applyReplacement(value next: String, selection: T3ComposerSelection, tokensJson nextTokens: String) {
-    guard alive, textView.markedTextRange == nil else { return }
-    let previous = sourceSnapshot(), previousTokens = tokensJson
+    guard alive, !isReadOnly, textView.markedTextRange == nil else { return }
+    let previous = sourceSnapshot(), previousTokens = sourceTokensJson
     textView.undoManager?.registerUndo(withTarget: self) { target in
       target.applyReplacement(value: previous.value, selection: previous.selection, tokensJson: previousTokens)
       target.emitTextChange()
@@ -154,7 +155,7 @@ final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDel
     textView.clipboardFragment = ""
     for task in iconTasks.values { task.cancel() }
     iconTasks.removeAll(); pendingIconUris.removeAll(); iconImages.removeAll()
-    tokens.removeAll(); tokensJson = "[]"; requestedSelection = nil
+    tokens.removeAll(); requestedSelection = nil
     onComposerChange = { _ in }; onComposerSelectionChange = { _ in }
     onComposerFocus = { _ in }; onComposerBlur = { _ in }; onComposerSubmit = { _ in }
     onComposerPasteImages = { _ in }; onComposerPasteContext = { _ in }
@@ -276,9 +277,9 @@ final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDel
     if document.isNativeEcho && textView.serializedText() != document.value {
       return
     }
-    if tokensJson != document.tokensJson {
-      tokensJson = document.tokensJson
-      tokens = decode([ComposerTokenPayload].self, from: document.tokensJson) ?? []
+    let nextTokens = decode([ComposerTokenPayload].self, from: document.tokensJson) ?? []
+    if tokens != nextTokens {
+      tokens = nextTokens
       tokensNeedRebuild = true
     }
     value = document.value
