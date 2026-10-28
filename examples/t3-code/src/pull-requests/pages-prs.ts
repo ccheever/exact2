@@ -25,6 +25,7 @@ import { prEnvironments, readsPullRequests, type PrEnvironment } from './pages-p
 import { pullRequestHost } from '../palette/palette-linkpr';
 import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns } from './pr-change-breakdown';
 import { shownDiffStat } from './pages-pr-detail';
+import { filterOptionTargets, hostedFilterOptions, pullRequestAuthorChoices, pullRequestLabelChoices, selectedPullRequestAuthor, type AuthorFacet, type LabelFacet } from './pages-pr-filter-options'; // Author and Labels search the host
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -257,7 +258,8 @@ type ListCache = { key: string; scope: string; refresh: number; epoch: number; r
 const lists = new WeakMap<object, ListCache>();
 /** The Refresh press whose invalidate was sent, per client. */
 const invalidated = new WeakMap<object, number>();
-export type PrInput = { open: boolean; refresh: number; now: number; selected: string; query: string; typed: boolean };
+/** `optionKind`, `optionQuery`: the Filters submenu that searches the host ("authors", "labels" or none) and its search as sent. */
+export type PrInput = { open: boolean; refresh: number; now: number; selected: string; query: string; typed: boolean; optionKind?: string; optionQuery?: string };
 
 export function listPayload(prefs: PrPrefs, query: string): Obj {
   const parsed = parsePrQuery(query);
@@ -502,6 +504,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   native.watch?.('t3.pr');
   await flushQuickInvalidations(client, native);
   Object.assign(presented, await quickPopovers(client, native, arr(answered?.entries), input.now).then(({ checks, stack }) => ({ checksPopover: checks, stackPopover: stack })));
+  presented.options = await filterOptions(client, native, input, prefs, arr(answered?.entries));
   lastDrawn.set(client, { environmentId: client.environmentId, view: presented });
   return presented;
 }
@@ -528,8 +531,9 @@ export function emptyList(prefs: PrPrefs, query: string) {
     // The Server filter (serverMenuOptions): All servers, then each server that reads pull requests; shown with two or more.
     server: prefs.environmentId, serverLabel: 'All servers', serverIcon: 'layers', servers: [] as { value: string; label: string; icon: string; selected: boolean }[],
     projects: [] as { id: string; name: string; mark: string; ink: string; surface: string; selected: boolean; unavailable: string }[],
-    authors: [] as { key: string; login: string; name: string; avatar: string; initial: string; detail: string; selected: boolean }[],
-    labelFacets: [] as { key: string; name: string; color: string; count: number; selected: boolean }[],
+    // The Author and Labels pickers: the loaded authors and labels, the chosen ones as choices (an author no row carries,
+    // a label beside them), and the host's answer to the open picker's search (pages-pr-filter-options.ts).
+    authors: [] as AuthorRow[], authorChosen: [] as AuthorRow[], labelFacets: [] as LabelRow[], labelChosen: [] as LabelRow[], options: emptyFilterOptions(),
     groups: [] as { key: string; label: string; count: number; rows: PrRow[] }[], truncated: false, errors: [] as { key: string; text: string }[], total: 0,
     authorLabel: prefs.author || 'Anyone', labelsLabel: labels.length ? `${labels.length} selected` : 'Any',
     stateIcon: STATE_ICONS[prefs.state] ?? 'layers', involvementIcon: INVOLVEMENT_ICONS[prefs.involvement] ?? 'layers',
@@ -542,6 +546,55 @@ export function emptyList(prefs: PrPrefs, query: string) {
   };
 }
 export type PrListView = ReturnType<typeof emptyList>;
+type AuthorRow = { key: string; login: string; name: string; avatar: string; initial: string; detail: string; selected: boolean };
+type LabelRow = { key: string; name: string; color: string; count: number; selected: boolean };
+/** The open picker's choices as the host answered its search: `kind` and `query` name what they answer. */
+const emptyFilterOptions = () => ({ kind: '', query: '', busy: false, failed: false, authors: [] as AuthorRow[], labels: [] as LabelRow[] });
+/** A choice in the Author picker: avatar, login and the merges loaded, shown only above 0. */
+const authorRow = (facet: AuthorFacet, chosen: string): AuthorRow => {
+  const person = actor(facet.actor);
+  return { key: person.login.toLowerCase(), login: person.login, name: person.name, avatar: person.avatar, initial: person.initial,
+    detail: facet.mergedCount > 0 ? `${facet.mergedCount} merges loaded` : '', selected: lower(chosen) === person.login.toLowerCase() };
+};
+const labelRow = (facet: LabelFacet, chosen: ReadonlySet<string>): LabelRow => ({ key: facet.name.toLowerCase(), name: facet.name, color: facet.color, count: facet.count, selected: chosen.has(facet.name.toLowerCase()) });
+/** collectPullRequestListFacets: authors by merges then count (only those with a row in the state); labels by count. */
+function listFacets(entries: readonly Obj[], prefs: PrPrefs): { authors: AuthorFacet[]; labels: LabelFacet[] } {
+  const authors = new Map<string, AuthorFacet>(), labels = new Map<string, LabelFacet>();
+  for (const entry of entries) {
+    const inState = prefs.state === 'all' || entry.state === prefs.state, login = lower(obj(entry.author).login);
+    if (login) { const held = authors.get(login); authors.set(login, { actor: held?.actor ?? obj(entry.author), count: (held?.count ?? 0) + Number(inState), mergedCount: (held?.mergedCount ?? 0) + Number(entry.state === 'merged') }); }
+    if (!inState) continue;
+    for (const label of arr(entry.labels)) { const name = lower(label.name); if (!name) continue; const held = labels.get(name); labels.set(name, { name: held?.name ?? str(label.name), color: held?.color ?? labelColor(label.color), count: (held?.count ?? 0) + 1 }); }
+  }
+  return {
+    authors: [...authors.values()].filter(author => author.count > 0).sort((a, b) => b.mergedCount - a.mergedCount || b.count - a.count || str(a.actor.login).localeCompare(str(b.actor.login))),
+    labels: [...labels.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+  };
+}
+/**
+ * The open picker's choices once the host answered its search (PullRequestAuthorChoices, PullRequestLabelChoices): the
+ * chosen author first, then the loaded matches and the host's, 30 in all; the chosen labels the choices do not hold,
+ * then the choices. The pickers draw the loaded matches alone while their search runs ahead of what was sent.
+ */
+async function filterOptions(client: T3Client, native: Native, input: PrInput, prefs: PrPrefs, entries: readonly Obj[]): Promise<PrListView['options']> {
+  const kind = input.optionKind === 'authors' || input.optionKind === 'labels' ? input.optionKind : '';
+  if (!kind) return emptyFilterOptions();
+  const query = (input.optionQuery ?? '').trim().slice(0, 100);
+  const targets = filterOptionTargets(environmentQueries(client, prefs.projectId, prefs.environmentId), prefs, kind, query);
+  const hosted = await hostedFilterOptions(client, native, kind, query, targets, input.now), facets = listFacets(entries, prefs);
+  const view = { ...emptyFilterOptions(), kind, query, busy: hosted.busy, failed: hosted.failed };
+  if (kind === 'authors') {
+    const login = prefs.author.toLowerCase(), selected = selectedPullRequestAuthor(facets.authors, hosted.authors, prefs.author || undefined);
+    const choices = pullRequestAuthorChoices(facets.authors, hosted.authors, query).filter(choice => str(choice.actor.login).toLowerCase() !== login);
+    view.authors = [...(selected ? [selected] : []), ...choices].slice(0, 30).map(facet => authorRow(facet, prefs.author));
+    return view;
+  }
+  const chosen = new Set(prefs.labels.map(label => label.toLowerCase()));
+  const choices = pullRequestLabelChoices(facets.labels, hosted.labels.map(label => ({ name: str(label.name), color: labelColor(label.color) })), query);
+  view.labels = [...prefs.labels.filter(name => !choices.some(choice => choice.name.toLowerCase() === name.toLowerCase())).map(name => ({ name, color: '', count: 0 })), ...choices]
+    .map(facet => labelRow(facet, chosen));
+  return view;
+}
 
 export function presentList(view: PrListView, result: Obj | null, error: string, stats: Map<string, Obj>, prefs: PrPrefs, query: string, now: number, selected: string): PrListView {
   if (!result) {
@@ -568,21 +621,14 @@ export function presentList(view: PrListView, result: Obj | null, error: string,
   const providers = arr(result.providers);
   if (providers.length) view.hosts = hostOptions(providers, providers.map(provider => ({ host: str(provider.host), kind: str(provider.kind) })), prefs.host);
   view.hostLabel = view.hosts.find(host => host.selected)?.label ?? 'All';
-  // collectPullRequestListFacets: authors by merges then count; labels by count.
-  const authors = new Map<string, { actor: Obj; count: number; merged: number }>(), labels = new Map<string, { name: string; color: string; count: number }>();
-  for (const entry of arr(result.entries)) {
-    const inState = prefs.state === 'all' || entry.state === prefs.state, login = lower(obj(entry.author).login);
-    if (login) { const held = authors.get(login); authors.set(login, { actor: held?.actor ?? obj(entry.author), count: (held?.count ?? 0) + Number(inState), merged: (held?.merged ?? 0) + Number(entry.state === 'merged') }); }
-    if (!inState) continue;
-    for (const label of arr(entry.labels)) { const name = lower(label.name); if (!name) continue; const held = labels.get(name); labels.set(name, { name: held?.name ?? str(label.name), color: held?.color ?? labelColor(label.color), count: (held?.count ?? 0) + 1 }); }
-  }
-  // Every author with a row in the state: the Author submenu shows the chosen one and ten that match its search
-  // (PullRequestAuthorFilter, pages-prs.contract prVisibleAuthors).
-  view.authors = [...authors.values()].filter(author => author.count > 0).sort((a, b) => b.merged - a.merged || b.count - a.count || str(a.actor.login).localeCompare(str(b.actor.login)))
-    .map(author => { const person = actor(author.actor); return { key: person.login.toLowerCase(), login: person.login, name: person.name, avatar: person.avatar, initial: person.initial, detail: `${author.merged} merges loaded`, selected: lower(prefs.author) === person.login.toLowerCase() }; });
-  const chosen = new Set(prefs.labels.map(label => label.toLowerCase()));
-  view.labelFacets = [...prefs.labels.filter(label => !labels.has(label.toLowerCase())).map(name => ({ name, color: '', count: 0 })), ...[...labels.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))]
-    .map(label => ({ key: label.name.toLowerCase(), name: label.name, color: label.color, count: label.count, selected: chosen.has(label.name.toLowerCase()) }));
+  // Every author with a row in the state and every label; the chosen author stays a choice when no loaded row carries it,
+  // as does each chosen label (pages-prs.contract prVisibleAuthors, prVisibleLabels).
+  const facets = listFacets(arr(result.entries), prefs), chosen = new Set(prefs.labels.map(label => label.toLowerCase()));
+  view.authors = facets.authors.map(facet => authorRow(facet, prefs.author));
+  const selectedAuthor = selectedPullRequestAuthor(facets.authors, [], prefs.author || undefined);
+  view.authorChosen = selectedAuthor ? [authorRow(selectedAuthor, prefs.author)] : [];
+  view.labelFacets = facets.labels.map(facet => labelRow(facet, chosen));
+  view.labelChosen = prefs.labels.map(name => labelRow({ name, color: '', count: 0 }, chosen));
   if (view.total === 0) {
     const filtered = prefs.state !== 'open' || prefs.involvement !== 'all' || !!prefs.projectId || !!prefs.host;
     const shown = query.length > 48 ? `${query.slice(0, 48)}…` : query;

@@ -111,6 +111,29 @@ test('the chart rounds its scale up and draws monotone curves in plot pixels', (
   expect([chart.start, chart.middle, chart.end]).toEqual(['Sep 30', 'Oct 1', 'Oct 2']);
 });
 
+test('Muse Code sessions draw a Muse Code series in #0866ff, last in the provider order', () => {
+  const summary = { contractVersion: 6, readAt: 'x', sources: [source('pi', '/p', 1), source('muse', '/m', 2)],
+    buckets: [bucket({ provider: 'pi', model: 'pi-model', costUsd: 5 }), bucket({ provider: 'muse', model: 'muse-model', costUsd: 7 })] };
+  const merged = mergeUsage([{ id: 'env', label: 'Mac', summary }]);
+  const chart = buildChart(merged, ['2026-10-01'], 'day', 'cost', 600);
+  expect(chart.series.map(series => [series.key, series.light, series.dark])).toEqual([['muse', '#0866ff', '#0866ff'], ['pi', '#4d9f8a', '#4d9f8a']]);
+  const page = presentUsage(emptyUsage('cost', 30, 'model', 600), merged, { sinceDay: '2026-09-05', untilDay: '2026-10-04', timeZone: 'UTC', resolution: 'day' }, summary);
+  expect(page.providers.map(row => [row.label, row.sessions, row.value])).toEqual([['Pi', '1 session', '$5.00'], ['Muse Code', '2 sessions', '$7.00']]);
+  expect(page.periods[0]!.cells.map(cell => [cell.key, cell.text])).toEqual([['pi', '$5.00'], ['muse', '$7.00']]);
+});
+
+test("the Usage page's controls are its focus stops, so Shift+Tab from the first wraps to the last one drawn (RouteFocusGuard)", async () => {
+  const lines = (await Promise.all(['pages-usage.contract', 'usage-pooled.contract', 'usage-bars.contract'].map(file => Bun.file(appPath(file)).text()))).join('\n').split('\n');
+  const stop = (marker: string) => lines.find(line => line.includes(marker))?.match(/data-focus-stop=(\([^)]*\)|"[^"]*")/)?.[1];
+  for (const marker of ['id="usage-environment"', 'id="usage-provider"', 'press=reload', 'role="combobox" aria-label=ariaLabel', 'aria-label="Usage breakdown by time"', 'id=`usage-model-${model.key}`',
+    'id=`usage-seg-${seg.id}`', 'aria-label=`Segment ${seg.column}', 'testId="usage-external-manage"', 'aria-label="Toggle account label visibility"', 'role="img" aria-label=window.summary', 'id="usage-seg-unpriced"'])
+    expect(stop(marker)).toContain('enabled page');
+  // A disabled control is no stop; a popover's rows and the dialogs' buttons are not the page's.
+  expect(stop('press=reload')).toBe('(busy ? "" : "enabled page")');
+  expect(stop('testId="reset-credit-confirm"') ?? '').not.toContain('page');
+  expect(stop('testId=`usage-seg-reset-${seg.id}`') ?? '').not.toContain('page');
+});
+
 test('the plot spans the chart column at both reference widths', () => {
   expect(plotWidth(1280, 256)).toBe(600);
   expect(plotWidth(840, 256)).toBe(472);

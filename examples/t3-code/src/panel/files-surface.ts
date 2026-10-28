@@ -12,6 +12,8 @@ import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
+import { announce } from '../shell/announce'; // "Opened in <editor>"
+import { editorLabel } from '../shared/editors';
 import { fileIconToken } from '../shared/timeline-files';
 import { lineTokens } from '../highlight/timeline-diff-syntax';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from '../details/shell-details';
@@ -395,7 +397,9 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     if (choices.editorUnavailable) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: choices.editorUnavailable }); return ''; }
     const editor = value || choices.editorId;
     if (!editor || !choices.editors.some(choice => choice.id === editor)) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: `No available editor can open ${id}.` }); return ''; }
-    if (await openInEditorHere(client, native, id, editor, openTarget(client, state))) rememberEditor(client, editor); // remote Open as the details card does (remote-open.ts)
+    // Remote Open as the details card does (remote-open.ts). OpenInPicker's primary press, which ⌘O presses, tells a screen
+    // reader where the file went; a choice from its menu (`value`) does not.
+    if (await openInEditorHere(client, native, id, editor, openTarget(client, state))) { rememberEditor(client, editor); if (!value) announce(client, `Opened in ${editorLabel(editor)}`); }
     return '';
   }
   return '';
@@ -697,8 +701,9 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   // The frame's source: a PDF is first written to app:/cache (media-frame.ts).
   const source = frame && minted.url ? await mediaFrameSource(pdf ? 'pdf' : 'html', minted.url) : null;
   const page = { url: source?.src ?? '', error: minted.error || source?.error || '' };
-  // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
-  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, '', now) : NO_MEDIA;
+  // An image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo). A video is
+  // signed again after a workspace change and reloads only when its file changed (WorkspaceVideoPreview's fileRevision).
+  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, isWorkspaceVideoPreviewPath(previewPath) ? workspaceMutationId(client) ?? '' : '', now) : NO_MEDIA;
   const text = read?.contents ?? '';
   const lines = previewPath && read && !read.error ? codeLines(previewPath, text) : [];
   const editable = !!previewPath && !media.kind && !pdf && !!read && !read.error && !read.truncated && !isHost(previewPath);

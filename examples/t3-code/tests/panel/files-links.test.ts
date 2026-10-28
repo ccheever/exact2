@@ -7,6 +7,7 @@ import { obj, type Obj } from '../../src/client/domain';
 import { ClientError, reply, type Native } from '../../src/client/protocol';
 import { failure } from '../../src/transport/transport-wire';
 import { toasts } from '../../src/shell/toast';
+import { announcing } from '../../src/shell/announce';
 import { editFile, filesLocal, filesState, filesView, mediaUnavailableDescription } from '../../src/panel/files-surface';
 import { markdownFileMenuRows } from '../../src/timeline/file-link-menu';
 import { loadSshAliases } from '../../src/connections/remote-open';
@@ -124,6 +125,11 @@ describe('a failed refresh', () => {
     expect(view).toMatchObject({ preview: 'code', text: 'kept', previewError: '' });
     await filesLocal(client, native, 'open-editor', view.absolutePath, 'vscode');
     expect(externalOpensForTests().at(-1)).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
+    // A choice from the Open in menu says nothing; the primary press (no choice: the preferred editor) is announced.
+    expect(announcing(client)).toBe(false);
+    await filesLocal(client, native, 'open-editor', view.absolutePath, '');
+    expect(externalOpensForTests().at(-1)).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
+    expect(announcing(client)).toBe(true);
     fail = 'path_not_file';
     await filesLocal(client, native, 'refresh', '', '');
     expect(filesState(client).reads.get('README.md')).toMatchObject({ notFile: true, contents: '' });

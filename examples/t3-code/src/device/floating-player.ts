@@ -18,33 +18,31 @@ import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { browserAutoShowFloatingPreview } from '../browser/browser-capture';
 import { surfaceStore } from '../panel/panel-surfaces';
 import { deviceSurfaceId, openDeviceSurface } from '../panel/right-panel-tabs';
+import { savedDismissedDevices } from '../panel/saved-panel';
 import { deviceStateOf, watchDevice } from './device-surface';
 import { closeMiniDevice, emptyMini, floatMiniDevice, miniStoreOf, type DeviceTarget, type DeviceMini } from './device-session';
 
-/** `panels`: each thread panel's device tabs and its person's-choice revision at the last pass; `dismissed`: the device
- *  tabs the person closed, by panel key, which an agent's opening skips. Kept in memory: after a relaunch the sessions of
- *  the first snapshot stay closed as its baseline, but a device the agent opens later gets its tab again (upstream keeps
- *  the set with the saved panel). */
-type Track = { baselines: Map<string, Set<string>>; tried: number; panels: Map<string, { devices: Set<string>; revision: number }>; dismissed: Map<string, Set<string>> };
+/** `panels`: each thread panel's device tabs and its person's-choice revision at the last pass. */
+type Track = { baselines: Map<string, Set<string>>; tried: number; panels: Map<string, { devices: Set<string>; revision: number }> };
 let tracks = new WeakMap<T3Client, Track>();
 const trackOf = (client: T3Client): Track => {
   let track = tracks.get(client);
-  if (!track) { track = { baselines: new Map(), tried: -1, panels: new Map(), dismissed: new Map() }; tracks.set(client, track); }
+  if (!track) { track = { baselines: new Map(), tried: -1, panels: new Map() }; tracks.set(client, track); }
   return track;
 };
 /**
  * rightPanelStore's userAction: a device tab that a person's panel change removed is dismissed; one that shows again
- * (the person opened it) is not. A person's change is one that moved the panel's userRevision (panel-surfaces.ts).
+ * (the person opened it) is not. A person's change is one that moved the panel's userRevision (panel-surfaces.ts). The
+ * dismissals are the panel's own (`dismissedDevices`), so they are saved with it (saved-panel.ts).
  */
 function noteDismissedDevices(client: T3Client): void {
   const track = trackOf(client);
   for (const [key, state] of surfaceStore(client).panels) {
     const devices = new Set(state.surfaces.flatMap(surface => surface.kind === 'device' && surface.device ? [deviceSurfaceId(surface.device)] : []));
-    const seen = track.panels.get(key), dismissed = track.dismissed.get(key) ?? new Set<string>();
+    const seen = track.panels.get(key), dismissed = new Set(state.dismissedDevices ?? []);
     for (const id of devices) dismissed.delete(id);
     if (seen && seen.revision !== state.userRevision) for (const id of seen.devices) if (!devices.has(id)) dismissed.add(id);
-    if (dismissed.size) track.dismissed.set(key, dismissed);
-    else track.dismissed.delete(key);
+    if (dismissed.size || state.dismissedDevices?.length) state.dismissedDevices = [...dismissed];
     track.panels.set(key, { devices, revision: state.userRevision });
   }
 }
@@ -61,10 +59,10 @@ function environmentOf(client: T3Client, threadId: string, source: EnvironmentFl
   return [...source.entries.values()].find(entry => entry.shell.threads.some(thread => thread.id === threadId))?.environmentId ?? client.environmentId;
 }
 /** useRightPanelStore.openDevice(ref, target, true): the thread's panel gets the device's tab unless it has one or the
- *  person closed it. */
+ *  person closed it, in this launch or (a panel not restored yet) an earlier one. */
 function openDeviceTab(client: T3Client, environmentId: string, threadId: string, target: DeviceTarget): void {
-  const panels = surfaceStore(client).panels, key = `${environmentId}:${threadId}`;
-  if (trackOf(client).dismissed.get(key)?.has(deviceSurfaceId(target))) return;
+  const panels = surfaceStore(client).panels, key = `${environmentId}:${threadId}`, id = deviceSurfaceId(target);
+  if (panels.get(key)?.dismissedDevices?.includes(id) || savedDismissedDevices(client, key).includes(id)) return;
   const state = panels.get(key) ?? { surfaces: [], active: '', visible: false, userRevision: 0 };
   panels.set(key, state);
   if (state.surfaces.some(surface => surface.kind === 'device' && surface.device?.hostId === target.hostId && surface.device.deviceId === target.deviceId)) return;

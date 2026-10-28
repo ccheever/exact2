@@ -380,6 +380,23 @@ describe('the gutter\'s drags (onLineSelectionEnd and onGutterUtilityClick are b
     await f.press('add', 'Was zero on purpose?');
     expect(pullRequestReviewStore(f.client).pending(pullRequestReviewKey(reference)).map(entry => entry.position)).toEqual([{ kind: 'deleted', oldLine: 2 }]);
   });
+  test('a host with ranged comments gets one comment on the lines dragged within a hunk; another host gets the last line', async () => {
+    for (const ranged of [true, false]) {
+      const review = { inlineComment: true, ...(ranged ? { rangeComment: true } : {}), reply: true, resolve: true, verdicts: ['comment', 'approve', 'request-changes'] };
+      const f = fixture({ 'pullRequests.detail': () => detail({ capabilities: { ...(detail().capabilities as Obj), review } }), 'pullRequests.submitReview': () => ({}) });
+      await walk(f);
+      await f.press('fold', 'src/catalog.js');
+      await f.press('drag', row('gutter:additions', 2, 'src/catalog.js'));
+      await f.press('drag', row('to', 0, 'dl:additions:4:src/catalog.js'));
+      await f.press('drag', row('end', 2, 'src/catalog.js'));
+      const view = await f.settle();
+      expect(view.codeTab.items.find(item => item.kind === 'pr-draft')?.label).toBe('src/catalog.js:4');
+      await f.press('add', 'These three lines.');
+      expect(await f.act('review', 'comment|')).toBe('');
+      expect((f.of('pullRequests.submitReview')[0]!.payload.comments as Obj[])).toEqual([{ path: 'src/catalog.js',
+        ...(ranged ? { startPosition: { kind: 'added', newLine: 2 } } : {}), position: { kind: 'context', oldLine: 4, newLine: 4, side: 'right' }, body: 'These three lines.' }]);
+    }
+  });
   test('a drag from the "+" comments on the range it ends on; under a commit scope the gutter is off', async () => {
     const f = fixture();
     await walk(f);

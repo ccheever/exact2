@@ -345,13 +345,14 @@ describe('the Pull Requests Filters submenus', () => {
       const scope: Env = { ...await helpers, ...effects(calls) };
       scope.closeSub = () => menu.call('closeSub', state, scope, []);
       menu.call('subEscape', state, scope, ['Escape']);
-      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], left ? ['blur'] : ['focus', 'pr-filter-author']]);
+      // Closing the submenu, and then the menu, stops the pickers' host search (`option-kind` none).
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], left ? ['blur'] : ['focus', 'pr-filter-author'], ['control', 'option-kind', '']]);
       expect(state.sub).toBe('');
       calls.length = 0;
       menu.call('subEscape', state, scope, ['Escape']);
       expect(calls).toEqual([]); // the next Escape is available to the public popup.
       menu.call('menuChanged', state, scope, [{ newState: 'closed' }]);
-      expect(calls).toEqual([['focus', 'pull-requests-filters']]);
+      expect(calls).toEqual([['focus', 'pull-requests-filters'], ['control', 'option-kind', '']]);
       calls.length = 0;
       menu.call('menuChanged', state, scope, [{ newState: 'open' }]);
       expect(calls).toEqual([]);
@@ -366,7 +367,7 @@ describe('the Pull Requests Filters submenus', () => {
     expect(state).toMatchObject({ sub: 'state', subPointer: true, subLeft: false });
     menu.call('subKey', state, scope, ['author', 'ArrowRight', event()]);
     expect(state).toMatchObject({ sub: 'author', subPointer: false, subLeft: false });
-    expect(calls).toEqual([['preventDefault'], ['focus', 'pr-filters-sub-keys']]);
+    expect(calls).toEqual([['control', 'option-kind', ''], ['preventDefault'], ['control', 'option-kind', 'authors'], ['focus', 'pr-filters-sub-keys']]);
     calls.length = 0;
     const filterItems = value(body.match(/^  derive filterItems = (.+)$/m)![1]!, { KmItem: (item: unknown) => item, serverShown: false });
     menu.call('subKey', state, { ...scope, filterItems }, ['author', 'ArrowDown', event()]);

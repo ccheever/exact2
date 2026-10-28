@@ -19,11 +19,12 @@ import { checkoutItems, type CheckoutItem } from '../composer/pr-checkout'; // t
 import { peekVcsStatus } from './shell-vcs';
 
 type Refs = { cwd: string; query: string; refs: Obj[]; total: number; nextCursor: number | null; loaded: boolean; generation: number; stale: boolean; ends: number; loadingMore?: boolean };
-interface BranchState { open: string; query: string; refs: Refs | null; origin: Map<string, boolean>; pendingBranch: string }
+/** `cwd`: the workspace the card last drew the branch row for (BranchToolbarBranchSelector's branchCwd). */
+interface BranchState { open: string; query: string; refs: Refs | null; origin: Map<string, boolean>; pendingBranch: string; cwd: string }
 const states = new WeakMap<T3Client, BranchState>();
 export function branchState(client: T3Client): BranchState {
   let state = states.get(client);
-  if (!state) { state = { open: '', query: '', refs: null, origin: new Map(), pendingBranch: '' }; states.set(client, state); }
+  if (!state) { state = { open: '', query: '', refs: null, origin: new Map(), pendingBranch: '', cwd: '' }; states.set(client, state); }
   return state;
 }
 
@@ -87,6 +88,7 @@ const hiddenView = { show: false, open: false, label: '', labelHead: '', labelTa
 /** The branch row and its picker for the card's workspace (`cwd`). */
 export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean) {
   const state = branchState(client);
+  state.cwd = isRepo ? cwd : '';
   if (!isRepo || !cwd) { state.open = ''; return hiddenView; }
   const strip = await composerBranches(client, native, false, '', true);
   let refs: Refs | null = null;
@@ -126,11 +128,19 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
   };
 }
 
-/** `chatlocal:git-open|git-query|git-origin`: the picker's own state. */
-export function branchLocal(client: T3Client, op: string, id: string, value: string): string {
+/**
+ * `chatlocal:git-open|git-query|git-origin|git-opened`: the picker's own state. `opened` is the branch popover showing:
+ * the server refreshes the workspace's local status (handleOpenChange's `vcs.refreshStatus` with `localOnly`), so a
+ * branch switched outside T3 shows. The answer is not awaited, and a failure says nothing (reportFailure false).
+ */
+export function branchLocal(client: T3Client, op: string, id: string, value: string, native?: Native): string {
   const state = branchState(client);
   // The row and the chevron open their popovers (the host toggles them); the picker starts a fresh search.
   if (op === 'open') { state.open = id; state.query = ''; if (state.refs) state.refs.stale = true; return ''; }
+  if (op === 'opened') {
+    if (state.cwd && native?.available && client.ready) void client.restAccess(native).request('vcs.refreshStatus', { cwd: state.cwd, localOnly: true }).catch(() => undefined);
+    return '';
+  }
   if (op === 'query') { state.query = value.slice(0, 256); return ''; }
   if (op === 'origin') {
     if (client.threadId) { if (!toggleServerOrigin(client)) throw new ClientError('A started thread keeps its workspace.'); return ''; }

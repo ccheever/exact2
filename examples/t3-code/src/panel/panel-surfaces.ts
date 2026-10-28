@@ -59,7 +59,9 @@ export type Surface = { id: string; kind: SurfaceKind; path: string; line: numbe
   attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number; maximized?: boolean;
   /** The turn whose diff was last offered proactively, kept across relaunches (rightPanelStore `proactiveDiffTurnId`). */
-  proactiveDiffTurnId?: string };
+  proactiveDiffTurnId?: string;
+  /** The device tabs the person closed, which an agent's opening skips, kept across relaunches (`dismissedDeviceSurfaceIds`). */
+  dismissedDevices?: string[] };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
   /** The thread (or draft) this panel belongs to (panelKey), and whether it is open on the launcher alone (rightPanelStore

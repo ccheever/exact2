@@ -222,6 +222,19 @@ describe("the GitHub API stand-in (seed --pull-request)", () => {
     expect([comments.at(-1).body, graphql("query PullRequestCore($owner:String!){}", { ...v, headRef: "refs/pull/7/head", required: true }).data.repository.pullRequest.state]).toEqual(["Superseded by #8", "CLOSED"]);
     resetDetail();
   });
+  test("answers the Filters pickers' host search, narrowed by the query, and takes a review whose comment covers a range", () => {
+    resetDetail();
+    const v = { owner: "t3-fixture", name: "shared-notes" };
+    const labels = (query: string | null) => graphql("query RepositoryLabels($owner:String!){}", { ...v, query }).data.repository.labels.nodes.map((label: { name: string }) => label.name);
+    const authors = (query: string | null) => graphql("query RepositoryAuthors($owner:String!){}", { ...v, query }).data.repository.mentionableUsers.nodes.map((person: { login: string }) => person.login);
+    expect([labels(null), labels("doc"), authors(null).length, authors("octo"), authors("reviewer")]).toEqual([["bug", "documentation", "enhancement", "good first issue"], ["documentation"], 3, ["octo-hostonly"], ["lane-reviewer"]]);
+    const review = { event: "COMMENT", body: "", comments: [{ path: "notes/plan.md", start_line: 3, start_side: "RIGHT", line: 5, side: "RIGHT", body: "These three steps." }] };
+    const answered = respond("POST", "/repos/t3-fixture/shared-notes/pulls/7/reviews", JSON.stringify(review));
+    expect([answered.status, answered.name]).toEqual([200, "submitReview COMMENT [notes/plan.md:3-5]"]);
+    const threads = graphql("query ReviewThreads($owner:String!){}", { ...v, number: 7 }).data.repository.pullRequest.reviewThreads.nodes;
+    expect(threads.at(-1)).toMatchObject({ path: "notes/plan.md", startLine: 3, line: 5, comments: { nodes: [{ body: "These three steps." }] } });
+    resetDetail();
+  });
   test("its certificate is made once, and again when it would expire within a day", () => {
     const dir = join(root, "github-certs");
     expect(githubCertificates(dir)).toBe(true);

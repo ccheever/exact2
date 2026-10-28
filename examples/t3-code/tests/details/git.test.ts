@@ -232,7 +232,7 @@ describe('the card\'s Git rows (GitActionsControl panel)', () => {
     const branchFill = () => rows.attribute('testId="details-branch" ', 'background-color', state, scope);
     const groupFill = () => rows.attribute('testId="details-git-group"', 'background-color', state, scope);
     expect([branchFill(), groupFill()]).toEqual([clear, clear]);
-    rows.call('branchToggled', state, {}, [{ newState: 'open' }]);
+    rows.call('branchToggled', state, { local: () => undefined }, [{ newState: 'open' }]);
     rows.call('gitMenuToggled', state, {}, [{ newState: 'open' }]);
     expect([state.branchOpen, state.gitMenuOpen, branchFill(), groupFill()]).toEqual([true, true, fill, fill]);
     rows.call('branchToggled', state, {}, [{ newState: 'closed' }]);
@@ -261,6 +261,22 @@ describe('branch picker (BranchToolbarBranchSelector)', () => {
     branchLocal(client, 'query', '', 'feat');
     branchLocal(client, 'open', 'branch', '');
     expect(branchState(client)).toMatchObject({ open: 'branch', query: '' });
+  });
+  test('the branch popover showing refreshes the workspace\'s local status, unawaited (handleOpenChange)', async () => {
+    const asked: [string, Obj][] = [];
+    const client = { local: {}, threadId: 't', draftKey: 'env:new:p1', ready: true, restAccess: () => ({ request: async (method: string, input: Obj) => { asked.push([method, input]); return new Promise(() => {}); } }) } as unknown as T3Client;
+    const native = { available: true } as unknown as Native;
+    branchLocal(client, 'opened', '', '', native);
+    expect(asked).toEqual([]); // no row drawn yet: no workspace to refresh
+    branchState(client).cwd = '/repo/worktree';
+    expect(branchLocal(client, 'opened', '', '', native)).toBe('');
+    expect(asked).toEqual([['vcs.refreshStatus', { cwd: '/repo/worktree', localOnly: true }]]);
+    // GitBranchPicker's popover reports its showing; closing asks nothing.
+    const rows = contractComponent('git.contract', 'GitRows'), state = rows.state(), sent: unknown[][] = [];
+    const scope = { local: (...args: unknown[]) => sent.push(args) };
+    rows.call('branchToggled', state, scope, [{ newState: 'open' }]);
+    rows.call('branchToggled', state, scope, [{ newState: 'closed' }]);
+    expect(sent).toEqual([['git-opened', '', '']]);
   });
   test('a new worktree starts from remote by default, and the label says so', () => {
     const client = { local: { composerControls: { contexts: { 'env:new:p1': { envMode: 'worktree', branch: '', worktreePath: '' } } } }, threadId: '', draftKey: 'env:new:p1', projectId: 'p1',

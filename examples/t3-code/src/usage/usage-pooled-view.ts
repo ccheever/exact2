@@ -8,6 +8,7 @@
 // collision flip on an unscrolled page (`popoverSides`: below a bar too near the page's top for the
 // popover, above every other; exact2 #112); every figure and word is otherwise the reference's.
 import { arr, str, type Obj } from '../client/domain';
+import { providerInstanceInitials } from '../client/presentation';
 import { driverMeta } from '../providers/providers-meta';
 import { resolveOfficialAcpRegistryIconUrl } from '../providers/acp-icons';
 import { PACE_LABEL, barColor, formatResetsIn, paceRemainingPercent, remainingPercent } from './usage-limits';
@@ -22,16 +23,6 @@ import { cursorKeychainAccessEnvironments } from './usage-refresh';
 import { selectedConnected, type EnvironmentUsageStatus, type UsageState } from './usage-environments';
 
 const driverLabel = (driver: string) => driverMeta(driver)?.label ?? driver;
-/**
- * providerInstanceInitials (client-runtime state/providerInstanceDisplay.ts): punctuation separates words, so "Codex (hub)"
- * reads CH, not C(; an apostrophe inside a word stays ("Theo's Codex" is TC) and a quoting one goes ("Codex 'hub'" is CH).
- */
-export function instanceInitials(label: string): string {
-  const words = label.replace(/(?:(?!['’])\p{P})+/gu, ' ').split(/\s+/u).map(word => word.replace(/^['’]+|['’]+$/gu, '')).filter(Boolean);
-  if (words.length === 0) return '';
-  if (words.length === 1) return Array.from(words[0]!).slice(0, 2).join('').toUpperCase();
-  return words.slice(0, 2).map(word => Array.from(word)[0]?.toUpperCase() ?? '').join('');
-}
 const accent = (value: string | undefined) => (value && /^#[0-9a-fA-F]{6}$/u.test(value.trim()) ? value.trim() : '');
 
 /** The pool bar's width: the page column (max 64rem, 1.5rem gutters), the card's 1rem padding and border, and at md the 11rem figure column and its 1.5rem gap. */
@@ -87,7 +78,7 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
     hatch: remaining < 100 && !!reset && refillPercent > 0 ? Math.min(100 - remaining, refillPercent) : 0,
     // SegmentPopover
     title: account.displayName ?? driverLabel(account.driver), avatar, driver: account.driver,
-    badge: account.redeem && account.displayName ? instanceInitials(account.displayName) : '', accent: accent(account.accentColor),
+    badge: account.redeem && account.displayName ? providerInstanceInitials(account.displayName) : '', accent: accent(account.accentColor),
     email: email.value, emailMask: email.placeholder, plan: account.plan ?? '',
     whereLabel: where ? (account.environments.length > 0 ? 'Signed in' : 'Via') : '', where,
     left: `${remaining}%`,

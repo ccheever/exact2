@@ -221,11 +221,20 @@ export function contractComponent(file: string, name: string) {
       }
       return state;
     },
-    /** Runs `action` over `state` with `scope` (props, helpers) and `args`; its writes land on `state` as it ends. */
+    /**
+     * Runs `action` over `state` with `scope` (props, helpers) and `args`; its writes land on `state` as it ends. An action
+     * of the component it calls runs in the same commit: it reads the starting state too, and its writes land with these.
+     * A function of the same name in `scope` stands in for it.
+     */
     call(actionName: string, state: Env, scope: Env, args: unknown[]) {
-      const { params, body } = action(actionName);
-      const writes: Env = {};
-      run(body, { ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, args[i]])) }, new Set(Object.keys(state)), writes, name);
+      const writes: Env = {}, slots = new Set(Object.keys(state));
+      const own: Env = {};
+      const invoke = (target: string, values: unknown[]) => {
+        const { params, body } = action(target);
+        run(body, { ...own, ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, values[i]])) }, slots, writes, name);
+      };
+      for (const line of lines) { const m = /^  action (\w+)/.exec(line); if (m && !(m[1]! in scope)) own[m[1]!] = (...values: unknown[]) => invoke(m[1]!, values); }
+      invoke(actionName, args);
       Object.assign(state, writes);
     },
     /**

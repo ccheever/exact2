@@ -13,7 +13,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { PULL_REQUEST } from "./gh-standin.mjs";
-import { DETAIL_OPERATIONS, detailRest } from "./github-api-detail.mjs";
+import { DETAIL_OPERATIONS, detailRest, detailWrite } from "./github-api-detail.mjs";
 
 export const API_HOST = "api.github.com";
 
@@ -46,8 +46,17 @@ const noMore = { hasNextPage: false, endCursor: null };
 /** A search names its repositories (`repo:owner/name`) and its states; the one open pull request answers an open or any-state one. */
 const searched = (q) => String(q).toLowerCase().includes(`repo:${pr.owner}/${pr.name}`) && !/\bis:(closed|merged)\b/i.test(String(q));
 
+/** The repository's labels and the people one can name in it (RepositoryLabels, RepositoryAuthors: Filters › Labels and
+ *  Author search the host), each narrowed by `$query` on its name or login, as GitHub's own search narrows them. */
+const LABELS = [{ name: "bug", color: "d73a4a" }, { name: "documentation", color: "0075ca" }, { name: "enhancement", color: "a2eeef" }, { name: "good first issue", color: "7057ff" }];
+const PEOPLE = [{ login: pr.author, name: "Lane Fixture" }, { login: "lane-reviewer", name: "Lane Reviewer" }, { login: "octo-hostonly", name: "Octo Host" }]
+  .map((person) => ({ ...person, avatarUrl: "https://avatars.githubusercontent.com/u/1" }));
+const narrowed = (query, texts) => !query || texts.some((text) => String(text ?? "").toLowerCase().includes(String(query).toLowerCase()));
+
 /** The GraphQL operations the server sends, by name: each answers `data` from the variables, or null for none. */
 const OPERATIONS = {
+  RepositoryLabels: (v) => ({ repository: ours(v) ? { labels: { pageInfo: { hasNextPage: false }, nodes: LABELS.filter((label) => narrowed(v.query, [label.name])) } } : null }),
+  RepositoryAuthors: (v) => ({ repository: ours(v) ? { mentionableUsers: { pageInfo: { hasNextPage: false }, nodes: PEOPLE.filter((person) => narrowed(v.query, [person.login, person.name])) } } : null }),
   PullRequestsByHead: (v) => ({ repository: ours(v) ? { pullRequests: { nodes: v.head === pr.headRefName ? [node()] : [] } } : null }),
   PullRequestByNumber: (v) => ({ repository: ours(v) ? { pullRequest: Number(v.number) === pr.number ? node() : null } : null }),
   PullRequestSummary: (v) => ({ repository: ours(v) ? { pullRequest: Number(v.number) === pr.number ? summary() : null } : null }),
@@ -82,6 +91,8 @@ export function respond(method, path, body, accept = "") {
     // GraphQL reports a failure in a 200 answer's `errors`.
     return data ? json(200, { data }, name) : json(200, { errors: [{ type: "NOT_SUPPORTED", message: `the lane's GitHub stand-in does not answer ${name || "this query"}` }] }, name || query.slice(0, 160));
   }
+  const write = detailWrite(method, pathname, body);
+  if (write !== null) return json(200, write.value, write.name);
   const patch = detailRest(method, pathname, accept);
   if (patch !== null) return { status: 200, type: "text/plain; charset=utf-8", body: patch, name: "diff" };
   const rest = method === "GET" ? REST[pathname] : undefined;

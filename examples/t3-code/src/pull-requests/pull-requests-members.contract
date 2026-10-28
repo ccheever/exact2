@@ -10,7 +10,17 @@ members T3Code
   state prPanelOpen = true
   state prRefresh = 0
   state prTab = "summary"
-  resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns) as shape PrListView
+  // Filters › Author and Labels search the host (useHostedFilterOptions): the open picker ("authors", "labels" or none)
+  // and its search, sent to the list 250 ms after the last keystroke (OPTION_SEARCH_DEBOUNCE_MS), which asks the servers
+  // in the list's scope. A picker opening starts with an empty search.
+  state prOptionKind = ""
+  state prOptionTyped = ""
+  state prOptionSent = ""
+  task prOptionSettle when prOptionKind != "" and prOptionSent != prOptionTyped key=prOptionTyped
+    after(250, prOptionSettled)
+  action prOptionSettled
+    prOptionSent = prOptionTyped
+  resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns, prOptionKind, prOptionSent) as shape PrListView
   // usePullRequestChecksRefresh: while the open pull request's checks are read again (prDetail.checksPoll), a tick every
   // 45 s while runs are pending and 60 s once they settle moves the clock prDetail reads, as providerNow does in app.contract.
   // The timer runs only while the detail is drawn: the page's panel open and Settings not over the page, or a thread's
@@ -55,11 +65,18 @@ members T3Code
     prApplied = prQuery
     send localChanged = command("pageslocal:pr-query", "", prQuery, 0)
   action prControl(op: string, value: string)
-    if op == "query"
-      prQuery = value
-      prApplied = value
-      prTyped = true
-    send localChanged = command(`pageslocal:pr-${op}`, "", value, 0)
+    if op == "option-kind"
+      prOptionKind = value
+      prOptionTyped = ""
+      prOptionSent = ""
+    else if op == "option-query"
+      prOptionTyped = value
+    else
+      if op == "query"
+        prQuery = value
+        prApplied = value
+        prTyped = true
+      send localChanged = command(`pageslocal:pr-${op}`, "", value, 0)
   action prSelect(ref: string)
     prSelected = ref
     prPanelOpen = true
