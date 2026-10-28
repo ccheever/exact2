@@ -297,3 +297,52 @@ fn a_load_is_not_sent_once_an_earlier_loads_action_changed_its_source() {
     );
     assert_eq!(state["slots"]["loads"], 0., "{state}");
 }
+
+#[test]
+fn a_load_waiting_is_dropped_when_actions_change_its_source_away_and_back() {
+    // Three loads in one pass: the first's action moves the third to another
+    // source, the second's moves it back. The third's old load is for an
+    // assignment that has gone.
+    let source = r#"component App
+  state third = "pictures/a.png"
+  state loads = 0
+  action away
+    third = "pictures/b.png"
+  action back
+    third = "pictures/a.png"
+  action loaded
+    loads = loads + 1
+  view
+    column width=300 height=300
+      image "pictures/one.png" width=20 height=20 load=away testId="one"
+      image "pictures/two.png" width=20 height=20 load=back testId="two"
+      image third width=20 height=20 load=loaded testId="three"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (300., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let event = |p: &Presenter<()>, test_id: &str, source: &str| {
+        let k = p.host().kernel();
+        let node = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
+        let packed = u64::from(node.key.index) | (u64::from(node.key.generation) << 32);
+        (node.id, packed, source.to_owned())
+    };
+    let events = [
+        event(&p, "one", "pictures/one.png"),
+        event(&p, "two", "pictures/two.png"),
+        event(&p, "three", "pictures/a.png"),
+    ];
+    p.images.load_events.extend(events);
+    p.apply_reports(Vec::new());
+    let state = crate::agent::handle(&mut p, r#"{"op":"state"}"#);
+    let state: serde_json::Value = serde_json::from_str(&state).unwrap();
+    assert_eq!(state["slots"]["third"], "pictures/a.png", "away and back");
+    assert_eq!(state["slots"]["loads"], 0., "{state}");
+}

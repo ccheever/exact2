@@ -34,7 +34,14 @@ impl<D: DataSource> Presenter<D> {
     /// dispatching would run it before the handler. Whether any was sent.
     pub(crate) fn deliver_image_loads(&mut self) -> bool {
         let mut loads = false;
-        for (id, key, source) in std::mem::take(&mut self.images.load_events) {
+        // One at a time from the queue, so the rest stay where a source an
+        // action changes drops them (`Images::sync_shown`); those that land
+        // meanwhile wait for the next turn (owed at once).
+        for _ in 0..self.images.load_events.len() {
+            if self.images.load_events.is_empty() {
+                break;
+            }
+            let (id, key, source) = self.images.load_events.remove(0);
             let now = self.host.now();
             if self.host.timer_due_ms().is_some_and(|due| due <= now) {
                 if let Some(error) = self.advance(now) {

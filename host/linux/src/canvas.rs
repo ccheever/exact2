@@ -1218,7 +1218,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if p.needs_animation_frame() {
             p.tick(now);
         }
-        if !quick {
+        if quick {
+            // A picture a timer's source change took from the cache sends its
+            // load now: a turn is owed for it, and no image fd wakes.
+            p.deliver_image_loads();
+        } else {
             p.poll_images();
             // The pump may have drained the wake of a data source that finished loading.
             if p.module_pending() {
