@@ -124,7 +124,9 @@ export function reply(target, tags) {
     // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.3).
     return { site, instances: live.get(site), live: w.created - w.retired, ...w, ...(globalThis.exact?.hatchPerf?.site(site) ?? {}) };
   });
-  return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, walked, truncated, work: {scope:"session", since:Since, timebase:"runner-clock-ms", counts:{}, coverage:"virtual row operations by collection site; browser layout and inherited work are unavailable"} };
+  // Each resource whose source was asked, and how often (LLP 1146 D3), as the runner's `resources`.
+  const resources = Resources.filter(r => r.asks).map(r => ({ name: r.name, asked: r.asks }));
+  return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, resources, walked, truncated, work: {scope:"session", since:Since, timebase:"runner-clock-ms", counts:{}, coverage:"virtual row operations by collection site; browser layout and inherited work are unavailable"} };
 }
 
 /** A development page's data answers, watched from before the app starts

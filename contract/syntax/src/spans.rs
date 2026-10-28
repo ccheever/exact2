@@ -115,7 +115,7 @@ structs! {
     FontDecl { name, faces, span }
     SoundDecl { source, span }
     FontFaceDecl { weight, italic, source, span }
-    TestDecl { name, steps, span }
+    TestDecl { name, hosts, steps, span }
     FnDecl { name, params, ret, body, span }
     ModuleDecl { name, declared, package, extension, kind, options, words, answers, args, raised, hold, budget, handler, live, request, sync, data_only, substitute, span }
     PlatformWords { platform, package, words }
@@ -172,6 +172,7 @@ record_variants! {
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
         Midi { step, span }, ExpectWakelock { held, span },
+        Perf { steps, span }, ExpectPerf { subject, target, at_most, value, span }, ExpectNoFailures { span },
     }
 }
 // MIDI's test steps carry no spans of their own.
@@ -318,7 +319,10 @@ impl Step {
             | Step::ExpectSound { span, .. }
             | Step::Midi { span, .. }
             | Step::ExpectMediaSession { span, .. }
-            | Step::ExpectMediaSessionAction { span, .. } => *span,
+            | Step::ExpectMediaSessionAction { span, .. }
+            | Step::Perf { span, .. }
+            | Step::ExpectPerf { span, .. }
+            | Step::ExpectNoFailures { span } => *span,
         }
     }
 }

@@ -644,7 +644,8 @@ special typing; it is not a source-language type annotation.
 
 ```ebnf
 test-file     = { launch | test } ;                   (* a top-level launch line: every test's *)
-test          = "test" STRING block( { launch } { step } ) ;
+test          = "test" STRING [ "on" HOST { "," HOST } ] block( { launch } { step } ) ;
+HOST          = "web" | "macos" | "ios" | "tvos" | "linux" | "windows" | "android" ;
 launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "epoch" ( STRING | NUMBER | "now" ) NL (* "2026-09-21T12:00:00Z", Unix ms, or now *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
@@ -680,6 +681,10 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "close" NL                           (* the window's close button *)
               | "back" NL                            (* the platform's Back *)
               | "screenshot" STRING NL
+              | "perf" NL block( step { step } )       (* counts its steps' work; no launch line, `clock … real` or `perf` in it *)
+              | "expect" "perf" ( "query" IDENT | ( "built" | "evaluated" ) STRING ) ( "==" | "<=" ) NUMBER NL
+                                                     (* a count of the last `perf` block *)
+              | "expect" "no" "failures" NL           (* nothing failed that the test did not arrange *)
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" ( "disabled" | "enabled" ) STRING NL  (* a control's `disabled` (LLP 1116.010 D3) *)
               | "expect" "refusal" STRING NL          (* one observed refusal of the named mutation slot *)
@@ -696,6 +701,25 @@ json          = "{" [ STRING ":" json { "," STRING ":" json } ] "}"   (* strict 
               | "[" [ json { "," json } ] "]"                         (* trailing comma; brackets may *)
               | STRING | [ "-" ] NUMBER | "true" | "false" | "null" ; (* span lines *)
 ```
+
+`on web` runs a test on the hosts it names and skips it on the others, saying so (LLP 1146 D7):
+a test of something only one host has, such as the browser's history after a reload.
+
+`perf` runs its indented steps and counts the work they did (LLP 1146 D3), for the `expect
+perf` lines after it. `query channelList` is how often the resource's data source was asked;
+`built "MemberList"` the views created and virtual rows constructed at that component's plan
+sites (a component the plan declares and never built counts 0), else under the view with that
+`testId`; `evaluated` the bindings evaluated there. The counts repeat when the steps and the
+answers are the test's, on the agent's clock, so `clock … real` is refused in a block and the
+block in a run under platform timing. `query` and `built` read the same on every host;
+`evaluated` is each runtime's own, so a test that compares it names one host. The development
+source map names components; a host without one says so. A drive's `perf <target> during "…"`
+shows the same counts while a test is being written.
+
+`expect no failures` fails when, since the test launched or its last `expect no failures`, a
+resource was refused while no `fail fetch` fired, a send failed that no `expect refusal` names,
+or the runner said a resource was asked again and again (LLP 1146 D4). Without it, a test
+still prints those as `unarranged:` notes, and verify counts them as findings.
 
 `expect refusal "saved"` names a mutation slot, after `clock data` or `clock settle`
 lands its send. It asserts one observed refusal since the previous such assertion for

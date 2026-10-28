@@ -29,7 +29,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { connect } from 'node:net';
 import { contactSheet, encodeApng, encodePng } from './png.mjs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openTouches, realTap, springboard } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot, referenceNote } from './agent-compare.mjs';
@@ -828,6 +828,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (await sourceMaps.refresh()) for (const site of [...r.sites, ...(r.handlers ?? [])]) { const n = { planDigest: r.plan, site: site.site }; sourceMaps.attach(n); site.source = n.sourceMap; }
       return { target: target ?? null, ...r };
     },
+    /** The component names the development source map of plan `digest` declares, or null without one (LLP 1146 D3). */
+    components(digest) { const map = sourceMaps.get(digest); return map ? new Set(map.nodes.map((n) => n?.component).filter(Boolean)) : null; },
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
     async layout(target, at, inspect = {}) { // inspect: {native: {depth, limit}} | {agree: true, limit} (LLP 1080.001)
       if (inspect.agree) return s.op({ op: 'layout', agree: true, ...(inspect.limit != null ? { limit: inspect.limit } : {}) });
@@ -1317,11 +1319,13 @@ export async function main(argv, injected = {}) {
     return (await import('./verify.mjs')).withAppServer(resolveApp(flags.app).dir, async () => {
       const r = await (injected.runTests ?? runTests)({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, formatLocale: flags.formatLocale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, storage: flags.storage, touch: flags.touch, chrome: flags.chrome, scale: flags.scale, port: flags.port });
       for (const t of r.results) {
-        console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
+        console.log(`test "${t.name}": ${t.skipped ? `skipped on ${host} (${t.skipped})` : t.failures.length ? 'FAIL' : 'ok'}`);
         for (const f of t.failures) console.error('  ' + f);
         for (const n of t.notes ?? []) console.error(`  note: ${n}`);
       }
-      console.log(`${r.passed} passed, ${r.failed} failed`);
+      console.log(`${r.passed} passed, ${r.failed} failed${r.skipped ? `, ${r.skipped} skipped` : ''}`);
+      // The run, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
+      (await import('./evidence.mjs')).recordRun(flags.app, { host, what: `test ${relative(process.cwd(), resolve(flags.test)).startsWith('..') ? resolve(flags.test) : relative(process.cwd(), resolve(flags.test))}`, result: { tests: true, passed: r.passed, failed: r.failed, skipped: r.skipped ?? 0, failing: r.results.filter((t) => t.failures.length).map((t) => t.name) }, timing: process.env.EXACT_AGENT_TIMING ?? 'agent', touch: flags.touch, device: flags.device || flags.phone, sim: flags.sim, webDist: flags.webDist });
       return r.failed ? 1 : 0;
     }, { verb: 'test', optional: true });
   }
@@ -1408,6 +1412,8 @@ export async function main(argv, injected = {}) {
       }
       return [op, r, how];
   };
+  // The drive, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
+  const recordDrive = async (result) => (await import('./evidence.mjs')).recordRun(flags.app, { host, what: `drive ${ops.join(' · ').slice(0, 300)}`, result, timing: flags.timing ?? 'agent', touch: flags.touch, device: flags.device || flags.phone, sim: flags.sim, webDist: flags.webDist });
   // What the replies leave out, on stderr, which a --json reader's stdout never carries (agent-test.mjs `driveNotes`).
   const notes = driveNotes(s, { host, storage: flags.storage, origins: flags.url ? [] : loopbackOrigins(resolve(flags.webDist ?? defaultWebDist())) });
   try { if (flags.permission) await s.prefer(flags.permission); // `--permission name=state` (agent-launch.mjs)
@@ -1419,10 +1425,12 @@ export async function main(argv, injected = {}) {
     }
     if (s.contact?.whole?.queue.some((q) => q.line)) throw new Error('the steps after tap <target> down run inside the touch at its tap up, and the drive ended before it');
     await notes('end');
+    await recordDrive({ ok: true });
     return 0;
   } catch (e) {
     // A drive that fails (an `expect`, a refused op) is where a missing store or a failed resource is found: say it first.
     await notes('end');
+    await recordDrive({ ok: false, error: `op ${at}: ${String(e.message).split('\n')[0].slice(0, 200)}` });
     e.message = `op ${at}/${ops.length} \`${ops[at - 1]?.trim()}\`: ${e.message}`;
     throw e;
   } finally {

@@ -186,6 +186,18 @@ impl<D: DataSource> Runner<D> {
         f.last = now;
     }
 
+    /// Resource `i`'s data source was asked (LLP 1146 D3): counted while measuring.
+    pub(super) fn count_ask(&mut self, i: usize) {
+        if self.ids.work.sites.is_empty() {
+            return;
+        }
+        let asked = &mut self.ids.work.asked;
+        if asked.len() <= i {
+            asked.resize(self.plan.resources.len().max(i + 1), 0);
+        }
+        asked[i] += 1;
+    }
+
     /// Each resource refused since measuring began, by name: `state.failures`.
     pub fn failure_counts(&self) -> Vec<(&str, Failures)> {
         let work = &self.ids.work;

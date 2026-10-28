@@ -533,7 +533,10 @@ export function perfDelta(a, b) {
     }
     counted[key] = {...after, counts};
   }
-  return { ...b, ...counted, sites, handlers, from: { seq: a.seq, clock: a.clock } };
+  // Each resource's asks between the reads (LLP 1146 D3); a host that counts none has no `resources`.
+  const asked = new Map((a.resources ?? []).map(r => [r.name, r.asked]));
+  const resources = b.resources?.map(r => ({ ...r, asked: r.asked - (asked.get(r.name) ?? 0) })).filter(r => r.asked > 0);
+  return { ...b, ...counted, sites, handlers, ...(resources ? { resources } : {}), from: { seq: a.seq, clock: a.clock } };
 }
 
 function renderHatchPerf(r) {
@@ -617,7 +620,7 @@ function renderPerf(r) {
         ? `\n    each ${h.event} event changed the tree, and each was a runner turn the main thread waited on`
         : ''));
   return [`${r.target ?? 'every root'} — seq ${span(r.from?.seq, r.seq)} · clock ${span(r.from?.clock, r.clock)} ms · incarnation ${r.incarnation}${r.truncated ? ` · partial: ${r.walked} walked` : ''}${unmapped ? ` · source unavailable: ${unmapped.source?.reason ?? 'no development source map'}` : ''}`,
-    pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : []), ...['work', 'hostWork'].filter(k => r[k]).map(k => `${k} (${r[k].scope}, since ${r[k].since ?? 'unmeasured'} ${r[k].timebase}): ${Object.entries(r[k].counts ?? {}).map(([n,v]) => `${n}=${v}`).join(' ')}`)].join('\n');
+    pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : []), ...(r.resources?.length ? ['resources asked', ...r.resources.map(x => `  ${x.name}: ${x.asked}`)] : []), ...['work', 'hostWork'].filter(k => r[k]).map(k => `${k} (${r[k].scope}, since ${r[k].since ?? 'unmeasured'} ${r[k].timebase}): ${Object.entries(r[k].counts ?? {}).map(([n,v]) => `${n}=${v}`).join(' ')}`)].join('\n');
 }
 
 /** `bun scripts/agent.mjs trace <file>` (LLP 1079 D5): a person's session

@@ -878,3 +878,63 @@ fn clock_until_state_takes_a_path_a_json_literal_and_a_bound() {
         assert!(format!("{e:?}").contains(says), "{bad}: {e:?}");
     }
 }
+
+// LLP 1146 D7: `on` names the hosts a test is for.
+#[test]
+fn a_test_names_its_hosts() {
+    let tests =
+        contract::tests("test \"restore\" on web, macos\n  back\ntest \"all\"\n  back\n").unwrap();
+    assert_eq!(tests[0].hosts, ["web", "macos"]);
+    assert!(tests[1].hosts.is_empty());
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with("[{\"name\":\"restore\",\"hosts\":[\"web\",\"macos\"],\"steps\":"),
+        "{json}"
+    );
+    assert!(json.contains("{\"name\":\"all\",\"steps\":"), "{json}");
+    let e = contract::tests("test \"t\" on phone\n  back\n").unwrap_err();
+    assert!(e.message.contains("expected a host"), "{e}");
+    let e = contract::tests("test \"t\" on web, web\n  back\n").unwrap_err();
+    assert!(e.message.contains("named twice"), "{e}");
+}
+
+// LLP 1146 D3 and D4: a measured block, its counts, and no unarranged failures.
+#[test]
+fn a_perf_block_and_its_counts_parse_to_the_drivers_steps() {
+    let src = "test \"lists\"\n  tap \"channel-general\"\n  perf\n    request POST \"/control/inject\" {\"what\": \"typing\"}\n    clock data\n  expect perf query channelList <= 1\n  expect perf built \"member-row\" == 0\n  expect perf evaluated \"Rail\" == 3\n  expect no failures\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(matches!(&steps[1], Step::Perf { steps, .. } if steps.len() == 2));
+    assert!(
+        matches!(&steps[2], Step::ExpectPerf { subject, target, at_most: true, value: 1, .. } if subject == "query" && target == "channelList")
+    );
+    assert!(matches!(&steps[5], Step::ExpectNoFailures { .. }));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"perf\",\"steps\":[{\"op\":\"request\""),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"clock\",\"arg\":\"data\",\"line\":5}],\"line\":3}"),
+        "{json}"
+    );
+    assert!(json.contains("{\"op\":\"expect-perf\",\"subject\":\"built\",\"target\":\"member-row\",\"compare\":\"==\",\"value\":0,\"line\":7}"), "{json}");
+    assert!(
+        json.contains("{\"op\":\"expect-no-failures\",\"line\":9}"),
+        "{json}"
+    );
+}
+
+#[test]
+fn a_perf_block_refuses_the_wall_clock_and_counts_need_a_block() {
+    let e = contract::tests("test \"t\"\n  perf\n    clock +100 real\n").unwrap_err();
+    assert!(e.message.contains("wall clock"), "{e}");
+    let e = contract::tests("test \"t\"\n  expect perf query a == 1\n").unwrap_err();
+    assert!(e.message.contains("`perf` block before it"), "{e}");
+    let e = contract::tests("test \"t\"\n  perf\n    clock data\n  expect perf query a == 1.5\n")
+        .unwrap_err();
+    assert!(e.message.contains("whole count"), "{e}");
+    let e = contract::tests("test \"t\"\n  perf\n    clock data\n  expect perf time a == 1\n")
+        .unwrap_err();
+    assert!(e.message.contains("counts `query"), "{e}");
+}

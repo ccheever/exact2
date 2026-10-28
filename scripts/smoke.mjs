@@ -1423,7 +1423,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
 for (const file of authoredTests(app.dir)) {
   const t = await runTests({ host, file }).catch((e) => ({ passed: 0, failed: 1, results: [{ name: basename(file), failures: [e.message] }] }));
   for (const r of t.results) for (const f of r.failures) check(false, `test "${r.name}": ${f}`);
-  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (${app.name}/${basename(file)})`);
+  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed${t.skipped ? `, ${t.skipped} skipped` : ''} (${app.name}/${basename(file)})`);
 }
 
 // 14. Native modules (LLP 1024 D8): the fixture's whole seam, when the app is it.

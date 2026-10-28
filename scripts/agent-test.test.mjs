@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { disabledExpectation, refusalExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
+import { churnLines, disabledExpectation, NO_FAILURES, perfExpectation, refusalExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation, unarranged } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
@@ -500,3 +500,32 @@ component Finder
     } finally { server.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 180_000);
+
+// LLP 1146 D4: what failed that the test did not arrange.
+test('a failure is unarranged unless a fetch fault fired or an expect refusal names it', () => {
+  const now = { ...NO_FAILURES, failures: { gateway: 2 }, failed: { gateway: 'turn 868 ms over 100 ms' }, mutations: { vote: { code: 'refused', message: 'no' }, send: { code: 'network', message: 'down' } } };
+  expect(unarranged(NO_FAILURES, now, { refusals: ['vote'] })).toEqual(['resource gateway was refused 2 times (turn 868 ms over 100 ms)', 'send send failed (network: down)']);
+  expect(unarranged(now, { ...now, failures: { gateway: 3 } }, { refusals: ['vote', 'send'] })).toEqual(['resource gateway was refused once (turn 868 ms over 100 ms)']);
+  expect(unarranged(NO_FAILURES, { ...now, faults: { '/api': 1 } }, { refusals: ['vote', 'send'] })).toEqual([]);
+  expect(unarranged(NO_FAILURES, { ...NO_FAILURES, failed: { list: 'shape' } })).toEqual(['resource list failed (shape)']);
+  const churn = churnLines(['t=12 query r: src', 't=13 `r` was asked 50 times in a second, its arguments new each time (argument 1 last): …']);
+  expect(churn).toEqual(['`r` was asked 50 times in a second, its arguments new each time (argument 1 last): …']);
+  expect(unarranged(NO_FAILURES, NO_FAILURES, { churn })).toEqual(churn);
+});
+
+// LLP 1146 D3: an `expect perf` line against a block's counts.
+test('expect perf reads a resource\'s asks and a component\'s or a view\'s work', () => {
+  const site = (component, created, evaluated, line) => ({ site: line, created, rowConstructed: 0, evaluated, source: { status: 'compatible', component, file: '/a/app.contract', line } });
+  const measured = { line: 3, components: new Set(['MemberRow', 'Rail', 'Sheet']), whole: { resources: [{ name: 'channelList', asked: 1 }], sites: [site('Rail', 2, 9, 10), site('Rail', 1, 4, 12)] }, under: new Map([['member-sheet', { sites: [site('Sheet', 5, 0, 40)] }]]) };
+  const at = (subject, target, compare, value) => perfExpectation(measured, { subject, target, compare, value }, ['channelList', 'serverList']);
+  expect(at('query', 'channelList', '<=', 1)).toBeNull();
+  expect(at('query', 'serverList', '==', 0)).toBeNull();
+  expect(at('query', 'nope', '==', 0)).toContain('no resource is named nope');
+  expect(at('built', 'Rail', '==', 3)).toBeNull();
+  expect(at('evaluated', 'Rail', '<=', 12)).toBe('evaluated "Rail" counted 13 in the `perf` block at line 3, expected <= 12 (app.contract:10 9, app.contract:12 4)');
+  expect(at('built', 'MemberRow', '==', 0)).toBeNull(); // declared, never built
+  expect(at('built', 'member-sheet', '==', 5)).toBeNull(); // a view by testId
+  expect(at('built', 'Ghost', '==', 0)).toContain('names no component');
+  expect(perfExpectation(null, { subject: 'query', target: 'a', compare: '==', value: 0 })).toContain('no `perf` block');
+  expect(perfExpectation({ ...measured, whole: { sites: [] } }, { subject: 'query', target: 'a', compare: '==', value: 0 })).toContain('counts no resource asks');
+});

@@ -294,7 +294,13 @@ impl<'a> Layout<'a> {
         for step in file
             .launch
             .iter()
-            .chain(file.tests.iter().flat_map(|t| &t.steps))
+            .chain(file.tests.iter().flat_map(|t| &t.steps).flat_map(|s| {
+                let inner: &[crate::Step] = match s {
+                    crate::Step::Perf { steps, .. } => steps,
+                    _ => &[],
+                };
+                std::iter::once(s).chain(inner)
+            }))
         {
             let Some(start) = self.position(step.span()) else {
                 continue;

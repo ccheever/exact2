@@ -501,11 +501,11 @@ test "relaunching during an edit does not turn it into a new message draft"
   expect tree missing "editing"
   expect text "composer" == ""
 
-// Web only: a web relaunch keeps the channel's address, with the list beneath it to go Back to; a native
-// relaunch starts at the list, with nothing beneath. Its host-neutral twin (a conversation chosen first) is
-// in routing.test.contract.
+// A web relaunch keeps the channel's address, with the list beneath it to go Back to; a native relaunch
+// starts at the list, with nothing beneath. Its host-neutral twin (a conversation chosen first) is in
+// routing.test.contract.
 
-test "a user action before the launch's restore lands wins: Back to the list cancels it"
+test "a user action before the launch's restore lands wins: Back to the list cancels it" on web
   clock settle
   clock until state gateway.state == "ready" within 10000
   clock settle

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { faultRequest as rawFaultRequest, PREFERENCES, preferGroups } from './agent-prefer.mjs';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
+import { perfDelta } from './agent-inspect.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { onThisMachine, serverUrl } from './verify.mjs';
@@ -313,6 +314,73 @@ export function refusalExpectation(logs, target) {
   return { message: `expected mutation ${JSON.stringify(target)} to refuse, but no refused reply was observed; clock data or clock settle lands a send` };
 }
 
+/** What had failed when a test launched: nothing (LLP 1146 D4). */
+export const NO_FAILURES = Object.freeze({ failures: {}, failed: {}, mutations: {}, faults: {}, journal: 0 });
+
+/** What has failed so far, to compare with an earlier mark (`unarranged`): each resource's refusals (`state.failures`,
+ * a development build's) and its latest reason, each send's failure, how often each fetch fault fired, and the
+ * journal's cursor. */
+export async function failureMark(s) {
+  const state = await s.state();
+  const journal = (await s.op({ op: 'logs', since: Number.MAX_SAFE_INTEGER }).catch(() => null))?.next ?? 0;
+  return {
+    failures: Object.fromEntries(Object.entries(state.failures ?? {}).map(([name, f]) => [name, f.count])),
+    failed: state.failed ?? {}, mutations: state.mutationFailures ?? {},
+    faults: Object.fromEntries((state.faults ?? []).map((f) => [f.prefix, f.hits])), journal,
+  };
+}
+
+/** The failures between two marks that the test did not arrange (LLP 1146 D4): a resource refused while no fetch fault
+ * fired (a fault's failures are the test's), a send that failed whose name no `expect refusal` gives, and the runner's
+ * churn alerts. One line each. */
+export function unarranged(was, now, { refusals = [], churn = [] } = {}) {
+  const out = [];
+  const faulted = Object.entries(now.faults).some(([prefix, hits]) => hits > (was.faults[prefix] ?? 0));
+  if (!faulted) {
+    for (const [name, count] of Object.entries(now.failures)) {
+      const more = count - (was.failures[name] ?? 0);
+      if (more > 0) out.push(`resource ${name} was refused ${more === 1 ? 'once' : `${more} times`}${now.failed[name] ? ` (${now.failed[name]})` : ''}`);
+    }
+    // A host that counts no refusals still names what failed.
+    for (const [name, why] of Object.entries(now.failed)) if (!(name in now.failures) && !(name in was.failed)) out.push(`resource ${name} failed (${why})`);
+  }
+  for (const [name, f] of Object.entries(now.mutations)) {
+    if (refusals.includes(name) || JSON.stringify(f) === JSON.stringify(was.mutations[name])) continue;
+    out.push(`send ${name} failed (${f.code}: ${f.message})`);
+  }
+  return [...out, ...churn];
+}
+
+/** The runner's churn alerts in journal lines (`query.rs` `count_churn`), without their time stamps. */
+export function churnLines(lines) {
+  return (Array.isArray(lines) ? lines : []).map(String).filter((l) => / was asked \d+ times in a second/.test(l)).map((l) => l.replace(/^t=\S+\s+/, ''));
+}
+
+/** An `expect perf` line against the last `perf` block's counts (LLP 1146 D3); null when it holds, else what was
+ * counted. `query` reads a resource's asks; `built` the views created and virtual rows constructed, and `evaluated`
+ * the bindings evaluated, at a component's plan sites (the development source map's names), else under the view
+ * with that `testId`. A component the map declares that did no work counts 0. */
+export function perfExpectation(measured, st, resources = []) {
+  if (!measured) return 'no `perf` block has run before this line';
+  const said = `${st.subject} ${st.subject === 'query' ? st.target : JSON.stringify(st.target)}`;
+  let got, by = [];
+  if (st.subject === 'query') {
+    if (!measured.whole.resources) return `this host counts no resource asks, so \`expect perf ${said}\` cannot be read`;
+    if (resources.length && !resources.includes(st.target)) return `no resource is named ${st.target} (${resources.join(', ')})`;
+    got = measured.whole.resources.find((r) => r.name === st.target)?.asked ?? 0;
+  } else {
+    const count = st.subject === 'built' ? (x) => (x.created ?? 0) + (x.rowConstructed ?? 0) : (x) => x.evaluated ?? 0;
+    let sites = measured.whole.sites.filter((x) => x.source?.component === st.target);
+    if (!sites.length && !measured.components?.has(st.target)) sites = measured.under.get(st.target)?.sites;
+    if (!sites) return `"${st.target}" names no component in the development source map and no view on screen when the \`perf\` block at line ${measured.line} began`;
+    got = sites.reduce((n, x) => n + count(x), 0);
+    by = sites.filter((x) => count(x) > 0).sort((a, b) => count(b) - count(a)).slice(0, 3)
+      .map((x) => `${x.source?.status === 'compatible' ? `${x.source.file.split('/').pop()}:${x.source.line}` : `site ${x.site}`} ${count(x)}`);
+  }
+  const holds = st.compare === '<=' ? got <= st.value : got === st.value;
+  return holds ? null : `${said} counted ${got} in the \`perf\` block at line ${measured.line}, expected ${st.compare} ${st.value}${by.length ? ` (${by.join(', ')})` : ''}`;
+}
+
 /** The first sound a journal says the runner dropped as undeclared (`sound dropped: …`, a sequence's `… step N dropped: …`; LLP 1096 D5), as quoted there. */
 export function undeclaredSound(lines) {
   for (const l of Array.isArray(lines) ? lines : []) {
@@ -513,8 +581,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const chosen = backendOrigin(selected.dir, launched);
   const server = chosen && onThisMachine(chosen) ? chosen.replace(/\/+$/, '') : serverUrl(selected.dir);
   let done = false;
+  // The host as a test's `on` names it (LLP 1146 D7): the sample host's sessions are the Mac's and the iPhone's.
+  const scope = { host: 'macos', 'host-ios': 'ios' }[host] ?? host, timing = launched.EXACT_AGENT_TIMING;
   for (const [n, t] of tests.entries()) {
     if (done) break;
+    if (t.hosts && !t.hosts.includes(scope)) { results.push({ name: t.name, failures: [], notes: [], skipped: `on ${t.hosts.join(', ')}` }); continue; }
     const failures = [], expectedRefusals = [];
     const refusalCursors = new Map();
     let end = null;
@@ -668,178 +739,213 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         const faults = (await s.state()).faults ?? [];
         for (const f of faults) if (f.hits > 0) armed.delete(f.prefix);
       };
+      // The last `perf` block's counts, and what had failed at launch or at the last `expect no failures` (LLP 1146 D3, D4).
+      // The launch's mark is empty: a failure while the app booted is one the test did not arrange.
+      let measured = null, mark = NO_FAILURES;
+      const refusals = t.steps.filter((x) => x.op === 'expect-refusal').map((x) => x.target);
+      // One step: an input, a read, an expect, or a `perf` block, whose steps run here in turn (LLP 1146 D3).
+      const runStep = async (st, n, at) => {
+        if (INPUTS.has(st.op)) await settleFired();
+        if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
+        switch (st.op) {
+          case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
+          case 'prefer': if (n >= leading) await prefer(st); break;
+          // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
+          case 'fail-fetch': {
+            if (n < leading) break;
+            // Under `before data` nothing has loaded until a clock step (or a reload) waits for it.
+            if (beforeData && !loaded) early(st);
+            await unfired(st.prefix);
+            const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
+            if (r?.error) throw new Error(r.error);
+            if (st.times != null) armed.set(st.prefix, st.line);
+            break;
+          }
+          case 'pass-fetch': { const r = await s.op({ op: 'prefer', faults: { pass: st.prefix } }); if (r?.error) throw new Error(r.error); break; }
+          // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
+          case 'tap': {
+            const opts = st.form === 'into' ? { into: { key: st.key } }
+              : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
+              : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) }
+              : st.form !== 'press' ? { [st.form]: true }
+              : st.modifiers ? { modifiers: st.modifiers } : undefined;
+            delivered(await s.tap(st.target, opts)); input = st.line; break;
+          }
+          // MIDI (LLP 1125 §4): the ports a request finds, and a message from an input now.
+          case 'prefer-midi': { const r = await s.op({ op: 'prefer', midi: { ...(st.state ? { state: st.state } : {}), ...(st.inputs ? { inputs: st.inputs } : {}), ...(st.outputs ? { outputs: st.outputs } : {}) } }); if (r?.error) throw new Error(r.error); await s.clock('settle'); break; }
+          case 'tap-midi': delivered(await s.tap(null, { midi: st.clock ? { input: st.input, clock: st.clock } : { input: st.input, data: st.data } })); input = st.line; break;
+          case 'drag': {
+            const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
+            if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
+            delivered(await s.tap(st.target, { drag })); input = st.line; break;
+          }
+          case 'type': {
+            // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
+            let text = st.text;
+            if (st.append) {
+              const { nodes } = await s.tree(), field = nodes.find((n) => n.props.testId === st.target && !n.inactive) ?? nodes.find((n) => n.props.testId === st.target);
+              if (field && typeof field.props.value !== 'string') throw new Error(`type … append: "${st.target}" shows no text value to append to`);
+              if (field?.props.type === 'password' && field.props.value !== '') throw new Error(`type … append: "${st.target}" is a password field, whose value the tree does not show`);
+              text = (field?.props.value ?? '') + text;
+            }
+            delivered(await s.type(st.target, text)); input = st.line; break;
+          }
+          case 'reload': await reload(); refusalCursors.clear(); expectedRefusals.length = 0; await data(); input = null; loaded = true; break;
+          case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
+          // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
+          case 'pick': {
+            try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
+            catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
+            input = st.line; break;
+          }
+          case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
+          case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
+          // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it
+          // shows changes until it reads again.
+          case 'request': await serverRequest(server, st); unpolled = st.line; break;
+          case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
+          // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
+          // one that closed takes the session, so a step after it fails naming it.
+          // Counted faults are checked first: a window that closes takes the table with it.
+          case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
+          // The platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed
+          // route popped. Nothing to go back from fails the step; a Back the app refuses (a disabled control, closedby="none") is a note.
+          case 'back': { const r = await s.back(); delivered(r); if (r?.refused) notes.push(`line ${st.line}: back refused: ${r.refused}`); input = st.line; break; }
+          case 'screenshot': await s.screenshot(st.path); shots.push(resolve(st.path)); break;
+          case 'expect-tree': {
+            const tree = await s.tree();
+            const f = treeExpectation(tree.nodes, st.target, st.present);
+            // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
+            const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size' || p.op === 'prefer');
+            if (f?.unshown) failures.push(`${at}: ${f.message}`);
+            else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+            break;
+          }
+          case 'expect-refusal': {
+            const logs=await s.op({op:'logs',since:refusalCursors.get(st.target) ?? 0});
+            const refusal=refusalExpectation(logs,st.target);
+            if (refusal.message) await fail(`${at}: ${refusal.message}`);
+            else { expectedRefusals.push(...refusal.expected); refusalCursors.set(st.target,logs.next); }
+            break;
+          }
+          case 'expect-disabled': {
+            const f = disabledExpectation((await s.tree()).nodes, st.target, st.disabled);
+            if (f) await fail(`${at}: ${f.message}`);
+            break;
+          }
+          case 'expect-text': {
+            const f = textExpectation((await s.tree()).nodes, st.target, st.value);
+            if (f?.unshown) failures.push(`${at}: ${f.message}`);
+            else if (f) await fail(`${at}: ${f.message}`);
+            break;
+          }
+          case 'expect-state': {
+            const state = await s.state();
+            const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
+            // A field or a list index at any depth, `name.field` or `rows.0` (feed F10, drums R7).
+            const [name, ...fields] = st.name.split('.');
+            if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
+            let got = bag[name], path = name, missing = null;
+            for (const field of fields) {
+              if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
+              got = got[field]; path += `.${field}`;
+            }
+            if (missing != null) { await fail(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
+            if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+            break;
+          }
+          case 'expect-wakelock': {
+            const lock = (await s.state()).wakelock;
+            if (!lock) { failures.push(`${at}: this host reports no wakelock holder record`); break; }
+            if (lock.held !== st.held) {
+              const nodes = lock.by.length ? (await s.tree()).nodes : [];
+              const holders = lock.by.map(id => {
+                const testId = nodes.find(node => node.id === id)?.props?.testId;
+                return `view ${id}${testId ? ` (${JSON.stringify(testId)})` : ''}`;
+              });
+              failures.push(`${at}: expected wakelock ${st.held ? 'held' : 'released'}; ${holders.length ? `held by ${holders.join(', ')}` : 'nothing holds it'}`);
+            }
+            break;
+          }
+          // The runner's voice table, the whole record (LLP 1096 D10): a voice of that
+          // source matching every clause given, or none; a dropped call is not a voice.
+          case 'expect-sound': {
+            const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
+            const clauses = ['at', 'gain', 'ends', 'playbackRate', 'pan', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+            // `state.sounds` names a voice's rate and pan only when not 1 and 0 (LLP 1125 D10).
+            const field = (v, k) => v[k] ?? { playbackRate: 1, pan: 0 }[k];
+            if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
+            const first = sounds.voices[0]?.at ?? Infinity;
+            if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
+            const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => field(v, k) === st[k]));
+            if (found !== st.present) {
+              const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain}${v.playbackRate != null ? ` playbackRate ${v.playbackRate}` : ''}${v.pan != null ? ` pan ${v.pan}` : ''} ends ${v.ends} by ${v.by}`);
+              // A voice is recorded by the commit that issued it: no clock hint applies.
+              failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
+            }
+            break;
+          }
+          // The MIDI queue's record (LLP 1125 D5): a message to that output, not taken back, at `at` when given.
+          case 'expect-midi': {
+            const midi = (await s.state(undefined, undefined, false, false, { midi: 'all' })).midi;
+            if (!midi) { failures.push(`${at}: the app keeps no MIDI queue (no sequence, no sendMIDI, exactMIDI or midimessage)`); break; }
+            const hex = st.data.map((b) => b.toString(16).padStart(2, '0')).join(' '), said = `"${st.output}" ${hex}${st.at != null ? ` at ${st.at}` : ''}`;
+            const found = midi.sent.some((m) => m.output === st.output && m.data === hex && m.state !== 'retracted' && (st.at == null || m.at === st.at));
+            if (found !== st.present) {
+              const of = midi.sent.filter((m) => m.output === st.output).slice(-8).map((m) => `#${m.id} ${m.data} at ${m.at} ${m.state}${m.by ? ` by ${m.by}` : ''}`);
+              failures.push(`${at}: expected ${st.present ? 'a' : 'no'} message to ${said}; ${of.length ? `its messages: ${of.join('; ')}` : `nothing was queued for it (access ${midi.state}, outputs ${midi.outputs.map((o) => o.id).join(', ') || 'none'})`}`);
+            }
+            break;
+          }
+          // The media session the host reports (LLP 1098 D10): a field, the owner by its testId, or an offered action.
+          case 'expect-mediasession': {
+            const ms = (await s.state()).mediaSession;
+            if (!ms) { failures.push(`${at}: this host reports no media session`); break; }
+            if (st.action != null) {
+              if (ms.actions.includes(st.action) !== st.present) await fail(`${at}: expected the media session ${st.present ? 'to offer' : 'not to offer'} "${st.action}"; it offers ${ms.actions.length ? ms.actions.join(', ') : 'nothing'}${ms.owner == null ? ' (no owner)' : ''}`);
+              break;
+            }
+            const got = st.field === 'owner' ? (ms.owner == null ? null : ms.testId ?? `view ${ms.owner}`) : st.field === 'playbackState' ? ms.playbackState : ms.metadata?.[st.field] ?? null;
+            if (got !== st.value) await fail(`${at}: mediasession ${st.field} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+            break;
+          }
+          // A measured window (LLP 1146 D3): whole-tree `perf` reads around the block's steps, and a read of each
+          // view the `expect perf` lines after it name by `testId`; the counts repeat only on the agent's clock.
+          case 'perf': {
+            if (timing === 'platform') throw new Error('a `perf` block counts work on the agent\'s clock; this run uses platform timing, under which the counts depend on the machine\'s speed');
+            const named = [];
+            for (const e of t.steps.slice(t.steps.indexOf(st) + 1)) { if (e.op === 'perf') break; if (e.op === 'expect-perf' && e.subject !== 'query') named.push(e.target); }
+            const whole = await s.perf(), components = s.components?.(whole.plan) ?? new Set(whole.sites.map((x) => x.source?.component).filter(Boolean));
+            const under = new Map();
+            for (const name of new Set(named)) if (!components.has(name)) { try { under.set(name, await s.perf(name)); } catch { /* neither a component nor a view on screen: its expect says so */ } }
+            for (const inner of st.steps) await runStep(inner, Infinity, `${t.name}: line ${inner.line}`);
+            measured = { line: st.line, components, whole: perfDelta(whole, await s.perf()), under: new Map() };
+            for (const [name, before] of under) measured.under.set(name, perfDelta(before, await s.perf(name)));
+            break;
+          }
+          case 'expect-perf': {
+            const f = perfExpectation(measured, st, Object.keys((await s.state()).resources ?? {}));
+            if (f) failures.push(`${at}: ${f}`);
+            break;
+          }
+          // No failure the test did not arrange since launch or the last of these (LLP 1146 D4).
+          case 'expect-no-failures': {
+            const now = await failureMark(s);
+            const lines = unarranged(mark, now, { refusals, churn: churnLines((await peekLogs(s, mark.journal).catch(() => null))?.lines) });
+            if (lines.length) failures.push(`${at}: expected no failures the test did not arrange; ${lines.join('; ')}`);
+            mark = now;
+            break;
+          }
+          default: failures.push(`${at}: unknown step ${st.op}`);
+        }
+        if (closedAt == null) await mutationClock.advance(s);
+      };
       for (const [n, st] of (failures.length ? [] : t.steps).entries()) {
         const at = `${t.name}: line ${st.line}`;
         if (closedAt != null) { failures.push(`${at}: the window closed at line ${closedAt}, so nothing after it runs`); break; }
         current = st.line;
         try {
-          if (INPUTS.has(st.op)) await settleFired();
-          if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
-          switch (st.op) {
-            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
-            case 'prefer': if (n >= leading) await prefer(st); break;
-            // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
-            case 'fail-fetch': {
-              if (n < leading) break;
-              // Under `before data` nothing has loaded until a clock step (or a reload) waits for it.
-              if (beforeData && !loaded) early(st);
-              await unfired(st.prefix);
-              const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
-              if (r?.error) throw new Error(r.error);
-              if (st.times != null) armed.set(st.prefix, st.line);
-              break;
-            }
-            case 'pass-fetch': { const r = await s.op({ op: 'prefer', faults: { pass: st.prefix } }); if (r?.error) throw new Error(r.error); break; }
-            // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
-            case 'tap': {
-              const opts = st.form === 'into' ? { into: { key: st.key } }
-                : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
-                : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) }
-                : st.form !== 'press' ? { [st.form]: true }
-                : st.modifiers ? { modifiers: st.modifiers } : undefined;
-              delivered(await s.tap(st.target, opts)); input = st.line; break;
-            }
-            // MIDI (LLP 1125 §4): the ports a request finds, and a message from an input now.
-            case 'prefer-midi': { const r = await s.op({ op: 'prefer', midi: { ...(st.state ? { state: st.state } : {}), ...(st.inputs ? { inputs: st.inputs } : {}), ...(st.outputs ? { outputs: st.outputs } : {}) } }); if (r?.error) throw new Error(r.error); await s.clock('settle'); break; }
-            case 'tap-midi': delivered(await s.tap(null, { midi: st.clock ? { input: st.input, clock: st.clock } : { input: st.input, data: st.data } })); input = st.line; break;
-            case 'drag': {
-              const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
-              if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
-              delivered(await s.tap(st.target, { drag })); input = st.line; break;
-            }
-            case 'type': {
-              // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
-              let text = st.text;
-              if (st.append) {
-                const { nodes } = await s.tree(), field = nodes.find((n) => n.props.testId === st.target && !n.inactive) ?? nodes.find((n) => n.props.testId === st.target);
-                if (field && typeof field.props.value !== 'string') throw new Error(`type … append: "${st.target}" shows no text value to append to`);
-                if (field?.props.type === 'password' && field.props.value !== '') throw new Error(`type … append: "${st.target}" is a password field, whose value the tree does not show`);
-                text = (field?.props.value ?? '') + text;
-              }
-              delivered(await s.type(st.target, text)); input = st.line; break;
-            }
-            case 'reload': await reload(); refusalCursors.clear(); expectedRefusals.length = 0; await data(); input = null; loaded = true; break;
-            case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
-            // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
-            case 'pick': {
-              try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
-              catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
-              input = st.line; break;
-            }
-            case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
-            case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
-            // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it
-            // shows changes until it reads again.
-            case 'request': await serverRequest(server, st); unpolled = st.line; break;
-            case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
-            // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
-            // one that closed takes the session, so a step after it fails naming it.
-            // Counted faults are checked first: a window that closes takes the table with it.
-            case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
-            // The platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed
-            // route popped. Nothing to go back from fails the step; a Back the app refuses (a disabled control, closedby="none") is a note.
-            case 'back': { const r = await s.back(); delivered(r); if (r?.refused) notes.push(`line ${st.line}: back refused: ${r.refused}`); input = st.line; break; }
-            case 'screenshot': await s.screenshot(st.path); shots.push(resolve(st.path)); break;
-            case 'expect-tree': {
-              const tree = await s.tree();
-              const f = treeExpectation(tree.nodes, st.target, st.present);
-              // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
-              const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size' || p.op === 'prefer');
-              if (f?.unshown) failures.push(`${at}: ${f.message}`);
-              else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
-              break;
-            }
-            case 'expect-refusal': {
-              const logs=await s.op({op:'logs',since:refusalCursors.get(st.target) ?? 0});
-              const refusal=refusalExpectation(logs,st.target);
-              if (refusal.message) await fail(`${at}: ${refusal.message}`);
-              else { expectedRefusals.push(...refusal.expected); refusalCursors.set(st.target,logs.next); }
-              break;
-            }
-            case 'expect-disabled': {
-              const f = disabledExpectation((await s.tree()).nodes, st.target, st.disabled);
-              if (f) await fail(`${at}: ${f.message}`);
-              break;
-            }
-            case 'expect-text': {
-              const f = textExpectation((await s.tree()).nodes, st.target, st.value);
-              if (f?.unshown) failures.push(`${at}: ${f.message}`);
-              else if (f) await fail(`${at}: ${f.message}`);
-              break;
-            }
-            case 'expect-state': {
-              const state = await s.state();
-              const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
-              // A field or a list index at any depth, `name.field` or `rows.0` (feed F10, drums R7).
-              const [name, ...fields] = st.name.split('.');
-              if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
-              let got = bag[name], path = name, missing = null;
-              for (const field of fields) {
-                if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
-                got = got[field]; path += `.${field}`;
-              }
-              if (missing != null) { await fail(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
-              if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
-              break;
-            }
-            case 'expect-wakelock': {
-              const lock = (await s.state()).wakelock;
-              if (!lock) { failures.push(`${at}: this host reports no wakelock holder record`); break; }
-              if (lock.held !== st.held) {
-                const nodes = lock.by.length ? (await s.tree()).nodes : [];
-                const holders = lock.by.map(id => {
-                  const testId = nodes.find(node => node.id === id)?.props?.testId;
-                  return `view ${id}${testId ? ` (${JSON.stringify(testId)})` : ''}`;
-                });
-                failures.push(`${at}: expected wakelock ${st.held ? 'held' : 'released'}; ${holders.length ? `held by ${holders.join(', ')}` : 'nothing holds it'}`);
-              }
-              break;
-            }
-            // The runner's voice table, the whole record (LLP 1096 D10): a voice of that
-            // source matching every clause given, or none; a dropped call is not a voice.
-            case 'expect-sound': {
-              const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
-              const clauses = ['at', 'gain', 'ends', 'playbackRate', 'pan', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
-              // `state.sounds` names a voice's rate and pan only when not 1 and 0 (LLP 1125 D10).
-              const field = (v, k) => v[k] ?? { playbackRate: 1, pan: 0 }[k];
-              if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
-              const first = sounds.voices[0]?.at ?? Infinity;
-              if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
-              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => field(v, k) === st[k]));
-              if (found !== st.present) {
-                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain}${v.playbackRate != null ? ` playbackRate ${v.playbackRate}` : ''}${v.pan != null ? ` pan ${v.pan}` : ''} ends ${v.ends} by ${v.by}`);
-                // A voice is recorded by the commit that issued it: no clock hint applies.
-                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
-              }
-              break;
-            }
-            // The MIDI queue's record (LLP 1125 D5): a message to that output, not taken back, at `at` when given.
-            case 'expect-midi': {
-              const midi = (await s.state(undefined, undefined, false, false, { midi: 'all' })).midi;
-              if (!midi) { failures.push(`${at}: the app keeps no MIDI queue (no sequence, no sendMIDI, exactMIDI or midimessage)`); break; }
-              const hex = st.data.map((b) => b.toString(16).padStart(2, '0')).join(' '), said = `"${st.output}" ${hex}${st.at != null ? ` at ${st.at}` : ''}`;
-              const found = midi.sent.some((m) => m.output === st.output && m.data === hex && m.state !== 'retracted' && (st.at == null || m.at === st.at));
-              if (found !== st.present) {
-                const of = midi.sent.filter((m) => m.output === st.output).slice(-8).map((m) => `#${m.id} ${m.data} at ${m.at} ${m.state}${m.by ? ` by ${m.by}` : ''}`);
-                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} message to ${said}; ${of.length ? `its messages: ${of.join('; ')}` : `nothing was queued for it (access ${midi.state}, outputs ${midi.outputs.map((o) => o.id).join(', ') || 'none'})`}`);
-              }
-              break;
-            }
-            // The media session the host reports (LLP 1098 D10): a field, the owner by its testId, or an offered action.
-            case 'expect-mediasession': {
-              const ms = (await s.state()).mediaSession;
-              if (!ms) { failures.push(`${at}: this host reports no media session`); break; }
-              if (st.action != null) {
-                if (ms.actions.includes(st.action) !== st.present) await fail(`${at}: expected the media session ${st.present ? 'to offer' : 'not to offer'} "${st.action}"; it offers ${ms.actions.length ? ms.actions.join(', ') : 'nothing'}${ms.owner == null ? ' (no owner)' : ''}`);
-                break;
-              }
-              const got = st.field === 'owner' ? (ms.owner == null ? null : ms.testId ?? `view ${ms.owner}`) : st.field === 'playbackState' ? ms.playbackState : ms.metadata?.[st.field] ?? null;
-              if (got !== st.value) await fail(`${at}: mediasession ${st.field} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
-              break;
-            }
-            default: failures.push(`${at}: unknown step ${st.op}`);
-          }
-          if (closedAt == null) await mutationClock.advance(s);
+          await runStep(st, n, at);
           if (atStep && closedAt == null && (INPUTS.has(st.op) || st.op === 'reload')) {
             const next = await atStep(s, { name: t.name, line: st.line, op: st.op });
             if (next === 'done') done = true;
@@ -852,6 +958,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
+      // What failed that the test did not arrange, and the requests it ended with in flight (LLP 1146 D4). Advice only.
+      if (closedAt == null) try {
+        const now = await failureMark(s), state = await s.state();
+        for (const line of unarranged(NO_FAILURES, now, { refusals, churn: churnLines((await peekLogs(s, 0).catch(() => null))?.lines) })) notes.push(`unarranged: ${line}`);
+        const pending = (state.pending ?? []).filter((p) => !p.device && !p.held && !p.stream).map((p) => p.name);
+        if (pending.length) notes.push(`ended with ${pending.length} request${pending.length === 1 ? '' : 's'} in flight (${pending.join(', ')}): a reply lands at a clock step, so what the test read last may not include it`);
+      } catch { /* advice only */ }
       if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: { ...launchFacts({ ...facts, epoch: first, env: env ?? {} }), media: { ...media } }, reached: await reached(), typed: [...typed], touched: [...touched], expectedRefusals: [...expectedRefusals], ...(s.host === 'web' ? { restart: async () => { await reload(); await data(); } } : {}) }).catch((e) => ({ error: e.message }));
       // A failed test shows what the data module logged, the last lines of it (sb4 farm wave 7, E1: 093 rendered
       // values into the view to see them; `logs` had them all along). Advice only.
@@ -872,8 +985,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
-  const failed = results.filter((r) => r.failures.length).length;
-  return { passed: results.length - failed, failed, results };
+  const failed = results.filter((r) => r.failures.length).length, skipped = results.filter((r) => r.skipped).length;
+  return { passed: results.length - failed - skipped, failed, skipped, results };
 }
 
 /** Resolve the built grant alias and diagnose a fault that cannot meet a granted URL. */

@@ -171,3 +171,11 @@ test('perf names a scroll handler that commits on every event', () => {
   expect(text).toContain('scroll at site 4: 180 dispatched, 180 changed the tree\n    each scroll event');
   expect(text).not.toContain('each press event');
 });
+
+// LLP 1146 D3: each resource's asks between two reads; a host that counts none has no `resources`.
+test('perf … during subtracts each resource\'s asks', () => {
+  const read = (asked) => ({ plan: 'p', incarnation: 1, seq: asked, clock: 0, sites: [], resources: [{ name: 'channels', asked }, { name: 'servers', asked: 4 }] });
+  expect(perfDelta(read(2), read(8)).resources).toEqual([{ name: 'channels', asked: 6 }]);
+  const bare = { plan: 'p', incarnation: 1, seq: 1, clock: 0, sites: [] };
+  expect(perfDelta(bare, bare).resources).toBeUndefined();
+});

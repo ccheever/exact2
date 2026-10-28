@@ -791,7 +791,8 @@ async function tests(host, app, shots) {
     try {
       const r = await runTests({ host, file, app: app.name, atEnd: (s, t) => atEnd(s, { ...t, index: first + t.index }), ...(i ? { storage: `test${i}` } : {}), ...(host === 'ios' ? { chrome: 'platform' } : {}) });
       out.passed += r.passed; out.failed += r.failed;
-      out.results.push(...r.results.map(({ name, failures, end, store, shots }) => ({ name, file: basename(file), failures, ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })));
+      // A failure the test did not arrange is a finding (LLP 1146 D4): `runTests` says it in a note.
+      out.results.push(...r.results.map(({ name, failures, notes = [], end, store, shots }) => ({ name, file: basename(file), failures, unarranged: notes.filter((n) => n.startsWith('unarranged: ')).map((n) => n.slice(12)), ...(shots ? { shots } : {}), ...(end ? { end } : {}), ...(store ? { store } : {}) })));
     } catch (e) { errors.push(files.length > 1 ? `${basename(file)}: ${e.message}` : e.message); }
   }
   return errors.length ? { ...out, error: errors.join('\n') } : out;
@@ -1162,6 +1163,12 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     failedTests = tested.failed;
     out.push(`tests: ${tested.passed} passed, ${tested.failed} failed`);
     for (const t of tested.results) for (const f of t.failures) out.push(`  FAIL "${t.name}": ${firstLine(f).replace(`${t.name}: `, '')}`);
+    const unarranged = tested.results.flatMap((t) => (t.unarranged ?? []).map((u) => `  "${t.name}": ${u}`));
+    if (unarranged.length) {
+      out.push(`failed and not arranged: ${plural(unarranged.length, 'finding')}`, ...unarranged);
+      full.push(`failed and not arranged: ${plural(unarranged.length, 'finding')}`, ...unarranged);
+      findings += unarranged.length; counted('failed and not arranged', unarranged.length);
+    }
   }
   // Every screen, launch and scheme in one group: each finding once, said where unless it was everywhere.
   for (const e of checks.filter((c) => c.error)) { broken++; out.push(`check ${e.label}: could not drive: ${firstLine(e.error)}`); }
@@ -1411,6 +1418,8 @@ async function main(argv) {
     const relaunchOut = relaunched && (({ runs, large, ...rest }) => rest)(relaunched);
     console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, reloads, large, fixed, relaunch: relaunchOut, ...(scrolled ? { scrolling: scrollingOut(scrolled) } : {}), screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
+  // The run, against the build it used (LLP 1146 D2: `bun scripts/evidence.mjs`).
+  (await import('./evidence.mjs')).recordRun(app.name, { host, what: 'verify', result: r.problems ? `${r.problems} problem${r.problems === 1 ? '' : 's'}${tested?.failed ? `, ${tested.failed} failed test${tested.failed === 1 ? '' : 's'}` : ''}` : 'clean', timing: 'agent', sim });
   return r.exit;
 }
 

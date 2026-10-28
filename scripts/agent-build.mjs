@@ -48,8 +48,7 @@ export function nativeBuild(host, app, { sample = false, checked = null } = {}) 
   const ios = host === 'ios';
   const built = ios ? appleArtifacts(app, { destination: 'ios-simulator', host: sample }).bundle : appleRunBinary(app, sample);
   if (!existsSync(built)) return { built, missing: true, changed: [] };
-  const receipt = ios ? resolve(built, 'receipt.json')
-    : [resolve(appleArtifacts(app, { host: sample }).products, 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
+  const receipt = receiptPath(host, app, { sample });
   const changed = receipt ? receiptChanges(receipt, app, { hashed: !!checked && checked === digestOf(receipt) }) : [];
   if (!ios && !sample && receipt) {
     const bundled = resolve(appleArtifacts(app).bundle, 'Contents/Resources/receipt.json');
@@ -61,6 +60,12 @@ export function nativeBuild(host, app, { sample = false, checked = null } = {}) 
     } catch { changed.push(bundled); }
   }
   return { built, receipt, changed };
+}
+
+/** The receipt of the build a drive of `app` on `host` (`ios`, else macOS) launches, or undefined without one. */
+export function receiptPath(host, app, { sample = false } = {}) {
+  if (host === 'ios') return [resolve(appleArtifacts(app, { destination: 'ios-simulator', host: sample }).bundle, 'receipt.json')].find(existsSync);
+  return [resolve(appleArtifacts(app, { host: sample }).products, 'receipt.json'), resolve(appleArtifacts(app, { host: sample }).bundle, 'Contents/Resources/receipt.json')].find(existsSync);
 }
 
 /** Why a drive must build first, or null when it need not: no build yet, or

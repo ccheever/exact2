@@ -29,6 +29,26 @@ its time counts too.
   seeds and iteration counts. Change compiler optimization levels only for a
   whole test suite or when the intent is to test a specific optimization level.
 
+## Whose failure it is, and what has run
+
+- **`bun scripts/known.mjs -- <command>`** runs `cargo test …`, `bun test …` or
+  `bun host/apple/build.mjs --test …` and, when it fails, sorts each failing
+  test against the async lane's record of origin/main (LLP 1146 D1): **known**
+  (it fails there too, with how often it failed in the lane's last ten runs),
+  **new** (the lane ran it there and it passed), or **unknown** (no lane run
+  there covers it). The exit status stays the command's. The lane attaches what
+  each commit's checks found to that commit as a git note
+  (`refs/notes/async`, tier 2's `async2`), which it fetches from origin.
+- **`bun scripts/evidence.mjs --app <name>`** lists the drives, test runs and
+  `verify` runs recorded against the app's builds (LLP 1146 D2,
+  `<app>/.exact/runs.jsonl`): current while the build they ran on is still the
+  host's and still fresh, else stale, saying what changed. It names the hosts
+  the branch changed that no current run covers; `--draft` prints lines for a
+  diary's Checkpoints or a PR's Test Plan. `evidence.mjs note <host> "<what>"
+  [--device "<model, OS>"]` records something seen by hand. Web, macOS and
+  iOS-simulator builds are identified; other hosts' runs are listed as
+  unchecked.
+
 ## Waiting
 
 - **Wait on events rather than sleeping for a duration.** A fixed sleep is too

@@ -40,6 +40,7 @@ mod share;
 mod spans;
 pub mod state;
 mod tap;
+mod test_steps;
 pub mod tool;
 
 pub use ast::*;
