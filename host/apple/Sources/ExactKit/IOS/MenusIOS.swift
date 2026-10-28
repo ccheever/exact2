@@ -20,7 +20,7 @@ final class MenuHost {
     private var menuShapes: [UInt32: String] = [:]
     #if os(iOS)
     /// Native buttons that are pull-downs (`nativeMenu`), by node.
-    private var nativeMenus: [UInt32: NativeButtonIOS] = [:]
+    var nativeMenus: [UInt32: NativeButtonIOS] = [:]
     #endif
     private var confirmation: Confirmation?
     /// A press another invoker activates (`activating`): it invokes nothing.
