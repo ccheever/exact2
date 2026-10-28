@@ -175,13 +175,9 @@ impl DataSource for Markdown {
                 documents.push(document_with_links(id.clone(), text, None, false, false));
                 continue;
             }
-            // UserMessageBody keeps single newlines as U+2028 line breaks.
+            // UserMessageBody keeps single newlines as U+2028 line breaks and its raw HTML literal.
             if kind == "user" {
-                documents.push(document_with_skills(
-                    id.clone(),
-                    &line_breaks(text),
-                    args.get(1),
-                ));
+                documents.push(user_document(id.clone(), &line_breaks(text), args.get(1)));
                 continue;
             }
             // A long plan carries its collapsed preview after U+0001 (timeline-plan.ts).
@@ -627,6 +623,23 @@ fn document_with_links(
     toggle_tasks: bool,
     cwd: bool,
 ) -> Value {
+    chat_document(id, text, skill_values, toggle_tasks, cwd, true)
+}
+
+/// A user message: UserMessageBody renders with `parseRawHtml={false}`, so a raw HTML line is literal text.
+fn user_document(id: Value, text: &str, skill_values: Option<&Value>) -> Value {
+    chat_document(id, text, skill_values, false, true, false)
+}
+
+/// `raw_html`: the document parses raw HTML (rehype-raw), so a raw HTML line's text has a direction.
+fn chat_document(
+    id: Value,
+    text: &str,
+    skill_values: Option<&Value>,
+    toggle_tasks: bool,
+    cwd: bool,
+    raw_html: bool,
+) -> Value {
     let skills: Vec<(String, String)> = match skill_values {
         Some(Value::List(skills)) => skills
             .iter()
@@ -669,7 +682,7 @@ fn document_with_links(
     let gutters = list_gutters(&doc.blocks);
     let mut tasks = task_items(&mut doc.blocks, source);
     // After the task markers go: `- [x] تم` reads right to left.
-    let directions = block_directions(&doc.blocks, &text);
+    let directions = block_directions(&doc.blocks, &text, &context_image_hrefs(source), raw_html);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
     }
@@ -745,12 +758,17 @@ fn document_with_links(
                             .map(|(i, run)| markdown_parse::value::run(i, run))
                             .collect(),
                     ));
-                    if line_index > 0 {
+                    // A list item's later line goes on with its text: no marker and no checkbox of its own.
+                    let task = if line_index > 0 {
+                        line_fields[3] = Value::str("");
                         line_fields[9] = Value::Number(0.0);
-                    }
+                        ("", -1.0)
+                    } else {
+                        tasks[index]
+                    };
                     line_fields.push(Value::Bool(true));
                     no_table(&mut line_fields);
-                    line_fields.extend(task_fields(tasks[index]));
+                    line_fields.extend(task_fields(task));
                     line_fields.push(Value::Number(gutters[index]));
                     line_fields.push(Value::str(directions[index]));
                     blocks.push(Value::record(line_fields));

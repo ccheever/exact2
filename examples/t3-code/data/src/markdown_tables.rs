@@ -271,6 +271,26 @@ fn image_chip_links(text: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(out)
 }
 
+/// The destinations of the image references image_chip_links rewrites into links: an `img` has no words, so
+/// block_directions leaves their alt text out.
+fn context_image_hrefs(text: &str) -> Vec<String> {
+    let mut hrefs = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("![") {
+        let after = &rest[at + 2..];
+        let target = after
+            .find(']')
+            .filter(|&close| !after[..close].contains('\n'))
+            .and_then(|close| after[close..].strip_prefix("]("))
+            .filter(|target| target.starts_with("t3-context://"));
+        if let Some(end) = target.and_then(|target| target.find(')').map(|end| &target[..end])) {
+            hrefs.push(end.to_string());
+        }
+        rest = after;
+    }
+    hrefs
+}
+
 /// A line of pipes is a table row only beside the `| --- |` rule that makes
 /// it a table; any other is prose and keeps its line break.
 fn table_lines(lines: &[&str]) -> Vec<bool> {

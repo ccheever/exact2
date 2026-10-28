@@ -77,16 +77,18 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
                 continue;
             }
         }
-        let block_image = paragraph.is_none() && !tables[index] && sole_image_line(trimmed);
         // remarkBreakAroundImageLines: an image alone on its source line inside a paragraph keeps that line (a label
-        // such as `**Palette**` above a screenshot), with line breaks before and after it; spaces around it, and the
-        // quote marks of a paragraph in a quote, are not the line's content.
+        // such as `**Palette**` above a screenshot), with line breaks before and after it. Spaces around it, the quote
+        // marks of a paragraph in a quote and a list item's indent are not the line's content.
         let (depth, content) = quoted(trimmed);
-        let shown = content.trim_end_matches([' ', '\t']);
-        let owns_line = paragraph == Some(depth)
+        let shown = content.trim_matches([' ', '\t']);
+        let starts = paragraph != Some(depth);
+        // The parser's image block: a sole image starting a block outside a quote and a list item's text.
+        let block_image = depth == 0 && starts && !tables[index] && sole_image_line(trimmed);
+        let owns_line = !block_image
             && !tables[index]
             && (sole_image_line(shown) || sole_linked_image_line(shown));
-        if owns_line && !out.ends_with(&format!("{LINE_BREAK}\n")) {
+        if owns_line && !starts && !out.ends_with(&format!("{LINE_BREAK}\n")) {
             out.pop();
             out.push_str(LINE_BREAK);
             out.push('\n');
@@ -102,7 +104,11 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
         {
             out.push_str(LINE_BREAK);
         }
-        paragraph = (!block_image && continues(line, depth)).then_some(depth);
+        // A list item's text opens a paragraph that its indented lines go on with (markdown_parse's item joins them).
+        paragraph = match item_text(shown) {
+            Some(text) => (!text.trim().is_empty()).then_some(depth),
+            None => (!block_image && continues(line, depth)).then_some(depth),
+        };
     }
     std::borrow::Cow::Owned(out)
 }
@@ -115,6 +121,22 @@ fn quoted(trimmed: &str) -> (usize, &str) {
         rest = after.strip_prefix(' ').unwrap_or(after);
     }
     (depth, rest)
+}
+
+/// A list item line's text after its marker, as markdown_parse's bullet_of reads one (`-`, `*`, `+`, or one to nine
+/// digits and `.` or `)`, then a space; a rule is no item).
+fn item_text(line: &str) -> Option<&str> {
+    if is_rule_line(line) {
+        return None;
+    }
+    if let Some(rest) = line.strip_prefix(['-', '*', '+']).filter(|rest| rest.starts_with(' ')) {
+        return Some(rest);
+    }
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    if !(1..=9).contains(&digits) {
+        return None;
+    }
+    line[digits..].strip_prefix(['.', ')']).filter(|rest| rest.starts_with(' '))
 }
 
 /// Whether `line` is prose going on with a paragraph at quote depth `depth`.
@@ -575,6 +597,17 @@ mod media_tests {
         assert_eq!(trimmed("**Palette**\n![P](p.png) \nnext"), ["Palette", "<img>", "next"]);
         assert_eq!(trimmed("> **Palette**\n> ![P](p.png)"), ["Palette", "<img>"]);
         assert_eq!(trimmed("> **Palette**\n> ![P](p.png)\n> next"), ["Palette", "<img>", "next"]);
+        // A list item's indented line keeps its picture (the item would take it in as alt text), and an image that
+        // opens a quote's paragraph keeps its line too.
+        assert_eq!(trimmed("1. Open settings\n   ![Settings](s.png)"), ["Open settings", "<img>"]);
+        // Its picture's line is the item's own: no second marker.
+        let Value::Record(fields) = document_with_tasks(Value::str("m"), "1. Open settings\n   ![Settings](s.png)", None, true) else {
+            unreachable!()
+        };
+        let Value::List(blocks) = &fields[1] else { unreachable!() };
+        let markers: Vec<&str> = blocks.iter().map(|block| match block { Value::Record(block) => block[3].as_str().unwrap_or(""), _ => "" }).collect();
+        assert_eq!(markers, ["1.", ""]);
+        assert_eq!(trimmed("> ![P](p.png)\n> caption"), ["<img>", "caption"]);
     }
 
     #[test]

@@ -40,16 +40,23 @@ fn text_direction(text: &str) -> &'static str {
     }
 }
 
-/// proseText: a block's words, each run, cell or item apart. Inline code is a space, an image has no words (its alt
-/// text is an attribute), and a raw HTML line counts its text, not its tags.
-fn prose_text(block: &markdown_parse::Block, out: &mut String) {
+/// proseText: a block's words, each run, cell or item apart. Inline code is a space, and an image has no words (its
+/// alt text is an attribute), a context image (`image_refs`, its references' destinations) too. A raw HTML line counts
+/// its text, not its tags, where the document parses raw HTML (`raw_html`); a user message shows it as literal text
+/// (`parseRawHtml={false}`), whose raw node has no words.
+fn prose_text(
+    block: &markdown_parse::Block,
+    image_refs: &[String],
+    raw_html: bool,
+    out: &mut String,
+) {
     for run in block.runs.iter().chain(block.cells.iter().flatten()) {
         out.push(' ');
-        if !run.code && !run.href.starts_with(IMAGE_MARK) {
+        if !run.code && !run.href.starts_with(IMAGE_MARK) && !image_refs.contains(&run.href) {
             out.push_str(&run.text);
         }
     }
-    if matches!(block.kind, markdown_parse::Kind::Html) {
+    if raw_html && matches!(block.kind, markdown_parse::Kind::Html) {
         let mut tag = false;
         out.push(' ');
         for c in block.text.chars() {
@@ -69,7 +76,12 @@ fn prose_text(block: &markdown_parse::Block, out: &mut String) {
 
 /// rehypeTextDirection over the parser's flat blocks: one direction per top-level element (`top_level_elements`),
 /// given to each of its blocks; a code block keeps none (MarkdownCodeBlock's `dir="ltr"`). One direction per block.
-fn block_directions(blocks: &[markdown_parse::Block], text: &str) -> Vec<&'static str> {
+fn block_directions(
+    blocks: &[markdown_parse::Block],
+    text: &str,
+    image_refs: &[String],
+    raw_html: bool,
+) -> Vec<&'static str> {
     let lines: Vec<&str> = text.lines().collect();
     let mut groups = Vec::new();
     let mut next = 0;
@@ -90,7 +102,7 @@ fn block_directions(blocks: &[markdown_parse::Block], text: &str) -> Vec<&'stati
         let mut words = String::new();
         blocks[group.clone()]
             .iter()
-            .for_each(|block| prose_text(block, &mut words));
+            .for_each(|block| prose_text(block, image_refs, raw_html, &mut words));
         let direction = text_direction(&words);
         for at in group {
             if !matches!(blocks[at].kind, markdown_parse::Kind::Code) {
@@ -102,8 +114,8 @@ fn block_directions(blocks: &[markdown_parse::Block], text: &str) -> Vec<&'stati
 }
 
 /// The line ranges of the source's top-level elements (CommonMark's: a paragraph, heading, rule, code block, table,
-/// or a whole list or blockquote, nested content and lazy lines included), each starting where markdown_parse
-/// starts a block.
+/// raw HTML line, or a whole list or blockquote, nested content and lazy lines included), each starting where
+/// markdown_parse starts a block.
 fn top_level_elements(lines: &[&str]) -> Vec<(usize, usize)> {
     let mut elements = Vec::new();
     let mut at = 0;
@@ -125,6 +137,9 @@ fn top_level_elements(lines: &[&str]) -> Vec<(usize, usize)> {
             quote_end(lines, at)
         } else if let Some(marker) = list_marker(trimmed) {
             list_end(lines, at, indent, marker)
+        } else if trimmed.starts_with('<') && trimmed.len() > 2 {
+            // markdown_parse's raw HTML line, one element each (after rehype-raw, each top-level element has its own).
+            at + 1
         } else {
             paragraph_end(lines, at)
         };
@@ -220,8 +235,8 @@ fn block_start(lines: &[&str], at: usize) -> bool {
         || table_end(lines, at).is_some()
 }
 
-/// markdown_parse's paragraph: up to a blank line or a block's start (an image or raw HTML line starts a paragraph
-/// that goes on, as CommonMark's does).
+/// markdown_parse's paragraph: up to a blank line or a block's start (an image line starts a paragraph that goes on,
+/// as CommonMark's does).
 fn paragraph_end(lines: &[&str], at: usize) -> usize {
     (at + 1..lines.len())
         .find(|&i| lines[i].trim().is_empty() || block_start(lines, i))
@@ -291,7 +306,7 @@ mod direction_tests {
     fn directions(text: &str) -> (Vec<&'static str>, Vec<&'static str>) {
         let blocks = markdown_parse::parse(text, &|href| href.to_string()).blocks;
         let kinds = blocks.iter().map(|block| block.kind.name()).collect();
-        (kinds, block_directions(&blocks, text))
+        (kinds, block_directions(&blocks, text, &[], true))
     }
 
     #[test]
@@ -347,9 +362,8 @@ mod direction_tests {
 
     #[test]
     fn a_task_marker_and_an_image_have_no_words() {
-        let blocks = |text: &str| {
-            let Value::Record(fields) = document_with_tasks(Value::str("m"), text, None, true)
-            else {
+        let dirs = |document: Value| {
+            let Value::Record(fields) = document else {
                 unreachable!()
             };
             let Value::List(blocks) = &fields[1] else {
@@ -367,11 +381,22 @@ mod direction_tests {
                 })
                 .collect::<Vec<_>>()
         };
+        let blocks = |text: &str| dirs(document_with_tasks(Value::str("m"), text, None, true));
         assert_eq!(blocks("- [x] تم"), ["rtl"]);
         assert_eq!(
             blocks("مرحبا ![a long English description](x.png)"),
             ["rtl"]
         );
-        assert_eq!(blocks("<p>مرحبا</p>"), ["rtl"]);
+        // A context image is an `img` too, though the parse reads its reference as a link.
+        assert_eq!(
+            blocks("مرحبا ![a long English description](t3-context://v1/image/image_1)"),
+            ["rtl"]
+        );
+        // Raw HTML: each top-level element reads alone; a user message shows it literally, with no direction.
+        assert_eq!(blocks("<p>مرحبا</p>\n<p>hello world</p>"), ["rtl", "ltr"]);
+        assert_eq!(
+            dirs(user_document(Value::str("u"), "<p>مرحبا</p>", None)),
+            [""]
+        );
     }
 }

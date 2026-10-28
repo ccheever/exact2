@@ -22,4 +22,10 @@ describe('a right-to-left table', () => {
     expect(cell).toContain('justify=cellJustify(column.align, rtl)');
     expect(appText('markdown.contract')).toContain('rtl=(block.dir == "rtl")');
   });
+  test('the direction is the table\'s alone (MarkdownTable\'s `dir` on the `table`): its scroller and footer, Copy on the right, stay left to right', () => {
+    expect([fns.blockDirection!('table', 'rtl'), fns.blockDirection!('paragraph', 'rtl'), fns.blockDirection!('item', 'ltr')]).toEqual(['ltr', 'rtl', 'ltr']);
+    const table = appText('markdown.contract').split('component MarkdownTable')[1]!.split('\ncomponent ')[0]!;
+    expect(table).toContain('role="table" direction=(block.dir == "rtl" ? "rtl" : "ltr")');
+    expect(appText('markdown.contract').match(/direction=blockDirection\(block\.kind, block\.dir\)/g)?.length).toBe(3);
+  });
 });

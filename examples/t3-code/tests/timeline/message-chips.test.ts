@@ -210,15 +210,16 @@ describe('skill chips open their details (#25432)', () => {
     expect(messageChips(item('Use $unknown, then $review-code'), '', [], 'm', {}, client(skills)).map(chip => [chip.href, chip.kind]))
       .toEqual([['t3-skill:$review-code', 'skill']]);
   });
-  test('two skills in two blocks open two popovers: each id names its chip, not only its run (#25432)', async () => {
-    const chips = messageChips(item('$review-code the diff\n$deploy when green'), '', [], 'm', {}, client(skills));
+  test('each skill chip occurrence opens its own popover: its id names the message, the block and the run (#25432)', async () => {
+    // One chip per href, so the same skill in two list items is one chip, and each block numbers its runs from 0.
+    const chips = messageChips(item('- $review-code a\n- $review-code b\n\n$deploy when green'), '', [], 'm', {}, client(skills));
     expect(chips.map(chip => [chip.id, chip.href])).toEqual([['chip-0', 't3-skill:$review-code'], ['chip-1', 't3-skill:$deploy']]);
     const { value } = await import('../support/contract-action-fixture');
     const { appText } = await import('../support/app-files');
     const call = /SkillChip\(label=chip\.label, description=chip\.detail, path=chip\.target, id=(`[^`]+`)/.exec(appText('markdown.contract'))![1]!;
-    // Each block numbers its runs from 0, so both chips sit at run 0.
-    const ids = chips.map(chip => value(call, { chip, run: { id: '0' } }));
-    expect(ids).toEqual(['m-chip-0-0', 'm-chip-1-0']);
+    const ids = [['0', chips[0]!], ['1', chips[0]!], ['3', chips[1]!]].map(([blockId, chip]) => value(call, { chip, blockId, run: { id: '0' } }));
+    expect(ids).toEqual(['m-0-0', 'm-1-0', 'm-3-0']);
+    expect(appText('markdown.contract')).toContain('ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId)');
   });
 });
 
@@ -232,6 +233,14 @@ describe('a sent sound (#21363)', () => {
     const resolved = contractComponent('markdown.contract', 'ResolvedChip');
     const drawn = (kind: string) => resolved.drawn('AttachmentChip(run=run, chip=chip', resolved.state(), { chip: { ...chips[0], kind }, run: { id: '0' } });
     expect([drawn('audio'), drawn('file')]).toEqual([false, true]);
+  });
+  test('the timeline leaves the reference out of the prompt, so nothing draws for it (renderContextReference returns null)', async () => {
+    const { withoutSoundReferences } = await import('../../src/timeline/timeline-attachments');
+    const sound = { context: { records: [{ kind: 'file', contextId: 'file_m', attachmentId: 'att-m' }, { kind: 'file', contextId: 'file_n', attachmentId: 'att-n' }] },
+      attachments: [{ type: 'file', id: 'att-m', name: 'memo.mp3', mimeType: 'audio/mpeg' }, { type: 'file', id: 'att-n', name: 'notes.md', mimeType: 'text/markdown' }] };
+    expect(withoutSoundReferences('Listen to [memo.mp3](t3-context://v1/file/file_m) and read [notes.md](t3-context://v1/file/file_n).', sound))
+      .toBe('Listen to  and read [notes.md](t3-context://v1/file/file_n).');
+    expect(withoutSoundReferences('[memo.mp3](t3-context://v1/file/file_m)', sound)).toBe('');
   });
 });
 

@@ -29,7 +29,7 @@ import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
+import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments, withoutSoundReferences } from './timeline-attachments';
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
@@ -96,12 +96,12 @@ interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok
   citing: number;
   /** The answer row the last View source asked ChatColumn to place, on its thread; each request a new nonce. */
   citeJump: { threadId: string; key: string; nonce: number };
-  /** Find's active match as last seen (thread, entry, occurrence), and the folded message it still has to open. */
-  findMatch: string; findReveal: string }
+  /** The thread whose folded messages `open` holds: another thread's start closed, as their rows' state is. */
+  foldsThread: string }
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 }, findMatch: '', findReveal: '' }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0, citeJump: { threadId: '', key: '', nonce: 0 }, foldsThread: '' }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
@@ -384,25 +384,23 @@ export function transcriptRows(client: T3Client): Message[] {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
   const setup = threadWorktreeSetup(client), input = rowInput(client, setup);
   const rows = deriveRows(input);
-  noteFindMatch(client, view);
+  resetFolds(client, view);
   // MessagesTimeline backgroundWorktreeSetup: a setup still running after the agent's turn started.
   const background = setup.snapshot?.phase === 'running' && agentStarted(setup.snapshot) && input.latestRun?.startedAt != null ? setup.snapshot : null;
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
-    workflow: workflowOpening(client), background };
+    workflow: workflowOpening(client), background, findEntry: threadFindExpanded(client) ? threadFindView(client).entry : '' };
   return rows.map(row => present(row, context));
 }
 
 /**
- * findRevealRef: each time find's active match moves (or comes back) to a folded automation or agent message, that
- * message opens once; closing it with its chevron keeps it closed until the match moves again.
+ * A folded message's `expanded` is its row's own state in the reference (AutomationMessageRow, UserTimelineRow), which a
+ * thread opened again starts afresh: switching threads closes every fold.
  */
-function noteFindMatch(client: T3Client, view: ViewState): void {
-  const find = threadFindExpanded(client) ? threadFindView(client) : null;
-  const match = find?.entry ? `${client.threadId}\u0000${find.entry}\u0000${find.occurrence}` : '';
-  if (match === view.findMatch) return;
-  view.findMatch = match;
-  view.findReveal = find?.entry ?? '';
+function resetFolds(client: T3Client, view: ViewState): void {
+  if (view.foldsThread === client.threadId) return;
+  view.foldsThread = client.threadId;
+  for (const key of [...view.open]) if (key.split('\u0000')[1] === 'message') view.open.delete(key);
 }
 
 /**
@@ -435,7 +433,9 @@ interface PresentContext { client: T3Client; root: string; view: ViewState; suba
   /** A workflow coordinator's opening, drawn in place of its script's message (timeline-workflow-opening.ts). */
   workflow: WorkflowOpening | null;
   /** A worktree setup still running after the agent started: the Working row's Background setup chip. */
-  background: Obj | null }
+  background: Obj | null;
+  /** The row holding find's active match, while find shows matches. */
+  findEntry: string }
 /** A changing one-line label keyed by its text, so the row redraws it instead of reusing the old string. */
 const keyedLabel = (row: Row, label: string): Activity => ({ id: `${row.id}\u0000${label}`, label, body: '', icon: '', output: '', result: '', failed: false, timestamp: '' });
 const entryCode = (entries: WorkEntry[], client: T3Client): InspectorCode[] => entries.flatMap(entry => {
@@ -528,13 +528,15 @@ function present(row: Row, context: PresentContext): Message {
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
       // An automation's prompt reads its context references as their labels (AutomationMessageRow's UserMessageBody).
       const relabeled = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads);
-      const text = sender.attribution === 'automation' ? plainContextReferences(relabeled) : relabeled, chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
+      const text = sender.attribution === 'automation' ? plainContextReferences(relabeled) : withoutSoundReferences(relabeled, item), chips = withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // Automation and other agents' messages fold to one line, their author (the sending thread's title) as the heading.
       const automation = sender.attribution === 'automation', agent = sender.attribution === 'agent';
       const senderTitle = agent ? str(context.threads.find(thread => thread.id === item.senderThreadId)?.title).trim() || 'Agent' : '';
       const summary = automation || agent ? foldedMessageSummary(sender.attribution, automation ? sender.text : text, automation ? scheduledTaskTitle(context.client, sender.scheduledTaskId) : '') : '';
+      // findRevealRef: find's painter reveals the fold on every paint while its active match is inside (revealFolded), so
+      // the chevron cannot close it then; it stays open after the match moves on.
       const foldKey = scoped(context.client, 'message', row.id);
-      if ((automation || agent) && view.findReveal === row.id) { view.open.add(foldKey); view.findReveal = ''; }
+      if ((automation || agent) && context.findEntry === row.id) view.open.add(foldKey);
       // A file with a chip in the prose needs no standalone row (images always show); an automation's prompt shows none.
       return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, revert: row.revert,
         images: automation ? [] : attached.images, attachFiles: automation ? [] : attached.attachFiles.filter(file => !chipped.has(file.id)), audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text),

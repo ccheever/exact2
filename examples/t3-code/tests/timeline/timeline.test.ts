@@ -348,23 +348,38 @@ describe('events and messages', () => {
       ['agent', 'Agent', 'hello', false], ['', 'You', '', false]]);
   });
 
-  test('find opens a folded message once as its match moves in; the chevron still closes it (findRevealRef)', async () => {
+  test('a folded message opens while find\'s match is inside it, chevron or not, stays open after, and closes with its thread (findRevealRef)', async () => {
     const value = client([user('s', 0, 'Nightly digest\n\nRead the commits.', { scheduledTaskId: 'task-9' }), user('u', 1, 'the commits are mine')]);
     const folded = () => rows(value).find(row => row.attribution === 'automation')!;
     expect(folded().expanded).toBe(false);
     const find = threadFindState(value).model, at = (entryId: string) => ({ complete: true, snapshotSequence: 0, totalMatches: 2, activeIndex: 0, match: { entryId, runId: null, occurrence: 0 }, navigation: [] });
     find.open = true; find.query = 'commits'; find.result = at('m-s');
     expect(folded().expanded).toBe(true);
+    // The painter reveals the fold on every paint while the active match is inside, so the chevron cannot close it.
+    await toggle(value, 'message', key('s'));
+    expect(folded().expanded).toBe(true);
+    // The match moves on and the fold stays open, until the chevron closes it.
+    find.result = at('m-u');
+    expect(folded().expanded).toBe(true);
     await toggle(value, 'message', key('s'));
     expect(folded().expanded).toBe(false);
-    find.result = at('m-u');
-    expect(folded().expanded).toBe(false);
-    find.result = at('m-s');
+    // The row's state is its own: another thread and back, and the fold is closed again.
+    await toggle(value, 'message', key('s'));
     expect(folded().expanded).toBe(true);
+    value.threadId = 't2'; rows(value); value.threadId = 't1';
+    expect(folded().expanded).toBe(false);
     // The footer (Open automation, the time, the actions) shows only while the fold is open.
     const row = contractComponent('timeline.contract', 'UserRow');
     const footer = (expanded: boolean) => row.drawn('label="Open automation"', row.state(), { message: { ...folded(), expanded }, threadFind: { open: true, query: 'commits', entry: '' } });
     expect([footer(true), footer(false)]).toEqual([true, false]);
+  });
+
+  test('a sent sound plays in its audio chip, and its reference leaves the prompt (renderContextReference returns null)', () => {
+    const sound = (text: string, id: string, seconds: number) => user(id, seconds, text, { attachments: [{ type: 'file', id: `att-${id}`, name: 'memo.wav', mimeType: 'audio/wav' }],
+      context: { version: 1, records: [{ version: 1, kind: 'file', contextId: `file_${id}`, label: 'memo.wav', attachmentId: `att-${id}`, name: 'memo.wav' }] } });
+    const shown = rows(client([sound('Listen to [memo.wav](t3-context://v1/file/file_a) now', 'a', 0), sound('[memo.wav](t3-context://v1/file/file_b)', 'b', 1)]))
+      .filter(row => row.kind === 'user');
+    expect(shown.map(row => [row.body, row.audio?.length, row.chips?.length])).toEqual([['Listen to  now', 1, 0], ['', 1, 0]]);
   });
 
   test('an automation is named by its live task, reads its context references as labels, and copies without the old prefix', async () => {

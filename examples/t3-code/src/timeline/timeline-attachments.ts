@@ -53,6 +53,20 @@ export function isSentAudio(attachment: Obj): boolean {
   const generic = !mime || mime === 'application/octet-stream' || mime === 'text/plain';
   return attachment.downloadable !== false && (mime.startsWith('audio/') || generic && /\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff|weba)$/i.test(str(attachment.name)));
 }
+const CONTEXT_FILE_REFERENCE = /!?\[[^\]\n]{0,512}\]\(t3-context:\/\/v1\/file\/([a-z0-9_-]{1,128})\)/gi;
+/**
+ * A sent sound's reference leaves the prompt: TimelineUserMessageRow's renderContextReference returns null for a file
+ * reference whose attachment plays in its audio chip, so only the text around it draws.
+ */
+export function withoutSoundReferences(text: string, item: Obj): string {
+  const sounds = new Set(arr(item.attachments).filter(attachment => attachment.type === 'file' && isSentAudio(attachment)).map(attachment => str(attachment.id)));
+  if (!sounds.size || !text.includes('](t3-context://v1/file/')) return text;
+  const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
+  return text.replace(CONTEXT_FILE_REFERENCE, (reference, id: string) => {
+    const record = records.get(id);
+    return record && str(record.kind) === 'file' && sounds.has(str(record.attachmentId)) ? '' : reference;
+  });
+}
 const urls = new Map<string, { url: string; expiresAt: number }>();
 /** Signed preview URLs for the selected thread's sent images (useAssetUrls), cached until shortly before they expire. */
 type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };

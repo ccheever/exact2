@@ -139,8 +139,8 @@ component UserRow
     expanded = not expanded
   derive finding = threadFind.open and threadFind.query.trim() != ""
   derive foldable = message.attribution == "automation" or message.attribution == "agent"
-  // A fold's state is the timeline's (`message.expanded`): find opens it once when its active match moves inside
-  // (findRevealRef), and the chevron still closes it.
+  // A fold's state is the timeline's (`message.expanded`): open while find's active match is inside (findRevealRef, on
+  // every paint), and after it until the chevron closes it.
   derive open = not foldable or message.expanded
   view
     // The minimap's turn on screen (MessagesTimeline's inView: a strictly positive overlap). Threshold 0
