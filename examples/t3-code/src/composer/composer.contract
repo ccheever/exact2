@@ -189,7 +189,7 @@ component ComposerCard
       // Resting, the prompt row reserves the floating actions' width: the send, and the Compact chip beside it.
       column padding-top=(resting ? "0.4375rem" : "1rem") padding-bottom=(resting ? "0.4375rem" : "0.5rem") padding-left="1rem" padding-right=(resting ? (restingChip ? `${3.5 * rem + data.composer.compactWidth + 0.5 * rem}px` : "3.5rem") : "1rem") gap="0.5rem" box-sizing="border-box" width="100%"
         // SnapShot attachment frames are snapshot.contract's.
-        SnapshotDrafts(images=data.snapshotDrafts, disabled=(busy or data.uncertain), remove=removeSnapshot, ask=askRemove, videos=data.composerVideos, command=command)
+        SnapshotDrafts(images=data.snapshotDrafts, disabled=(busy or data.uncertain), remove=removeSnapshot, ask=askRemove, videos=data.composerVideos, preparing=data.composer.preparingImages, command=command)
         // The queued message's own attachments while it is edited (removable; new ones attach as usual).
         if data.composer.queueEditing != "" and data.composer.queueEditAttachments.length > 0
           row width="100%" gap="0.5rem" flex-wrap="wrap" align-items="center" testId="queued-edit-attachments"

@@ -1,7 +1,7 @@
 // Adding a project to another connected machine, ported from T3 Code 74541bab17 (MIT; see
 // LICENSE-T3): apps/web/src/lib/addProjectToMachine.ts (clone URL protocols, the default env-file
 // pick, the clone start and the ignored-file relay) and hooks/useAddProjectTargets.ts (which
-// machines can take the project). The two servers never talk to each other, so the client reads
+// machines can take the project); T3 Code 7c3b3b3605ef: AddProjectToMachineDialog.tsx's source URL. The two servers never talk to each other, so the client reads
 // the chosen ignored files from the source, starts the tracked clone on the target, and writes
 // the files there once the clone is done. The reference waits in a detached promise; here each
 // shell pass checks the target's clone list (project-clones-live.ts cloneToasts calls
@@ -82,8 +82,12 @@ export function projectSubdirectory(repositoryRoot: string | undefined, workspac
   return workspaceRoot.startsWith(prefix) && /^[\\/]/.test(rest) ? rest.slice(1).replaceAll('\\', '/') : '';
 }
 
-/** The project's git remote, which a target clones (repositoryIdentity.locator.remoteUrl). */
-export const projectRemoteUrl = (project: Obj | undefined) => str(obj(obj(project?.repositoryIdentity).locator).remoteUrl);
+/** The project's git remote, which a target clones: a fork's own remote (repositoryIdentity.origin.remoteUrl, which older
+ *  servers omit) before the remote it was resolved to (locator.remoteUrl), so the copy is the fork, not its upstream. */
+export const projectRemoteUrl = (project: Obj | undefined) => {
+  const identity = obj(project?.repositoryIdentity);
+  return str(obj(identity.origin).remoteUrl) || str(obj(identity.locator).remoteUrl);
+};
 
 export type AddProjectTarget = { environmentId: string; label: string; machine: string };
 

@@ -574,6 +574,21 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
     expect(new URL(changed.url).searchParams.get('workspace-revision')).toBe('["cmd-a",null]');
   });
 
+  // WorkspaceVideoPreview at 7c3b3b3605ef: each workspace change signs the video again, and the file's revision says
+  // whether it changed: the same revision keeps the player's source, a new one (the file rewritten) is a new URL.
+  test('a video file the agent rewrites gets a new URL naming its new revision; one left alone keeps its revision', async () => {
+    const { client, projection, fileRevisions } = filesClient();
+    fileRevisions['/repo/clip.mp4'] = 'v1';
+    const first = (await filesView(client, native, surface('clip.mp4'), 1000)).media;
+    expect([new URL(first.url).searchParams.get('file-revision'), first.revision]).toEqual(['v1', 'v1']);
+    projection.visibleTurnItems.push({ item: { id: 'cmd-ls', type: 'command_execution', status: 'completed' } });
+    expect((await filesView(client, native, surface('clip.mp4'), 1000)).media.revision).toBe('v1');
+    fileRevisions['/repo/clip.mp4'] = 'v2';
+    projection.visibleTurnItems.push({ item: { id: 'cmd-write', type: 'file_change', status: 'completed' } });
+    const changed = (await filesView(client, native, surface('clip.mp4'), 1000)).media;
+    expect([changed.url === first.url, new URL(changed.url).searchParams.get('file-revision'), changed.revision]).toEqual([false, 'v2', 'v2']);
+  });
+
   test('an image, a video and a PDF carry the workspace revision in their URL, so a change loads them again (a playing video holds)', async () => {
     const { client, projection } = filesClient();
     const files = memoryAppFiles();

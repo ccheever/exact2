@@ -7,6 +7,8 @@ import { toasts } from '../../src/shell/toast';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { contractComponent } from '../support/contract-action-fixture';
+import { contractFns } from '../support/contract-fn-fixture';
+import { appText } from '../support/app-files';
 
 const native: Native = { available: true, watch() {}, later: async () => ({}) };
 const fileImage: MediaActionSource = { kind: 'image', name: 'logo.png', src: 'http://127.0.0.1:3/api/assets/x/logo.png', reference: { kind: 'file', path: '/repo/screens/logo.png', relativePath: 'screens/logo.png' },
@@ -178,6 +180,15 @@ describe('media views', () => {
     await mediaLocal(client, native, 'image-error', image.url, 'HTTP 404');
     expect(await filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', '', 1000)).toMatchObject({ state: 'failed', failText: 'Unable to load workspace image.' });
   });
+  // WorkspaceImagePreview at 7c3b3b3605ef: an image is not signed again for a workspace revision; the revision on its URL
+  // reloads it.
+  test('Files: an image keeps its signature and reloads by the workspace revision', async () => {
+    let signature = 0;
+    const { client } = fakeClient(() => ({}), { rpc: async () => ({ relativeUrl: `/api/assets/logo.png?sig=${++signature}`, fileRevision: 'r1' }) });
+    const view = (workspace: string) => filesMediaView(client, native, 'screens/logo.png', '/repo/screens/logo.png', '/repo', workspace, 1000);
+    expect((await view('w1')).url).toBe('http://127.0.0.1:16260/api/assets/logo.png?sig=1&workspace-revision=w1');
+    expect((await view('w2')).url).toBe('http://127.0.0.1:16260/api/assets/logo.png?sig=1&workspace-revision=w2');
+  });
   // FilePreviewPanel WorkspaceVideoPreview at 7c3b3b3605ef: each workspace change signs the video again; its URL names the
   // file's revision when the server reports one, else the workspace's, and the view says which (the player holds by it).
   test('Files: a video is signed again for each command and names its file revision, else the workspace one', async () => {
@@ -202,6 +213,18 @@ describe('media views', () => {
     // No workspace revision yet: none named, none held.
     const fresh = fakeClient(() => ({}));
     expect((await filesMediaView(fresh.client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', '', 1000)).revision).toBe('');
+  });
+  // MediaVideoPlayer at 7c3b3b3605ef: its `failed` reads the source it plays, so a re-signing that fails while a video
+  // plays leaves it playing; the failure slot shows once playback pauses.
+  test('Files: a failed re-sign leaves a playing video playing until it pauses', () => {
+    const video = contractComponent('media-actions.contract', 'FilesVideo'), state = video.state();
+    let media = { url: 'u1', revision: 'r1', name: 'clip.mp4', state: 'ready' };
+    const scope = () => ({ media, local: () => undefined });
+    video.call('started', state, scope(), []);
+    media = { ...media, url: '', revision: 'w2', state: 'failed' };
+    expect([video.drawn('video src', state, scope()), video.drawn('MediaVideoFailure(', state, scope()), video.derives(state, scope()).src]).toEqual([true, false, 'u1']);
+    video.call('stopped', state, scope(), []);
+    expect([video.drawn('video src', state, scope()), video.drawn('MediaVideoFailure(', state, scope())]).toEqual([false, true]);
   });
   // MediaVideoPlayer at 7c3b3b3605ef: playbackSource held while the revision holds, a new revision taken once paused or
   // ended, an error on a kept source falling back to the newest URL.
@@ -249,6 +272,67 @@ describe('media views', () => {
     // The image line's chip, then the same image's as a media run (markdownInlineImages).
     expect(markdownMediaChips('![Logo](screens/logo.png)\n![Logo](screens/logo.png)', '/repo').filter(chip => !chip.href.startsWith('t3-image:'))).toEqual([{ href: 't3-file:screens/logo.png', kind: 'media', label: 'Logo', size: 'image', tip: '/repo/screens/logo.png',
       detail: encodeMediaSource(markdownMedia('Logo', 'screens/logo.png', '', '/repo').source!), icon: 'environment', target: 'media:/repo/screens/logo.png' }]);
+  });
+  // ChatMarkdown's img renderer at 7c3b3b3605ef (#21363): a sound is its audio chip and a host file of no media kind its
+  // file chip; MarkdownMedia draws them by the chip's `size`.
+  test('Markdown: a sound plays in its audio chip, named by its file, and its name opens the host file', () => {
+    expect(markdownMedia('Take', 'clips/take.mp3', 't3-file:clips/take.mp3', '/repo')).toMatchObject({ kind: 'audio', access: 'environment', key: 'media:/repo/clips/take.mp3',
+      name: 'take.mp3', openPath: '/repo/clips/take.mp3', resource: { _tag: 'media-file', path: '/repo/clips/take.mp3' }, source: null });
+    expect(markdownMedia('Take', 'https://cdn.example/a/take.ogg?x=1', '', '/repo')).toMatchObject({ kind: 'audio', access: 'direct', key: 'https://cdn.example/a/take.ogg?x=1', name: 'take.ogg' });
+    expect(markdownMedia('Take', '~/take.wav', '', '/repo')).toMatchObject({ kind: 'audio', access: 'blocked', name: 'take.wav' });
+    // An attachment's Markdown has no thread to sign through: "Audio unavailable".
+    expect(markdownMedia('', 'take.m4a', '', '/repo', { thread: false })).toMatchObject({ kind: 'audio', access: 'blocked', name: 'take.m4a' });
+    expect(markdownMediaChips('![Take](clips/take.mp3)', '/repo').filter(chip => !chip.href.startsWith('t3-image:'))).toEqual([
+      { href: 't3-file:clips/take.mp3', kind: 'media', label: 'Take', size: 'audio', tip: 'take.mp3', detail: '/repo/clips/take.mp3', icon: 'environment', target: 'media:/repo/clips/take.mp3' }]);
+    // Inside a line of text a sound plays in its audio chip too (ChatMarkdown's img renderer), a web URL's as written.
+    expect(markdownMediaChips('Hear ![Take](clips/take.mp3) and ![Web](https://cdn.example/a.ogg).', '/repo').filter(chip => chip.href.startsWith('t3-image:')).map(chip => [chip.size, chip.icon, chip.tip, chip.target])).toEqual([
+      ['audio', 'environment', 'take.mp3', 'media:/repo/clips/take.mp3'], ['audio', 'direct', 'a.ogg', 'https://cdn.example/a.ogg']]);
+  });
+  test('Markdown: a file of no media kind written as an image is its file chip', () => {
+    const [chip] = markdownMediaChips('![report](docs/report.pdf)', '/repo', { cwd: '/repo' }).filter(entry => !entry.href.startsWith('t3-image:'));
+    expect(chip).toMatchObject({ href: 't3-file:docs/report.pdf', kind: 'media', label: 'report.pdf', size: 'file', tip: '/repo/docs/report.pdf', detail: '', target: 'docs/report.pdf' });
+    expect(chip!.icon).not.toBe('');
+    expect(markdownMedia('', '/repo/a.pdf:3', '', '/repo').file).toMatchObject({ label: 'a.pdf · L3', tip: '/repo/a.pdf:3', target: '' });
+    // A picture still loads as one; a name that is no file (no extension) stays an image, as the reference's does.
+    expect(markdownMedia('', 'shots/a.png', '', '/repo').kind).toBe('image');
+    expect(markdownMedia('', 'render', '', '/repo').kind).toBe('image');
+  });
+  // markdownImages.ts at 7c3b3b3605ef: a network path outside the project is blocked, so nothing asks the server to sign
+  // it (its realpath would make Windows send the user's credentials to that host).
+  test('Markdown: a network-path image is unavailable and is never signed', async () => {
+    const text = '![cat](file://attacker.test/share/cat.jpg)\n![dog](\\\\attacker.test\\share\\dog.png)\n![own](/repo/own.png)';
+    const { client, rpcs } = fakeClient(() => ({}), { projection: { visibleTurnItems: [{ item: { text } }], messages: [], thread: {} } });
+    expect(markdownMediaChips(text, '/repo').filter(chip => !chip.href.startsWith('t3-image:')).map(chip => [chip.label, chip.icon])).toEqual([['cat', 'blocked'], ['dog', 'blocked'], ['own', 'environment']]);
+    await markdownMediaUrls(client, native, '/repo', 5);
+    expect(rpcs.map(rpc => rpc.resource)).toEqual([{ _tag: 'media-file', path: '/repo/own.png', threadId: 't1' }]);
+  });
+  test('Markdown: MarkdownMedia draws a sound\'s audio chip, a file chip or the unavailable label by the chip\'s kind', () => {
+    const media = contractComponent('src/media/media-markdown.contract', 'MarkdownMedia');
+    const scope = (kind: string, access: string) => ({ kind, access, target: 'media:/repo/a', urls: [], alt: '' });
+    const drawn = (marker: string, kind: string, access: string) => media.drawn(marker, {}, scope(kind, access));
+    const label = 'MediaUnavailableLabel(alt=alt, kind=kind';
+    expect([drawn('AudioChip(', 'audio', 'environment'), drawn('AudioChip(', 'audio', 'direct'), drawn(label, 'audio', 'environment')]).toEqual([true, true, false]);
+    expect([drawn(label, 'audio', 'blocked'), drawn('AudioChip(', 'audio', 'blocked'), drawn('MarkdownMediaBody(', 'audio', 'direct')]).toEqual([true, false, false]);
+    expect([drawn('MarkdownFileChip(', 'file', 'pdf'), drawn(label, 'file', 'blocked'), drawn('MarkdownMediaBody(', 'file', 'pdf')]).toEqual([true, false, false]);
+    expect([drawn('MarkdownFileChip(', 'image', 'blocked'), drawn(label, 'image', 'blocked')]).toEqual([false, true]);
+    // Its source and failure come from audioSource, once per sound.
+    const fns = contractFns('src/media/media-markdown.contract', ['AudioSource']) as unknown as { audioSource: (urls: unknown[], target: string, access: string) => unknown };
+    const urls = [{ id: 'media:/repo/a.m4a', url: 'http://x/a?sig=1' }, { id: 'media-failed:/repo/b.m4a', url: '' }];
+    expect([fns.audioSource(urls, 'media:/repo/a.m4a', 'environment'), fns.audioSource(urls, 'media:/repo/b.m4a', 'environment'), fns.audioSource([], 'https://x/c.ogg', 'direct')])
+      .toEqual([{ src: 'http://x/a?sig=1', failed: false }, { src: '', failed: true }, { src: 'https://x/c.ogg', failed: false }]);
+  });
+  test('Markdown: a sound is signed as a media file, a file chip is not', async () => {
+    const items = [{ item: { text: '![t](/tmp/take.mp3)\n![r](/tmp/report.pdf)' } }];
+    const { client, rpcs } = fakeClient(() => ({}), { projection: { visibleTurnItems: items, messages: [], thread: {} } });
+    expect((await markdownMediaUrls(client, native, '/repo', 5)).map(entry => entry.id)).toEqual(['media:/tmp/take.mp3']);
+    expect(rpcs.map(rpc => rpc.resource)).toEqual([{ _tag: 'media-file', path: '/tmp/take.mp3', threadId: 't1' }]);
+  });
+  test('Markdown: a sound\'s name opens its file beside the thread; a web sound\'s opens nothing', async () => {
+    const { client } = fakeClient(() => ({}));
+    const opened: string[] = [];
+    await mediaLocal(client, native, 'open-file', '/repo/clips/take.mp3', '', { openFile: async path => { opened.push(path); } });
+    await mediaLocal(client, native, 'open-file', '', '', { openFile: async path => { opened.push(path); } });
+    expect(opened).toEqual(['/repo/clips/take.mp3']);
   });
   test('Markdown: host-path media are signed for the shown thread; a refusal is listed', async () => {
     const items = [{ item: { text: '![a](/tmp/a.png)\n![b](/tmp/b.mp4)\n![c](https://x/c.png)' } }];
