@@ -917,16 +917,11 @@ impl<D: DataSource> Host<D> {
         self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
-    /// [`Self::dispatch_at`] at the runner's own time, running nothing the
-    /// clock owes before the handler: for an event whose target the caller
-    /// has just checked against what is due (an image's `load`,
-    /// `presenter/images.rs`). Not a press, so no navigation refusal applies.
+    /// [`Self::dispatch_at`] with nothing the clock owes run first, for a target just
+    /// checked (an image's `load`); the clock then moves to the commit's, as there.
     pub(crate) fn dispatch_now(&mut self, view: ViewId, event: Event) -> Option<String> {
         let event = self.document_value(view, event);
         let dispatched = crate::traced(c"exact dispatch", || self.runner.dispatch(view, event));
-        // The host's clock moves to the commit's time (a live clock's sample,
-        // taken as the handler ran), as dispatch_at moves it, so its effects
-        // (a transition's start) are timed from it.
         self.now_ms = self.runner.now_ms().max(self.now_ms);
         let at_ms = self.now_ms;
         match dispatched {
