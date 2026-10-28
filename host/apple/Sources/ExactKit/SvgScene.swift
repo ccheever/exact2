@@ -666,17 +666,16 @@ final class SvgHost {
         return shown.map { $0.key == "backgroundColor" ? $0.greyed(grey) : $0 }
     }
 
-    /// `id`'s box greys with the tint or takes its colours back: its background tracks are
-    /// installed again so, keeping their timing (`CssAnimations.make` sets their begin time)
-    func boxTintChanged(_ id: UInt32, clock: Double?) {
+    /// Installs `id`'s box animations again, as it shows or hides or as its colours grey with the
+    /// tint or come back, keeping their timing (`CssAnimations.make` sets their begin time)
+    func refreshBoxAnimations(_ id: UInt32, clock: Double?) {
         guard let entry = boxSpecs[id] else { return }
         CssAnimations.apply(visibleBoxSpecs(id, entry.specs), to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]])
     }
 
     func boxVisibility(_ id: UInt32, hidden: Bool, clock: Double?) {
         if hidden { hiddenBoxes.insert(id) } else { hiddenBoxes.remove(id) }
-        guard let entry = boxSpecs[id] else { return }
-        CssAnimations.apply(visibleBoxSpecs(id, entry.specs), to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]])
+        refreshBoxAnimations(id, clock: clock)
     }
 
     /// An agent moved the clock: every held animation shows the new instant.

@@ -102,17 +102,12 @@ extension NodeView {
     }
 
     /// The tint as it rests, since UIKit's `tintColor` is dimmed here, from the sources it comes
-    /// from: the nearest authored `accent-color` (`applyAccentTint`), else the theme's `AccentColor`
+    /// from: the nearest authored `accent-color` (`authoredAccentTint`), else the theme's `AccentColor`
     /// (`applyThemeTint`), else the undimmed tint of the nearest view the node is mounted in (`RestsTint`)
     var restingTint: UIColor {
         var current: UIView? = self, port: (any RestsTint)?
         while let view = current {
-            // Resolve an ancestor's accent in each appearance, as its dynamic tint does (`applyAccentTint`)
-            if let node = view as? NodeView, node.style["accent_color"]?.namesTint != true, node.channels("accent_color", dark: false) != nil {
-                return UIColor { [weak node] traits in
-                    node?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
-                }
-            }
+            if let node = view as? NodeView, let accent = node.authoredAccentTint { return accent }
             if port == nil { port = view as? RestsTint }
             current = view.superview
         }
@@ -136,13 +131,11 @@ extension NodeView {
 
     /// The colour of row `key` as this node paints it now: greyed while it dims its paint
     /// (`dimsItsPaint`), except a tint Exact hands UIKit (`TintDimming.tints`)
-    func dimmedWithTint(_ c: [Double], key: String) -> [Double] {
-        TintDimming.tints.contains(key) || !dimsItsPaint ? c : TintDimming.grey(c)
-    }
+    func dimmedWithTint(_ c: [Double], key: String) -> [Double] { greys(key) ? TintDimming.grey(c) : c }
 
-    func dimmedWithTint(_ c: CGColor, key: String) -> CGColor {
-        TintDimming.tints.contains(key) || !dimsItsPaint ? c : TintDimming.grey(c)
-    }
+    func dimmedWithTint(_ c: CGColor, key: String) -> CGColor { greys(key) ? TintDimming.grey(c) : c }
+
+    private func greys(_ key: String) -> Bool { !TintDimming.tints.contains(key) && dimsItsPaint }
 
     /// The colour of row `key` as written, never greyed: what Exact bakes into an image UIKit draws
     /// (a bar item's face), which UIKit leaves undimmed and which stays as baked once the dimming ends
@@ -194,7 +187,7 @@ extension NodeView {
         applyStyle(style)
         presenter?.flats.tintChanged(id)
         presenter?.boxFilters.changed(self)
-        if presenter?.svg.animatesBox(id) == true { presenter?.svg.boxTintChanged(id, clock: presenter?.session?.clock) }
+        presenter?.svg.refreshBoxAnimations(id, clock: presenter?.session?.clock)
     }
 
     /// Paints this node and the nodes beneath it again while UIKit dims tints, after what makes them

@@ -294,12 +294,13 @@ extension NodeView {
     /// `LinkText`, a symbol's default) resolves by it (`ownTint`). `auto`, or
     /// an accent that names the tint itself, leaves the inherited one.
     /// Called when the row changes; nothing else sets a node view's tint.
-    func applyAccentTint() {
-        guard style["accent_color"]?.namesTint != true, channels("accent_color", dark: false) != nil else {
-            tintColor = nil
-            return
-        }
-        tintColor = UIColor { [weak self] traits in
+    func applyAccentTint() { tintColor = authoredAccentTint }
+
+    /// The tint this node's authored `accent-color` gives its subtree, in each appearance as the
+    /// row resolves; nil for none, `auto`, or an accent that names the tint itself
+    var authoredAccentTint: UIColor? {
+        guard style["accent_color"]?.namesTint != true, channels("accent_color", dark: false) != nil else { return nil }
+        return UIColor { [weak self] traits in
             self?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
         }
     }
