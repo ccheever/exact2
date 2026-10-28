@@ -41,7 +41,8 @@ import { routeRowThreadId } from './sidebar-lineage';
 import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 import { triggerDisplayModelName } from './model-short-name';
 import { inboxReturns } from './thread-inbox';
-import { autoDirection, textDirection } from './title-direction';
+import { autoDirection } from './title-direction';
+import { textDirection } from '../shared/text-direction';
 import { splitForMiddleTruncate } from './middle-truncate';
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };

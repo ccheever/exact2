@@ -12,7 +12,7 @@
 // humanized instance id; elapsed time is the caller's string.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { formatModelSlugName, REASONING_EFFORT_OPTION_IDS, resolveSelectableModel, traitsSpeed } from '../composer/composer-controls-model';
-import { resolveModelShortName, stripQualifier } from './model-short-name';
+import { triggerDisplayModelName } from './model-short-name';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'rolled_back', 'idle']);
 const WORKING = ['running', 'in_progress', 'pending', 'waiting'];
@@ -38,8 +38,7 @@ export function subagentMetadata(input: { model: string | null; provider?: Obj; 
   const models = arr(input.provider?.models);
   const slug = input.provider ? resolveSelectableModel(str(input.provider.driver), model, models) : model;
   const catalog = input.provider ? models.find(candidate => candidate.slug === slug) : undefined;
-  const reported = catalog ? resolveModelShortName(catalog, str(input.provider?.driver)) ?? str(catalog.name) : model ? formatModelSlugName(model) : 'Not reported';
-  const modelLabel = stripQualifier(reported, catalog?.subProvider);
+  const modelLabel = catalog ? triggerDisplayModelName(catalog, str(input.provider?.driver)) : model ? formatModelSlugName(model) : 'Not reported';
   const parentWorkspace = str(input.parentThread?.worktreePath) || str(input.parentProject?.workspaceRoot);
   const childWorkspace = str(input.childThread?.worktreePath) || str(input.childProject?.workspaceRoot);
   const workspace: Array<{ label: string; value: string }> = [];

@@ -1,32 +1,23 @@
-// Ported from T3 Code 7c3b3b3605ef apps/web/src/textDirection.test.ts (MIT, see LICENSE-T3), and the sidebar row's
-// title (SidebarThreadRow `dir={textDirection(thread.title)}`, the rename field's `dir="auto"`).
+// The sidebar row's title and rename field against T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3): SidebarThreadRow
+// `dir={textDirection(thread.title)}` (shared/text-direction.ts, tested in tests/shared) and the rename field's
+// `dir="auto"` on what is typed.
 import { describe, expect, it } from 'bun:test';
-import { autoDirection, textDirection } from '../../src/sidebar/title-direction';
+import { autoDirection } from '../../src/sidebar/title-direction';
 import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
 import { sidebarLocal } from '../../src/sidebar/sidebar-commands';
 import { sidebarSession } from '../../src/sidebar/sidebar-state';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 
-describe('textDirection', () => {
-  it.each([
-    ['Arabic', 'اكتب دالة تجمع الأرقام', 'rtl'],
-    ['Hebrew', 'תקן את הבאג', 'rtl'],
-    ['English', 'fix the failing test', 'ltr'],
-    ['Arabic that opens with an English term', 'StrictMode: يعيد الـ render مرتين في التطوير', 'rtl'],
-    ['English quoting one Arabic word', 'translate the label مرحبا for the login screen', 'ltr'],
-    ['a tie, by its first word', 'React مكتبة', 'ltr'],
-    ['a tie that opens in Arabic', 'مكتبة React', 'rtl'],
-    ['Arabic around numbers and punctuation', 'عدّل السطر 42، ثم شغّل الاختبارات (3)', 'rtl'],
-  ])('reads %s', (_, text, direction) => {
-    expect(textDirection(text)).toBe(direction);
-  });
-  it('leaves text without letters to its surroundings', () => {
-    expect(textDirection('42 — 7 ✓')).toBeUndefined();
-  });
-  it('dir="auto" follows the first strong letter', () => {
+describe('autoDirection (dir="auto")', () => {
+  it('follows the first strong letter, past numbers and punctuation', () => {
     expect(autoDirection('StrictMode: يعيد الـ render مرتين في التطوير')).toBe('ltr');
     expect(autoDirection('42 مرحبا')).toBe('rtl');
+    expect(autoDirection('(תקן) the bug')).toBe('rtl');
+  });
+  it('leaves text without letters to its surroundings', () => {
+    expect(autoDirection('42 — 7 ✓')).toBeUndefined();
+    expect(autoDirection('')).toBeUndefined();
   });
 });
 
