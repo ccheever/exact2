@@ -113,9 +113,12 @@ Library selection remains unverified.
 New-task drafts import and preview the same PNG, recover through Home's Unsent
 row after restart, and discard through confirmation. Unsent follows active tasks
 once the live catalogue loads. Current checkout selects `main` correctly. The
-new-task editor still displays raw attachment references; image send from that
-editor is not yet qualified. Automation text replacement failed, which alone
-does not establish an app typing-loss defect.
+new-task editor still displays raw attachment references. A later drive types the
+message before importing the PNG, sends on the current checkout, and receives
+`NEW_TASK_IMAGE_OK` from the real provider. After relaunch, the saved environment,
+conversation, reply and sent PNG preview return. The server records the new thread
+as mobile-created on `main`. Earlier automation text replacement failed, which
+alone does not establish an app typing-loss defect.
 New-task dictation now captures the saved text/revision before readiness and reads
 that monotonic revision at completion. Regression tests cover edit/revert during
 readiness and between voice observations, plus an unchanged draft. The two stale
