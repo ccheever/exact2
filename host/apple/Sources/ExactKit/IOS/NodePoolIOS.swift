@@ -46,7 +46,8 @@
 // differs (`ControlHost.parks`).
 // What makes a view ineligible instead of reset: a kind other than plain
 // boxes, text, images, buttons, `svg`s, waiting scrolls and heavy leaves; a
-// live UIScrollView; a platform subview other than the node's glyph, its
+// live UIScrollView other than an inner list or carousel at rest (LLP 1068
+// §4.2.1, a `list` or `scroll` in the row); a platform subview other than the node's glyph, its
 // material or its clip box; a placement; gesture recognizers or
 // interactions (menus, reorder handles, drags) other than a context menu's
 // at rest (LLP 1021 §5.1, `contextual`); a press, drag or swipe in
@@ -90,6 +91,8 @@ final class NodePool {
     static let perList = 12, innerCapacity = 96
     private(set) var innerCount = 0
     static let kinds: Set<String> = ["view", "text", "image", "button", "scroll", "svg"]
+    /// Kinds whose live scroll view parks as an inner list (LLP 1068 §4.2.1).
+    static let scrollers: Set<String> = ["list", "scroll"]
     /// Kinds whose platform view is heavy: a row pools around them (LLP 1068 §4.0).
     /// A 2D canvas (`canvas2d`, LLP 1056 D10) is one until stage 3 pools its
     /// bitmap: its view and replayer go with the row's node, and the next
@@ -212,10 +215,10 @@ final class NodePool {
                        _ lists: inout [NodeView]) -> String? {
         // An inner list at rest parks with its row; its content is not part
         // of the row's shape (LLP 1068 §4.2.1).
-        if view.kind == "list", view.scroll != nil {
+        if Self.scrollers.contains(view.kind), view.scroll != nil, !view.swipeOwner {
             guard !lists.isEmpty || !views.isEmpty, atRest(view) else { return nil }
             views.append(view); lists.append(view)
-            return "list[]"
+            return view.kind + "[]"
         }
         if Self.leaves.contains(view.kind) {
             let inside: UIView = view.overlay ?? view
@@ -337,7 +340,7 @@ final class NodePool {
     }
     /// Nothing about the view outlives its row's reset.
     private func recyclable(_ v: NodeView) -> Bool {
-        presenter.views[v.id] === v && (v.scroll == nil || v.kind == "list") && !v.scrollNeeded
+        presenter.views[v.id] === v && (v.scroll == nil || Self.scrollers.contains(v.kind)) && !v.scrollNeeded
             && v.field == nil && v.textArea == nil && v.video == nil && v.web == nil && v.metal == nil
             && v.overlay == nil && v.canvasInput == nil
             && idle(v)
@@ -413,7 +416,9 @@ final class NodePool {
             if presenter.flats.batchFlat.contains(op.id) { flat.insert(op.id); continue }
             kind[op.id] = op.kind
             if op.kind == "image" { image[op.id] = op.props["imageSource"] ?? "" }
-            if op.kind == "list", ["scroll", "auto"].contains(op.style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(op.style["overflow_y"]?.string ?? "") {
+            // A swipe row scrolls too, but it is a row's body, not a carousel.
+            if Self.scrollers.contains(op.kind), op.props["swipeContent"] == nil,
+               ["scroll", "auto"].contains(op.style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(op.style["overflow_y"]?.string ?? "") {
                 scrolls.insert(op.id)
             }
             if op.kind == "control", op.props["type"] == "button", op.style["appearance"]?.string != "none" { buttons.insert(op.id) }
@@ -445,25 +450,25 @@ final class NodePool {
         if let view = claims.removeValue(forKey: id) { return rebound(view, id) }
         guard depth == 1, count + innerCount > 0, batch != nil, let c = createdNodes() else { return nil }
         // An inner list, as `park` reads one: a collection's, or a scrolling
-        // list this batch creates in a collection's row, which parks as any
-        // live scroll view does, virtualized or not (a feed post's carousel
-        // of every card). Taken only as a collection's, such a row never
-        // matched its parked shape: it was built new, and its parked trees
-        // were evicted unused.
+        // list or `scroll` this batch creates in a collection's row, which
+        // parks as any live scroll view does, virtualized or not (a feed
+        // post's carousel of every card). Taken only as a collection's, such
+        // a row never matched its parked shape: it was built new, and its
+        // parked trees were evicted unused.
         func inner(_ node: UInt32) -> Bool {
-            c.kind[node] == "list" && (presenter.collections.owns(node) || c.scrolls.contains(node) && list(creating: node) != nil)
+            c.kind[node] == "list" && presenter.collections.owns(node) || c.scrolls.contains(node) && list(creating: node) != nil
         }
         var root = id
         // An inner list's cards claim their own trees (LLP 1068 §4.2.1).
         while let up = c.parent[root], c.kind[up] != nil, !inner(up) { root = up }
         guard tried.insert(root).inserted, let up = c.parent[root], let list = presenter.views[up],
-              list.kind == "list", presenter.collections.owns(list.id) || inner(up),
+              list.kind == "list" && presenter.collections.owns(list.id) || inner(up),
               let kind = c.kind[root], !Self.leaves.contains(kind) else { return nil }
         var ids: [UInt32] = [], holes: [String] = []
         func shape(_ node: UInt32) -> String? {
             guard let kind = c.kind[node] else { return nil }
             ids.append(node)
-            if node != root, inner(node) { return "list[]" }
+            if node != root, inner(node) { return kind + "[]" }
             if Self.leaves.contains(kind) {
                 guard c.children[node]?.isEmpty ?? true else { return nil }
                 if c.buttons.contains(node) { return Self.button }
