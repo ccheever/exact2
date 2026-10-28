@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list of all 160 recipes; each row shows title, category, clock + time, star + rating, chevron, plus a red heart on favorited rows."},
+      {"n": 2, "status": "pass", "note": "Horizontal chip row with All plus nine categories, and a search field that matches titles and ingredients ('egg' within Desserts narrowed the list correctly). The no-results state names the query. The category is not kept across relaunch (fine)."},
+      {"n": 3, "status": "pass", "note": "Sort pull-down menu (Name / Time / Rating with icons and a checkmark). The choice is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "Detail screen has a header card with time, servings and rating, a bulleted ingredient list and steps numbered with filled circle glyphs. The system stepper scales quantities with fractions (8 to 1 gives 1/4 cloves), stops at 1 with minus disabled, uses correct singular/plural ('1 Serving') and says 'Original recipe serves 8'."},
+      {"n": 5, "status": "pass", "note": "Heart button in the nav bar toggles Add/Remove. Swipe left on a list row offers 'Favorite'. Favorites tab has Edit and swipe-to-Remove. Empty state reads 'No Favorites Yet' with a hint and a 'Browse Recipes' button that switches tabs."},
+      {"n": 6, "status": "pass", "note": "Two favorites were still there after relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the list row's meta line breaks inside a word: '1 hr 20 mi' / 'n'.",
+      "At the largest text size the category chips don't grow, so their labels ('All', 'Baking') are clipped top and bottom.",
+      "After Dynamic Type goes back from largest to default while the app runs, the category chips stay oversized (tall pills, 'All' becomes a circle) until relaunch."
+    ],
+    "tells": [
+      "The Favorites empty state ('No Favorites Yet' text and the 'Browse Recipes' button) is not exposed to accessibility; the table only reports 'Empty list'.",
+      "In the detail header card, a time like '1 hr 20 min' wraps onto two lines at default text size even though there is room for it.",
+      "The category chip row is a hand-made pill bar pinned under the search field, not a system control such as a filter menu or scope bar.",
+      "Accessibility tree shows chevrons as disabled buttons labelled 'chevron'."
+    ],
+    "scroll": "Scrolling feels native: slow drags track the finger, flings decelerate smoothly, rows never come in blank, and pulling past the top rubber-bands and settles with the large title back. The chip row stays pinned while the list scrolls under it.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with an 'All Recipes · 160 recipes' header; rows show title and 'Category · time ★ rating' with a chevron."},
+      {"n": 2, "status": "pass", "note": "Category pull-down menu in the nav bar (All Categories plus nine), shown in the section header ('Desserts · 28 recipes'). Search matches titles and ingredients and works together with the category ('egg' gave 9 Desserts). The no-results state names the category and offers 'Show All Recipes'."},
+      {"n": 3, "status": "pass", "note": "Sort menu: 'Name, A to Z', 'Time, Quickest first', 'Rating, Highest first', with a checkmark. Kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "Detail screen has an inline nav title, a Time / Rating / Category card, a Servings row with a system stepper, 'Ingredients · N servings' and steps numbered '1.', '2.'. Scaling uses fractions (1/4, 1/2, 1 1/2), stops at 1, and shows 'Recipe makes 8' with a 'Reset to 8 servings' row. Servings appear only in the stepper row, not as a separate stat."},
+      {"n": 5, "status": "pass", "note": "Heart button in the nav bar toggles Add/Remove. Favorites tab shows a count header, a hint 'Swipe a recipe left to remove it.' and a system swipe-to-Delete. Empty state reads 'No Favorites Yet' with helpful text and a 'Browse Recipes' button."},
+      {"n": 6, "status": "pass", "note": "Favorites were still there after relaunch."}
+    ],
+    "bugs": [
+      "Search text and the pushed detail screen are restored after relaunch: the app reopened with 'eggzzz' still in the search field and an empty list, which is confusing.",
+      "A horizontal swipe on a main-list row opens the recipe instead of being ignored or showing swipe actions."
+    ],
+    "tells": [
+      "No swipe actions and no favorite indicator on main-list rows.",
+      "The search keyboard auto-capitalizes (shift stays on), unlike a system search field.",
+      "The empty-state titles ('No Recipes Found') use regular weight, not the bold title of a system empty state.",
+      "At the largest text size the servings stepper stays small next to the huge text (system stepper behaviour, minor)."
+    ],
+    "scroll": "Scrolling feels native: slow drags track the finger, flings decelerate smoothly with no blank or popping rows, and pulling past the top rubber-bands back to the large title and search field.",
+    "scores": {"features": 8, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and scroll like native lists. A has a few more features (swipe-to-favorite, hearts in the list, Edit in Favorites), but it breaks a word at the largest text size, clips its hand-made category chips, doesn't adapt them when the text size changes live, and hides its empty state from accessibility. B's layouts adapt cleanly at the largest size and its menus, inset lists and stepper-with-reset feel more like a system app. Its main flaws, restoring stale search text after relaunch and having no swipe actions on the main list, are smaller."
+}
