@@ -616,7 +616,13 @@ export async function page(live: Live, channelId: string, query: S.HistoryQuery)
   live.paging.set(channelId, pending);
   const since = S.storeSeq(live.store);
   try {
-    const messages = await call(live, rest.history(context(live), channelId, query), pending.abort.signal);
+    let messages: unknown;
+    try { messages = await call(live, rest.history(context(live), channelId, query), pending.abort.signal); }
+    catch (error) {
+      // A page aborted because the reader left, switched or jumped (`abortPages`) is no failure: nothing lands.
+      if (pending.abort.signal.aborted) return;
+      throw error;
+    }
     if (Array.isArray(messages)) {
       const sidebar = S.sidebarVersion(live.store), identities = live.store.identityRevision;
       S.applyHistoryPage(live.store, channelId, query, messages, { since });

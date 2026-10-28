@@ -117,6 +117,26 @@ test "reading back moves the window a page ahead of the reader, who stays put (ย
   expect state win.rows.0 .key == "1561797858988926588"
   expect tree has "message-1562732896249194217"
 
+test "the lead pages on with no scroll event and stops once 100 rows stand above the reader (F1)"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  // One scroll: the reader's row, 40 from the end, is 9 rows below the window's first. The first page
+  // brings 50 rows above it (59), so the lead asks the next with no scroll; at 109 it stops.
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  expect state topKey == "1562732896249194217"
+  expect state topAt == 109
+  expect state win.firstId == "1561797858988926588"
+  expect state win.need == ""
+  clock +5000
+  clock settle
+  expect state win.firstId == "1561797858988926588"
+  expect state pageTries == 0
+
 test "changes above the viewport leave the reader's row where it is (ยง3.5)"
   clock settle
   clock until state gateway.state == "ready" within 10000

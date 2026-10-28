@@ -809,7 +809,32 @@ test('F1. with the anchor at the first row, one older page is named; re-anchored
   expect(longest).toBe(299);
 });
 
-test('a history page in flight is aborted by leaving or switching channels, and a jump keeps only its own', async () => {
+test('F1. a jump aborts the older page in flight through the window; the abort is no failure and the jump\'s page goes out', async () => {
+  const app = await rig.app(); await app.dial();
+  const channel = rig.fixture.world.generalChannelId, history = rig.fixture.world.messages[channel], path = historyPath(channel);
+  expect(await app.ask('loadPage', [channel, 'latest', ''])).toEqual({ ok: true, error: '' });
+  const top = (await app.window(channel)).firstId;
+  const edge = await app.window(channel, top);
+  expect(edge.need).toBe('before');
+  const held = rig.hold(path);
+  const older = app.ask('loadPage', [channel, edge.need, edge.cursor]);
+  const request = await held.entered;
+  // The reader jumps to a message no page holds: the window names its around page and aborts the older one.
+  const target = history[100].id;
+  const jump = await app.window(channel, target);
+  expect(jump).toMatchObject({ need: 'around', cursor: target });
+  expect(request.signal.aborted).toBe(true);
+  expect(await older).toEqual({ ok: true, error: '' });
+  expect(ids((await app.window(channel)).rows)).toEqual(ids(history.slice(-49)));
+  // The jump's own page is not refused as "still loading", and it lands.
+  expect(await app.ask('loadPage', [channel, 'around', target])).toEqual({ ok: true, error: '' });
+  const landed = await app.window(channel, target);
+  expect(landed.need).toBe('');
+  expect(ids(landed.rows)).toContain(target);
+  expect(new URL(rig.requests.at(-1)!.url).searchParams.get('around')).toBe(target);
+});
+
+test('a history page in flight is aborted by leaving or switching channels, and a jump keeps only its own; an abort is no failure', async () => {
   const live = createLive({ rest: 'https://discord.com', gateway: 'wss://gateway.discord.gg', cdn: 'https://cdn.discordapp.com', fixture: false });
   live.token = 'a'.repeat(60);
   const signals: AbortSignal[] = [];
@@ -824,27 +849,34 @@ test('a history page in flight is aborted by leaving or switching channels, and 
     expect(live.paging.has('A')).toBe(true);
     view(live, 'B');
     expect(signals[0].aborted).toBe(true);
-    await expect(older).rejects.toThrow();
+    // An aborted page is no failure: it resolves with nothing landed.
+    await expect(older).resolves.toBeUndefined();
     expect(live.paging.has('A')).toBe(false);
+    // Back on A, its page may be asked again.
+    view(live, 'A');
+    const again = page(live, 'A', { before: '900', limit: 50 });
+    expect(live.paging.has('A')).toBe(true);
+    view(live, 'B');
+    await expect(again).resolves.toBeUndefined();
     // B's own page stands while B is read; leaving (viewing none) aborts it.
     const own = page(live, 'B', { before: '800', limit: 50 });
     view(live, 'B');
-    expect(signals[1].aborted).toBe(false);
+    expect(signals[2].aborted).toBe(false);
     view(live, '');
-    expect(signals[1].aborted).toBe(true);
-    await expect(own).rejects.toThrow();
+    expect(signals[2].aborted).toBe(true);
+    await expect(own).resolves.toBeUndefined();
     // A jump in C: the page toward the old edge goes, the jump's own page around its target stays.
     view(live, 'C');
     const edge = page(live, 'C', { before: '700', limit: 50 });
     const jump = { around: '500', limit: 50 };
     abortPages(live, (channel, query) => channel !== 'C' || JSON.stringify(query) === JSON.stringify(jump));
-    expect(signals[2].aborted).toBe(true);
-    await expect(edge).rejects.toThrow();
+    expect(signals[3].aborted).toBe(true);
+    await expect(edge).resolves.toBeUndefined();
     const around = page(live, 'C', jump);
     abortPages(live, (channel, query) => channel !== 'C' || JSON.stringify(query) === JSON.stringify(jump));
-    expect(signals[3].aborted).toBe(false);
+    expect(signals[4].aborted).toBe(false);
     view(live, '');
-    await expect(around).rejects.toThrow();
+    await expect(around).resolves.toBeUndefined();
   } finally { fetchSpy.mockRestore(); }
 });
 

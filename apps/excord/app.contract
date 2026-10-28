@@ -363,13 +363,15 @@ component Excord
   // ack chose its newest) and after a failed ack, at most three times.
   task ack when reading and not signedOutNow and current and anchor == "" and not away and chan.unread > 0 and page.visibilityState == "visible" key=`${chan.version}/${ackTries}`
     after(1000, ackNow)
-  // The lead holds with no scroll event (F1): a page that lands while the reader is still within 100 rows of
-  // the window's first row moves the anchor there, and the next page goes out at once. One page a step, so
-  // at most 149 rows stand above the reader when the lead stops.
-  task leadOlder when current and target == "" and (away or anchor != "") and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
+  // The lead holds with no scroll event (F1): a page that lands while the reader, away from the live end, is
+  // still within 100 rows of the window's first row moves the anchor there, and the next page goes out at once.
+  // One page a step, so it asks none beyond the page that brings the lead to 100 rows (rows already cached can
+  // stand further above). At the live end a short tail gets its one page, as before.
+  task leadOlder when reading and current and target == "" and away and win.need == "" and win.hasBefore and topAt >= 0 and topAt < 100 and anchor != win.firstId key=win.firstId
     after(1, older)
-  // The page the window lacks; a failed one is asked again, at most three times.
-  task fetchPage when win.channel == open and not signedOutNow and win.need != "" and not historyFailed and not pending(paged) and not pending(editPaged) key=`${pageKey}/${pageTries}`
+  // The page the window lacks, while the channel is read (leaving aborts the page in flight, and none is
+  // asked behind the list); a failed one is asked again, at most three times.
+  task fetchPage when reading and win.channel == open and not signedOutNow and win.need != "" and not historyFailed and not pending(paged) and not pending(editPaged) key=`${pageKey}/${pageTries}`
     after(1, pageNow)
   // The bar says what was unread when the channel opened: its label is held from
   // the first window that answers it, as arrivals and sends move the count on.

@@ -312,7 +312,12 @@ export function loadWindow(channel: string, asked: string, since: string): Windo
   // A tail shorter than a page (a cold channel that heard a message, or one whose older rows a fresh
   // READY left unconfirmed) is filled with one page before it.
   if (!anchor) {
-    if (!firstId && (w.fetchLatest || w.rows.length)) need = 'latest';
+    if (!firstId && (w.fetchLatest || w.rows.length)) {
+      need = 'latest';
+      // Jump to Present replaces the window too: a page loading toward the old one's edge is aborted (F1).
+      const tail = JSON.stringify(QUERIES.latest(''));
+      abortPages(live, (other, query) => other !== channel || JSON.stringify(query) === tail);
+    }
     else if (firstId && rows.length < 50 && hasBefore) { need = 'before'; cursor = firstId; }
   }
   else if (pos < 0) {
