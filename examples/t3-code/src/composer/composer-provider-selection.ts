@@ -27,7 +27,7 @@ export const NO_PROVIDER_INSTANCE_ID = 't3code_no_provider';
 export const DEFAULT_MODEL = 'gpt-6-astra';
 export const ANTIGRAVITY_DEFAULT_MODEL = 'antigravity-default';
 export const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
-  codex: DEFAULT_MODEL, claudeAgent: 'claude-fable-5-1', cursor: 'auto', grok: 'grok-build', acpRegistry: 'default',
+  codex: DEFAULT_MODEL, claudeAgent: 'claude-fable-5-1', cursor: 'auto', grok: 'grok-build', fx: 'default', muse: 'default', acpRegistry: 'default',
   pi: 'default', opencode: 'openai/gpt-5', antigravity: ANTIGRAVITY_DEFAULT_MODEL,
 };
 

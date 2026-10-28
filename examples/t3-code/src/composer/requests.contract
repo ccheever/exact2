@@ -79,13 +79,15 @@ component RequestStack
   view
     // A notice above it (ComposerDock: only a machine error or warning while a request is open) tucks under the request.
     for a in data.approvals key=a.id
-      ApprovalBanner(approval=a, command=command, busy=busy, compact=compact, stacked=(data.composer.notices.length > 0))
+      ApprovalBanner(approval=a, reason=data.composer.approvalReason, whyAsked=data.composer.approvalWhy, command=command, busy=busy, compact=compact, stacked=(data.composer.notices.length > 0))
     for q in data.questions key=q.id
       QuestionBanner(q=q, command=command, maximumHeight=maximumHeight, stacked=(data.composer.notices.length > 0))
 
 component ApprovalBanner
   props
     approval: Approval
+    reason: string
+    whyAsked: string
     command: action
     busy: bool
     compact: bool
@@ -100,17 +102,58 @@ component ApprovalBanner
             text approval.label font-size="0.6875rem" font-weight=500 line-height="1rem" color="#fe9a00" flex-shrink=0
             if approval.appName != ""
               text approval.appName font-size="0.6875rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)" min-width=0 line-clamp=1
+            if whyAsked != ""
+              WhyAsked(id=approval.id, explanation=whyAsked)
             if approval.count != ""
               box flex=1
               text approval.count font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #a1a1a1)" flex-shrink=0
           // A command wraps anywhere inside the composer, up to 10rem; an app's request wraps at words, up to 5rem.
           scroll max-height=(approval.mono ? "10rem" : "5rem") width="100%" min-width=0 testId=`approval-detail-${approval.id}`
             text approval.detail font-size="0.75rem" line-height="1rem" letter-spacing=(approval.mono ? "-0.2px" : "0px") font-family=(approval.mono ? "ui-monospace" : "system-ui") white-space="pre-wrap" overflow-wrap=(approval.mono ? "anywhere" : "break-word") color="light-dark(#18181b, #f5f5f5)" aria-label="Command"
+          if reason != ""
+            text reason font-size="0.6875rem" line-height="1rem" width="100%" min-width=0 overflow-wrap="break-word" color="light-dark(#71717a, #a1a1a1)" testId=`approval-reason-${approval.id}`
         if not compact
           ApprovalActions(approval=approval, command=command, busy=busy)
       if compact
         row width="100%" padding-left="2rem" box-sizing="border-box" justify-content="flex-end"
           ApprovalActions(approval=approval, command=command, busy=busy)
+
+// Full access still asked (ComposerPendingApprovalPanel): an InlineButton (tone muted) opens the explanation above it
+// as a hover popover in the tooltip style. Hovering shows it; a press keeps it open until Escape, a press outside or
+// another press. It wraps within min(22rem, 100vw - 2rem).
+component WhyAsked
+  inject
+    rem: number
+  props
+    id: string
+    explanation: string
+  state over = false
+  state pinned = false
+  state shown = false
+  action hover(value: bool)
+    over = value
+    if value
+      showPopover(`approval-why-card-${id}`, source=`approval-why-${id}`)
+    else if not pinned
+      hidePopover(`approval-why-card-${id}`)
+  action pressed
+    if pinned and shown
+      hidePopover(`approval-why-card-${id}`)
+    else
+      pinned = true
+      showPopover(`approval-why-card-${id}`, source=`approval-why-${id}`)
+  action toggled(e: ToggleEvent)
+    shown = e.newState == "open"
+    if not shown
+      pinned = false
+  view
+    box position="relative" display="flex" flex-shrink=0 hover=hover
+      button id=`approval-why-${id}` press=pressed aria-expanded=shown aria-haspopup="dialog" testId=`approval-why-${id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
+        text "Why am I being asked this?" font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)") text-decoration-line=(over ? "underline" : "none")
+      // The 4pt between the card and the button is the card's own padding, so the pointer crossing it stays on the card.
+      column id=`approval-why-card-${id}` popover="auto" toggle=toggled role="dialog" aria-label="Why am I being asked this?" position="absolute" position-area="top" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" padding-bottom="0.25rem" max-width=`min(${22 * rem}px, calc(100vw - ${2 * rem}px))` background-color="#00000000" testId=`approval-why-card-${id}`
+        column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d"
+          text explanation font-size="0.75rem" line-height="1.03125rem" white-space="normal" text-wrap="balance" color="light-dark(#18181b, #f5f5f5)"
 
 // Accept and decline stay visible; every other advertised decision is in the menu.
 component ApprovalActions

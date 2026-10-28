@@ -25,7 +25,9 @@ import { commandShortcut } from '../shell/shell'; // the workspace and host tool
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
 // `switched`: the ref a switch checked out, kept while the stream still reports the status it had then.
-type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; switched?: { name: string; status: Obj | null }; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
+type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; switched?: { name: string; status: Obj | null }; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean;
+  /** Whether the strip's picker, and the workspace card's, was open at the last read. */
+  stripOpen?: boolean; cardOpen?: boolean };
 type RepoCache = { environmentId: string; generation: number; origin: string; byCwd: Map<string, Repo> };
 const repos = new WeakMap<T3Client, RepoCache>();
 function repositoryCache(client: T3Client): Map<string, Repo> {
@@ -154,6 +156,10 @@ export function previousWorktree(client: T3Client): { branch: string; worktreePa
 /** Refreshes repository state the strip shows; the menu's refs load while the branch picker is open. */
 async function load(client: T3Client, native: Native, cwd: string, open: boolean, query: string, card: boolean): Promise<Repo> {
   const entry = repo(client, cwd), access = client.restAccess(native);
+  // handleOpenChange: opening the picker asks the server to read the checkout's current branch again, without a remote
+  // fetch; the answer reaches the strip through the status stream, and a failure is not reported.
+  if (open && !entry[card ? 'cardOpen' : 'stripOpen']) void access.request('vcs.refreshStatus', { cwd, localOnly: true }).catch(() => undefined);
+  entry[card ? 'cardOpen' : 'stripOpen'] = open;
   // BranchToolbarBranchSelector reads `vcsEnvironment.status`, the subscribeVcsStatus stream, and the
   // reference asks vcs.refreshStatus only on window focus and when a git menu opens (GitActionsControl).
   // So the strip and the card's branch row read the stream that follows this workspace (shell-vcs.ts).

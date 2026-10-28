@@ -53,6 +53,18 @@ describe('a stale session without a cache TTL (shouldOfferResumeCompaction)', ()
     client.thread!.projection.runtimeRequests = [];
     expect(chip(client).compactTokens).toBe('');
   });
+  test('not offered when idle compaction is Never, for the environment or the provider instance (resolveIdleCompaction)', async () => {
+    const { client } = await claudeThread();
+    const settings = obj(client.config.settings);
+    Object.assign(settings, { compactIdleThreads: false, idleCompaction: 'off' });
+    expect(chip(client).compactTokens).toBe('');
+    Object.assign(settings, { providerInstances: { claude: { driver: 'claudeAgent', config: { idleCompaction: 'onReturn' } } } });
+    expect(chip(client).compactTokens).toBe('235k');
+    Object.assign(settings, { idleCompaction: undefined, compactIdleThreads: 'off', providerInstances: { claude: { driver: 'claudeAgent', config: { idleCompaction: 'default' } } } });
+    expect(chip(client).compactTokens).toBe('');
+    Object.assign(settings, { compactIdleThreads: true });
+    expect(chip(client).compactTokens).toBe('235k');
+  });
   test('a send compacts first, then queues the typed message', async () => {
     const { client, native, command } = await claudeThread();
     snapshot(client, NOW);

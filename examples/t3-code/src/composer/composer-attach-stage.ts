@@ -12,7 +12,7 @@
 import type { Obj } from '../client/domain';
 import { appFiles } from '../media/save-file';
 import { uuid } from '../transport/transport-wire';
-import { HOST_READ_BYTES, MAX_FILE_BYTES } from './composer-editor-files';
+import { HOST_READ_BYTES, MAX_FILE_BYTES, isSvgAttachment } from './composer-editor-files';
 import { videoFrameSize, videoMimeType } from './composer-video';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from './image-attachment-size';
 import { DRAFTS, STAGED, stagedName } from './composer-staged-copies';
@@ -68,8 +68,6 @@ export function isHeic(name: string, type: string): boolean {
 }
 
 const baseType = (type: string) => type.split(';', 1)[0]!.trim().toLowerCase();
-/** isSvgAttachment. */
-const isSvg = (name: string, type: string) => baseType(type) === 'image/svg+xml' || (generic(baseType(type)) && /\.svg$/i.test(name));
 /** A camera's raw DNG: an image by type, though no provider takes it as one. */
 const isDng = (name: string, type: string) => name.toLowerCase().endsWith('.dng') || ['image/dng', 'image/x-dng', 'image/x-adobe-dng'].includes(baseType(type));
 /** WORKSPACE_IMAGE_PREVIEW_EXTENSIONS: the image types the file viewer shows. */
@@ -80,7 +78,7 @@ const PREVIEWABLE_IMAGE_EXTENSIONS = ['avif', 'bmp', 'gif', 'ico', 'heic', 'heif
  * a DNG, and an image the viewer can show but providers refuse (AVIF, BMP, ICO, TIFF) attach as files.
  */
 export function classifyAttachment(name: string, type: string): 'image' | 'file' | 'unsupported-image' {
-  if (isSvg(name, type) || isDng(name, type)) return 'file';
+  if (isSvgAttachment(name, type) || isDng(name, type)) return 'file';
   if (isHeic(name, type)) return 'image';
   if (generic(type) && IMAGE_MIME_BY_EXTENSION[extension(name)]) return 'image';
   if (!type.toLowerCase().startsWith('image/')) return 'file';
@@ -91,7 +89,7 @@ export function classifyAttachment(name: string, type: string): 'image' | 'file'
 /** composerFileAttachmentMimeType: what a file attachment is sent as; image detection downstream reads it. */
 export function fileAttachmentMimeType(name: string, type: string): string {
   if (isDng(name, type)) return 'image/x-adobe-dng';
-  if (isSvg(name, type)) return 'image/svg+xml';
+  if (isSvgAttachment(name, type)) return 'image/svg+xml';
   return videoMimeType({ name, mimeType: type }) ?? (type || 'application/octet-stream');
 }
 

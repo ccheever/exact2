@@ -182,7 +182,7 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   every declarator of a `const`/`let`/`var` list, object keys versus type annotations,
   import lines and keyword-named members (`ts-statements.ts`).
 - Composer: send, stop, queue and steer while running (queued messages wait at the end of the
-  timeline, with Send now, edit and remove),
+  timeline, with Send now, edit and remove; with no turn running, Send now starts one),
   model picker with search and favourites, reasoning and runtime options, Plan/Build,
   slash and @ menus, file and image attachments (videos as first-frame tiles that play in
   an expanded preview; removing an image the prompt references asks first and removes
@@ -197,7 +197,9 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes.
 - Requests: approvals, single/multiple-choice and free-text questions. While an approval is pending the
   composer stays usable: Send declines the approvals it shows, then steers the turn with the message
-  (`declineForRedirect` in `client-ops-composer.ts`); a draft edited meanwhile stays unsent. A typed answer
+  (`declineForRedirect` in `client-ops-composer.ts`), or, for an agent that reads feedback, declines the
+  approval with the message as its feedback; a draft edited meanwhile stays unsent. An approval that full access
+  still asked for says why. A typed answer
   stays with its thread until the question resolves. While the composer answers a question the server lets
   carry attachments, its shelf is that question's (`question-attachments.ts`): a dropped, pasted or picked image
   joins it without a chip, as does a SnapShot taken while the question is open (pinned when the capture is

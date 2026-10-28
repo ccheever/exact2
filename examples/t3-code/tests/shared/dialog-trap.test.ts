@@ -101,6 +101,7 @@ const NOT_MODAL: Record<string, string> = {
   'auto-balance.contract `notice-machines-${notice.id}`': 'Popover',
   'composer-controls.contract `notice-details-card-${id}`': 'Popover (NoticeDescription, openOnHover)',
   'thread-end.contract `thread-now-details-card-${message.id}`': 'Popover (ThreadNow NoticeText, openOnHover)',
+  'requests.contract `approval-why-card-${id}`': 'Popover (ComposerPendingApprovalPanel, openOnHover)',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
   'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment)',
   'diff.contract "diff-base-picker"': 'Popover',

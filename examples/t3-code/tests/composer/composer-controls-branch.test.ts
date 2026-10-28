@@ -9,6 +9,23 @@ import { toasts } from '../../src/shell/toast';
 import { appPath, appText } from '../support/app-files';
 
 describe('workspace strip details', () => {
+  test('opening the picker asks for the current branch once, without a remote fetch (handleOpenChange)', async () => {
+    const { client, native } = await connected();
+    const asked = () => native.committed.filter(entry => entry.method === 'vcs.refreshStatus' && entry.localOnly === true);
+    native.later = (later => async (input: unknown) => {
+      const request = obj(input);
+      if (request.op === 'request' && request.method === 'vcs.refreshStatus') native.committed.push({ method: request.method, ...obj(request.payload) });
+      return later(input);
+    })(native.later.bind(native));
+    await composerBranches(client, native, false, '');
+    expect(asked()).toEqual([]);
+    await composerBranches(client, native, true, '');
+    await composerBranches(client, native, true, 'ma');
+    expect(asked()).toEqual([{ method: 'vcs.refreshStatus', cwd: '/repo', localOnly: true }]);
+    await composerBranches(client, native, false, '');
+    await composerBranches(client, native, true, '');
+    expect(asked()).toHaveLength(2);
+  });
   test('a typed name is offered as a sanitized new ref, and Return picks the highlighted first item', async () => {
     const { client, native } = await connected();
     expect(sanitizeNewRefName('  my new\tbranch ')).toBe('my-new-branch');

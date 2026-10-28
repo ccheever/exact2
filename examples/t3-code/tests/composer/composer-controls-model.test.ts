@@ -2,8 +2,10 @@
 // 63f74e209d (provider-reported option labels), 151c241cd2 + a5b34b2537
 // (background-work wording) and 5108c978b1 (latest executed run).
 import { describe, expect, test } from 'bun:test';
+import { announcements } from '../../src/shell/announce';
 import { obj, type Obj } from '../../src/client/domain';
-import { displayModelName, formatModelSlugName, modelShortName, reportedModelLabel, reportedSelection, resolveSelectableModel, triggerModelName } from '../../src/composer/composer-controls-model';
+import { displayModelName, formatModelSlugName, reportedModelLabel, reportedSelection, resolveSelectableModel, triggerModelName } from '../../src/composer/composer-controls-model';
+import { modelShortName } from '../../src/client/model-short-name';
 import { presentBackgroundWork, traitsDisplay } from '../../src/composer/composer-controls-view';
 import { traitsMenu } from '../../src/composer/composer-presentation';
 import { latestExecutedRun, resumeState } from '../../src/composer/composer-controls';
@@ -58,6 +60,11 @@ describe('the composer trigger names the model it runs', () => {
     expect(view).toMatchObject({ modelShortLabel: 'Opus 4.5', modelLabel: 'Claude Opus 4.5', modelUnavailable: false });
     expect(view.composer.modelTip).toBe('Claude Opus 4.5 · ⇧⌘M');
     expect(modelCatalog(client, 'claude', '').models.find(row => row.id === 'claude-opus-4-5')?.name).toBe('Claude Opus 4.5');
+    // An unavailable model: the tooltip says so, and its badge's text is measured for the footer's layout.
+    Object.assign(obj(claude.models[0]), { isUnavailable: true });
+    const unavailable = snapshot(client);
+    expect(unavailable.composer.modelTip).toBe('Claude Opus 4.5 (Unavailable) · ⇧⌘M');
+    expect(unavailable.composer.menuProbes).toContainEqual({ key: 't:10:500:Unavailable', text: 'Unavailable', size: 10, weight: 500 });
   });
 });
 
@@ -150,11 +157,14 @@ describe('background work (151c241cd2, a5b34b2537)', () => {
     expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c' }])).toMatchObject({ title: 'Waiting on subagent Review', description: 'Show',
       segments: [{ label: 'Show', aria: 'Show subagent Review', threadId: 'c', last: true }] });
   });
-  test('only commands left (a dev server) run rather than wait, and do not pulse', () => {
+  test('commands and monitors left (a dev server, its watchdog) run rather than wait unless the agent awaits them', () => {
     expect(presentBackgroundWork([{ kind: 'command', description: 'Start the dev server' }])).toEqual({ title: 'Running: Start the dev server', description: '', waiting: false, segments: [] });
     expect(presentBackgroundWork([{ kind: 'command' }])!.title).toBe('Running a command');
     expect(presentBackgroundWork([{ kind: 'command' }, { kind: 'command', description: 'b' }])).toMatchObject({ title: 'Running 2 commands', waiting: false });
-    expect(presentBackgroundWork([{ kind: 'monitor' }])).toMatchObject({ title: 'Waiting on a monitor', waiting: true });
+    expect(presentBackgroundWork([{ kind: 'monitor' }])).toMatchObject({ title: 'Running a monitor', waiting: false });
+    expect(presentBackgroundWork([{ kind: 'monitor', awaited: true }])).toMatchObject({ title: 'Waiting on a monitor', waiting: true });
+    expect(presentBackgroundWork([{ kind: 'command', description: 'npm test', awaited: true }])).toMatchObject({ title: 'Waiting on command npm test', waiting: true });
+    expect(presentBackgroundWork([{ kind: 'background_task' }])).toMatchObject({ title: 'Waiting on a background task', waiting: true });
   });
   test('the line at the end of the timeline: a muted dot for commands, a dark one for work that wakes the agent', async () => {
     const { client } = await opened();
@@ -191,5 +201,20 @@ describe('composer tooltips', () => {
     expect(snapshot(client).composer.modelTip).toBe('Model A · ⇧⌘M');
     client.config.keybindings = [{ command: 'modelPicker.toggle', shortcut: { key: 'k', modKey: true, altKey: true } }];
     expect(snapshot(client).composer.modelTip).toBe('Model A · ⌥⌘K');
+  });
+});
+
+describe('the model picker announces a shortcut\'s pick (ModelPickerContent onWindowKeyDown)', () => {
+  test('⇧⌘↑/⇧⌘↓ say the tab, ⌘1–9 "Model: <name>", one message for the picker at a time', async () => {
+    const { client, command } = await opened();
+    // The focus settles for a tick, then the next one speaks, alternating between the pair of regions.
+    const spoken = (at: number) => { announcements(client, at); const view = announcements(client, at + 500); return view.first || view.second; };
+    await command('cclocal:picker-provider-key', 'favorites');
+    expect(spoken(1_000)).toBe('Favorites');
+    await command('cclocal:picker-provider-key', 'claude');
+    await command('cclocal:picker-model-key', 'model-b', 'claude');
+    expect(spoken(3_000)).toBe('Model: Model B');
+    await command('cclocal:picker-model-key', 'gone-model', 'claude');
+    expect(spoken(5_000)).toBe('Model: gone-model');
   });
 });

@@ -19,6 +19,7 @@ describe('composer placeholder and phase', () => {
     expect(composerPlaceholder(base)).toBe('Ask anything. @ files, $ skills, / commands');
     expect(composerPlaceholder({ ...base, phase: 'disconnected' })).toBe('Ask anything. @ files, $ skills, / commands');
     expect(composerPlaceholder({ ...base, approval: true })).toBe('Send a message to decline and redirect the agent');
+    expect(composerPlaceholder({ ...base, approval: true, feedback: true })).toBe('Send feedback to decline this request');
     expect(composerPlaceholder({ ...base, question: true, choiceOnly: true })).toBe('Choose an option above');
     expect(composerPlaceholder({ ...base, question: true })).toBe('Type your own answer, or leave this blank to use the selected option');
     expect(composerPlaceholder({ ...base, projectRequired: true })).toBe('Choose a project above to start a thread');

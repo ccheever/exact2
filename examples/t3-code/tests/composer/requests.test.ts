@@ -3,7 +3,7 @@ import { T3Client } from '../../src/client/client';
 import { snapshot, transcriptPresentation } from '../../src/client/presentation';
 import { noteComposerTyping, releaseHeldRequests } from '../../src/composer/composer-typing-guard';
 import { pendingRequests, requestPresentation, requestActivity, resolveAnswer } from '../../src/composer/requests';
-import { obj, str, type Obj } from '../../src/client/domain';
+import { arr, obj, str, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import { readFileSync } from 'node:fs';
 import { appPath } from '../support/app-files';
@@ -69,6 +69,21 @@ describe('approvals', () => {
     expect(labels[4]).toMatchObject({ appName: 'Figma', mono: false });
     expect(labels[0]!.options.map(option => option.id)).toEqual(['accept', 'decline']);
     expect(labels[0]!.more).toEqual([{ id: 'acceptAlways', label: 'Always', warning: 'Risky', primary: false }]);
+  });
+  test('full access that still asks says why, the reason follows the request, and an agent that reads feedback asks for it', () => {
+    const { client } = harness({
+      runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live', supportsFeedback: true } }],
+      turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'rm -rf build', reason: 'Clean the build folder', fullAccessOverride: 'ask_rule' }] });
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ reason: 'Clean the build folder', feedback: true,
+      whyAsked: "Full access skips approvals, but an ask rule in the agent's own settings matches this action, so it still asks. Remove or narrow that rule to stop these prompts." });
+    expect(snapshot(client).composer).toMatchObject({ placeholder: 'Send feedback to decline this request', approvalReason: 'Clean the build folder',
+      approvalWhy: expect.stringContaining('an ask rule in the agent') });
+    Object.assign(arr(client.projection.turnItems)[0]!, { fullAccessOverride: 'provider_check', reason: undefined });
+    arr(client.projection.runtimeRequests)[0]!.responseCapability = { type: 'live' };
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ reason: '', feedback: false, whyAsked: expect.stringContaining("T3 Code can't turn these off") });
+    expect(snapshot(client).composer.placeholder).toBe('Send a message to decline and redirect the agent');
+    arr(client.projection.turnItems)[0]!.fullAccessOverride = undefined;
+    expect(requestPresentation(client).approvals[0]!.whyAsked).toBe('');
   });
   test('a provider process that is gone replaces the detail and disables decisions', async () => {
     const { client, command, committed } = harness({

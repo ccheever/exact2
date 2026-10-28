@@ -21,6 +21,11 @@ describe('composer labels compact at the reference widths (resolveRestingCompose
     expect(footerLayout({ ...base, host: 278.11 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
     expect(footerLayout({ ...base, host: 278 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
   });
+  test("an unavailable model's badge widens the picker by itself and the trigger's gap", () => {
+    // A 52pt badge after a 6pt gap: the natural row is 357.16 + 58.
+    expect(footerLayout({ ...base, badge: 52, host: 357.16 + 58 - 8 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
+    expect(footerLayout({ ...base, badge: 52, host: 357.16 + 57 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
+  });
   test('the Files panel at 1280: the reference keeps "Medium" with "Full access" as its icon (host 336)', () => {
     expect(footerLayout({ ...base, host: 336 - 8 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
   });
