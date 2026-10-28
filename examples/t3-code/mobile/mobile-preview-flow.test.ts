@@ -1,3 +1,5 @@
+import { contractFn } from '../tests/support/contract-fn-fixture';
+import { mobileFileRead, mobileFilesRead } from './file-data';
 import { expect, test } from 'bun:test';
 import { mobileClient, mobileNative } from './client';
 import { mobileStreamOwner } from './browser-mobile-owner';
@@ -78,6 +80,8 @@ function preparationFixture() {
       { tabId: 'tab', runtime: 'server', navStatus: { _tag: 'Loaded', title: 'QA tab', url: 'https://preview.test' }, updatedAt: '2026-10-17' }] };
     else if (request.method === 'vcs.refreshStatus') value = { isRepo: true, refName: 'qa', hasPrimaryRemote: false,
       hasWorkingTreeChanges: false, workingTree: { files: [] }, branchChanges: { baseRef: 'main' } };
+    else if (request.method === 'projects.readFile') value = { contents: '# QA file', byteLength: 9, truncated: false };
+    else if (request.method === 'projects.listEntries') value = { entries: [{ kind: 'file', path: 'README.md' }] };
     else if (request.op === 'terminalRetain') expect(request.sessions).toEqual([]);
     else if (request.op === 'unsubscribe') {
       expect(request.key).toBe(BROWSER_EVENTS); releaseEntered.resolve();
@@ -135,6 +139,27 @@ preparationTest('ordinary-thread discovery waits for header admission, then publ
   expect(mobileWorkingControl(mobileClient.environmentId, 'thread', 10)).toMatchObject({ visible: true,
     browserCount: 1, deviceCount: 1, browserAccessibility: 'View browser', deviceAccessibility: 'View device' });
   expect(JSON.parse(mobileDevicesSnapshot(f.owner).source).operate).toBe(false);
+});
+for (const source of [false, true]) preparationTest(`opening ${source ? 'source' : 'Files'} does not start preview authorization over its file read`, async f => {
+  const active = await contractFn('mobile/app-shapes.contract', 'previewDiscoveryActive', ['name', 'inspector', 'filesError']);
+  const read = source ? mobileFileRead('README.md', f.native) : mobileFilesRead('', '', f.native);
+  const file = f.track(read).then(value => ({ value }), error => ({ error }));
+  await f.authEntered(1);
+  const route = source ? 'threadFile' : 'threadFiles';
+  const owner = mobilePreviewOwner(active(route, false, '') === true, 'file-visit', route);
+  const preview = f.track(mobilePreviewPrepare(owner.owner, owner.visit, owner.kind, !!owner.owner, f.native));
+  expect(f.auth).toHaveLength(1);
+  f.grant(1); await preview;
+  expect(await file).toMatchObject({ value: source ? { contents: '# QA file', error: '', rows: [{ text: '# QA file' }] }
+    : { error: '', rows: [{ path: 'README.md' }] } });
+  expect(f.count('subscribePreviewEvents')).toBe(0); expect(f.count('subscribeDeviceState')).toBe(0);
+});
+test('preview discovery follows chat and viewer visibility, including the tablet file inspector', async () => {
+  const active = await contractFn('mobile/app-shapes.contract', 'previewDiscoveryActive', ['name', 'inspector', 'filesError']);
+  for (const route of ['thread', 'threadBrowser', 'threadDevices']) expect(active(route, false, '')).toBe(true);
+  expect(active('threadFiles', true, '')).toBe(true);
+  expect(active('threadFiles', true, 'Files unavailable')).toBe(false);
+  for (const route of ['threadFiles', 'threadFile', 'threadTerminal', 'threadReview', 'threadQueue', 'threadModel', 'home']) expect(active(route, false, '')).toBe(false);
 });
 preparationTest('shared device state alone does not admit the ordinary-thread floating entry', async f => {
   f.seedShared(); expect(mobileDevicesSnapshot(f.owner).count).toBe(0);

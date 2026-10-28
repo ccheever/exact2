@@ -86,6 +86,13 @@ reply. The development build now keeps the environment details page open while
 its URL changes: navigation uses the stable environment ID, and commands retain
 their exact route ownership. Native roundtrip URL edits and a stale-command
 regression pass. This later correction is not in the POC TestFlight build.
+Initial iPhone Files and source reads now complete without pulling to refresh.
+A live runtime probe found offscreen browser and device discovery superseding their
+permission reads. Preview discovery now follows the consuming chat and viewer
+screens, retaining iPad Files chat when its inspector is supported. The native
+app opens the real tree and README source on first entry, then switches to
+Markdown preview. The file header, source separators and Markdown code styling
+still differ from the reference. These later phone fixes are not in the POC build.
 A paired learned route still retains its learned marker.
 T3 Connect relay login remains unconfigured in the clone; direct pairing is the
 verified connection path.
@@ -96,7 +103,7 @@ one inherited violation: desktop `app.contract` is 2,994 lines against 1,500,
 unchanged from the original PR head. A bounded extraction attempt made no changes;
 the desktop checkpoint needs broader integration. Keep the failure visible.
 
-The full mobile suite passes 3,699 tests, strict app TypeScript passes, and the
+The full mobile suite passes 3,702 tests, strict app TypeScript passes, and the
 normal native simulator build succeeds. The actual Root event regression fails
 with `QueueFull` on the former eager-send action and passes with coalesced text.
 

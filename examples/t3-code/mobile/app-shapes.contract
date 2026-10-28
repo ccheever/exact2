@@ -142,6 +142,7 @@ shape PreviewPreparation
   revision: number
   admissionKey: string
   retryable: bool
+fn previewDiscoveryActive(name: string, inspector: bool, filesError: string): bool = name == "thread" or name == "threadBrowser" or name == "threadDevices" or (name == "threadFiles" and inspector and filesError == "")
 fn previewMayRetry(prepared: PreviewPreparation, owner: PreviewOwner, retried: string, allowed: bool, reading: bool): bool = allowed and not reading and owner.admissionKey != "" and prepared.admissionKey == owner.admissionKey and prepared.retryable and retried != owner.admissionKey
 shape PreviewMenus
   selection: string
