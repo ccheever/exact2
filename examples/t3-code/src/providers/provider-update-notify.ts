@@ -41,6 +41,3 @@ export function primaryTarget(client: Client, native: Native | null): UpdateTarg
   const entry = [...fleet.entries.values()].find(candidate => candidate.primary === true && candidate.phase === 'connected' && Object.keys(candidate.config).length > 0);
   return entry ? fleetTarget(entry, native, primary.target?.label || '') : null;
 }
-
-/** No-op until shell-notify.ts drops its call: provider updates pop no launch toast. */
-export function providerUpdates(_client: Client, _source?: UpdateTarget | null): void {}

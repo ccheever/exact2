@@ -8,7 +8,7 @@ import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { providerPage, runProviderOp } from '../../src/providers/providers';
 import { advisoryView, providerUpkeepOp, runProviderUpdate, runUpdateAll, updateAllView, withUpkeep } from '../../src/providers/providers-upkeep';
-import { primaryTarget, providerUpdates, type UpdateTarget } from '../../src/providers/provider-update-notify';
+import { primaryTarget, type UpdateTarget } from '../../src/providers/provider-update-notify';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 import { toasts } from '../../src/shell/toast';
 import type { T3Client } from '../../src/client/client';
@@ -108,7 +108,6 @@ test('provider updates pop no toast at launch; Update all still offers them', as
   const fake = new Fake(); // the focused primary, with a one-click Codex update
   fake.environmentId = 'env-local';
   expect(primaryTarget(fake as never, null)?.providers).toHaveLength(1);
-  providerUpdates(fake as never, primaryTarget(fake as never, null)); // the shell's launch hook
   expect(toasts(fake as unknown as T3Client)).toEqual([]);
   await expect(providerUpkeepOp(fake, fake, 'upkeep:update-launch', 'codex:1.1.0', '', '')).rejects.toThrow('Unknown action');
   expect(updateAllView(fake, [target(fake)])).toMatchObject({ show: true, label: 'Update all', tip: 'Remote device: Codex' });
