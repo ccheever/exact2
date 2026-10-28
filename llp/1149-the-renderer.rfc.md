@@ -1,7 +1,7 @@
 # LLP 1149: The renderer — the painter on the GPU, on every platform
 
 **Type:** RFC (a decision brief: each question carries a proposed answer; §5 lists the ones that are Charlie's)
-**Status:** Draft r3, 2026-10-28. Charlie asked for this document and its research record (LLP 1148) on 2026-10-28, with the direction: "I'm up for doing a lot of stuff ourselves and repeating ourselves per platform if that gives us better performance and efficiency", and "we want this renderer to work on every platform"; the code is Astra's to write (Charlie, the same day: "use Astra xhigh to write code for this"). r1 went to three families blind: Muse Wonder Full 1.0 (xhigh) NOT READY, Grok 4.7 (xhigh) READY WITH CHANGES, GPT-6 Astra (xhigh) NOT READY (`llp/reviews/rfc-2026-10-28-1149-r1.{muse,grok,astra}.md`). r2 folded Muse; r3 folds Grok and Astra (§R). The three agree on the direction and on one change r1 did not propose: the performance case for a device layer per platform is unmeasured, so S0 builds one core and decides the device layer per platform by measurement (D5, D15). Sent to Charlie with §5.
+**Status:** Draft r4, 2026-10-28. S0 was built the same day (§4 has every chunk's numbers; the two D15 verdicts are earned; the code is on `lane/ink` at `e83558a4d6`). Charlie ruled on it that evening: "land after fixes"; the renderer is to be used "some of the time but not all of the time, depending on what you want", which D12 now states as a per-app choice on every platform with today's painters kept (D13 amended); S2 before S1; §5's proposed answers stand where the proposer is at least 80% confident, and the two where he is not (Q14, the boot rule; Q21, the thresholds) went to the panel blind: GPT-6 Astra (94 and 91) and Muse Wonder Full 1.0 (70 and 75) agree on both and are folded (`llp/reviews/rfc-2026-10-28-1149-r4.{astra,muse}.md`; Grok's run died on a permission prompt); D6.3, D15, §4 and §8 carry their answers, and §5 gains Q25 from Muse. Landing follows the second blind code review's fixes (C6f). Charlie asked for this document and its research record (LLP 1148) on 2026-10-28, with the direction: "I'm up for doing a lot of stuff ourselves and repeating ourselves per platform if that gives us better performance and efficiency", and "we want this renderer to work on every platform"; the code is Astra's to write (Charlie, the same day: "use Astra xhigh to write code for this"). r1 went to three families blind: Muse Wonder Full 1.0 (xhigh) NOT READY, Grok 4.7 (xhigh) READY WITH CHANGES, GPT-6 Astra (xhigh) NOT READY (`llp/reviews/rfc-2026-10-28-1149-r1.{muse,grok,astra}.md`). r2 folded Muse; r3 folds Grok and Astra (§R). The three agree on the direction and on one change r1 did not propose: the performance case for a device layer per platform is unmeasured, so S0 builds one core and decides the device layer per platform by measurement (D5, D15). Sent to Charlie with §5.
 **Systems:** a new crate, `host/ink` (`exact-ink`): the painter's GPU backend, its device trait, a wgpu device layer and direct ones where measured; `host/linux` (the paint walk and `paint/backend.rs`, unchanged in contract; `gpu.rs` gains kept rows as the control arm, then loses its platform branches as each passes; `raster.rs`, kept as the oracle and fallback; `text/catalog.rs`, the glyph rasterizers); `host/windows` (the window presents through a composition swap chain); a painted Apple carrier (new, S1, if S0 earns it); the build (`host/apple/build.mjs`, `host/windows/build.mjs`: shaders compiled at build); `scripts/app.schema.json` (`host.macos.presenter`, `host.ios.presenter`); LLP 1009 D1 (amended narrowly); `rules/DEFERRED.md` §Runtime (a replacement exception, §8)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-10-28; r2 and r3 the same day
@@ -358,8 +358,8 @@ from the first chunk, and every direct layer is measured against it.
 
 | Platform | Device layer | Status | Why |
 |---|---|---|---|
-| Windows | DirectX 11 (`windows-rs`), feature level 11_0, created with `D3D11_CREATE_DEVICE_BGRA_SUPPORT`; a DirectComposition swap chain (D7) | **built**: S0's spike, then S2 | wgpu's Windows backend is DirectX 12; the composition swap chain over Mica (LLP 1115.004 D4.3) and Direct2D drawing the windowless RichEdit on the renderer's device (D7 there) want the renderer's own D3D11 device; WARP runs feature level 11_0 in virtual machines and over Remote Desktop (DirectX 12 has WARP too, Astra: the floor is for the interop and reach together) |
-| macOS, iOS, iPadOS, tvOS | Metal (`objc2-metal`), `CAMetalLayer` | **measured** in S0 C5: kept only if it beats the wgpu layer on the same core by D15's margin | the IOSurface import and the presentation options are reachable through wgpu's Metal backend with the two patches this repository carries; whether a direct layer saves boot time or frame time is the question, not an assumption |
+| Windows | DirectX 11 (`windows-rs`), feature level 11_0, created with `D3D11_CREATE_DEVICE_BGRA_SUPPORT`; a DirectComposition swap chain (D7) | **built** (S0 C6, §4: hardware device 48 ms, WARP 14 ms, pipelines 2.7 ms from DXBC; wgpu's DirectX 12 took 139 and 457 ms on the same machine), then S2 | wgpu's Windows backend is DirectX 12; the composition swap chain over Mica (LLP 1115.004 D4.3) and Direct2D drawing the windowless RichEdit on the renderer's device (D7 there) want the renderer's own D3D11 device; WARP runs feature level 11_0 in virtual machines and over Remote Desktop (DirectX 12 has WARP too, Astra: the floor is for the interop and reach together) |
+| macOS, iOS, iPadOS, tvOS | Metal (`objc2-metal`), `CAMetalLayer` | **kept** (S0 C5, §4): 21 to 30% on frame time on two workloads of three, 15 to 47% on CPU per frame, lower memory with no spikes; its boot regression (device creation 30 ms against 13; a 127 ms pipeline build with an empty application cache, 0.5 ms with the binary archive retained, the OS cache warm in both) carries a dated obligation (D15) | the IOSurface import and the presentation options are reachable through wgpu's Metal backend too; the direct layer earned its place on frame time, CPU and memory, not on boot |
 | Linux | Vulkan (`ash`): `VK_KHR_display` with `VK_KHR_display_swapchain` and `VK_EXT_acquire_drm_display` on KMS (LLP 1015 §7), a headless target on lavapipe | **measured** in S3 the same way | wgpu's Vulkan backend presents on KMS already |
 | Android | wgpu's Vulkan, through `gpu/present.rs`'s presenter path | **kept**: Android 10 requires Vulkan 1.1 on 64-bit devices (`host/android/README.md` permits Android 10), current Pixels run OpenGL ES through ANGLE over Vulkan, and the Canvas module's `AHardwareBuffer` import is Vulkan's | OpenGL ES only for a device that cannot open Vulkan, which S4's A/B on a low-end Mali or Adreno device must first show exists |
 | Web | wgpu's WebGPU; WebGL2 if a browser without WebGPU must be served | with the web (LLP 1149.000) | — |
@@ -422,7 +422,20 @@ override is a file beside the generated one; the build prefers it; it replaces t
 file in that platform's parity set, never adding a second variant to keep.
 
 **D6.3 What is still built at launch, said exactly.** The claim this document can defend is:
-**no application-side shader compilation runs on Metal or DirectX 11**. Metal's
+**no application-side shader compilation runs on Metal or DirectX 11**; what the driver does
+from a compiled shader is still compilation in the rule's sense (the panel on r4, Astra 94:
+Apple says Metal IR requires runtime compilation to the GPU's binary; Microsoft's D3D11
+shader-creation callback converts shader code to the hardware's format), and is admitted
+only by a measured, owned exception per platform (§8), with the condition both families set: **a cache miss never blocks first pixel**. The
+pipelines are created asynchronously; when the archive misses, the first frames are the CPU
+painter's through D5.4's fallback (presented through the same swap chain where the platform
+forbids a return to the window's surface) while the pipelines build and the archive is
+populated and serialized off the path (LLP 1009 D5's precedent, applied to the presenter
+itself). A packaged `MTLBinaryArchive` with `failOnBinaryArchiveMiss` is an accelerator, not
+the mechanism: Apple's archives are device-built and specific to a device and OS, so a
+bundled one misses on new hardware and after OS updates, and the miss path must exist
+anyway. The per-launch cost (0.5 ms Metal, 2.7 ms DirectX 11 warm) is a named phase inside
+the 100 ms budget; the once-per-binary cost is the exception's, written per platform. Metal's
 `.metallib` is AIR, not the GPU's binary: pipeline states are built from it at launch (0.7
 to 2 ms warm in the Canvas module; a cold driver is measured in S0). DirectX 11 drivers
 compile DXBC to the GPU's ISA at shader creation. Vulkan builds pipelines from SPIR-V behind
@@ -538,8 +551,20 @@ last used it has completed (D4).
 
 ### D12 — Where it is the presenter, and what "the same everywhere" promises
 
-On Linux, Windows and Android it replaces the vello and CPU-to-window paths: the painted
-presenter is already the host there. On Apple the native host stays the default — what an
+**The renderer is an app's choice, on every platform** (Charlie, 2026-10-28: "we want to
+use it some of the time but not all of the time, depending on what you want"). On Linux,
+Windows and Android, where the painted presenter is already the host, an app selects it in
+its manifest, per platform as the manifest is shaped: `host.windows.painter: "ink"`,
+`host.linux.painter: "ink"`, `host.android.painter: "ink"`; absent, the platform keeps the
+painter it has today (the CPU painter on Windows, vello or the CPU painter on Linux, the
+Canvas host or vello on Android). `EXACT_PAINTER=ink|gpu|cpu` overrides it for the agent,
+the smoke and tests, as it does today. Nothing shipped changes when the renderer lands.
+**On Windows, ink's device defaults to wgpu with the `softbuffer` present at the first
+landing**; the DirectX 11 composition path of S0 C6 stays behind `EXACT_INK_DEVICE=d3d11`
+until S2 proves it on a desktop (the second blind code review, Sol and Muse, both asked for
+this: resize and occlusion on the composition swap chain, caret blink and the RichEdit spike
+were not product-ready at `e83558a4d6`; `llp/reviews/` records nothing for code reviews, the
+lane's `target/review-*.md` holds them, and C6f's commit names each finding's disposition). On Apple the native host stays the default — what an
 author leaves unsaid is the platform's (LLP 1115) — and an app chooses the painted presenter
 in its manifest, per platform as the manifest is shaped: `host.macos.presenter: "painted"`,
 `host.ios.presenter: "painted"` (`scripts/app.schema.json`; the native host is the absent
@@ -561,11 +586,12 @@ identical pixels.
 
 The Canvas 2D GPU module keeps vello: a canvas may receive any drawing, and a compute vector
 renderer with blur and clip-extent operators is the right tool there (LLP 1056 §8.5).
-`gpu.rs` gains kept rows in S0 as the control arm (§3 C4), which land whatever S0 decides.
-If ink is earned, `gpu.rs` loses each platform's branch when that platform passes D9 (the
-Linux readback path at S3, `gpu/present.rs` at S4), and the shared file when its last
-consumer is gone (delete, don't deprecate); `vendor/vello` stays for the module; the second
-wgpu build goes with the Linux painter.
+`gpu.rs` gained kept rows in S0 as the control arm (§3 C4), which land with the rest. **The
+painter backends are not deleted** (amended by Charlie's ruling above): ink is the third
+painter beside vello and the CPU painter, chosen per app (D12), for as long as Charlie wants
+both available; the deletions this decision proposed in r3 (each platform's vello branch as
+it passed D9, the shared file last, the second wgpu build with it) wait for his word.
+`vendor/vello` stays for the module.
 
 ### D14 — Code
 
@@ -614,6 +640,29 @@ peak and at rest, the atlas and layer counters.
   path, Electron and WinUI 3, not against a wgpu arm that cannot do what it is for.
 - **The replacement exception** (§8) is proposed with the measured launch numbers, and the
   cold-start budget (100 ms p50) is argued phase by phase (§4).
+- **Amended in r4 from the panel (Astra, 91):** "no metric more than 10% worse" reads on
+  medians, with a separate guard on the tail: a candidate-attributable peak regression above
+  10% that repeats is a failure until repaired or explicitly traded; a five-run maximum
+  alone is not a stable tail. **Boot has its own requirement:** the complete, interactive
+  first screen at p50 within the 100 ms budget, measured with an empty application cache and
+  with a retained one, and no more than 10% regression against the platform's existing
+  painter; where the baseline already exceeds the budget, further regression is an explicit
+  trade. A direct device layer that wins frame time, CPU and memory but loses boot is kept
+  with a **dated obligation** on boot, not indefinitely: direct Metal's is 2026-11-04 or
+  before S1's carrier is enabled, whichever is first; unmet and unrenegotiated, the layer is
+  deleted. **The direct-layer clause, restated** (Muse, 85 that it was under-specified): at
+  least 10% better on frame time beyond the spread on at least two of the three named
+  workloads (the heavy list, which is Messages Stress; Shelf; Excord), none worse beyond the
+  spread, CPU per frame or memory allowed as the substitute metric; and a **boot gate in
+  milliseconds, not percent**: the warm device-plus-pipeline phase within 5 ms of the wgpu
+  arm's, the complete first screen at p50 within the 100 ms budget with the phases summed,
+  the first-launch cost handled by D6.3. A median-of-peaks guard for memory, with a
+  worst-run breach triggering localization, never an automatic failure (a five-run maximum
+  grows with the rounds). The ink-over-vello gate is complete only when presented late
+  frames are measured on a carrier (none appear in any S0 result; D15 asked for them) and the
+  readback-copy memory fix (`QUEUE.md`) is rerun against B on the wgpu arm, which is what
+  ships on Android and perhaps Linux, so that obligation follows the wgpu layer into S3 and
+  S4 and is not discharged by direct Metal on Apple.
 
 ## 3. Order of work
 
@@ -634,8 +683,9 @@ one Astra run and one commit.
 | **S3** Linux | the device layer measured (wgpu Vulkan against `ash`), KMS and lavapipe; the readback branch of `gpu.rs` deleted; the replacement exception written with the first-launch numbers on the minisforum | §4 against the vello painter; parity under lavapipe in the async lane |
 | **S4** Android | the ink core through the wgpu Vulkan presenter; `Canvas.drawGlyphs`'s audit; the low-end A/B that decides whether an OpenGL ES device layer exists at all; `gpu/present.rs` deleted | §4 against the vello swapchain host and the Canvas host |
 | The web | LLP 1149.000: unscheduled until an app asks; the ES 3.00 subset is held in C1's translation spike so the web does not discover it alone | its own |
+| **G1 to G3** The GPUI arm (§4.1) | the pilot's bench app to the heavy-list spec against a pinned gpui, Mac and Windows; measured per §4 | G1 after S0 lands on the Mac; G2 inside S2 on the NucBox; G3 inside S1 | the numbers in §4.1, whole app and renderer-only, with the non-comparables named |
 
-S1 and S2 are parallel lanes after S0's verdicts; S3 and S4 after either.
+S2 runs before S1 (Charlie, 2026-10-28: the prospect's platform, and the strongest numbers); S3 and S4 after either.
 
 ## 4. Measurement
 
@@ -652,18 +702,248 @@ threshold; D15 is.
 
 | Platform | Baselines |
 |---|---|
-| Apple | the four arms of D15 on the readback path (S0); the native Apple host, SwiftUI and UIKit (`bench/heavy-list`) when a carrier presents (S1) |
-| Windows | today's CPU path; an Electron window with the same list (its version pinned, production configuration, the process tree counted); the WinUI 3 oracle app (LLP 1115.004 D13; the Windows App SDK version pinned); one list screen, the same pixels, the same machine, interleaved runs; renderer-only and whole-app numbers apart |
+| Apple | the four arms of D15 on the readback path (S0); the native Apple host, SwiftUI and UIKit (`bench/heavy-list`) when a carrier presents (S1); **GPUI** (§4.1) |
+| Windows | today's CPU path; an Electron window with the same list (its version pinned, production configuration, the process tree counted); the WinUI 3 oracle app (LLP 1115.004 D13; the Windows App SDK version pinned); **GPUI on its DirectX 11 backend** (§4.1); one list screen, the same pixels, the same machine, interleaved runs; renderer-only and whole-app numbers apart |
 | Linux | the vello painter, the CPU painter |
 | Android | the vello swapchain host, the Canvas host, the Compose arm (LLP 1085.000 stage 3's A/B tooling) |
 
 The numbers land in this section as each chunk and stage does; a stage with no numbers has
 not landed.
 
+### 4.1 The GPUI arm
+
+Charlie (2026-10-28): "we are going to need a measurement vs a GPUI based solution at some
+point soon even if it's not apples-to-apples." It is part of the plan, as a **whole-app
+comparison on the same screen, driven the same way, with what is not comparable named**:
+
+- **The app**: the 2026-09-30 pilot's `gpui-messages-bench` (`~/projects/gpui-exact2-benchmark/`,
+  gpui 0.2.2 with font-kit; LLP 1076 §5) brought to `bench/heavy-list`'s screen, row and
+  parity rules (`SPEC.md`: the same 10,000 rich messages from the same data) against a pinned
+  current gpui, with a Windows build on gpui's DirectX 11 backend. It is a bench app in the
+  repository (`bench/heavy-list/gpui/`), beside the SwiftUI, UIKit and Expo ones.
+- **The measurement**: §4's metrics and protocol, not the pilot's (which measured process
+  CPU and RSS with different endpoints and no presented frames): cold start to the first
+  presented frame, frame intervals and late frames during a fling from presented-frame
+  timestamps, CPU per second during the fling and at rest, footprint; the fling driven into
+  both windows the same way (on the Mac, the posted events LLP 1142 D3 landed; on Windows, the
+  agent's window driver), five interleaved rounds, the same machine and display.
+- **Where it runs, in order**: (G1) on the Mac after S0 lands: GPUI against today's native
+  Apple host (the pilot's pair, redone to §4) and, renderer-only, against ink's headless paint
+  with the caveat below; (G2) in S2 on the NucBox: GPUI's DirectX 11 window against Shelf and
+  the heavy list on ink's DirectX 11 composition path, the prospect's comparison; (G3) in S1
+  on the Mac: window against window once ink's carrier presents.
+- **What is not apples-to-apples, said in the table**: GPUI's app has no kernel, runner or
+  data source between the list and the renderer, and no CSS layout (its is Taffy on its own
+  element tree); its text is Core Text's and DirectWrite's where ink's is swash's until D3's
+  audits; it redraws whole frames immediate-mode (LLP 1148 F2's idle numbers); its window and
+  input are its own platform layer, not winit's or the native host's. So two columns: the
+  whole app (what a user and the prospect see) and, where it can be isolated, the renderer's
+  paint time. A GPUI number that beats ink is a finding to chase, not a verdict to argue with.
+
+The numbers land here as each G lands.
+
+**G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
+on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
+native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
+ImageIO thumbnails; the driver (`measure.m`: five interleaved rounds in fresh processes, the
+same four flings posted into each window through `host/apple/wheel.swift`'s events, ten
+seconds of fling and ten at rest) and the probe (`probe.m`, linked into copies of both
+bundles: cold start from `ri_proc_start_abstime` to GPUI's first presented drawable through a
+`nextDrawable` hook, or to the native host's first settled layer snapshot, which are not
+the same milestone and are reported as such; a display-link sampler for frame intervals and
+late frames; `proc_pid_rusage` for CPU and footprint). Its `RESULTS.md` records the
+non-comparables and the inspected screenshots. The series itself was refused by its own
+preflight because other lanes were compiling on this Mac; it runs quiet after the landing
+(G1m), and the tables are empty until then.
+
+**S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
+one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and
+device creation 22 to 209 ms across runs; the first pipeline build from WGSL 325 ms
+(`cached=false`: wgpu's naga translates and Metal compiles the MSL at launch), 1.7 ms on a
+later run; the first frame 10.8 ms; a warm frame including readback 0.36 ms median of 7
+(0.30 to 0.84), encode and submit 0.08 ms. (C1's 325 ms is the one first-ever build S0 saw:
+Metal's system cache keys on the MSL's text, so a shader text new to the machine misses it;
+C4 and C5, running the same text, never missed it again and could not clear it: their
+"empty" numbers are empty application caches over a warm system cache.) The translation spike's compile half passed for
+MSL, HLSL 5.0, SPIR-V and GLSL ES 3.00 once instances became per-instance vertex attributes
+(D6.1). C1 packed D1.1's 224-byte field list into the 192-byte stride: kind and brush share a
+word, the affine carries no padding, and the two clips' radii are `u16` at 1/16 device pixel
+(a larger radius makes a layer).
+
+**S0 C2, landed 2026-10-28** (`71c6b06287`; the adapter `host/linux/src/ink.rs`,
+`PainterChoice::Ink`, geometry parity). Every pinned suite that runs each painter passes
+for ink (`paint` 38, `borders` 6, `tint` 2, `gradients` 1, `visual` 8, `materials` 1,
+`backdrop` 1, `image` 3), with glyph ink, `clip-path`, masks and backdrop crops excluded
+until C3. The whole-app geometry band against the CPU oracle: **mean 0.20/255, 0.02% of
+pixels over 32** (vello's: 3.24 and 2.98%, LLP 1015 §8). Debug test profile, ten
+interleaved Caltrain frames, medians: encode and render 0.38 ms (vello 1.33) at both
+390×844 and 1920×1080; readback 0.94 and 1.57 ms (vello 1.52 and 1.71); the whole frame,
+walk included, 15.6 and 15.7 ms (vello 18.0 and 17.7), which is the debug walk's time and
+is not a renderer number: C4 measures in an optimized profile.
+
+**S0 C3, landed 2026-10-28** (`0a007b73d8`; swash glyphs into the atlas, paths with brushes,
+coverage clips, masks, the compose target, backdrop ops, fifteen blend modes; the missing
+D1.2 fixtures added in `tests/pinned/paint/coverage.rs`). The full pinned suite passes for
+ink (94, 1 ignored as before); the whole-app band **with text**: mean 0.21/255, 0.02% of
+pixels over 32. Atlas counters at 390×844 (M5 Max, wgpu on Metal): Caltrain 307 glyph
+entries (the 512² alpha page, 256 KB) and no paths; Shelf's library 135 glyphs and 12 paths;
+Excord's start screen 16 and 3 (its chat did not load headless, so its loaded screen is
+unmeasured). Every unchanged second frame had zero misses and zero uploads; no screen touched
+the overflow texture; the colour and ramp atlases stayed empty.
+
+**S0 C4, landed 2026-10-28** (`b7184a2433` kept rows in both arms; `f26a2b3b0b` the
+measurement, `host/ink/MEASUREMENTS.md`, the harness `presenter/kept_rows_tests/measurement.rs`,
+ignored by name). M5 Max, `host-dev` profile, the same readback path for every arm, five
+interleaved rounds, 84,000 frames; arms A (vello), B (vello with kept rows), C (ink with kept
+rows), C−rows. Paint per frame, medians:
+
+| Workload, mode | B | C | C over B |
+|---|---:|---:|---:|
+| Messages Stress 1920×1080, scroll | 2.152 ms | 1.434 ms | 33% |
+| Messages Stress 1920×1080, still / text | 2.129 / 2.148 | 1.306 / 1.512 | 39% / 30% |
+| Shelf 1920×1080, still / text | 1.938 / 1.985 | 1.136 / 1.164 | 41% |
+| Excord 1920×1080, still / text | 1.885 / 2.023 | 1.102 / 1.180 | 42% |
+| Messages Stress 390×844, scroll | 2.036 | 0.670 | 67% |
+
+Encode 0.09 to 0.18 ms against 0.17 to 0.37; readback (which includes the GPU's completion)
+0.35 to 1.03 ms against 1.55 to 1.64 (the desktop scroll's difference 0.60 ms; across the modes 0.5 to 1.3 ms): a path-time
+advantage that includes the GPU's completion, not a GPU timestamp; which passes cost it is
+not established by these numbers. Excord's rows are its start screen (its chat did not load
+headless, C3); Messages Stress is the heavy-list workload D15 names. CPU per frame equal on the desktop scroll (1.30 ms)
+and 46% lower at phone size (0.667 against 1.233). Rows matter in both arms: B takes A's
+scroll from 2.716 to 2.152 ms, rows take ink's from 2.155 to 1.434. Memory: footprint 380
+to 424 MiB against 530 to 561 (the vello arms' buffers); sampled peak RSS during the modes
+lower for ink by 9 to 11 MiB; lifetime peak RSS medians lower on five of six rows and 5.3%
+higher on one (Messages Stress at 1920×1080: 86.9 against 82.5 MiB), with the worst of five
+runs 15 to 23% above B's (95.7 against 83.6 MiB there; Shelf 108.6 against 94.1; Excord
+115.8 against 94.5), a spike C5 must explain. Device creation is
+the same in every arm (12.4 to 13.1 ms: the driver's, as the panel said); wgpu's pipeline
+build 1.95 ms for ink against 9.0 ms for vello, with no run ever cached by an application
+cache on this backend, so a first-ever compile was not measurable. Zero layer targets and
+zero overflow bytes in every frame: the O(σ) blur and the full-viewport clip layers the
+reviews flagged were not exercised. **D15's first verdict:** the improvement margin is cleared on every median (frame time 30
+to 42% at 1920×1080, no median worse by more than 10%); the full gate is not: the lifetime
+RSS spread and presented late frames (unmeasured on a readback path) are open, the first
+carried to C5 and both to S1 and S2's carriers.
+
+**S0 C3f, landed 2026-10-28** (`c542f79fbd`, `03198bc205`): the two blind code reviews of
+C1 to C3 (GPT-6.1 Sol and Muse Wonder Full 1.0; Grok's three attempts died on its own
+permission prompts) raised twenty findings; eighteen were confirmed against the code and
+fixed, each with a named regression test in `tests/pinned/paint/reviews.rs` or
+`exact-ink`'s unit tests, two were refuted against the code. The ones that change the
+design as written: the device trait's uploads and reuse are gated on submission completion,
+not on wgpu's in-order queue (D11, before any direct device); a source-over instance never
+shares a batch with a replace or blend one (the pipeline is the batch's at push time);
+inherited clips apply while a group's children draw, so a clipped-out child never reaches a
+backdrop blur; GPU allocation failure is an `Err` that reaches the CPU fallback; the blur is
+bounded by downsampling (a σ=50 blur: layer bytes 917,504 to 317,440, 1.03/255 from the
+oracle); a path larger than a page is retained across frames; the gradient ramp keeps hard
+stops by stop evaluation; mips are area-correct and anisotropic reductions separable; SVG
+dashes are dashed. Left in `QUEUE.md`: blend and backdrop copies still span the viewport
+(Muse 7). The whole pinned suite: 103 passed; the band with text: 0.21/255, 0.02%.
+
+**S0 C5, landed 2026-10-28** (`62e64568e2`, `752f56f38f`; `device/metal.rs` over objc2-metal
+0.3.2, the `.metallib` embedded at build, an `MTLBinaryArchive` kept on disk,
+`EXACT_INK_DEVICE=wgpu|metal`). Arm D (ink on direct Metal) against C (ink on wgpu's Metal),
+C4's protocol, 42,000 frames, both devices passing the whole Linux suite (1,887 each). Paint
+per frame at 1920×1080, medians: Shelf 0.820 against 1.124 ms (27%) and Excord 0.768 against
+1.091 (30%), ranges separated; Messages Stress 1.252 against 1.298 (3.5%, ranges
+overlapping) to 6.6%. Encode 0.015 to 0.027 ms against 0.08 to 0.14 (wgpu's per-draw cost).
+CPU per frame 11 to 47% lower in every workload (Excord still 0.23 against 0.44 at phone
+size; Messages scroll 1.04 against 1.17 at 1920×1080, 11%). Lifetime peak RSS medians 5.7 to
+11.9 MiB lower with no spikes (66.8 against 78.7 MiB on Messages Stress at 1920×1080, 83.8 against 93.8 on
+Excord); footprint 223 to 253 MiB against 375 to 420: wgpu's own baseline is about 150 MiB
+of it. Boot is where D loses: device creation 29.6 ms against 12.9 (the device timer ends before
+the pipelines; the library load and the archive's population are inside the pipeline
+phase, and the archive's serialization after it, so the device regression is its own and
+unexplained), and the pipeline phase 126.9 ms with an empty application cache (Metal
+compiling the `.metallib`'s AIR to the GPU's binary, as Astra's review E4 said it would; the
+archive populated in that time) against 0.52 ms with the archive retained: whole renderer
+construction 162.0 ms empty and 31.7 ms retained, against wgpu's 15.3 and 15.6. The OS's
+shader cache was warm throughout and could not be cleared, so these are empty-application-
+cache numbers, not a first-ever launch on a machine, on either arm. **D15's second
+verdict:** direct Metal is kept: earned on frame time on two workloads of three beyond the
+spread, on CPU per frame everywhere and on memory, and it has none of C4's RSS spread (C5 localized the spikes to the wgpu arm, in its
+readback-copy phase; arm B on the same readback path did not spike, so the copy alone does
+not explain them; the pixmap-reuse fix is in `QUEUE.md` and the obligation stays with the
+wgpu layer, D15); its
+boot regression carries a dated obligation (D15, amended in r4 from the panel: closed or
+explicitly renegotiated by 2026-11-04 and before S1's carrier is enabled, else the direct
+layer is withdrawn), and its numbers are the Apple line of §8's replacement exception as
+measured: 162 ms of renderer construction with an empty application cache, 31.7 ms with the
+archive retained, the OS cache warm in both.
+
+**S0 C6, landed 2026-10-28** (`eb8507e445`, `910ca295e4`, `e83558a4d6`; `device/d3d11.rs`,
+`d3d11/composition.rs`, `d3d11/rich_edit.rs`, `d3d11/text_host.rs`; `build.rs` compiles DXBC
+with `fxc` where it exists and the device refuses by name where it does not;
+`host/windows/src/window.rs` presents through ink with `EXACT_PAINTER=ink`, the `softbuffer`
+path kept). On the NucBox (Ryzen AI Max+ 395, Radeon 8060S, Windows 11 26200, a 5120×1440
+display at 60 Hz): Shelf's first screen in a real window through a two-buffer premultiplied
+BGRA `FLIP_DISCARD` DirectComposition swap chain with the frame-latency waitable object and
+Mica showing through (the capture: `target/ink-c6-shelf-window.png`), and a windowless
+RichEdit (`CreateTextServices`, `TxDrawD2D` through Direct2D on the same BGRA device into a
+render-target texture ink samples) with text typed into it from the keyboard. Every suite
+green on both machines (the NucBox: `exact-windows` 29, the pinned suite 102, `exact-ink`
+19). Ten fresh processes each, `host-dev`:
+
+| Device | Creation | Pipelines |
+|---|---:|---:|
+| DirectX 11, hardware | 48.1 ms | 2.7 ms (from DXBC) |
+| DirectX 11, WARP forced | 14.2 ms | 3.1 ms |
+| wgpu DirectX 12 (the control) | 138.6 ms | 457.3 ms (WGSL translation and DirectX 12 pipeline build: most of this delta is D6's shader-form decision, not the device layer's; whether the driver defers any compile to the first draw is not split out) |
+
+No S0 result reports cold start as §4 defines it (process start to the first presented
+frame, phases summed, against the budget): C4 and C5 report device and pipeline phases, and
+C6 reports an absolute first screen in a `gpu-dev` build; D15's phase-by-phase argument of
+the 100 ms budget is S1's and S2's to make. The composition swap chain's own setup is 1.8 to
+2.1 ms; Shelf's complete first screen reached DXGI's displayed timestamp 406 to 411 ms after
+process start in the `gpu-dev` build,
+46 to 49 ms later than today's `softbuffer` path by a DWM-synchronized proxy (the device's
+48 ms is most of it; LLP 1115.004 D4.3 asked for this number before the swap chain lands,
+and S2 owns bringing it down: the device created while fonts load). In the window, Shelf's still redraw in the `gpu-dev` build is **0.41 to 0.42 ms of paint and
+0.35 ms of present** at both sizes, against today's CPU path's 3.3 ms paint plus 1.1 ms
+upload at 1024×720 and 6.6 plus 3.0 at 1920×1080 (and wgpu's DirectX 12 through the same
+readback-and-upload path, 3.7 plus 1.1 and 5.1 plus 3.0): about a twelfth of the per-frame
+work at 1920×1080. The heavy list in the same window (`host-dev`): 0.58 to 0.67 ms of paint
+a frame, the present wait being the 60 Hz refresh, 1.5 to 1.9 ms of process CPU a frame. The one
+regression is headless: the DirectX 11 readback path's scrolling frame at 1920×1080 is
+3.92 ms against wgpu DirectX 12's 2.72 (its staging copy; `QUEUE.md`), which the window
+never pays. The NucBox accepts `FLIP_DISCARD` on a composition swap chain where Microsoft's
+documentation names `FLIP_SEQUENTIAL`; that qualifies this driver, and S2 checks older
+builds. The RichEdit is the spike's field, not Shelf's search field yet: binding to a
+Contract field, the IME, selection and UI Automation are S2's. **S0 C7, landed 2026-10-28** (`f41aaafec4`): D12's manifest key. `host.windows.painter`,
+`host.linux.painter` and `host.android.painter` take `"ink"` (`scripts/app.schema.json`,
+with a manifest test that `"gpu"` is refused); the bake carries the choice into the
+generated config without changing compatibility ids (`contract/cli/src/manifest.rs`,
+`bake/src/compat.rs`); the presenter resolves it with `EXACT_PAINTER` applied last
+(`presenter/painter.rs`); Android refuses it with the named reason that its Vulkan presenter
+for ink does not exist yet; `apps/shelf/app.json` opts Shelf in on Windows and nowhere else.
+On the NucBox, Shelf selected the DirectX 11 device from its manifest, presented 120 desktop
+frames and opened Add Book; the CPU override did the same. **S0 is complete**: its chunks are
+on `lane/ink` through `f41aaafec4`, the two D15 verdicts above stand as the panel qualified
+them, and C6f landed the second blind code review's fixes (`58adeb76e8`, `94865d63e7`,
+`1cca4b7396`): every finding confirmed or refuted with its disposition in the commit; failed
+recordings are never kept (both arms); the direct Windows path blinks its caret, survives a
+resize (the waitable object reacquired), skips an occluded present and recovers a lost
+device on the CPU painter through the same composition with backoff from 250 ms to 30 s;
+the RichEdit spike is test-only; Windows ink defaults to the wgpu device with the `softbuffer`
+present, DirectX 11 by `EXACT_INK_DEVICE=d3d11` and WARP only when asked; oversized retained
+coverage rasterizes its visible region; a fractional-pixel scroll re-records hinted rows and
+replays coverage clips at their phase; CPU-written Metal textures stay `Shared`; each device
+has an in-flight eviction test; the harness records its sampler, asserts its fixtures' hashes
+and rotates arm order; `unsafe` is back inside `exact-ink`. The pinned suites pass on both
+devices, the Linux smoke passes with ink, and the parity band is unchanged (0.21/255). Two
+tests were red at the lane's gate under a system load near 400 (another lane building on the
+same Mac): timing assertions in the root suite and a CPU-painter image test; both are rerun
+quiet before the landing, which follows.
+
 ## 5. Questions that are Charlie's
 
 Each carries the proposed answer and the panel's recommendation and confidence (0 to 100):
-Muse (M), Grok (G), Astra (A), on r1.
+Muse (M), Grok (G), Astra (A), on r1. **Ruled (Charlie, 2026-10-28): "go w recs, ask panel if
+not 80+% confident."** The proposed answers stand as rulings except Q14 and Q21, which r4
+puts to the panel; Q2's revision (one core, the device layer by measurement) and Q20's (the
+control arm) were decided before S0 and stand on its numbers.
 
 1. **Write our own renderer rather than take vello, GPUI or Skia?** Yes, as S0's prototype
    with the thresholds of D15 deciding the replacement (§0). *M:* yes, 75. *G:* yes, 70. *A:*
@@ -702,9 +982,12 @@ Muse (M), Grok (G), Astra (A), on r1.
 13. **`host/ink`, `exact-ink`, the adapter in `exact-linux`?** Yes (D14). *M:* 60. *G:* 78.
     *A:* 99.
 14. **The boot rule: a replacement DEFERRED exception for the driver's pipeline build from
-    compiled shaders, written with measured numbers, rather than a withdrawal?** Proposed
-    yes (D6.3, §8). *M:* needs the ruling (E6). *G:* do not withdraw until the first launch is
-    inside the budget (risk 7). *A:* propose the replacement exception explicitly (E5).
+    compiled shaders, written with measured numbers, rather than a withdrawal?** Yes, in the
+    form D6.3 now states: it is compiling; a measured, owned exception per platform; a cache
+    miss never blocks first pixel. *r4 panel:* A option (b) bounded, 94; M option (b) with the
+    miss-never-blocks condition and a bundled archive as an accelerator only, 70. (r1: M
+    needed the ruling; G do not withdraw until the first launch is inside the budget; A
+    propose the replacement exception.)
 15. **Colour: sRGB-encoded premultiplied targets, blending and gradients in the encoded
     space, the swap chain tagged sRGB, the deviation from linear declared?** Yes (D2.7).
     *M:* 70. *G:* 70. *A:* specify it as a contract, 99.
@@ -720,8 +1003,12 @@ Muse (M), Grok (G), Astra (A), on r1.
 20. **Build the control arm (kept rows in vello) in S0?** Yes, revised from r2's no (D15;
     §3 C4). All three asked for the comparison on the same path.
 21. **D15's thresholds: 20% for ink over the improved vello, 10% for a direct device layer
-    over wgpu, no metric more than 10% worse?** Proposed. *A:* predeclare them, 99. *G:*
-    within 10% means the device layers are not the performance work.
+    over wgpu, no metric more than 10% worse?** Kept, restated as D15's r4 amendment: medians
+    with a median-of-peaks guard, a boot gate in milliseconds, direct Metal kept with a dated
+    obligation whose consequence is deletion. *r4 panel:* A keep the margins, repair the
+    regression and startup requirements, 91; M keep both verdicts on substance, restate D15
+    before S3 reuses it, 75 (85 that it was under-specified). (r1: A predeclare them, 99; G
+    within 10% means the device layers are not the performance work.)
 22. **What "the same everywhere" promises an app that opts in: the same styling and layout,
     the platform's text and accessibility?** Proposed (D12). *A:* 99.
 23. **The supported matrix of D5.3 (minima, the 11_0 floor, WARP for remote sessions, KMS
@@ -729,6 +1016,15 @@ Muse (M), Grok (G), Astra (A), on r1.
 24. **Four separate commitments, each its own waiver: the renderer prototype (S0), the
     painted Apple carrier (S1), the painted web (LLP 1149.000), and the replacement
     compilation exception (§8)?** Proposed. *A:* 98.
+26. **A GPUI arm in the measurement, whole-app on the same screen, with the non-comparables
+    named?** Ruled yes (Charlie, 2026-10-28; §4.1): G1 after S0 lands, G2 in S2, G3 in S1.
+25. **How often is "first launch"?** (Muse, r4.) Every shader-changing update, driver
+    update and OS update re-incurs the first-launch pipeline cost, and Exact's delivery pushes
+    signed updates routinely (LLP 1030). Proposed: the pipeline cache and archive are keyed by
+    the binary's hash and the driver (D14) and warmed at an update's install, before its
+    activation, where the platform allows a background launch of the renderer; old binaries'
+    archives are evicted by hash with a bounded count; and `metrics.mjs` reports the first
+    launch after an update as its own row so the cadence's cost is seen, not assumed.
 
 ## 6. Not in this document
 
@@ -780,7 +1076,9 @@ Muse (M), Grok (G), Astra (A), on r1.
 
 ## 8. The DEFERRED trades
 
-- **Proposed, pending §5 Q14**: a replacement for the Linux painter's exception
+- **Proposed, pending §5 Q14** (the panel on r4: Astra recommends this form, 94, with the
+  obligation D6.3 states; Muse's answer is folded when it lands): a replacement for the Linux
+  painter's exception
   (`rules/DEFERRED.md` §Runtime, 2026-10-22). Today it admits "compiles its shaders on the
   first launch on a machine and reads them from a pipeline cache after" with 93 + 77 ms on
   RADV. The replacement admits the driver's pipeline build from compiled shaders at launch,
