@@ -47,8 +47,6 @@ function writable(threads: Obj[], environmentId: string): T3Client {
   c.config = { ...c.config, environment: { label: 'Local', capabilities: { serverResolvedCommandContext: true } } };
   return c;
 }
-// The visit is sent after the pick returns, as upstream's `void visitThread(…)`.
-const settled = () => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('threads', () => {
   test('subagent threads are left out, of the results and of the recents', () => {
@@ -105,11 +103,9 @@ describe('threads', () => {
     const c = writable(threads, 'visit-env'), transport = new Transport();
     c.threadId = 'open';
     await paletteCommand(c, transport, files, 'thread', 'old', `${NOW} Old Things`);
-    await settled();
     expect(transport.dispatched).toEqual([{ type: 'thread.visit', commandId: 'id-0', threadId: 'old', visitedAt: at(48), opened: true, searchQuery: 'old things' }]);
     // None without a query, from a ">" filter, for the open thread, or to a server that keeps no visits.
     for (const [id, query] of [['old', ''], ['old', '>old'], ['open', 'open'], ['quiet', 'quiet']]) await paletteCommand(c, transport, files, 'thread', id!, `${NOW} ${query}`);
-    await settled();
     expect(transport.dispatched.length).toBe(1);
   });
   test('a match outside the title says which field matched, with the project beside the title', () => {

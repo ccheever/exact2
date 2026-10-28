@@ -71,24 +71,28 @@ async function createProject(client: T3Client, native: Native, storage: Files, t
  * CommandPaletteThreadItems runThread: a thread picked from a search counts as opened by this client at the pick's moment,
  * for Recent Threads and the use boost, and the server records the open with its query (`thread.visit` with `opened`
  * and `searchQuery`), which ranks the thread first when that query is typed again. `pick` is "<moment in epoch ms>
- * <query>", the query being the root page's search ("" for other rows); the open thread is no pick.
+ * <query>", the query being the root page's search ("" for other rows); the open thread is no pick. The visit is
+ * awaited: the native data executor runs a source's promises only while a request waits on them.
  */
-function pickThread(client: T3Client, native: Native | null | undefined, threadId: string, pick: string): void {
+async function pickThread(client: T3Client, native: Native | null | undefined, threadId: string, pick: string): Promise<void> {
   const space = pick.indexOf(' '), at = Number(pick.slice(0, space)), query = pick.slice(space + 1);
   if (space <= 0 || !Number.isFinite(at) || query.trim().length === 0 || query.startsWith('>') || threadId === client.threadId) return;
   claimThreadOpen(client.environmentId, threadId, at);
   // A server that keeps no visits sends no `lastVisitedAt`; the open is sent whether or not this client already claimed it.
   const thread = client.shell.threads.find(entry => entry.id === threadId);
   if (!thread || thread.lastVisitedAt === undefined || !native?.available || !client.writable) return;
-  const access = client.restAccess(native);
-  void access.ids(1).then(([commandId]) => access.request('orchestration.dispatchCommand',
-    { type: 'thread.visit', commandId, threadId, visitedAt: str(thread.updatedAt), opened: true, searchQuery: pickedQuery(query) }, true)).catch(() => undefined);
+  try {
+    const access = client.restAccess(native), [commandId] = await access.ids(1);
+    await access.request('orchestration.dispatchCommand', { type: 'thread.visit', commandId, threadId, visitedAt: str(thread.updatedAt), opened: true, searchQuery: pickedQuery(query) }, true);
+  } catch (error) {
+    if (letGo(error)) throw error; // visitThread's reportFailure: false
+  }
 }
 
 export async function paletteCommand(client: T3Client, native: Native | null | undefined, storage: Files, op: string, id: string, value: string, source: EnvironmentFleet = fleet): Promise<PaletteResult> {
   // A thread row and New thread in <project>: the palette closes and the window navigates. A thread row's `value` is its
   // pick (pickThread).
-  if (op === 'thread') { pickThread(client, native, id, value); return done(client, '', id); }
+  if (op === 'thread') { await pickThread(client, native, id, value); return done(client, '', id); }
   if (op === 'new-thread') return done(client, id);
   if (!native?.available) return stay(client, false, 'Open this app on macOS to connect to T3 Code.');
   const flow = flowOf(client);
