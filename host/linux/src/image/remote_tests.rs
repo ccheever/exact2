@@ -593,3 +593,163 @@ fn a_picture_on_screen_asks_again_for_a_failed_download_and_shows_it() {
     assert_eq!(images.views[&1].retries, 0);
     assert_eq!(images.retry_due_in(), None);
 }
+
+/// Two image nodes of one source.
+fn kernel2(source: &str) -> Kernel {
+    let mut k = Kernel::with_monospace();
+    let mut ops = Vec::new();
+    for id in [1, 2] {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::Image,
+        });
+        ops.push(Op::SetProp {
+            id,
+            prop: PropId::ImageSource,
+            value: source.into(),
+        });
+        ops.push(Op::AttachRoot { id });
+    }
+    k.apply(0, 1, &ops).unwrap();
+    k
+}
+
+#[test]
+fn a_view_of_the_same_url_joins_another_views_retry_even_when_it_was_off_screen() {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = asked.clone();
+    let origin = serve(move |_, _| {
+        if count.fetch_add(1, Ordering::SeqCst) == 0 {
+            Answer::Status(503)
+        } else {
+            Answer::Body(png(4, 4, [9, 9, 200, 255]))
+        }
+    });
+    let url = format!("{origin}/shared.png");
+    let k = kernel2(&url);
+    let mut images = images();
+    images.sync(&k, &k.roots());
+    until(&mut images, |images| images.views[&1].refusal.is_some());
+    // Only the first is on screen while it asks again and lands.
+    let started = Instant::now();
+    while !images.bitmaps.contains_key(&1) {
+        assert!(started.elapsed() < SETTLED, "the first shows");
+        images.poll();
+        images.sync_visible(&k, &k.roots(), 1., |id| id == 1);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // The second, shown again, joins that download rather than keeping the failed one.
+    let started = Instant::now();
+    while !images.bitmaps.contains_key(&2) {
+        assert!(started.elapsed() < SETTLED, "the second shows too");
+        images.poll();
+        images.sync(&k, &k.roots());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(asked.load(Ordering::SeqCst), 2, "one retry served both");
+}
+
+#[test]
+fn a_retry_waits_only_for_a_remote_picture_on_screen() {
+    let origin = serve(|_, _| Answer::Status(503));
+    let url = format!("{origin}/busy.png");
+    let mut k = kernel(&url);
+    let mut images = images();
+    images.sync(&k, &k.roots());
+    // On screen: a retry comes due (polled, as a host's turns poll).
+    until(&mut images, |images| images.retry_due_in().is_some());
+    // Its source becomes a symbol before the retry: nothing is due any more (no turn owed forever).
+    set(&mut k, "symbol:close");
+    images.sync(&k, &k.roots());
+    assert_eq!(images.retry_due_in(), None);
+    // Asked for at mount but not in the viewport: no retry.
+    set(&mut k, &format!("{origin}/other.png"));
+    images.sync_shown(&k, &k.roots(), 1., &|_| true, &|_| false);
+    until(&mut images, |images| images.views[&1].refusal.is_some());
+    images.sync_shown(&k, &k.roots(), 1., &|_| true, &|_| false);
+    assert_eq!(images.retry_due_in(), None);
+    assert_eq!(images.views[&1].retries, 0);
+}
+
+#[test]
+fn a_waiting_download_moves_up_when_its_picture_comes_to_fill_the_screen() {
+    let (stalls, arrivals, _closes) = stalls();
+    let origin = serve(move |_, _| stalls.answer(100_000, 100));
+    let downloads = Downloads::new(Policy::default());
+    let busy: Vec<_> = (0..THREADS)
+        .map(|n| {
+            downloads
+                .load(&format!("{origin}/busy{n}"), false, || {})
+                .unwrap()
+        })
+        .collect();
+    for _ in 0..THREADS {
+        arrivals
+            .recv_timeout(SETTLED)
+            .expect("each thread takes one");
+    }
+    let a = downloads
+        .load(&format!("{origin}/a"), false, || {})
+        .unwrap();
+    let b = downloads
+        .load(&format!("{origin}/b"), false, || {})
+        .unwrap();
+    let ordinary = b.whole();
+    assert!(downloads.promote(&b));
+    assert!(!downloads.promote(&b), "once");
+    let order: Vec<String> = downloads
+        .queue
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|j| j.url.rsplit('/').next().unwrap().to_owned())
+        .collect();
+    assert_eq!(order, ["b", "a"]);
+    // Its bound is now the urgent one, counted from its ask.
+    assert_eq!(b.whole(), b.asked + Policy::default().urgent);
+    assert!(b.whole() > ordinary);
+    drop((busy, a, b));
+}
+
+#[test]
+fn urgent_downloads_never_starve_the_others() {
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log = seen.clone();
+    let origin = serve(move |path, _| {
+        log.lock()
+            .unwrap()
+            .push(path.trim_start_matches('/').to_owned());
+        Answer::Silent
+    });
+    let downloads = Downloads::new(Policy::default());
+    let mut busy: VecDeque<_> = (0..THREADS)
+        .map(|n| {
+            downloads
+                .load(&format!("{origin}/busy{n}"), false, || {})
+                .unwrap()
+        })
+        .collect();
+    let wait_for = |n: usize| {
+        let started = Instant::now();
+        while seen.lock().unwrap().len() < n {
+            assert!(started.elapsed() < SETTLED, "{n} requests");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    wait_for(THREADS);
+    let held: Vec<_> = [("o1", false), ("u1", true), ("u2", true), ("u3", true)]
+        .into_iter()
+        .map(|(name, urgent)| {
+            downloads
+                .load(&format!("{origin}/{name}"), urgent, || {})
+                .unwrap()
+        })
+        .collect();
+    // One thread freed at a time: two urgent ones, then the ordinary one waiting, then the last urgent one.
+    for n in 1..=4 {
+        drop(busy.pop_front());
+        wait_for(THREADS + n);
+    }
+    assert_eq!(seen.lock().unwrap()[THREADS..], ["u3", "u2", "o1", "u1"]);
+    drop((busy, held));
+}

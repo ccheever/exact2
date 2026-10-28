@@ -124,41 +124,45 @@ impl<D: DataSource> Presenter<D> {
         let viewport = self.viewport;
         self.images.screen = (viewport.0 * self.brush.scale, viewport.1 * self.brush.scale);
         self.images.paint_with(self.brush.text.clone());
-        let reports = self
-            .images
-            .sync_visible(host.kernel(), &live, self.brush.scale, |id| {
-                if host.route_visibility(id).0 {
-                    return false;
-                }
-                if *AT_MOUNT {
-                    return true;
-                }
-                let Some((i, b)) = boxes(&id) else {
-                    return true;
-                };
-                let (mut x, mut y, mut w, mut h) = b.rect;
-                let mut clip = b.clip;
-                if let Some((_, _, d, port)) =
-                    shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(&i))
-                {
-                    x += d.0;
-                    y += d.1;
-                    clip = *port;
-                }
-                // An auto-sized first load has no natural dimensions yet. Permit
-                // that point to load; its accepted backing will supply geometry.
-                w = w.max(1.);
-                h = h.max(1.);
-                if let Some((cx, cy, cw, ch)) = clip {
-                    let right = (x + w).min(cx + cw);
-                    let bottom = (y + h).min(cy + ch);
-                    x = x.max(cx);
-                    y = y.max(cy);
-                    w = right - x;
-                    h = bottom - y;
-                }
-                w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
-            });
+        // In the viewport: what a retry and a download's urgency go by.
+        let on_screen = |id: ViewId| {
+            if host.route_visibility(id).0 {
+                return false;
+            }
+            let Some((i, b)) = boxes(&id) else {
+                return true;
+            };
+            let (mut x, mut y, mut w, mut h) = b.rect;
+            let mut clip = b.clip;
+            if let Some((_, _, d, port)) = shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(&i))
+            {
+                x += d.0;
+                y += d.1;
+                clip = *port;
+            }
+            // An auto-sized first load has no natural dimensions yet. Permit
+            // that point to load; its accepted backing will supply geometry.
+            w = w.max(1.);
+            h = h.max(1.);
+            if let Some((cx, cy, cw, ch)) = clip {
+                let right = (x + w).min(cx + cw);
+                let bottom = (y + h).min(cy + ch);
+                x = x.max(cx);
+                y = y.max(cy);
+                w = right - x;
+                h = bottom - y;
+            }
+            w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
+        };
+        // Asked for: on screen, or mounted where pictures are asked at mount.
+        let visible = |id: ViewId| {
+            if *AT_MOUNT {
+                return !host.route_visibility(id).0;
+            }
+            on_screen(id)
+        };
+        let reports =
+            (self.images).sync_shown(host.kernel(), &live, self.brush.scale, &visible, &on_screen);
         self.images.box_index = index
             .into_inner()
             .map(|index| (self.boxes_serial, order_epoch, index));

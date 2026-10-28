@@ -111,7 +111,11 @@ pub(super) struct Load {
     outcome: Mutex<Option<Outcome>>,
     /// Called once, when the outcome is set (by the download or the clock).
     wake: Box<dyn Fn() + Send + Sync>,
-    whole: Instant,
+    /// When it was asked for: an urgent bound is counted from here.
+    asked: Instant,
+    /// When the whole load times out; moved later once only, by
+    /// [`Downloads::promote`] while it still waits for a thread.
+    whole: Mutex<Instant>,
     /// When it fails for want of a byte: set once a thread takes it, moved
     /// on by each response and read.
     idle: Mutex<Option<Instant>>,
@@ -154,11 +158,15 @@ impl Load {
     fn progress(&self, request: Duration) {
         *self.idle.lock().unwrap() = Some(Instant::now() + request);
     }
+    fn whole(&self) -> Instant {
+        *self.whole.lock().unwrap()
+    }
     fn due(&self) -> Instant {
+        let whole = self.whole();
         self.idle
             .lock()
             .unwrap()
-            .map_or(self.whole, |idle| idle.min(self.whole))
+            .map_or(whole, |idle| idle.min(whole))
     }
 }
 impl Drop for Load {
@@ -171,7 +179,15 @@ impl Drop for Load {
 struct Job {
     load: Weak<Load>,
     url: String,
+    /// A picture that fills the screen: taken first, though not more than
+    /// [`URGENT_STREAK`] in a row while others wait.
+    urgent: bool,
 }
+
+/// How many urgent downloads a thread takes in a row while an ordinary one
+/// waits: then the oldest ordinary one, so a run of screen-filling pictures
+/// never starves the rest.
+const URGENT_STREAK: usize = 2;
 
 /// The process's image downloads.
 pub(super) struct Downloads {
@@ -180,6 +196,8 @@ pub(super) struct Downloads {
     queue: Mutex<VecDeque<Job>>,
     queued: Condvar,
     running: AtomicUsize,
+    /// Urgent downloads taken in a row ([`URGENT_STREAK`]).
+    streak: AtomicUsize,
     started: std::sync::Once,
     cache: Mutex<Cache>,
     clock: Clock,
@@ -198,6 +216,7 @@ impl Downloads {
             queue: Mutex::new(VecDeque::new()),
             queued: Condvar::new(),
             running: AtomicUsize::new(0),
+            streak: AtomicUsize::new(0),
             started: std::sync::Once::new(),
             cache: Mutex::new(Cache::new(policy.cache)),
             clock: Clock::default(),
@@ -217,17 +236,21 @@ impl Downloads {
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<Arc<Load>, Refusal> {
         let cached = self.cache.lock().unwrap().get(url);
+        let asked = Instant::now();
         let load = |outcome| {
             Arc::new(Load {
                 controller: AbortController::new(),
                 outcome: Mutex::new(outcome),
                 wake: Box::new(wake),
-                whole: Instant::now()
-                    + if urgent {
-                        self.policy.urgent
-                    } else {
-                        self.policy.whole
-                    },
+                asked,
+                whole: Mutex::new(
+                    asked
+                        + if urgent {
+                            self.policy.urgent
+                        } else {
+                            self.policy.whole
+                        },
+                ),
                 idle: Mutex::new(None),
             })
         };
@@ -247,6 +270,7 @@ impl Downloads {
         let job = Job {
             load: Arc::downgrade(&load),
             url: url.to_owned(),
+            urgent,
         };
         if urgent {
             queue.push_front(job);
@@ -256,6 +280,28 @@ impl Downloads {
         self.queued.notify_one();
         Ok(load)
     }
+    /// `load`, already asked for, is now a picture that fills the screen:
+    /// while it still waits for a thread it goes ahead of the others, and
+    /// its whole-load bound becomes the urgent one counted from its ask (a
+    /// download under way keeps its own; if that fails, the picture asks
+    /// again as urgent). Whether it was moved.
+    pub fn promote(&self, load: &Arc<Load>) -> bool {
+        let mut queue = self.queue.lock().unwrap();
+        let Some(at) = queue.iter().position(|job| {
+            !job.urgent && job.load.upgrade().is_some_and(|l| Arc::ptr_eq(&l, load))
+        }) else {
+            return false;
+        };
+        let mut job = queue.remove(at).expect("found");
+        job.urgent = true;
+        queue.push_front(job);
+        let mut whole = load.whole.lock().unwrap();
+        *whole = (*whole).max(load.asked + self.policy.urgent);
+        drop(whole);
+        self.clock.poke();
+        true
+    }
+
     /// The bytes the cache holds.
     pub fn cached_bytes(&self) -> u64 {
         self.cache.lock().unwrap().bytes
@@ -293,7 +339,20 @@ impl Downloads {
             let job = {
                 let mut queue = self.queue.lock().unwrap();
                 loop {
-                    if let Some(job) = queue.pop_front() {
+                    // After URGENT_STREAK urgent ones, the oldest ordinary one, if any waits.
+                    let ordinary = (self.streak.load(Ordering::SeqCst) >= URGENT_STREAK)
+                        .then(|| queue.iter().position(|job| !job.urgent))
+                        .flatten();
+                    let taken = match ordinary {
+                        Some(at) => queue.remove(at),
+                        None => queue.pop_front(),
+                    };
+                    if let Some(job) = taken {
+                        if job.urgent {
+                            self.streak.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            self.streak.store(0, Ordering::SeqCst);
+                        }
                         // Under the lock, so admission never sees it in neither.
                         self.running.fetch_add(1, Ordering::SeqCst);
                         break job;
@@ -310,7 +369,7 @@ impl Downloads {
             // The idle deadline may come before the one the clock waits for;
             // later progress only moves it on.
             self.clock.poke();
-            let (signal, whole) = (load.controller.signal(), load.whole);
+            let (signal, whole) = (load.controller.signal(), load.whole());
             // Only the source holds the load while it downloads: dropping it
             // aborts the download.
             drop(load);

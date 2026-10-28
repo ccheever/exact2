@@ -163,6 +163,10 @@ impl Backend {
             .iter()
             .find(|s| s.generation == generation && s.name == name)
         {
+            // Now one that fills the screen: its download, still waiting, goes first.
+            if let Some(load) = source.remote.as_ref().filter(|_| urgent) {
+                self.downloads.promote(load);
+            }
             Ok(source.clone())
         } else if state.sources.len() >= SUBSCRIPTIONS + COLD_ENTRIES + 2
             || owners
@@ -246,6 +250,13 @@ impl Backend {
             .get(&id)
             .and_then(Weak::upgrade))
         .is_some_and(|s| s.transient.load(std::sync::atomic::Ordering::Relaxed))
+    }
+    /// `source`'s download, if it still waits for a thread, goes first: its
+    /// picture now fills the screen ([`remote::Downloads::promote`]).
+    pub fn promote(&self, source: &SourceOwner) {
+        if let Some(load) = &source.remote {
+            self.downloads.promote(load);
+        }
     }
     /// Source `id`, failed, is found no more: the next ask for its name
     /// downloads it again (a picture still on screen, `image.rs`).
