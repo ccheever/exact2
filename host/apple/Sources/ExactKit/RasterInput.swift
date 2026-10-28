@@ -166,10 +166,11 @@ final class RasterInput: @unchecked Sendable {
 }
 
 /// A response that is not 2xx: its status is the image's `error` (LLP 1011 §4).
-/// `retryAfter`: not asked again before this, a 429's or 503's `Retry-After`.
+/// `retryAfter`: not asked again before this, a 429's or 503's `Retry-After`,
+/// on the monotonic clock (a wall clock's step never shortens it).
 struct RasterHTTPStatus: Error, CustomStringConvertible {
     let code: Int
-    var retryAfter: Date? = nil
+    var retryAfter: DispatchTime? = nil
     var description: String { "HTTP \(code)" }
 }
 
@@ -340,13 +341,15 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        // An answer after the whole load's bound cancelled it keeps that failure.
+        guard failure == nil else { completionHandler(.cancel); return }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             // Discord's CDN, and the person's own account: a 429's or 503's
             // wait is kept, an unreadable one an hour (`RasterRetry`).
             let after = [429, 503].contains(code) ? (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After") : nil
             failure = RasterHTTPStatus(code: code, retryAfter: after.map {
-                Date().addingTimeInterval(RasterRetry.retryAfter($0, now: Date()) ?? RasterRetry.unreadable)
+                DispatchTime.now() + (RasterRetry.retryAfter($0, now: Date()) ?? RasterRetry.unreadable)
             })
             completionHandler(.cancel); return
         }
@@ -406,7 +409,7 @@ private final class RasterDownloads: NSObject, URLSessionDataDelegate, @unchecke
     fileprivate let queue: OperationQueue = { let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1; return queue }()
     /// URLs whose server said when to ask again (`Retry-After`), until then,
     /// with its answer: at most 256, the others ending soonest first to go.
-    private var coolingURLs: [URL: (until: Date, status: RasterHTTPStatus)] = [:]
+    private var coolingURLs: [URL: (until: DispatchTime, status: RasterHTTPStatus)] = [:]
     func task(_ url: URL, policy: URLRequest.CachePolicy, urgent: Bool, for download: RasterDownload) -> URLSessionDataTask {
         lock.lock(); defer { lock.unlock() }
         let session = sessions[policy.rawValue] ?? URLSession(configuration: Self.configuration(policy), delegate: self, delegateQueue: queue)
@@ -425,12 +428,12 @@ private final class RasterDownloads: NSObject, URLSessionDataDelegate, @unchecke
     }
     func cooling(_ url: URL) -> RasterHTTPStatus? {
         lock.lock(); defer { lock.unlock() }
-        guard let entry = coolingURLs[url], entry.until > Date() else { return nil }
+        guard let entry = coolingURLs[url], entry.until > .now() else { return nil }
         return entry.status
     }
-    func cool(_ url: URL, until: Date, _ status: RasterHTTPStatus) {
+    func cool(_ url: URL, until: DispatchTime, _ status: RasterHTTPStatus) {
         lock.lock(); defer { lock.unlock() }
-        let now = Date()
+        let now = DispatchTime.now()
         coolingURLs = coolingURLs.filter { $0.value.until > now }
         coolingURLs[url] = (until, status)
         while coolingURLs.count > 256, let soonest = coolingURLs.filter({ $0.key != url || until <= now }).min(by: { $0.value.until < $1.value.until }) {
