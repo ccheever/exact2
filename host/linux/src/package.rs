@@ -91,13 +91,10 @@ impl Reply {
         Reply(reply)
     }
 
-    /// Answer with `answer`. An answer that is not an object (a list) is
-    /// sent as `{"exact:answer": value}`, a key no shape's field can take.
+    /// Answer with `answer`, a list as it is: the runner reads the body as the
+    /// name's answer, as the Apple and Android hosts hand it on once they
+    /// unwrap their bridges' `{"exact:answer": value}`.
     pub fn send(self, answer: Json) {
-        let answer = match answer {
-            Json::Object(_) => answer,
-            other => json!({ "exact:answer": other }),
-        };
         self.0
             .send(exact_runner::Outcome::Response(exact_runner::Response {
                 status: 200,

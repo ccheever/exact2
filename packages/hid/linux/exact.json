@@ -1,0 +1,14 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/hid@^1.0",
+  "platform": "linux",
+  "targets": ["linux"],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["lib.rs"] },
+  "artifacts": [],
+  "class": "Hid"
+}

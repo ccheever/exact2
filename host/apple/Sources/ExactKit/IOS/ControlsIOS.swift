@@ -162,6 +162,14 @@ final class ControlHost: NSObject {
     private func control(for node: NodeView) -> UIControl {
         let kind = ControlKinds.kind(node.props)
         if let existing = controls[node.id], kinds[node.id] == kind { return existing }
+        // A row the pool reused brings its button back (`park`).
+        if kind == "button", controls[node.id] == nil,
+           let kept = node.subviews.lazy.compactMap({ $0 as? NativeButtonIOS }).first(where: { $0.owner === node }) {
+            kept.tag = Int(node.id)
+            controls[node.id] = kept
+            kinds[node.id] = kind
+            return kept
+        }
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
         menus.removeValue(forKey: node.id)
         appliedRange.removeValue(forKey: node.id)
@@ -190,6 +198,30 @@ final class ControlHost: NSObject {
         controls[node.id] = made
         kinds[node.id] = kind
         return made
+    }
+
+    /// Whether a native button parks with its row (NodePool) rather than
+    /// going as a heavy leaf: drawn in its node, not glass, opening no menu,
+    /// and not under a touch. A `UIButton` holds no value, and its action
+    /// reaches whichever node owns it, so nothing of one row reaches the
+    /// next. A button leaving the window and a new one configured cost a
+    /// list's new row more than the rest of it.
+    func parks(_ node: NodeView) -> Bool {
+        guard node.isNativeButton, let b = controls[node.id] as? NativeButtonIOS, b.owner === node, b.superview === node,
+              !b.isGlass, !b.isTracking, !b.isHighlighted else { return false }
+        #if os(iOS)
+        return b.menu == nil && b.popover == nil
+        #else
+        return true
+        #endif
+    }
+    /// `id`'s node parks: its button stays in it, out of every map, until the
+    /// node's next id takes it back (`control(for:)`).
+    func park(_ id: UInt32) {
+        controls.removeValue(forKey: id)
+        reported.removeValue(forKey: id); faces.removeValue(forKey: id); kinds.removeValue(forKey: id)
+        menus.removeValue(forKey: id); lastRange.removeValue(forKey: id); appliedRange.removeValue(forKey: id)
+        picked.removeValue(forKey: id)
     }
 
     /// Whether a native button's control could not show: it is in a closed

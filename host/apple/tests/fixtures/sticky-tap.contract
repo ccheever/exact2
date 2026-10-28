@@ -1,0 +1,27 @@
+// The agent's tap and a sticky box (AgentStickyReveal{Mac,IOS}Tests; theme2's 14:49 ruling): a scroller with a sticky
+// header at its top and a sticky dock at its bottom, twenty rows between; `tall` makes the dock taller than the band
+// it would leave, `ghost` lets the pointer through it (`pointer-events: none`).
+component App
+  state pressed = ""
+  state tall = false
+  state ghost = false
+  action press(name: string)
+    pressed = name
+  action grow
+    tall = true
+  action passThrough
+    ghost = not ghost
+  view
+    column testId="root" width=320
+      button testId="grow" press=grow height=20
+        text "Grow"
+      button testId="ghost" press=passThrough height=20
+        text "Ghost"
+      scroll testId="port" height=400
+        column testId="header" position="sticky" top=0 height=60 z-index=2
+          text "Header"
+        for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] key=i
+          button testId=`row-${i}` press=press(`row-${i}`) height=50 width="100%"
+            text `Row ${i}`
+        column testId="dock" position="sticky" bottom=0 height=(tall ? 340 : 100) z-index=2 pointer-events=(ghost ? "none" : "auto")
+          text "Dock"

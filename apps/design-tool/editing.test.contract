@@ -183,10 +183,8 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   expect tree missing "typed-missing"
   expect state editValue == "0px 1px 2px 1px #00000033, 0px 0px 2px 1px surface.inset"
   // A type: each longhand, one it leaves out offered empty.
-  // (The edit dock covers the grid's lower rows: the draft cancelled and the dock closed first, as one scrolls past it.)
+  // (The draft cancelled; the dock stays open over the grid's lower rows, and the tap scrolls the next cell clear of it.)
   tap "cancel-edit"
-  clock data
-  tap "edit-dock-close"
   clock data
   tap "cell-type.title-0-light"
   clock data
@@ -195,10 +193,8 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   type "part-family-field" "system-ui"
   expect state editValue == "italic 600 1.25rem/1.25 system-ui"
   // Only this mode: a field's edit is for its own branch.
-  // (The edit dock covers the grid's lower rows: the draft cancelled and the dock closed first, as one scrolls past it.)
+  // (The draft cancelled; the dock stays open over the grid's lower rows, and the tap scrolls the next cell clear of it.)
   tap "cancel-edit"
-  clock data
-  tap "edit-dock-close"
   clock data
   tap "cell-opacity.muted-0-light"
   clock data
@@ -207,10 +203,8 @@ test "typed fields by kind: each edits its part of the value and leaves the rest
   expect state editValue == "0.25"
   expect state editWhen == "density=regular"
   // An expression has no typed fields.
-  // (The edit dock covers the grid's lower rows: the draft cancelled and the dock closed first, as one scrolls past it.)
+  // (The draft cancelled; the dock stays open over the grid's lower rows, and the tap scrolls the next cell clear of it.)
   tap "cancel-edit"
-  clock data
-  tap "edit-dock-close"
   clock data
   tap "cell-space.gap-0-light"
   clock data

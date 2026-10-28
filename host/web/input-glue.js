@@ -950,9 +950,58 @@ export function reveal(el, id, inert = el => el.closest("[inert]")) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
-  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
-  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+  if (["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // A hidden stand-in must not scroll the page.
+  if (!seen) {
+    (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+    return { revealed: id, scrolled: true, from: [x, y], to: clear(el, middle) ?? middle() };
+  }
+  const to = clear(el, middle);
+  return to ? { revealed: id, scrolled: true, from: [x, y], to } : { revealed: id, scrolled: false };
+}
+
+// A target whose middle a sticky or fixed box covers (the design tool's edit dock), as the tap's own hit-test finds it:
+// its scroller (or the page) scrolled so the middle lands in the band of its port the box leaves, as a person scrolls a
+// row out from under a docked bar. Only a box in the target's own scroller, or the page's fixed one, and never one in
+// the top layer (a popover, a modal), which no scroll takes away: the tap still refuses there. The middle it moved to,
+// or null when nothing covered it or nothing could move.
+function clear(el, middle) {
+  const [x, y] = middle(), root = el.getRootNode() ?? document, hit = root.elementFromPoint(x, y);
+  if (!hit || el === hit || el.contains(hit)) return null;
+  // (Anything of the top layer over it, a popover or a modal, is no scroll's to clear, whatever holds it.)
+  const above = a => a.closest(":popover-open, dialog[open], :modal");
+  if (above(hit)) return null;
+  const pinned = a => { const p = getComputedStyle(a).position; return p === "sticky" || p === "fixed"; };
+  // The sticky or fixed box a hit at a point is in, or null.
+  const coverAt = (h) => { let c = h; while (c && c.id !== "exact-root" && !pinned(c)) c = c.parentElement; return !c || c.id === "exact-root" || c.contains(el) || above(c) ? null : c; };
+  const cover = coverAt(hit);
+  if (!cover) return null;
+  // A sticky box's scroll container, as CSS finds it (the nearest ancestor whose overflow isn't visible on either axis),
+  // which must hold the target; for a fixed one, the target's nearest scroller with travel down, else the page.
+  const sticky = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) { const cs = getComputedStyle(s); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) return s; } return document.scrollingElement; };
+  const travel = a => { for (let s = a.parentElement; s && s !== document.body; s = s.parentElement) if (/(auto|scroll)/.test(getComputedStyle(s).overflowY) && s.scrollHeight > s.clientHeight) return s; return document.scrollingElement; };
+  const fixed = getComputedStyle(cover).position === "fixed", port = fixed ? travel(el) : sticky(cover);
+  if (port !== document.scrollingElement && !port.contains(el)) return null;
+  // Vertical only: a scroller with no travel down (a horizontal one, its sticky column) is no band's to clear.
+  if (port.scrollHeight <= port.clientHeight) return null;
+  const page = port === document.scrollingElement, box = page ? { top: 0, bottom: innerHeight, height: innerHeight } : port.getBoundingClientRect();
+  // What of the port the viewport shows, less each cover: the band above one whose middle is in the lower half, below
+  // one in the upper. Its middle hit-tested again: a second box there (a header across from a dock) narrows it too.
+  let [top, bottom] = [Math.max(box.top, 0), Math.min(box.bottom, innerHeight)];
+  const mid = (top + bottom) / 2;
+  for (let c = cover, n = 0; c && n < 4 && bottom > top; n++) {
+    const r = c.getBoundingClientRect();
+    if ((r.top + r.bottom) / 2 > mid) bottom = Math.min(bottom, r.top); else top = Math.max(top, r.bottom);
+    const next = bottom > top ? root.elementFromPoint(x, (top + bottom) / 2) : null;
+    // (Only a box of the same port, or a fixed one: a sticky of another scroller doesn't stay where this one moves.)
+    c = next && !(next === el || el.contains(next)) ? coverAt(next) : null;
+    if (c && getComputedStyle(c).position !== "fixed" && sticky(c) !== port) c = null;
+  }
+  if (bottom <= top) return null;
+  // (A scaled port scrolls by its own pixels: the viewport's distance over its scale.)
+  const scale = page || !port.clientHeight ? 1 : box.height / port.offsetHeight || 1;
+  const before = port.scrollTop;
+  port.scrollBy({ top: (y - (top + bottom) / 2) / scale, behavior: "instant" });
+  return port.scrollTop === before ? null : middle();
 }
 
 // A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts

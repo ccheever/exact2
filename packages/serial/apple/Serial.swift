@@ -63,9 +63,10 @@ public final class SerialModule: ExactPackage {
     }
 
     /// The ports a development build's drive injects (`EXACT_DEVICE_FIXTURE`, a JSON file `{"serial": [{"id", "name",
-    /// "path"}]}`): a pseudo-terminal, opened with the same termios code as a real port.
+    /// "path"}]}`): a pseudo-terminal, opened with the same termios code as a real port. A production build
+    /// compiles none of it (`EXACT_DEVELOPMENT`, which `host/apple/build.mjs` defines for development builds).
     private func injected() -> [Port] {
-        #if DEBUG
+        #if EXACT_DEVELOPMENT
         guard let file = ProcessInfo.processInfo.environment["EXACT_DEVICE_FIXTURE"],
               let data = FileManager.default.contents(atPath: file),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -80,10 +81,8 @@ public final class SerialModule: ExactPackage {
     }
 
     private func record(_ p: Port, connected: Bool = true) -> [String: Any] {
-        var r: [String: Any] = ["id": p.id, "name": p.name, "connected": connected, "granted": true]
-        if let v = p.vendor { r["usbVendorId"] = v }
-        if let v = p.product { r["usbProductId"] = v }
-        return r
+        // An option the port lacks is null, not left out: data code passes the record on to Contract as it is.
+        ["id": p.id, "name": p.name, "connected": connected, "granted": true, "usbVendorId": p.vendor ?? NSNull(), "usbProductId": p.product ?? NSNull()]
     }
 
     private var remembered: [String] {
@@ -140,7 +139,7 @@ public final class SerialModule: ExactPackage {
         case "attachedPorts": list(ports().filter { matches($0, args["filters"] as? [[String: Any]]) }.map { record($0) })
         case "getPorts":
             let here = Dictionary(ports().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            list(remembered.map { id in here[id].map { record($0) } ?? ["id": id, "name": (id as NSString).lastPathComponent, "connected": false, "granted": true] })
+            list(remembered.map { id in here[id].map { record($0) } ?? ["id": id, "name": (id as NSString).lastPathComponent, "connected": false, "granted": true, "usbVendorId": NSNull(), "usbProductId": NSNull()] })
         case "requestPort": choose(args, reply: reply)
         case "open": queue.async { reply(self.open(args)) }
         case "serialConnection":
