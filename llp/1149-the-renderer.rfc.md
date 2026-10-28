@@ -742,6 +742,23 @@ comparison on the same screen, driven the same way, with what is not comparable 
 
 The numbers land here as each G lands.
 
+**S2.1, 2026-10-28** (`lane/ink-s2` at `dfd41f041d`; qualifying the DirectX 11 composition
+path on the NucBox desktop). Six desktop journeys pass as native tests the desktop session
+runs: drag-resize, minimize and restore, a DPI round trip (100% to 150% and back, Shelf
+reactivated after the change), the idle caret, forced device loss (CPU composition
+presented, the hardware device back 1,020 ms later with backoff) and sleep and wake (the
+physical display waited for); lock and unlock is untested, having no unlock operator on
+that machine. Startup: the D3D11 device is now created on a thread while fonts load and the
+first layout runs, the first frame waiting only at the join; the composition path's paired
+overhead over today's `softbuffer` first screen fell from 59.2 to 26.8 ms at 1024×720 and
+from 48.9 to 17.1 ms at 1920×1080 (ten interleaved samples each), the remainder being the
+join's wait on a 46.5 ms hardware device creation (the swap chain 1.0 to 1.1 ms, the
+composition 0.7, the first present 1.3). That is above the 10 ms the stage's first chunk set
+for flipping the default, so **Windows ink still defaults to wgpu**; S2.2 presents the first
+frames through `softbuffer` and migrates to the composition swap chain when the device is
+ready, which takes the device off the first frame's path entirely. The pinned suites and
+`exact-windows`'s tests pass with both devices on the NucBox; the six checks on the Mac.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
