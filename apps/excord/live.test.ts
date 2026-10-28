@@ -15,6 +15,14 @@ mock.module('@exact/translation', () => ({
   detectLanguage: async () => { throw new Error('Language detection is unavailable in the gateway fixture'); },
 }));
 
+// The gateway fixture has no attached mention light.
+mock.module('@exact/hid', () => ({
+  attachedDevices: async () => [],
+  getDevices: async () => [],
+  open: async () => { throw new Error('No HID device is attached in the gateway fixture'); },
+  sendFeatureReport: async () => { throw new Error('No HID device is open in the gateway fixture'); },
+}));
+
 const EPOCH = Date.UTC(2026, 9, 22, 12);
 const INTERVAL = 41250;
 const ids = (rows: { id: string }[]) => rows.map(row => row.id);
