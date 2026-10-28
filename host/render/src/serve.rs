@@ -13,7 +13,6 @@
 //! Successful `cached` pages are also kept at the origin for their public
 //! lifetime, bounded to 64 locations and 32 MiB. Other routes render fresh.
 
-use crate::csp::csp;
 use crate::encode::{self, Accepts, Variants};
 use crate::files::{asset_shaped, named_build, percent_decode, static_file, AUTH_CALLBACK};
 use crate::{page, render_as, Ids, Rendered};
@@ -1443,6 +1442,10 @@ fn hex(bytes: &[u8]) -> String {
             out
         })
 }
+
+#[path = "csp.rs"]
+mod csp;
+use csp::csp;
 
 #[cfg(test)]
 #[path = "serve_tests.rs"]

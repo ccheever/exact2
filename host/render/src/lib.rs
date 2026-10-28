@@ -19,7 +19,6 @@
 #![deny(missing_docs)]
 
 mod compare;
-mod csp;
 mod direct;
 mod encode;
 mod executor;

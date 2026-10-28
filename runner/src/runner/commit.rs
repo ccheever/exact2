@@ -805,7 +805,7 @@ impl<D: DataSource> Runner<D> {
         target: Target,
         source: String,
         args: Vec<Value>,
-        mut request: Request,
+        request: Request,
         forced: bool,
     ) {
         let keepable = matches!(target, Target::Resource(_))
@@ -818,7 +818,10 @@ impl<D: DataSource> Runner<D> {
                     && !p.refused
                     && p.refusal.is_none()
                     && p.args != args
-                    && p.keepable.as_ref() == Some(&request)
+                    // Who asked it is stamped as it goes out (LLP 1133.036
+                    // D6), so it is no part of the same request.
+                    && (p.keepable.as_ref())
+                        .is_some_and(|k| request == Request { reach: request.reach, ..k.clone() })
             }) {
                 p.args = args;
                 // (new arguments: a new streak after a turn over its budget)
