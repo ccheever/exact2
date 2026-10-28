@@ -98,7 +98,9 @@ final class Adapter: ExactSessionDelegate {
         // Bare `focus()`, as the web's `window.focus()` (LLP 1133.025 §8): the
         // session's window shown if hidden, brought forward, and the app asks
         // to be activated, which macOS 14's cooperative activation decides.
-        case "focus": windows.first { $0.session === session }?.front()
+        case "focus":
+            if agentMode { session.log("focus window") }
+            windows.first { $0.session === session }?.front()
         case "relaunch":
             guard !delegate.relaunching, delegate.quitting?.holding != true else { return }
             delegate.relaunching = true
@@ -415,11 +417,15 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
 
     /// In front — never activated under a script (LLP 1012), so a running
     /// smoke never takes the focus from whoever is typing.
+    /// Bare `focus()` (LLP 1133.005 D10): the app unhidden, the window
+    /// deminiaturized and ordered front, and activation asked for, which
+    /// macOS 14's cooperative activation may refuse; nothing more then.
     func front() {
-        if agentMode && !agentActivates { window.orderFrontRegardless() } else {
-            window.makeKeyAndOrderFront(nil)
-            app.activate(ignoringOtherApps: true)
-        }
+        if agentMode && !agentActivates { window.orderFrontRegardless(); return }
+        if app.isHidden { app.unhide(nil) }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        if #available(macOS 14.0, *) { app.activate() } else { app.activate(ignoringOtherApps: true) }
     }
 
     /// The app's `close()`: the window goes, unasked.

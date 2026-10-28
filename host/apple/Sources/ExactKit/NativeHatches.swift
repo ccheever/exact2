@@ -406,10 +406,11 @@ private let hatchHostTable: UnsafeRawPointer = {
     return UnsafeRawPointer(t)
 }()
 
-/// A route hatch's moment.
+/// A route or element hatch's moment; `configuring` is a hatched frame's
+/// before its web view is made (LLP 1020.002 §9).
 enum RouteHatchEvent: UInt32 {
-    case built = 0, changed = 1, ended = 2
-    var name: String { switch self { case .built: "built"; case .changed: "changed"; case .ended: "ended" } }
+    case built = 0, changed = 1, ended = 2, configuring = 3
+    var name: String { switch self { case .built: "built"; case .changed: "changed"; case .ended: "ended"; case .configuring: "configuring" } }
 }
 
 extension NativeViews {
@@ -462,8 +463,10 @@ extension NativeViews {
         return owned
     }
 
-    /// `element` (built, changed) or `elementEnded` for a hatched node (LLP
-    /// 1075.003.000): its view, its kind's platform object, and
+    /// `element` (built, changed), `elementEnded` or, for a frame before its
+    /// web view is made, `elementConfiguration` for a hatched node (LLP
+    /// 1075.003.000, LLP 1020.002 §9): its view, its kind's platform object
+    /// (the `WKWebViewConfiguration` for `configuring`), and
     /// `{"hatch", "node", "id", "kind", "data"}`. `quiet` leaves the call out
     /// of the journal (a list row's after the first; `state` counts them).
     /// True when the hatch set `reusable` (LLP 1075.003.000.000 §8).
@@ -489,9 +492,10 @@ extension NativeViews {
         json.removeLast()
         json.append(Data(",\"data\":\(node.props["dataset"] ?? "{}")}".utf8))
         let word = node.props["hatch"] ?? ""
-        if !quiet { session?.log("hatch element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
+        let moment = RouteHatchEvent(rawValue: event)?.name ?? "changed"
+        if !quiet { session?.log("hatch element \(word) #\(node.id): \(moment)") }
         // ElementHatches counts a node's calls; the store times them.
-        let flags = timedHatch("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], site: planSite(node.id, ended: event == 2), counts: false) {
+        let flags = timedHatch("element \(word)", moment, site: planSite(node.id, ended: event == 2), counts: false) {
             json.withUnsafeBytes { j in
                 call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
                      j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))

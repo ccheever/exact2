@@ -544,7 +544,7 @@ function attach(el, id, handlers) {
     if (kind === "press") {
       // A link inside a pressable node is the innermost activation, as a
       // nested press is: the link navigates and the outer press stays out.
-      on("click", e => { const a = e.target.closest?.("a[href]"); if (a && a !== el && el.contains(a)) return; for (let n = e.target; n && n !== el.parentNode; n = n.parentNode) if (n.nodeType === 1 && n.hasAttribute("disabled")) { e.stopPropagation(); return; } focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, writeIn((e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "")), now()))); }); // the modifiers held, `Event::press` (gallery F20)
+      on("click", e => { const a = e.target.closest?.("a[href]"); if (a && a !== el && el.contains(a)) return; for (let n = e.target; n && n !== el.parentNode; n = n.parentNode) if (n.nodeType === 1 && n.hasAttribute("disabled")) { e.stopPropagation(); return; } focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, writeIn(`${e.clientX},${e.clientY},` + (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "")), now()))); }); // where the pointer was (0, 0 from a key) and the modifiers held, `Event::press` (gallery F20; LLP 1021 D2)
     } else if (kind === "pan") {
       let pan;
       on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));

@@ -71,6 +71,21 @@ extension ExactSession {
         guard let urlText = op["url"] as? String, let url = URL(string: urlText),
               let callback = op["callback"] as? String, let parts = URLComponents(string: callback), parts.scheme != nil
         else { return authDone(ticket, AuthFailure(status: 502, message: "the session's URL or callback is unreadable")) }
+        // A loopback callback (LLP 1133.005 D9): the default browser and the
+        // listener's receiver on macOS; iOS waits on a device measurement (§8).
+        if let loopback = op["loopback"] as? [String: Any] {
+            #if os(macOS)
+            let opened = authLoopback(ticket, url: url, state: op["state"] as? String ?? "", ephemeral: op["ephemeral"] as? Bool ?? false,
+                                      loopback: loopback, done: { [weak self] in self?.authCompleted(ticket, $0) })
+            switch opened {
+            case .success(let sheet): authSessions.live[ticket] = sheet
+            case .failure(let failure): authDone(ticket, failure)
+            }
+            #else
+            authDone(ticket, AuthFailure(status: 501, message: "a loopback callback is macOS's; iOS's waits on a device measurement"))
+            #endif
+            return
+        }
         // An app whose grants never named `auth.session` links no sheet; a
         // development plan that names it later needs a rebuild.
         guard let link = AuthSessionLink.installed else {

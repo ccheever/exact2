@@ -713,7 +713,7 @@ public final class ExactSession {
             apply(batch)
         }
         presenter.onClose = { [unowned self] id in apply(runtime.dialogClose(id, now: now())) }
-        presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
+        presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, at: presenter.pressPoint, now: now())) }
         // A text field's `input` and `change` carry the selection the edit
         // left, its `select` the one the person or a script made (x2apps
         // codeedit #2, `FieldSelections`).

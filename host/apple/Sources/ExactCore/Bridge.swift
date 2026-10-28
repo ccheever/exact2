@@ -365,8 +365,13 @@ package final class Runtime {
             return read(exact_fulfill_surface(rt, ticket, kind, n, now))
         }
     }
-    /// A press, with the modifiers held as a chord prefix (`KeyCodes.held`).
-    package func press(_ view: UInt32, held: String = "", now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, write(held), now)) } }
+    /// A press, with the modifiers held as a chord prefix (`KeyCodes.held`),
+    /// after a pointer's point from the viewport where it had one: its
+    /// `MouseEvent`'s `clientX`/`clientY` (LLP 1021 D2).
+    package func press(_ view: UInt32, held: String = "", at client: CGPoint? = nil, now: Double) -> Batch {
+        let line = client.map { "\(Double($0.x)),\(Double($0.y)),\(held)" } ?? held
+        return on { read(exact_dispatch(rt, view, 0, write(line), now)) }
+    }
     /// The pointer over the view (`true`) or gone from it.
     package func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
     package func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }

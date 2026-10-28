@@ -866,6 +866,15 @@ package final class Presenter {
     var pressHeld = ""
     /// The click being sent as a press, given by the mouse paths only (`pressMount`, FocusMac.swift).
     var pressClick: NSEvent?
+    /// A native button's click being sent as a press (`activateNative`): its
+    /// point only, since its focus is AppKit's button's, not `pressMount`'s.
+    var nativeClick: NSEvent?
+    /// Where that click was in the viewport, its `MouseEvent`'s `clientX`/`clientY`
+    /// (LLP 1021 D2); none for a key's or VoiceOver's press, which DOM puts at 0, 0.
+    var pressPoint: CGPoint? {
+        guard let click = pressClick ?? nativeClick, [.leftMouseDown, .leftMouseUp].contains(click.type) else { return nil }
+        return client(NodeView.point(click, in: viewport.window))
+    }
     package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false, outsideModal: Bool = false, click: NSEvent? = nil) {
         pressHeld = held; defer { pressHeld = "" } // `outsideModal`: an app-wide menu item's (ShortcutsMac `enabled`)
         guard let node = textHost(id), !(bubbled || outsideModal ? node.authoredInert : node.inert), !node.disabled,
@@ -1143,6 +1152,7 @@ package final class Presenter {
                 v.handlers = op.handlers
                 v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
+                v.embedFrame(self)
                 views[id] = v
                 elements.created(v)
                 if v.kind == "list" { listViews[id] = v }

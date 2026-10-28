@@ -788,3 +788,39 @@ fn a_root_with_a_key_handler_does_not_hold_the_remote_from_the_bars() {
     remote(&mut p, "ArrowRight", "ArrowRight");
     assert_eq!(p.focus(), Some(id(&p, "tab-other")));
 }
+
+/// LLP 1021 D2: a header button the shell's bar draws carries no point, so a
+/// popover it opens hangs from the item, and never the point of a click on
+/// the page before it.
+#[test]
+fn a_bar_items_press_carries_no_point_after_a_page_click() {
+    let (mut p, _) = barred(
+        r#"routes nav
+  home "/"
+component App
+  state at = ""
+  action open(e: MouseEvent)
+    at = `${e.clientX},${e.clientY}`
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          header display="flex" padding="8px 16px"
+            text "Home" role="heading" aria-level=1 flex=1
+            button press=open aria-label="More" testId="more"
+              image "symbol:more"
+          button press=open testId="page" width=200 height=100
+            text "Page"
+          text at testId="at"
+"#,
+    );
+    p.frame();
+    let (x, y, w, h) = p.rect_of(id(&p, "page")).expect("the page's button");
+    let (cx, cy) = (x + w / 2., y + h / 2.);
+    p.pointer_down(cx, cy, 0.).unwrap();
+    p.pointer_up(cx, cy, 1.).unwrap();
+    p.run_commands(|| Nothing);
+    assert_eq!(text(&p, "at"), format!("{cx},{cy}"));
+    touch(&mut p, TOP, Some("more"));
+    assert_eq!(text(&p, "at"), "0,0");
+}

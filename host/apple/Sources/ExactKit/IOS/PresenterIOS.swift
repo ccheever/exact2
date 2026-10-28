@@ -598,8 +598,12 @@ package final class Presenter {
     var inlineHoverTransition: UInt64 = 0
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""
-    package func press(_ id: UInt32, held: String = "", bubbled: Bool = false) {
-        pressHeld = held; defer { pressHeld = "" }
+    /// Where its touch lifted in the viewport, its `MouseEvent`'s `clientX`/`clientY`
+    /// (LLP 1021 D2); none for a key's press, which DOM puts at 0, 0.
+    private(set) var pressPoint: CGPoint?
+    /// `at`: the touch's point in the window.
+    package func press(_ id: UInt32, held: String = "", at: CGPoint? = nil, bubbled: Bool = false) {
+        pressHeld = held; pressPoint = at.map(client); defer { pressHeld = ""; pressPoint = nil }
         if let node = views[id], let url = node.defaultLink, node.activateLink(url, bubbled: bubbled) { return }
         let original = views[id]
         dispatchPressHandler(id, from: original)
@@ -876,7 +880,7 @@ package final class Presenter {
                 v.swipeOwner = op.props["swipeContent"] != nil
                 v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
-                if reused != nil { v.finishReuse() }
+                if reused != nil { v.finishReuse() } else { v.embedFrame(self) }
                 views[id] = v
                 elements.created(v)
                 if v.kind == "video" { leaves.created(v) }

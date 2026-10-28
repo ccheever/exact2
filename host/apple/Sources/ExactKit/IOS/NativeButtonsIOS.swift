@@ -25,6 +25,15 @@ final class NativeButtonIOS: UIButton {
         if ExactEnv.agentMode { TouchLog.reach(touches) }
         super.touchesBegan(touches, with: event)
     }
+    /// Where the touch lifted while UIKit sends the action it ends with (in
+    /// `super.touchesEnded`): its press's point (LLP 1021 D2). VoiceOver's
+    /// activation sends the action with no touch, and has none.
+    private(set) var lifted: CGPoint?
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        lifted = touches.first?.location(in: nil)
+        defer { lifted = nil }
+        super.touchesEnded(touches, with: event)
+    }
     /// What was last written, so a batch that changes nothing writes nothing.
     struct Written: Equatable {
         var face: ButtonFace
@@ -180,8 +189,9 @@ extension NodeView {
     /// does, once: the target is this node or, without a handler, the
     /// nearest ancestor with one whose box holds the touch (refused at a
     /// disabled one), resolved first; then the press's focus
-    /// (`focusForPress`), and `press` when there is a target.
-    func activateNative() {
+    /// (`focusForPress`), and `press` when there is a target, at `lifted`,
+    /// the window point a touch lifted at (none from a key or VoiceOver).
+    func activateNative(at lifted: CGPoint? = nil) {
         guard let presenter, !disabled, !inert else { return }
         let target = activationTarget(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil))
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
@@ -201,7 +211,7 @@ extension NodeView {
         guard !bubbled || path?.isLive(in: presenter) == true,
               lifetimes.allSatisfy({ $0() }), let target = heldTarget?.live(in: presenter), target.takesPress(bubbled: bubbled) else { return }
         presenter.menus.activating(from: self, pressing: target) {
-            presenter.press(target.id, bubbled: bubbled)
+            presenter.press(target.id, at: lifted, bubbled: bubbled)
         }
     }
 }
@@ -217,7 +227,7 @@ extension ControlHost {
         // identity and explicit name from its first frame as on a bare button.
         button.isAccessibilityElement = true
         button.accessibilityTraits.insert(.button)
-        button.addAction(UIAction { [weak button] _ in button?.owner?.activateNative() }, for: .primaryActionTriggered)
+        button.addAction(UIAction { [weak button] _ in button?.owner?.activateNative(at: button?.lifted) }, for: .primaryActionTriggered)
         return button
     }
 

@@ -394,7 +394,8 @@
 
   /* A popover is a raised surface, and opens at its invoker: under it, from its inline start, and where that does not
      fit, the other way. A menu's rows are rows: the label's ink (red when destructive), a wash under the pointer. A
-     context menu opens at the pointer (the runtimes leave it there, `--exact-context-x`, `-y`). An `alertdialog`
+     context menu opens at the pointer (the runtimes leave it there, `--exact-context-x`, `-y`), and one whose author wrote
+     `left` or `top` opens at that point (`--exact-inset-x`, `-y`), each the other way where it does not fit. An `alertdialog`
      popover stays centred, but a chooser its invoker opened (LLP 1021: actions, at most a cancel, no text or field;
      navigation.js marks it `data-exact-chooser`) is drawn there as a menu headed by its name, as the Mac draws one,
      with no row for its cancel where Escape and a click outside cancel (any popover but a `manual` one). The page is
@@ -404,12 +405,16 @@
   @supports (position-area: block-end) {
     :where(#exact-root [popover]:is(:not([role="alertdialog"]), [data-exact-chooser])) { inset: auto; margin: 4px 0; position-area: block-end span-inline-end; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
     :where(#exact-root [popover][style*="--exact-context-x"]) { margin: 0; position-area: none; left: var(--exact-context-x); top: var(--exact-context-y); position-try-fallbacks: --exact-context-start, --exact-context-up, --exact-context-up-start; }
+    :where(#exact-root [popover][style*="--exact-inset-x"]) { position-area: none; position-try-fallbacks: --exact-inset-start, --exact-inset-up, --exact-inset-up-start; }
   }
   #exact-root [data-exact-chooser]:not([popover="manual" i]) > button:not([data-exact-on~="press"]) { display: none !important; }
   :where(#exact-root [data-exact-chooser][aria-label])::before { content: attr(aria-label) / ""; display: block; padding: .25em .625em; color: var(--exact-secondary-label); font-size: smaller; }
   @position-try --exact-context-start { left: auto; right: calc(100% - var(--exact-context-x)); }
   @position-try --exact-context-up { top: auto; bottom: calc(100% - var(--exact-context-y)); }
   @position-try --exact-context-up-start { left: auto; right: calc(100% - var(--exact-context-x)); top: auto; bottom: calc(100% - var(--exact-context-y)); }
+  @position-try --exact-inset-start { left: auto; right: calc(100% - var(--exact-inset-x)); }
+  @position-try --exact-inset-up { top: auto; bottom: calc(100% - var(--exact-inset-y)); }
+  @position-try --exact-inset-up-start { left: auto; right: calc(100% - var(--exact-inset-x)); top: auto; bottom: calc(100% - var(--exact-inset-y)); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style] { min-height: 2em; border: none; border-radius: 8px; padding: .25em .625em; background-color: transparent; color: var(--exact-label); font-weight: 400; --exact-said-font-weight: ; justify-content: start; text-align: start; --exact-button-space-width: .5em; }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style][data-destructive="true"] { color: var(--exact-accent); }
   #exact-root :is([role="menu"], [data-exact-chooser]) button[data-button-style]:disabled { color: var(--exact-gray-text); }
