@@ -679,7 +679,11 @@ impl Collection {
             .as_ref()
             .map(|g| {
                 self.index
-                    .capture_anchor(self.anchor_offset(g.offset), g.port_main, self.follows())
+                    .capture_anchor(
+                        self.anchor_offset(g.offset, g.port_main),
+                        g.port_main,
+                        self.follows(),
+                    )
                     .map_err(index_error)
             })
             .transpose()
