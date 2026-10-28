@@ -3,8 +3,8 @@
 // elapsed time, the workspace rows that differ from the parent, and a one-line preview.
 // Adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
 // apps/web/src/components/chat/SubagentTooltipContent.tsx (at 74541bab17),
-// packages/client-runtime/src/state/subagentDisplay.ts (resolveSubagentMetadata,
-// subagentDetailPreview), subagentRuntime.ts (isTerminalSubagentStatus) and
+// packages/client-runtime/src/state/subagentDisplay.ts (resolveSubagentMetadata at
+// 7c3b3b3605ef, subagentDetailPreview), subagentRuntime.ts (isTerminalSubagentStatus) and
 // providerInstanceDisplay.ts (shouldShowInstanceBadge,
 // resolveProviderInstanceDisplayName, normalizeProviderAccentColor).
 // Changes: one plain view record for a Contract card; the brand-label table of
@@ -12,6 +12,7 @@
 // humanized instance id; elapsed time is the caller's string.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { formatModelSlugName, REASONING_EFFORT_OPTION_IDS, resolveSelectableModel, traitsSpeed } from '../composer/composer-controls-model';
+import { triggerDisplayModelName } from './model-short-name';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'rolled_back', 'idle']);
 const WORKING = ['running', 'in_progress', 'pending', 'waiting'];
@@ -37,9 +38,7 @@ export function subagentMetadata(input: { model: string | null; provider?: Obj; 
   const models = arr(input.provider?.models);
   const slug = input.provider ? resolveSelectableModel(str(input.provider.driver), model, models) : model;
   const catalog = input.provider ? models.find(candidate => candidate.slug === slug) : undefined;
-  const reported = catalog ? str(catalog.shortName) || str(catalog.name) : model ? formatModelSlugName(model) : 'Not reported';
-  const qualifier = str(catalog?.subProvider).trim();
-  const modelLabel = qualifier ? reported.replace(new RegExp(`^${qualifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s*[.:/-]\\s*|\\s+)`, 'iu'), '').trim() || reported : reported;
+  const modelLabel = catalog ? triggerDisplayModelName(catalog, str(input.provider?.driver)) : model ? formatModelSlugName(model) : 'Not reported';
   const parentWorkspace = str(input.parentThread?.worktreePath) || str(input.parentProject?.workspaceRoot);
   const childWorkspace = str(input.childThread?.worktreePath) || str(input.childProject?.workspaceRoot);
   const workspace: Array<{ label: string; value: string }> = [];

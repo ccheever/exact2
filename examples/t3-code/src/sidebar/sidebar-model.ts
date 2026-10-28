@@ -1,4 +1,4 @@
-// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
 // The sidebar's thread model (Sidebar.tsx, Sidebar.logic.ts, client-runtime
 // models.ts/threadSettled.ts/threadSort.ts; MIT, see LICENSE-T3): status, the
 // shelf a thread lives on, the static sort, unread/woke/recede prominence and
@@ -168,12 +168,15 @@ export function isWorkingThread(thread: Obj): boolean {
     && runtime?.activeRunId !== str(thread.latestRunId);
   return !(thread.interactionMode === 'plan' && thread.hasActionableProposedPlan === true && settled);
 }
-/** resolveSidebarThreadSection: snooze wins until its wake, then settlement beats a stale pin. */
-export function sectionOf(thread: Obj, caps: Caps, now: number, workingShelf: boolean): SidebarSection {
+/**
+ * resolveSidebarThreadSection: snooze wins until its wake, then settlement beats a stale pin. `isWorking` is the
+ * Working shelf's observed placement (thread-inbox.ts: a thread that just stopped keeps its place for the grace).
+ */
+export function sectionOf(thread: Obj, caps: Caps, now: number, workingShelf: boolean, isWorking: (thread: Obj) => boolean = isWorkingThread): SidebarSection {
   if (caps.snooze && effectiveSnoozed(thread, now)) return 'snoozed';
   if (caps.settlement && thread.settledOverride === 'settled') return 'settled';
   if (thread.pinnedAt != null) return 'pinned';
-  return workingShelf && isWorkingThread(thread) ? 'working' : 'active';
+  return workingShelf && isWorking(thread) ? 'working' : 'active';
 }
 /** filterSidebarV2VisibleThreads: archived and subagent threads stay out of the list. */
 export function sidebarVisible(thread: Obj): boolean {
@@ -199,9 +202,14 @@ export function sortActive(threads: Obj[]): Obj[] {
     return order || byId(left, right);
   });
 }
+/** sortInboxThreadsByReturn's time for a thread before any observed return: creation, un-settling, the latest run. */
+export function inboxTime(thread: Obj): number {
+  const run = latestRun(thread);
+  return Math.max(anchor(thread), parse(run?.requestedAt) || 0, parse(run?.completedAt) || 0);
+}
 /** sortInboxThreadsByReturn (Working beta): newest return to the user first. */
 export function sortByReturn(threads: Obj[], observed?: (thread: Obj) => number | undefined): Obj[] {
-  const time = (thread: Obj) => { const run = latestRun(thread); return Math.max(anchor(thread), parse(run?.requestedAt) || 0, parse(run?.completedAt) || 0, observed?.(thread) ?? 0); };
+  const time = (thread: Obj) => Math.max(inboxTime(thread), observed?.(thread) ?? 0);
   return [...threads].sort((left, right) => time(right) - time(left) || byId(left, right));
 }
 /**

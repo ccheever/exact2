@@ -772,6 +772,14 @@ component T3Code
     after(200, threadJumpHintsShow)
   task threadJumpHintReset when threadJumpHintsShown and not threadJumpsHeld
     after(1, threadJumpHintsHide)
+  // The sidebar's Working shelf on the window's clock (thread-inbox.ts): a grace's start or a return owed its time
+  // reads it at once, and the soonest grace ends 2 s after it started. Root timers, so they run with the sidebar closed.
+  task workingGraceOwed when data.sidebar.graceOwed > 0 key=data.sidebar.graceOwed
+    after(1, workingGraceClock)
+  task workingGraceEnds when data.sidebar.graceUntil > 0 key=data.sidebar.graceUntil
+    after(2000, workingGraceClock)
+  action workingGraceClock
+    send localChanged = command("sidebarlocal:working-grace", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
   action threadJumpHintsShow
     threadJumpHintsShown = true
   action threadJumpHintsHide

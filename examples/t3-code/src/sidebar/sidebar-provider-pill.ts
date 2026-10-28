@@ -1,16 +1,22 @@
-// SidebarProviderUpdatePill (T3 Code 74541bab17 components/sidebar/SidebarProviderUpdatePill.tsx,
+// SidebarProviderUpdatePill (T3 Code 7c3b3b3605ef components/sidebar/SidebarProviderUpdatePill.tsx,
 // ProviderUpdateLaunchNotification.logic.ts getProviderUpdateSidebarPillView;
 // MIT, see LICENSE-T3): above the footer icons while a provider updates, then
 // its outcome — failed and still-outdated notices until dismissed, a success
 // for three seconds. Outcomes older than the window's first provider check
 // never show; a dismissal holds until that provider's status changes (key). Its providers are the
 // primary's (`primaryServerProvidersAtom`, as the launch prompt's, provider-update-notify.ts): none
-// without a primary, whichever environment is focused.
+// without a primary, whichever environment is focused. A timed pill's end (`until`) is in window
+// time from when it showed, no earlier than its update finished, so the window's live clock retires
+// it (sidebar-control-tips.contract) though the snapshot's own clock moves by the minute.
 import { obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { primaryTarget } from '../providers/provider-update-notify';
 
-export interface ProviderPill { key: string; tone: 'loading' | 'success' | 'warning' | 'error'; title: string; description: string; dismissible: boolean; dismissAfterMs: number }
+export interface ProviderPill { key: string; tone: 'loading' | 'success' | 'warning' | 'error'; title: string; description: string; dismissible: boolean; dismissAfterMs: number;
+  /** When a success's update finished; a timed pill shows from then at the earliest. */
+  finishedAt?: string;
+  /** A timed pill's end in window time, 0 for one that stays. */
+  until?: number }
 
 const NAMES: Record<string, string> = { antigravity: 'Antigravity', codex: 'Codex', claudeAgent: 'Claude', cursor: 'Cursor', grok: 'Grok', acpRegistry: 'ACP Registry', pi: 'Pi', opencode: 'OpenCode' };
 export const SUCCESS_VISIBLE_MS = 3_000;
@@ -80,7 +86,7 @@ export function providerPillView(providers: Obj[], visibleAfter: string | undefi
     candidates.push({ at: latestFinished(succeeded) ?? '', view: { key: `succeeded:${tail(succeeded)}`, tone: 'success',
       title: succeeded.length === 1 ? (current ? `${name(first)} updated: ${version(current)}` : `${name(first)} updated`) : `${succeeded.length} providers updated`,
       description: succeeded.length === 1 ? 'New sessions will use the updated provider.' : 'New sessions will use the updated providers.',
-      dismissible: false, dismissAfterMs: SUCCESS_VISIBLE_MS } });
+      dismissible: false, dismissAfterMs: SUCCESS_VISIBLE_MS, finishedAt: latestFinished(succeeded) ?? '' } });
   }
   return candidates.sort((left, right) => right.at.localeCompare(left.at)).map(entry => entry.view).find(view => !dismissed.has(view.key)) ?? null;
 }
@@ -100,9 +106,13 @@ export function sidebarProviderPill(client: T3Client, now: number): ProviderPill
   const view = providerPillView(providers, state.visibleAfter, state.dismissed);
   if (!view || !view.dismissAfterMs) return view;
   const shown = state.shown.get(view.key);
-  if (shown === undefined) { state.shown.set(view.key, now); return view; }
+  if (shown === undefined) {
+    const at = Math.max(now, Date.parse(view.finishedAt ?? '') || 0);
+    state.shown.set(view.key, at);
+    return { ...view, until: at + view.dismissAfterMs };
+  }
   if (now - shown >= view.dismissAfterMs) { state.dismissed.add(view.key); return sidebarProviderPill(client, now); }
-  return view;
+  return { ...view, until: shown + view.dismissAfterMs };
 }
 /** After each refresh (client.ts): a timed pill asks the module to repaint once its time is up. */
 export function scheduleProviderPill(client: T3Client, now: number, notify: (delay: number) => void): void {

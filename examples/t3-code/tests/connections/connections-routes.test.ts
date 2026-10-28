@@ -59,7 +59,7 @@ describe('environment routes', () => {
     expect(routesTransportLabel(savedRoutes({ origin: A }), A, true)).toBeNull();
   });
 
-  test('GitHub sharing trust follows the route set: a second route revokes, the learned one does not', () => {
+  test('Pull request sharing trust follows the route set: a second route revokes, the learned one does not', () => {
     const one = { environmentId: 'env-a', label: '', routes: [route(A)] };
     expect(gitHubRoutingConnectionKey(one)).toBe(singleRouteKey(A, 'env-a'));
     const two = { ...one, routes: [route(A), route(B)] };
