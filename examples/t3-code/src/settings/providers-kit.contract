@@ -86,7 +86,7 @@ component PvSwitch
     test: string
     toggle: action
   view
-    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled testId=test width=(small ? "1.625rem" : "1.875rem") height=(small ? "1rem" : "1.125rem") padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") title=""
+    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled testId=test width=(small ? "1.625rem" : "1.875rem") height=(small ? "1rem" : "1.125rem") padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") title="" id=test data-focus-stop=(disabled ? "" : "enabled")
       box width=(small ? "0.75rem" : "0.875rem") height=(small ? "0.75rem" : "0.875rem") border-radius="624.9375rem" background-color=(checked ? "light-dark(#fcfcfc, #000000)" : "light-dark(#fcfcfc, #a1a1a1)")
 
 // ui/input size=sm: 28px outline field (radius 10, 9px inset, 14px text).

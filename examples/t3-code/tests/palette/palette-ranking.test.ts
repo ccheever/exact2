@@ -169,14 +169,14 @@ describe('commands and settings', () => {
     const c = client([]);
     c.config.keybindings = [{ command: 'sidebar.toggle', key: 'mod+b' }, { command: 'thread.stop', key: 'mod+.' }];
     const result = (query: string, id: string) => view(c, query).rows.find(entry => entry.key === `settings-search:setting:${id}`);
-    // A core settings page gives a row's control `setting-<targetId ?? id>`; elsewhere the rule maps six rows' elements.
-    expect(result('send shortcut', 'send-shortcut')).toMatchObject({ op: 'settings', arg: 'chat', arg2: 'setting-send-shortcut', description: 'Settings · Chat' });
-    expect(result('keybindings', 'keybindings')).toMatchObject({ arg: 'keybindings', arg2: 'keybindings-filter' });
-    // The rest open at their page's top: rows whose page carries no ids yet, and rows aimed at another one (This machine's
-    // section, Worktree cleanup).
-    expect(result('git fetch interval', 'git-fetch-interval')).toMatchObject({ arg: 'source-control', arg2: '' });
-    expect(result('network access', 'network-access')).toMatchObject({ arg: 'connections', arg2: '' });
-    expect(result('keep worktrees with local changes', 'storage-worktree-keep-when')).toMatchObject({ arg: 'worktrees', arg2: '' });
+    // A result opens at the element its target names, upstream's `targetId ?? id`: the row's or section's own id.
+    expect(result('send shortcut', 'send-shortcut')).toMatchObject({ op: 'settings', arg: 'chat', arg2: 'send-shortcut', description: 'Settings · Chat' });
+    expect(result('keybindings', 'keybindings')).toMatchObject({ arg: 'keybindings', arg2: 'keybindings' });
+    // Rows aimed at another element: Background activity's (the fetch interval is in its dialog), This machine's section,
+    // and Worktree cleanup's section, which opens its fold.
+    expect(result('git fetch interval', 'git-fetch-interval')).toMatchObject({ arg: 'maintenance', arg2: 'background-activity' });
+    expect(result('network access', 'network-access')).toMatchObject({ arg: 'access', arg2: 'connections-environment' });
+    expect(result('keep worktrees with local changes', 'storage-worktree-keep-when')).toMatchObject({ arg: 'worktrees', arg2: 'storage-worktrees' });
     // A command with a default key opens at its row (keybindingSearchAnchorId); one without, at the Keybindings page.
     expect(result('sidebar toggle', 'keybinding-sidebar.toggle')).toMatchObject({ arg: 'keybindings', arg2: 'keybinding-sidebar.toggle' });
     expect(result('thread stop', 'keybinding-thread.stop')).toMatchObject({ arg: 'keybindings', arg2: 'keybindings' });

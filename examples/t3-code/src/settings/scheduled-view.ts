@@ -1,4 +1,4 @@
-// Settings → Scheduled tasks view model (MIT reference, see LICENSE-T3; T3 Code 9c161462c9:
+// Settings → Scheduled tasks view model (MIT reference, see LICENSE-T3; T3 Code 7c3b3b3605ef:
 // components/settings/ScheduledTasksSettings.tsx ScheduledTasksSettings,
 // ScheduledTaskEnvironmentSection, ScheduledTaskRow, ScheduledTaskEditorDialog): one section
 // per environment in scope (a heading only when there is more than one), each fed by its live
@@ -57,13 +57,13 @@ export function taskModelMarks(providers: Obj[], draftKey: string): TaskModelMar
     const badge = provider ? providerBadge(provider, providers) : { providerBadge: '', providerBadgeColor: '' };
     return { value, name, driver: str(provider?.driver), badge: badge.providerBadge, accent: badge.providerBadgeColor };
   };
-  const marks = providers.flatMap(provider => arr(provider.models).map(model => mark(provider, `${str(provider.instanceId)}:${str(model.slug)}`, triggerModelName(model) || str(model.slug))));
+  const marks = providers.flatMap(provider => arr(provider.models).map(model => mark(provider, `${str(provider.instanceId)}:${str(model.slug)}`, triggerModelName(model, str(provider.driver)) || str(model.slug))));
   if (draftKey && !marks.some(entry => entry.value === draftKey)) {
     const at = draftKey.indexOf(':');
     marks.push(mark(providers.find(provider => provider.instanceId === draftKey.slice(0, at)), draftKey, draftKey.slice(at + 1)));
   }
   const first = providers[0], firstModel = arr(first?.models)[0];
-  marks.push(mark(first, '', firstModel ? triggerModelName(firstModel) || str(firstModel.slug) : 'Choose model'));
+  marks.push(mark(first, '', firstModel ? triggerModelName(firstModel, str(first.driver)) || str(firstModel.slug) : 'Choose model'));
   return marks;
 }
 type BranchRef = { value: string; label: string; search: string; badge: string; remote: boolean };
@@ -157,6 +157,11 @@ type Visit = { key: string; pages: Map<string, ProjectRefs>; lookups: Map<string
 /** The topic the page watches while a search's first page is pending: its own wake asks it again (command-waits.ts). */
 export const TASK_REFS_WAKE = 't3.notify';
 const editorRefs = new WeakMap<T3Client, Visit>();
+/**
+ * The task the open editor opened with, by its editing target (ScheduledTaskEditorDialog's `task`): the editor owns its
+ * session until it closes, so a disconnect, or a reconnect that reloads the list from empty, keeps its dialog and its draft.
+ */
+const editorTasks = new WeakMap<T3Client, { subject: string; task: Obj }>();
 export const TASK_REFS = 'task-refs'; // settings-scheduled.contract's list (RefPageScroll name="task-refs")
 const failed = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'Failed to load refs.');
 
@@ -189,7 +194,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     editors: [] as (ReturnType<typeof editorDraft> & ReturnType<typeof webhookAddress> & { key: string; missing: boolean })[], projects: [] as TaskChoice[], workspaces: [] as Choice[], environments: [] as TaskChoice[],
 
     branches: [] as Refs[], marks: [] as TaskModelMark[] };
-  if (!active || editor !== 'task') editorRefs.delete(client);
+  if (!active || editor !== 'task') { editorRefs.delete(client); editorTasks.delete(client); }
   if (!active || editor !== 'task-deliveries') closeDeliveries(client);
   if (!active) return empty;
   try {
@@ -223,9 +228,14 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
 
     if (editor !== 'task' || !editing) return base;
     const all = editing.tasks.value;
-    // A deep link opens the editor once its task is known; a missing one is the section's "Task unavailable".
-    if (target?.link && (!all || !all.some(task => task.id === target.taskId))) return base;
-    const task = target?.taskId && all ? all.find(entry => entry.id === target.taskId) : undefined;
+    const live = target?.taskId && all ? all.find(entry => entry.id === target.taskId) : undefined;
+    const held = editorTasks.get(client), opened = held && held.subject === editingId ? held.task : undefined;
+    // A deep link opens the editor once, the first time its task loads; a missing one is the section's "Task unavailable".
+    if (target?.link && !live && !opened) return base;
+    if (live) editorTasks.set(client, { subject: editingId, task: live });
+    // The draft keeps the task it opened with (its id, so Save still saves it); the webhook address is the live task's
+    // while the list is loaded (liveTask).
+    const task = live ?? opened, liveTask = all ? live : opened;
     const config = editing.config;
     const projects = editing.shell.projects.filter(project => matchesScheduledTaskScope(scope, editing.environmentId, str(project.id)));
     const firstProject = projects[0] ?? null;
@@ -308,9 +318,9 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
       try { await native.later({ op: 'wake', topic: TASK_REFS_WAKE }); } catch (error) { if (letGo(error)) throw error; }
     }
     // editingTaskMissing: the task went away while its editor was open.
-    const missing = !!target?.taskId && !!all && !task;
+    const missing = !!target?.taskId && !!all && !live;
     return { ...base, missing,
-      editors: [{ ...draft, ...webhookAddress(task?.webhook ? obj(task.webhook) : undefined, editing.focused ? client.origin : str(fleet.entries.get(editing.key)?.origin)), key, missing }],
+      editors: [{ ...draft, ...webhookAddress(liveTask?.webhook ? obj(liveTask.webhook) : undefined, editing.focused ? client.origin : str(fleet.entries.get(editing.key)?.origin)), key, missing }],
       projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false, kind: '', secondary: environments.some(environment => environment.shell.projects.some(other => other.title === project.title && (environment.environmentId !== editing.environmentId || other.id !== project.id))) ? str(project.workspaceRoot) : '' })),
 
       workspaces: ['worktree', 'root', 'existing_worktree'].map(value => ({ value, label: WORKSPACE_LABELS[value], selected: false })),

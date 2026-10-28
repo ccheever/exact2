@@ -17,6 +17,7 @@ afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from '../../src/appearance/settings-appearance';
 import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from '../../src/settings/settings-search';
 import { settingsCore } from '../../src/settings/settings-core-view';
+import { worktreeRows } from '../../src/settings/settings-data';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
 
@@ -120,17 +121,21 @@ describe('general rows', () => {
   test('every reference row in order, with live values and inheritance', () => {
     const client = as(fake({ snoozeLimitedThreads: true }));
     const sections = generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()));
-    // Every page split from General by 9db433f4ba #25651, in nav order (SettingsPanels.tsx at 96fc7b9551).
+    // Every page's sections in nav order (SettingsPanels.tsx and WorktreesSettings.tsx at 7c3b3b3605ef); Maintenance's
+    // Diagnostics is the storage panel's, after its own sections (settings-data.ts).
     expect(sections.map(section => section.title)).toEqual(['Notifications', 'Sidebar', 'Confirmations', 'Display', 'Composer', 'Follow-ups', 'Diffs', 'Pull requests', 'New projects', 'New threads',
-      'Usage limits', 'Auto-settle', 'Text generation', 'Creation', 'Updates', 'Background activity', 'Diagnostics', 'App', 'Legal', 'Legacy']);
+      'Usage limits', 'Auto-settle', 'Text generation', 'Creation', 'Updates', 'Background activity', 'App', 'Legal', 'Legacy']);
     expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Thread notifications', 'In-app notifications', 'Project grouping', 'Project order', 'Working section',
-      'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Time format', 'Rich text composer', 'Send shortcut', 'Collapse composer on scroll', 'Show skills in slash menu',
-      'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Proactive panels', 'Add project starts in', 'Model', 'Permissions', 'Workspace',
+      'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Time format', 'Rich text composer', 'Send shortcut', 'Collapse composer on scroll',
+      'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Diff colors', 'Proactive panels', 'Open pull requests in T3 Code', 'Add project starts in', 'Model', 'Permissions', 'Workspace',
       'Resume after usage limits', 'Snooze until limits reset', 'Compact idle Claude threads (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
-      'Text generation model', 'Response streaming', 'Start from remote', 'Submodules', 'Provider update checks', 'Continue threads after restarts', 'Background activity', 'Diagnostics',
+      'Text generation model', 'Start from remote', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
       'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
+    // AdvancedSettings: Chat's Show skills, Threads' Response streaming and Worktrees' Submodules fold at their section's end.
+    expect(sections.flatMap(section => (section.advanced ?? []).map(row => [section.title, row.title]))).toEqual([['Composer', 'Show skills in slash menu'],
+      ['Text generation', 'Response streaming'], ['Creation', 'Submodules']]);
     expect(generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()), 'general').map(section => section.title)).toEqual(['Notifications', 'Sidebar', 'Confirmations', 'Display']);
-    const row = (id: string) => sections.flatMap(section => section.rows).find(entry => entry.id === id)!;
+    const row = (id: string) => sections.flatMap(section => [...section.rows, ...(section.advanced ?? [])]).find(entry => entry.id === id)!;
     expect([row('default-model').label, row('default-model').label2, row('default-model').status, row('default-model').description])
       .toEqual(['GPT-5.6-Luna', 'Medium', '', 'Default model for new threads, selected automatically. Projects can override it.']);
     expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
@@ -339,9 +344,12 @@ describe('writes through the command', () => {
   test('t3.json is read for each member of a project scope', async () => {
     const client = fake();
     client.files['/a'] = '{"worktreeSubmodules":"none"}';
+    // Worktrees' rows are the storage panel's to draw (settings-data.ts worktreeRows), Submodules under Creation's Advanced.
     const core = await settingsCore(as(client), native, '', 'repo', 'p1', '', 'worktrees', '', true);
-    const row = core.sections.flatMap(section => section.rows).find(entry => entry.id === 'worktree-submodules')!;
-    expect([row.label, row.inheritance, core.kind, core.scopeKey]).toEqual(['Skip', 'inherited', 'checkout', '|repo|p1']);
+    expect([core.sections, core.kind, core.scopeKey]).toEqual([[], 'checkout', '|repo|p1']);
+    const rows = await worktreeRows(as(client), native, resolveScope(as(client), '', 'repo', 'p1'), false);
+    const row = rows.creationAdvanced.find(entry => entry.id === 'worktree-submodules')!;
+    expect([rows.creation.map(entry => entry.id), row.label, row.inheritance, row.divider]).toEqual([['start-from-origin'], 'Skip', 'inherited', false]);
     // A bare project id (Project settings' target) is its project on every environment: /projects/$projectKey
     // redirects with the key and no machine (routes/projects.$projectKey.tsx).
     const legacy = await settingsCore(as(client), native, '', '', '', 'p3', 'storage', '', true);
@@ -384,13 +392,14 @@ describe('writes through the command', () => {
 
 describe('navigation and search', () => {
   const context = { connected: true, autoSettle: true, scopeKind: 'all', keybindings: [{ command: 'sidebar.toggle', key: 'mod+b' }] };
-  test('sidebar lists the reference pages by concern (SETTINGS_NAV_GROUPS, 96fc7b9551)', () => {
+  test('sidebar lists the reference pages by concern (SETTINGS_NAV_GROUPS, 7c3b3b3605ef)', () => {
     const items = settingsNavigation('', context).items;
     expect(items.map(item => item.title)).toEqual(['General', 'Appearance', 'Chat', 'Diffs & pull requests', 'Keybindings', 'SnapShots', 'Providers', 'Threads', 'Browser', 'Devices',
-      'Scheduled tasks', 'Projects', 'Source control', 'Worktrees', 'Environments', 'Maintenance', 'Labs', 'About', 'Archive']);
+      'Scheduled tasks', 'Projects', 'Source control', 'Worktrees', 'Environments', 'Sharing & access', 'Maintenance', 'Labs', 'About', 'Archive']);
     expect(items.filter(item => item.groupStart).map(item => [item.title, item.heading])).toEqual([['Providers', 'Agents'], ['Projects', 'Code'], ['Environments', 'Connections'], ['Maintenance', '']]);
+    expect(items.find(item => item.route === 'access')).toMatchObject({ title: 'Sharing & access', icon: 'shield-check', heading: '' });
     expect(settingsNavigation('', { ...context, scopeKind: 'project' }).items.map(item => item.title)).toEqual(items.map(item => item.title));
-    expect(breadcrumbLabel('open-source-licenses')).toBe('Open source licenses');
+    expect([breadcrumbLabel('open-source-licenses'), breadcrumbLabel('access')]).toEqual(['Open source licenses', 'Sharing & access']);
   });
   test('search ranks like the reference and keybinding commands sort last', () => {
     expect(searchSettings('model', context).map(item => item.title).slice(0, 2)).toEqual(['Default model', 'Text generation model']);
@@ -403,7 +412,7 @@ describe('navigation and search', () => {
     expect(searchSettings('update track', context)).toEqual([expect.objectContaining({ id: 'update-track', title: 'Update track', route: 'about' })]);
     expect(searchSettings('nightly', context).map(item => [item.id, item.target])).toContainEqual(['update-track', 'update-track']);
     const result = settingsNavigation('send shortcut', context);
-    expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['chat', 'setting-send-shortcut', 'Chat']);
+    expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['chat', 'send-shortcut', 'Chat']);
     expect(scopeAvailable('environment-defaults', 'project')).toBe(false);
     expect(commandLabel('composer.sendAlternate')).toBe('Composer: Opposite Queue or Steer Action');
   });
@@ -413,8 +422,8 @@ describe('navigation and search', () => {
     const titles = (query: string) => searchSettings(query, desktop).filter(item => item.route !== 'keybindings').map(item => `${item.title} / ${breadcrumbLabel(item.route)}`);
     expect(titles('update')).toEqual(['Update track / About', 'Provider update checks / Maintenance', 'Continue threads after restarts / Maintenance', 'Version / About']);
     expect(titles('credits')).toEqual(['Remove agent credits when merging / Source control']);
-    expect(titles('clients')).toEqual(['This machine / Environments']);
-    expect(titles('worktree')).toEqual(['Worktree cleanup / Worktrees', 'Worktree location / Worktrees', 'Worktree branch naming / Source control', 'Keep worktrees with local changes / Worktrees',
+    expect(titles('clients')).toEqual(['This machine / Sharing & access']);
+    expect(titles('worktree')).toEqual(['Worktree cleanup / Worktrees', 'Worktree location / Worktrees', 'Worktree branch naming / Worktrees', 'Keep worktrees with local changes / Worktrees',
       'New threads / Threads', 'Submodules / Worktrees', 'Start from remote / Worktrees', 'Actions / Projects']);
     expect(titles('theme')).toEqual(['Themes / Appearance']);
     expect(titles('model')).toEqual(['Default model / Threads', 'Text generation model / Threads', 'Source control writer model / Source control', 'Review guide model / Source control',
@@ -423,8 +432,22 @@ describe('navigation and search', () => {
       'GitCafe credentials / Source control', 'Bitbucket credentials / Source control']);
     expect(titles('mcp')).toEqual([]);
     expect(titles('sidebar')).toEqual(['Sidebar (legacy) / Labs', 'Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
-      'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads', 'Environment icon / Environments']);
-    expect(titles('settle')).toEqual(['Auto-settle inactive threads / Threads', 'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads']);
+      'Auto-settle merged threads / Threads', 'Keep threads with a PR / Threads', 'Days of inactivity before auto-settle / Threads', 'Environment icon / Sharing & access']);
+    expect(titles('settle')).toEqual(['Auto-settle inactive threads / Threads', 'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads', 'Keep threads with a PR / Threads']);
+    // 7c3b3b3605ef's moves: network access on Sharing & access, pull request sharing on Environments, the fetch interval in
+    // Background activity's dialog (its jump lands on that row), Diff colors on Diffs.
+    expect(titles('network access')).toEqual(['Network access / Sharing & access', 'Tailscale HTTPS / Sharing & access']);
+    expect(titles('pull request sharing')).toEqual(['Pull request sharing / Environments']);
+    expect(settingsNavigation('git fetch', desktop)).toMatchObject({ firstRoute: 'maintenance', firstTarget: 'background-activity' });
+    expect(titles('diff colors')).toEqual(['Diff colors / Diffs & pull requests']);
+    // Environment icon is offered wherever Sharing & access is, as upstream's item has no condition.
+    expect(searchSettings('environment icon', { ...desktop, localBackend: false }).map(item => item.id)).toContain('environment-icon');
+  });
+  test('the settings answer names the jump it is for and the reveal stop of the fold its row sits under', async () => {
+    const core = await settingsCore(as(fake()), native, '', '', '', '', 'chat', 'skills-in-slash-menu', true);
+    expect(core).toMatchObject({ route: 'chat', jumpTarget: 'skills-in-slash-menu', jumpStop: 'settings-advanced-composer-reveal', notice: '' });
+    expect(core.sections.find(section => section.id === 'composer')!.advanced.map(row => row.id)).toEqual(['skills-in-slash-menu']);
+    expect(await settingsCore(as(fake()), native, '', '', '', '', 'chat', 'send-shortcut', true)).toMatchObject({ jumpTarget: 'send-shortcut', jumpStop: '' });
   });
 });
 

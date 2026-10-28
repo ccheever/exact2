@@ -10,7 +10,7 @@ import { applyShell, arr, effectiveWorktreeRules, initialShell, obj, str, type J
 import { shortcutInput, whenExpression, validShortcut, validWhen } from './keybinding-settings';
 import { rowId } from './keybinding-view';
 import { scheduledTaskCommand } from './scheduled-tasks-commands';
-import { scopedPatch, fetchIntervalPatch } from './source-control-view';
+import { scopedPatch } from './source-control-view';
 import { archiveCommand } from './settings-a-archive';
 import { deviceToolsCommand } from '../device/settings-a-integrations';
 import { devicePlatformsCommand } from '../device/device-support';
@@ -22,7 +22,7 @@ import { easAccountCheck, easHostsCommand } from '../device/settings-eas-hosts';
 import { deviceScopedCommand } from '../device/settings-integrations-scope';
 import { planProjectOverridesClear, persistScopedSettingsPatch, scopedPlanNotice } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopedWriter } from './settings-scope-sources';
-import { PROJECT_SCOPED, applyDeviceSetting } from './settings-core'; // "Open links in"
+import { PROJECT_SCOPED, applyCoreSetting, applyDeviceSetting } from './settings-core'; // "Open links in"; the storage panel's core rows
 import { copyThreadReference } from '../sidebar/thread-reference'; // ⇧⌘C copies the PR link or the thread ID
 import { byEnvironment, environmentClient, groupOfMember } from './projects-fleet';
 import { scopedStorageCommand } from './storage-scope';
@@ -115,6 +115,9 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
 }
 
 export async function restCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
+  // A settings-core row the storage panel draws (Worktrees' Creation): the same write as the core pages' (`settings-core`
+  // command), across the row's scope.
+  if (op === 'core') { const input = params(value); return applyCoreSetting(client, native, str(input.id), str(input.value)); }
   if ((op === 'storage' || op === 'storage-run') && params(value).scope !== undefined) return scopedStorageCommand(client, native, op, params(value), storagePatch);
   if (op.startsWith('storage-') && op !== 'storage-run') { const input = params(value); return databaseCommand(client, native, storage, op, str(input.environment), str(input.command)); }
   if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
@@ -149,7 +152,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     const { projectId } = await currentScope(client, access, scope);
     const config = await access.request('server.getConfig');
     const capabilities = obj(obj(config.environment).capabilities);
-    if (capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
+    if (str(input.key) === 'worktreesDirectory' ? capabilities.worktreesDirectory !== true : capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
     const settings = await access.request('server.getSettings');
     const updated = await access.request('server.updateSettings', { patch: storagePatch(settings, projectId, str(input.key), str(input.value)) }, true);
     client.config = { ...client.config, settings: updated };
@@ -166,9 +169,8 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
   if (op === 'task') return scheduledTaskCommand(client, native, scope, input); // scheduled-tasks-commands.ts: the live list, any environment
   // Integrations device switches across the settings scope (settings-integrations-scope.ts).
   if (op === 'device' && input.scope !== undefined) return deviceScopedCommand(client, native, input.scope, str(input.key), str(input.value));
-  if (op === 'scoped' || op === 'fetch-interval' || op === 'device') {
-    // ProjectDefaultsSettings / SourceControlWritingSettings / BranchNamingSettings /
-    // GitFetchIntervalSettings / DeviceIntegrationControls writes.
+  if (op === 'scoped' || op === 'device') {
+    // ProjectDefaultsSettings / SourceControlWritingSettings / BranchNamingSettings / DeviceIntegrationControls writes.
     const { projectId } = await currentScope(client, access, scope);
     const config = await access.request('server.getConfig');
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) throw new ClientError('Connect the selected checkouts, or update their environments, to save a project override.');
@@ -187,9 +189,8 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
       return '';
     }
     let patch: Obj;
-    try { patch = op === 'fetch-interval' ? fetchIntervalPatch(settings, str(input.value)) : scopedPatch(settings, projectId, str(input.key), str(input.value), arr(config.providers)); }
+    try { patch = scopedPatch(settings, projectId, str(input.key), str(input.value), arr(config.providers)); }
     catch (error) { throw new ClientError(error instanceof Error ? error.message : 'Could not save this setting.'); }
-    if (op === 'fetch-interval' && projectId) throw new ClientError('This setting is environment-wide and cannot be overridden by a project.');
     const updated = await access.request('server.updateSettings', { patch }, true);
     client.config = { ...client.config, settings: updated };
     return '';

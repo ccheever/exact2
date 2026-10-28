@@ -1,9 +1,10 @@
-// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (74541bab17; each row's page as 96fc7b9551 groups them), one row per item:
+// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (7c3b3b3605ef), one row per item:
 // [id, title, route, targetId, searchTerms, scope, availability flags]. Keybinding command items are
 // derived from the connected server's keybindings at search time (settings-search.ts). The host
-// credential rows are SOURCE_CONTROL_HOST_SEARCH_ITEMS expanded (GitCafe, then Bitbucket: the
-// hosts with a settings form other than GitHub, in registry order). Privacy policy and OpenTelemetry
-// export are left out: this client has no telemetry rows.
+// rows are sourceControlHostSearchItems expanded: GitHub, GitCafe, then Bitbucket, the hosts with a
+// settings form, in registry order (GitHub, GitLab, GitCafe, Forgejo, Bitbucket, Azure DevOps), whose
+// labels and keywords the source-control terms list. Privacy policy and OpenTelemetry export are left
+// out: this client has no telemetry rows. Guest links needs T3 Connect, which this client does not have.
 export const CATALOG: readonly (readonly [string, string, string, string, string, string, string])[] = [
   ["storage-worktree-keep-when", "Keep worktrees with local changes", "worktrees", "storage-worktrees", "any local files uncommitted changes edited tracked files ignored env build output cleanup", "project-defaults", ""],
   ["storage-delete-now", "Delete now", "maintenance", "", "storage cleanup run now results report removed kept failed", "environment-defaults", ""],
@@ -18,7 +19,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["theme", "Themes", "appearance", "appearance", "appearance colors palette custom import", "", ""],
   ["setting-appearance-contrast", "Contrast", "appearance", "", "colors borders interface", "", ""],
   ["setting-glass-opacity", "Glass opacity", "appearance", "", "transparent transparency solid menus dialogs composer", "", ""],
-  ["diff-color-scheme", "Diff colors", "appearance", "", "red green blue orange additions deletions changes counts palette colorblind", "", ""],
+  ["diff-color-scheme", "Diff colors", "diffs", "", "red green blue orange additions deletions changes counts palette colorblind", "", ""],
   ["chat-width", "Chat width", "appearance", "", "wide full width column layout messages composer monitor", "", ""],
   ["math-rendering", "Render math", "appearance", "", "latex tex katex equations formulas markdown", "", ""],
   ["panel-animations", "Panel animations", "appearance", "", "", "", ""],
@@ -27,6 +28,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["prompt-font", "Prompt font", "appearance", "", "typography family size composer input", "", ""],
   ["code-font", "Code font", "appearance", "", "typography family size monospace code blocks diffs file previews", "", ""],
   ["terminal-font", "Terminal font", "appearance", "", "typography family size monospace output", "", ""],
+  ["separate-fonts", "Separate fonts", "appearance", "", "typography advanced prompt code terminal font family size individually", "", ""],
   ["font-smoothing", "Font smoothing", "appearance", "", "typography text grayscale anti aliasing macos thin", "", "mac"],
   ["word-wrap", "Word wrap", "appearance", "", "long lines code blocks tables diffs file previews", "", ""],
   ["composer-context", "Composer context", "appearance", "", "", "", ""],
@@ -38,6 +40,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["auto-settle-inactive-threads", "Auto-settle inactive threads", "threads", "", "sidebar inactivity days no activity automatically", "project-defaults", "autoSettle"],
   ["compact-idle-threads", "Compact idle Claude threads (beta)", "threads", "", "context compaction idle cache tokens usage summary beta experimental", "environment-defaults", ""],
   ["auto-settle-merged-threads", "Auto-settle merged threads", "threads", "", "pull request merge closed automatically sidebar", "project-defaults", "autoSettle"],
+  ["keep-threads-with-pull-requests", "Keep threads with a PR", "threads", "auto-settle-inactive-threads", "pull request inactivity auto-settle merge close sidebar", "project-defaults", "autoSettle"],
   ["days-before-auto-settle", "Days of inactivity before auto-settle", "threads", "auto-settle-inactive-threads", "thread timeout activity sidebar", "project-defaults", "autoSettle"],
   ["thread-notifications", "Thread notifications", "general", "", "notification sound alert completion input approval desktop", "", ""],
   ["in-app-notifications", "In-app notifications", "general", "", "notification toast popup completion input approval failure", "", ""],
@@ -100,15 +103,15 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["browser-recording-mouse-presses", "Show mouse presses in recordings", "browser", "", "browser preview clicks buttons drag overlay capture", "", ""],
   ["browser-link-target", "Open links in", "browser", "", "links default browser in-app browser external open", "", ""],
   ["browser-search-engine", "Search engine", "browser", "", "address bar duckduckgo google bing brave kagi ecosia custom", "", ""],
-  ["pull-request-links-open-in-app", "Open pull requests in T3 Code", "browser", "", "pr links github browser external click default pull request view panel", "", ""],
+  ["pull-request-links-open-in-app", "Open pull requests in T3 Code", "diffs", "", "pr links GitHub GitLab GitCafe Forgejo Bitbucket Azure DevOps browser external click default pull request view panel", "", ""],
   ["browser-auto-show-floating-preview", "Auto-show floating preview", "browser", "", "agent opens browser device simulator pop into view hide", "", ""],
   ["automatic-pull", "Automatically pull", "source-control", "", "auto pull default branch current checkout fast forward upstream", "project-defaults", ""],
-  ["remove-agent-credits-on-merge", "Remove agent credits when merging", "source-control", "", "pull request github squash co-authored-by attribution claude codex generated", "project-defaults", ""],
+  ["remove-agent-credits-on-merge", "Remove agent credits when merging", "source-control", "", "pull request GitHub GitLab GitCafe Forgejo Bitbucket Azure DevOps squash co-authored-by attribution claude codex generated", "project-defaults", ""],
   ["pull-request-merge-method", "Default merge method", "source-control", "", "pull request merge squash rebase last selected", "project-defaults", ""],
-  ["source-control", "Source control", "source-control", "", "version control git github gitlab forgejo gitea tea codeberg bitbucket azure devops hosting integrations credentials scan server environment", "environment-defaults", ""],
-  ["git-fetch-interval", "Git fetch interval", "source-control", "", "automatic remote branch refresh background credentials security keys seconds off", "environment-defaults", "environment"],
-  ["worktree-branch-naming", "Worktree branch naming", "source-control", "", "static semantic prefix custom prompt instructions feat fix refactor chore", "project-defaults", "environment"],
-  ["github-accounts", "GitHub accounts and token", "source-control", "", "github gh account login user host enterprise ghes switch multiple accounts disable sign in token personal access token pat api key credential", "environment-defaults", "environment"],
+  ["source-control", "Source control", "source-control", "", "version control git GitHub ghes enterprise GitLab GitCafe Forgejo gitea tea codeberg Bitbucket Azure DevOps hosting integrations credentials scan server environment", "environment-defaults", ""],
+  ["git-fetch-interval", "Git fetch interval", "maintenance", "background-activity", "automatic remote branch refresh background credentials security keys seconds off", "environment-defaults", "environment"],
+  ["worktree-branch-naming", "Worktree branch naming", "worktrees", "", "static semantic prefix custom prompt instructions feat fix refactor chore", "project-defaults", "environment"],
+  ["source-control-host-github", "GitHub accounts and token", "source-control", "", "GitHub ghes enterprise gh account login user host switch multiple accounts disable sign in token personal access token pat api key credential", "environment-defaults", "environment"],
   ["source-control-host-gitcafe", "GitCafe credentials", "source-control", "", "GitCafe token token credentials sign in", "environment-defaults", "environment"],
   ["source-control-host-bitbucket", "Bitbucket credentials", "source-control", "", "Bitbucket accessToken email apiToken token credentials sign in", "environment-defaults", "environment"],
   ["source-control-writing-style", "Source control writing style", "source-control", "", "repository conventions conventional commits custom instructions change descriptions request titles", "", "environment"],
@@ -118,17 +121,17 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["review-guide-model", "Review guide model", "source-control", "review-guides", "pull request pr guided review guide brief maintainer", "project-defaults", "environment"],
   ["review-guide-instructions", "Review guide instructions", "source-control", "review-guides", "pull request pr guided review guide preferences taste prompt custom", "project-defaults", "environment"],
   ["project-actions", "Actions", "projects", "", "commands scripts setup run dev server checkout worktree t3.json import", "", ""],
-  ["environment-icon", "Environment icon", "connections", "connections-environment", "machine glyph sidebar mac mini studio laptop desktop server cloud vm", "", "localBackend"],
-  ["local-environment", "Local environment", "connections", "connections-environment", "turn off on disable enable local server agents remote only restart", "", "desktop"],
-  ["network-access", "Network access", "connections", "connections-environment", "expose backend remote pairing local machine interfaces host restart", "", "localBackend"],
-  ["tailscale-https", "Tailscale HTTPS", "connections", "connections-environment", "serve magicdns endpoint remote secure network", "", "desktop,localBackend"],
-  ["wsl-backend", "WSL backend", "connections", "", "windows subsystem linux distro second server projects stop windows backend restart", "", "desktop,windows,localBackend,wsl"],
-  ["t3-connect", "T3 Connect", "connections", "connections-environment", "managed tunnel cloud other devices remote", "", "localEnvironment,desktop,cloud"],
-  ["hold-webhooks-while-offline", "Hold webhooks while offline", "connections", "connections-environment", "webhook automations offline queue mailbox t3 connect", "", "localEnvironment,cloud,managedTunnel"],
-  ["publish-agent-activity", "Publish agent activity", "connections", "connections-environment", "mobile push notifications live activities cloud tunnel", "", "localEnvironment,cloud"],
-  ["connections-environment", "This machine", "connections", "", "connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint", "", ""],
+  ["environment-icon", "Environment icon", "access", "connections-environment", "machine glyph sidebar mac mini studio laptop desktop server cloud vm", "", ""],
+  ["local-environment", "Local environment", "connections", "", "turn off on disable enable local server agents remote only restart", "", "desktop"],
+  ["network-access", "Network access", "access", "connections-environment", "expose backend remote pairing local machine interfaces host restart", "", "localBackend"],
+  ["tailscale-https", "Tailscale HTTPS", "access", "connections-environment", "serve magicdns endpoint remote secure network", "", "desktop,localBackend"],
+  ["wsl-backend", "WSL backend", "access", "", "windows subsystem linux distro second server projects stop windows backend restart", "", "desktop,windows,localBackend,wsl"],
+  ["t3-connect", "T3 Connect", "access", "connections-environment", "managed tunnel cloud other devices remote", "", "localEnvironment,desktop,cloud"],
+  ["hold-webhooks-while-offline", "Hold webhooks while offline", "access", "connections-environment", "webhook automations offline queue mailbox t3 connect", "", "localEnvironment,cloud,managedTunnel"],
+  ["publish-agent-activity", "Publish agent activity", "access", "connections-environment", "mobile push notifications live activities cloud tunnel", "", "localEnvironment,cloud"],
+  ["connections-environment", "This machine", "access", "", "connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint", "", ""],
   ["remote-environments", "Environments", "connections", "", "add pair backend host code ssh config agent tunnel saved t3 connect", "", ""],
   ["load-balancing", "Load balancing", "connections", "", "automatic machine environment resources cpu memory capacity preference weight shared projects", "", ""],
-  ["github-routing", "GitHub sharing", "connections", "", "pull request trusted environments shared credentials permissions read actions", "", ""],
+  ["pull-request-routing", "Pull request sharing", "connections", "", "pull request routing trusted environments shared credentials permissions read actions source control GitHub GitLab GitCafe Forgejo Bitbucket Azure DevOps", "", ""],
   ["archive", "Archived threads", "archived", "", "restore reopen deleted history projects", "", ""],
 ];

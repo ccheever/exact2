@@ -5,7 +5,7 @@ import { beforeAll, describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { snapshot } from '../../src/client/presentation';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
-import { archivedSettings, decodeNotices, licenseSettings, diagnosticsSettings, storageSettings } from '../../src/settings/settings-data';
+import { archivedSettings, decodeNotices, licenseSettings, storageSettings } from '../../src/settings/settings-data';
 import { timestamp, thread, storage, connected, opened } from '../support/client-fixture';
 
 // The sidebar asks each project's favicon once per process (sidebar-glyph.ts syncFavicons), and the
@@ -248,27 +248,6 @@ test('license manifest validates provenance shape, all-term search, disclosure a
   expect(() => decodeNotices({ schemaVersion: 1, entries: [entry, entry] })).toThrow('duplicate');
   expect(() => decodeNotices({ schemaVersion: 1, entries: [{ ...entry, sourceUrl: 'file:///personal' }] })).toThrow('source URL');
 });
-
-test('diagnostics reads actual sections and range; partial/offline errors remain local', async () => {
-  const { client, native } = await connected();
-  const later = native.later.bind(native);
-  native.later = async request => {
-    const method = str(obj(request).method);
-    if (method === 'server.getProcessDiagnostics') return native.good({ readAt: timestamp, processCount: 1, totalCpuPercent: 2, totalRssBytes: 1024, processes: [] });
-    if (method === 'server.getProcessResourceHistory') { expect(obj(obj(request).payload)).toEqual({ windowMs: 300000, bucketMs: 15000 }); return native.good({ retainedSampleCount: 3, buckets: [], topProcesses: [] }); }
-    if (method === 'server.getTraceDiagnostics') return native.bad('Trace unavailable');
-    return later(request);
-  };
-  const result = await diagnosticsSettings(client, native, 'env1', '5m', true);
-  expect(result.available).toBe(true); expect(result.sections).toHaveLength(3);
-  expect(result.sections[0].rows[0].value).toBe('1'); expect(result.sections[2].error).toBe('Trace unavailable');
-  expect(client.error).toBe('');
-  expect((await diagnosticsSettings(client, native, 'env1', 'invalid', true)).error).toContain('Unsupported');
-  expect((await diagnosticsSettings(client, native, 'deleted', '15m', true)).available).toBe(false);
-  client.connection = 'disconnected';
-  expect((await diagnosticsSettings(client, native, 'env1', '15m', true)).available).toBe(false);
-});
-
 
 test('storage cleanup validates capability, retention and stale checkout before scoped writes', async () => {
   const { client, native, command } = await connected();

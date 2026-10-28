@@ -45,7 +45,7 @@ component ScopeNoticeRow
   action pick
     choose(item.project, item.machine, item.member)
   view
-    button press=pick hover=hover aria-label=(item.secondary != "" ? `${item.label}, ${item.secondary}` : item.label) testId=`${noticeId}-choice-${item.key}` display="flex" flex-direction="row" align-items="center" gap="0.75rem" width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" border-width=0 border-top-width=(first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff0a)" border-radius=0 background-color=(hovered ? "light-dark(#f4f4f580, #ffffff05)" : "#00000000") title=""
+    button press=pick hover=hover aria-label=(item.secondary != "" ? `${item.label}, ${item.secondary}` : item.label) testId=`${noticeId}-choice-${item.key}` display="flex" flex-direction="row" align-items="center" gap="0.75rem" width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" border-width=0 border-top-width=(first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff0a)" border-radius=0 background-color=(hovered ? "light-dark(#f4f4f580, #ffffff05)" : "#00000000") title="" id=`${noticeId}-choice-${item.key}` data-focus-stop="enabled page"
       if item.icon == "environment"
         CnMachineIcon(kind=item.kind, size=16, color="light-dark(#71717b, #a1a1a1)")
       if item.icon == "project"
