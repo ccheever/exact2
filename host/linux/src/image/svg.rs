@@ -205,7 +205,7 @@ pub(super) fn decode(
         if foreign {
             "(not quoted: not the app's own file)".to_string()
         } else {
-            what.to_string()
+            super::remote::without_quoted_queries(&what.to_string())
         }
     };
     let text = std::str::from_utf8(bytes).map_err(|_| {
@@ -223,7 +223,9 @@ pub(super) fn decode(
         let count = loaded.document.warnings.len();
         log(format!("exact: image `{name}`: {count} parts this host does not draw (not quoted: not the app's own file)"));
     } else {
+        // (A quoted link in the file loses its query, a space in it too.)
         for warning in &loaded.document.warnings {
+            let warning = super::remote::without_quoted_queries(&warning.to_string());
             log(format!("exact: image `{name}`: {warning}"));
         }
     }
