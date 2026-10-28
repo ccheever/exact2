@@ -16,6 +16,7 @@ mod at;
 mod attestation_age_tracking;
 mod auth;
 mod baked_release;
+mod batch2_exports;
 mod blocks;
 mod borders;
 mod branch;

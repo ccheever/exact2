@@ -1,0 +1,86 @@
+// A menu's items and their group (the clone's MenuItem and MenuGroup,
+// Bluesky's Menu.Item and Menu.Group): drawn items in a sheet, not the
+// platform's list cells. Bluesky's native menu is a Dialog, a bottom sheet
+// of drawn items, not the platform's menu, so these are drawn too (theme2's
+// stage 15 B batch 2 ruling), unlike ListRow. The app passes the label and
+// the icon; the look is the params and the package's tokens.
+
+// One item: its label, then its icon at the end, a hairline above every
+// item but a group's first. Destructive, both in the destructive colour.
+// Its role is a menu's item: the sheet holding the groups is the app's and
+// carries role="menu" (as the clone's sheets do); the group adds no role.
+component MenuItem
+  params
+    surface: color = "lists.menu-surface" control = "token" group = "Color" priority = 1 label = "Ground"
+    ink: color = "lists.menu-label" control = "token" group = "Color" priority = 2 label = "Label"
+    iconInk: color = "lists.menu-icon" control = "token" group = "Color" priority = 2 label = "Icon"
+    destructiveInk: color = "lists.menu-destructive" control = "token" group = "Color" priority = 3 label = "Destructive"
+    divider: color = "lists.menu-divider" control = "token" group = "Color" priority = 3 label = "Divider"
+  props
+    // Names its testId, the button (what a test taps), and the item's
+    // column `<id>-item` (the hairline above the button, then the button).
+    id: string
+    label: string
+    // An image source (a `symbol:` name or an icon token), or "" for none.
+    icon: string
+    destructive: bool
+    // Whether it is its group's first item, which has no hairline above.
+    // Bluesky's Group draws the hairlines between its children, but a
+    // component can't see a child's index in its slot (there is no slot
+    // index yet), so the item is told; a slot index would remove this prop.
+    first: bool
+    pick: action
+  parts
+    surface: paint space
+    label: text
+    icon: space
+  view
+    column testId=`${id}-item`
+      if not first
+        box height="lists.menu-hairline" background-color="param.divider"
+      button part="surface" role="menuitem"
+        testId=id
+        box-sizing="border-box"
+        aria-label=label
+        press=pick
+        display="flex"
+        flex-direction="row"
+        align-items="center"
+        gap="lists.menu-gap"
+        padding-left="lists.menu-pad-inline"
+        padding-right="lists.menu-pad-inline"
+        padding-top="lists.menu-pad-block"
+        padding-bottom="lists.menu-pad-block"
+        min-height="lists.menu-height"
+        background-color="param.surface"
+        text label part="label" flex=1
+          text-align="start"
+          font-size="lists.menu-label-size"
+          font-weight=600
+          white-space="nowrap"
+          text-overflow="ellipsis"
+          overflow="hidden"
+          color=(destructive ? "param.destructiveInk" : "param.ink")
+        if icon != ""
+          image icon part="icon"
+            aria-hidden=true
+            width="lists.menu-icon-size"
+            height="lists.menu-icon-size"
+            object-fit="contain"
+            color=(destructive ? "param.destructiveInk" : "param.iconInk")
+
+// A group of items: a rounded frame clipping them, the items its slot.
+component MenuGroup
+  params
+    frame: color = "lists.menu-frame" control = "token" group = "Color" priority = 1 label = "Frame"
+  slot
+  parts
+    surface: paint shape
+  view
+    column part="surface"
+      border-radius="lists.menu-corner"
+      border-width="lists.menu-hairline"
+      border-style="solid"
+      border-color="param.frame"
+      overflow="hidden"
+      children
