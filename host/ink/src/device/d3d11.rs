@@ -23,6 +23,8 @@ use windows::{
 };
 mod composition;
 #[cfg(test)]
+mod desktop_tests;
+#[cfg(test)]
 mod rich_edit;
 mod setup;
 #[cfg(test)]
@@ -30,6 +32,59 @@ mod tests;
 #[cfg(test)]
 mod text_host;
 pub use composition::Window;
+
+/// Device creation can overlap font discovery and layout. No immediate-context
+/// call runs concurrently: the worker hands it to the paint thread on join.
+/// @ref LLP 1149 §7; Microsoft's Direct3D 11 multithreading introduction.
+pub struct Preparing(std::thread::JoinHandle<Result<Prepared>>);
+
+struct Prepared {
+    device: ID3D11Device,
+    context: ID3D11DeviceContext,
+    pipeline: setup::Pipeline,
+    info: Info,
+}
+
+impl Preparing {
+    pub fn start(force_warp: bool) -> Result<Self> {
+        std::thread::Builder::new()
+            .name("ink-device".into())
+            .spawn(move || Prepared::open(force_warp))
+            .map(Self)
+            .map_err(|e| Error::Device(e.to_string()))
+    }
+
+    pub fn finish(self) -> Result<D3d11> {
+        let prepared = self
+            .0
+            .join()
+            .map_err(|_| Error::Device("device worker panicked".into()))??;
+        D3d11::from_prepared(prepared)
+    }
+}
+
+impl Prepared {
+    fn open(force_warp: bool) -> Result<Self> {
+        let start = Instant::now();
+        let (device, context, adapter) = setup::open(force_warp)?;
+        let device_ms = start.elapsed().as_secs_f64() * 1000.;
+        let start = Instant::now();
+        let pipeline = setup::pipeline(&device)?;
+        let shaders_ms = start.elapsed().as_secs_f64() * 1000.;
+        Ok(Self {
+            device,
+            context,
+            pipeline,
+            info: Info {
+                adapter,
+                api: "direct D3D11".into(),
+                device_ms,
+                shaders_ms,
+                cached: false,
+            },
+        })
+    }
+}
 
 struct Texture {
     raw: ID3D11Texture2D,
@@ -70,12 +125,16 @@ impl D3d11 {
 
     /// Force WARP for the software-device qualification (LLP 1149 S0 C6).
     pub fn open(force_warp: bool) -> Result<Self> {
-        let start = Instant::now();
-        let (device, context, adapter) = setup::open(force_warp)?;
-        let device_ms = start.elapsed().as_secs_f64() * 1000.;
-        let start = Instant::now();
-        let pipeline = setup::pipeline(&device)?;
-        let shaders_ms = start.elapsed().as_secs_f64() * 1000.;
+        Self::from_prepared(Prepared::open(force_warp)?)
+    }
+
+    fn from_prepared(prepared: Prepared) -> Result<Self> {
+        let Prepared {
+            device,
+            context,
+            pipeline,
+            info,
+        } = prepared;
         let owner = Rc::new(());
         let buffer = Buffer {
             raw: setup::make_buffer(&device, 192, D3D11_BIND_VERTEX_BUFFER)?,
@@ -112,13 +171,7 @@ impl D3d11 {
             retired: Vec::new(),
             owner,
             composition: None,
-            info: Info {
-                adapter,
-                api: "direct D3D11".into(),
-                device_ms,
-                shaders_ms,
-                cached: false,
-            },
+            info,
         })
     }
 

@@ -169,8 +169,11 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         Err(_) => None,
     };
     let first_tap = std::env::var("EXACT_AGENT_WINDOW_TAP").ok();
-    if first_tap.is_some() && frame_limit.is_none() {
-        eprintln!("exact-windows: EXACT_AGENT_WINDOW_TAP requires a bounded window frame run");
+    if first_tap.is_some()
+        && frame_limit.is_none()
+        && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_none()
+    {
+        eprintln!("exact-windows: EXACT_AGENT_WINDOW_TAP requires a measured window run");
         return 1;
     }
     if config.agent
@@ -518,7 +521,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             |_| !p.pending(),
             |target| p.host().kernel().find_by_test_id(&target).len() == 1,
         );
-        if self.frame_limit.is_some()
+        if (self.frame_limit.is_some() || std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some())
             && !self.measured_first_screen
             && p.last_frame_succeeded()
             && !p.data_activating()
@@ -555,6 +558,11 @@ impl<D: DataSource + Default + 'static> App<D> {
             self.measured_first_screen = true;
         }
         self.frames += 1;
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            eprintln!("exact-windows: frame {} at {:.3} ms, {}x{}, scale {}, painter {}, caret {}, paint {:.3} ms, present {:.3} ms",
+                self.frames, now, size.width, size.height, self.scale, p.painter.name,
+                self.caret.visible(), paint_ms, present_ms);
+        }
         p.first_pixel();
         if let Some(access) = &mut self.accessibility {
             access.sync(p, window, &self.name);
