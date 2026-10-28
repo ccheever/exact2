@@ -329,7 +329,7 @@ component ChatColumn
             box intersect=transcriptOpened(owner) position="absolute" top=0 left=0 width=0 height=0 pointer-events="none"
           // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
           if data.transcriptAway
-            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift)
+            ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary="")
       // The composer overlays the transcript (ChatView's data-chat-composer-overlay; composer-overlay.ts
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.

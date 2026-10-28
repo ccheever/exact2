@@ -1,22 +1,26 @@
 // T3's own MCP tools in the work log, adapted from T3 Code (MIT, see LICENSE-T3):
 // Sources at 74541bab17: packages/shared/src/t3McpToolPresentation.ts (the inventory and name
 // resolution), packages/client-runtime/src/work-log/presentation.ts
-// (resolveT3McpToolPresentation: tense, failure and the PR target) and
+// (resolveT3McpToolPresentation: tense, failure and the PR target, in the host's term at 7c3b3b3605ef) and
 // packages/client-runtime/src/t3ToolSummary.ts (group summaries).
 
-/** shared/changeRequestUrl parseChangeRequestUrl, reduced to the number a tool label names. */
-function changeRequestNumber(target: string): number | null {
+/**
+ * shared/changeRequestUrl parseChangeRequestUrl, reduced to the number a tool label names and its host's
+ * `changeRequest.shortLabel`: GitLab's "MR", every other built-in host's "PR".
+ */
+function changeRequestTarget(target: string): { number: number; term: string } | null {
   let url: URL;
   try { url = new URL(target); } catch { return null; }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
   const host = url.hostname.toLowerCase(), path = url.pathname;
   const hostOf = (apex: string, label?: string) => host === apex || host.endsWith(`.${apex}`) || label !== undefined && host.split('.').includes(label);
+  const mergeRequest = /^\/[^/]+(?:\/[^/]+)+\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(path);
   const match = hostOf('github.com', 'github') && /^\/[^/]+\/[^/]+\/pull\/(\d+)(?:\/|$)/u.exec(path)
-    || /^\/[^/]+(?:\/[^/]+)+\/pulls\/(\d+)(?:\/|$)/u.exec(path) || /^\/[^/]+(?:\/[^/]+)+\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(path)
+    || /^\/[^/]+(?:\/[^/]+)+\/pulls\/(\d+)(?:\/|$)/u.exec(path) || mergeRequest
     || hostOf('bitbucket.org', 'bitbucket') && /^\/[^/]+\/[^/]+\/pull-requests\/(\d+)(?:\/|$)/u.exec(path)
     || (hostOf('dev.azure.com') || host.endsWith('.visualstudio.com')) && /^\/(?:[^/]+\/)*_git\/[^/]+\/pullrequest\/(\d+)(?:\/|$)/u.exec(path) || null;
   const number = Number(match?.[1]);
-  return match && Number.isSafeInteger(number) && number > 0 ? number : null;
+  return match && Number.isSafeInteger(number) && number > 0 ? { number, term: match === mergeRequest ? 'MR' : 'PR' } : null;
 }
 
 export type T3SummaryAction = 'capabilities' | 'delegate' | 'task-status' | 'task-cancel' | 'schedule-run' | 'schedule-create'
@@ -172,8 +176,10 @@ export function t3ToolPresentation(definition: T3ToolDefinition | null, status: 
     : status === 'declined' ? `Declined to ${action.toLowerCase()}` : status === 'stopped' ? `Stopped ${running.toLowerCase()}` : running;
   const kind = (['link-pr', 'unlink-pr', 'list-prs', 'watch-pr', 'unwatch-pr'] as const).find(value => value === definition.summaryAction);
   const payload = record(data), input = record(payload?.arguments) ?? record(payload?.input) ?? record(payload?.rawInput);
-  const number = (typeof input?.url === 'string' ? changeRequestNumber(input.url) : null) ?? input?.number;
-  const target = kind !== undefined && kind !== 'list-prs' && typeof number === 'number' && Number.isSafeInteger(number) && number > 0 ? `PR #${number}` : detail;
+  // A bare number takes the default host's term (GitHub's), as sourceControlClients.get(undefined) does.
+  const linked = typeof input?.url === 'string' ? changeRequestTarget(input.url) : null, number = linked?.number ?? input?.number;
+  const target = kind !== undefined && kind !== 'list-prs' && typeof number === 'number' && Number.isSafeInteger(number) && number > 0
+    ? `${linked?.term ?? 'PR'} #${number}` : detail;
   return { displayName: `${verb} ${target}`, icon: definition.icon, ...kind === undefined ? {} : { action: kind } };
 }
 

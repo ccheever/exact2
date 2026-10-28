@@ -52,7 +52,8 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
     let tables = table_lines(&lines);
     let mut out = String::with_capacity(text.len() + 32);
     let mut fence: Option<(char, usize)> = None;
-    let mut paragraph = false;
+    // The quote depth (0 outside a quote) of the paragraph the previous line continues, when it continues one.
+    let mut paragraph: Option<usize> = None;
     for (index, line) in lines.iter().enumerate() {
         if index > 0 {
             out.push('\n');
@@ -64,7 +65,7 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
                 fence = None;
             }
             out.push_str(line);
-            paragraph = false;
+            paragraph = None;
             continue;
         }
         if let Some(marker @ ('`' | '~')) = trimmed.chars().next() {
@@ -72,19 +73,90 @@ fn inline_image_links(text: &str) -> std::borrow::Cow<'_, str> {
             if width >= 3 {
                 fence = Some((marker, width));
                 out.push_str(line);
-                paragraph = false;
+                paragraph = None;
                 continue;
             }
         }
-        let block_image = !paragraph && !tables[index] && sole_image_line(trimmed);
+        // remarkBreakAroundImageLines: an image alone on its source line inside a paragraph keeps that line (a label
+        // such as `**Palette**` above a screenshot), with line breaks before and after it. Spaces around it, the quote
+        // marks of a paragraph in a quote and a list item's indent are not the line's content.
+        let (depth, content) = quoted(trimmed);
+        let shown = content.trim_matches([' ', '\t']);
+        let starts = paragraph != Some(depth);
+        // The parser's image block: a sole image starting a block outside a quote and a list item's text.
+        let block_image = depth == 0 && starts && !tables[index] && sole_image_line(trimmed);
+        let owns_line = !block_image
+            && !tables[index]
+            && (sole_image_line(shown) || sole_linked_image_line(shown));
+        if owns_line && !starts && !out.ends_with(&format!("{LINE_BREAK}\n")) {
+            out.pop();
+            out.push_str(LINE_BREAK);
+            out.push('\n');
+        }
         if block_image || !line.contains("![") {
             out.push_str(line);
         } else {
             image_links_in_line(line, &mut out);
         }
-        paragraph = !block_image && prose_line(line);
+        if owns_line
+            && lines.get(index + 1).is_some_and(|next| continues(next, depth))
+            && !trimmed.ends_with(LINE_BREAK)
+        {
+            out.push_str(LINE_BREAK);
+        }
+        // A list item's text opens a paragraph that its indented lines go on with (markdown_parse's item joins them).
+        paragraph = match item_text(shown) {
+            Some(text) => (!text.trim().is_empty()).then_some(depth),
+            None => (!block_image && continues(line, depth)).then_some(depth),
+        };
     }
     std::borrow::Cow::Owned(out)
+}
+
+/// A line's quote depth (its `>` marks, each with the one space after it) and the text after them.
+fn quoted(trimmed: &str) -> (usize, &str) {
+    let (mut depth, mut rest) = (0, trimmed);
+    while let Some(after) = rest.strip_prefix('>') {
+        depth += 1;
+        rest = after.strip_prefix(' ').unwrap_or(after);
+    }
+    (depth, rest)
+}
+
+/// A list item line's text after its marker, as markdown_parse's bullet_of reads one (`-`, `*`, `+`, or one to nine
+/// digits and `.` or `)`, then a space; a rule is no item).
+fn item_text(line: &str) -> Option<&str> {
+    if is_rule_line(line) {
+        return None;
+    }
+    if let Some(rest) = line.strip_prefix(['-', '*', '+']).filter(|rest| rest.starts_with(' ')) {
+        return Some(rest);
+    }
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    if !(1..=9).contains(&digits) {
+        return None;
+    }
+    line[digits..].strip_prefix(['.', ')']).filter(|rest| rest.starts_with(' '))
+}
+
+/// Whether `line` is prose going on with a paragraph at quote depth `depth`.
+fn continues(line: &str, depth: usize) -> bool {
+    let (at, content) = quoted(line.trim_start());
+    at == depth && prose_line(content)
+}
+
+/// `[![alt](src)](link)` alone on a line: a link whose only content is one image, which isImageNode counts as an image.
+fn sole_linked_image_line(trimmed: &str) -> bool {
+    let Some(image) = trimmed.strip_prefix('[').filter(|rest| rest.starts_with("![")) else {
+        return false;
+    };
+    let Some((_, end)) = image_span(image, 0) else {
+        return false;
+    };
+    image[end + 1..]
+        .strip_prefix("](")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .is_some_and(|link| !link.is_empty() && !link.contains(')'))
 }
 
 /// `![alt](inside)` at `at`: the `]` and the `)` that close it (the destination's parentheses balanced).
@@ -239,7 +311,8 @@ fn image_links_in_line(line: &str, out: &mut String) {
 fn image_link(link: &dyn Fn(&str) -> String, href: &str) -> String {
     match href.strip_prefix(IMAGE_MARK) {
         Some(source) => {
-            let resolved = link(source);
+            // An image's source resolves as its media chip does, not as a link.
+            let resolved = media_href(source);
             let resolved = if resolved == NO_HREF || resolved.starts_with('#') {
                 ""
             } else {
@@ -465,8 +538,8 @@ mod media_tests {
             "a block image stays"
         );
         assert!(
-            rewritten.contains("Text\n[\u{e001}Joined](t3-image:j.png)"),
-            "a line that continues a paragraph is inline"
+            rewritten.contains("Text\u{e000}\n[\u{e001}Joined](t3-image:j.png)"),
+            "a line that continues a paragraph is inline, on a line of its own: {rewritten}"
         );
         assert!(
             rewritten.contains(&format!(
@@ -486,6 +559,55 @@ mod media_tests {
             text.lines().count(),
             "line structure kept for task offsets"
         );
+    }
+
+    // remarkBreakAroundImageLines (#22787): an image alone on its source line sits under its label.
+    #[test]
+    fn an_image_on_its_own_line_keeps_that_line() {
+        let lines = |text: &str| {
+            let Value::Record(fields) = document_with_tasks(Value::str("m"), text, None, true) else {
+                unreachable!()
+            };
+            let Value::List(blocks) = &fields[1] else { unreachable!() };
+            blocks
+                .iter()
+                .map(|block| {
+                    let Value::Record(block) = block else { unreachable!() };
+                    let Value::List(runs) = &block[7] else { return String::new() };
+                    runs.iter()
+                        .map(|run| match run {
+                            Value::Record(run) if run[6].as_str() == Some("media") => "<img>".to_string(),
+                            Value::Record(run) => run[1].as_str().unwrap_or("").to_string(),
+                            _ => String::new(),
+                        })
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            lines("**Palette**\n![Palette](/tmp/palette.png)\n**Hero** (dark)\n![Hero](/tmp/hero.png)"),
+            ["Palette", "<img>", "Hero (dark)", "<img>"]
+        );
+        assert_eq!(lines("Shot\n[![CI](/ci.svg)](/ci)\nafter").len(), 3, "a linked image alone on its line too");
+        assert_eq!(lines("Built [![CI](/ci.svg)](/ci)\nand wrapped").len(), 1, "an inline badge still wraps");
+        assert_eq!(lines("Hard-wrapped\nprose"), ["Hard-wrapped prose"]);
+        // Spaces after the image and a quote's marks are not the line's content (remarkBreakAroundImageLines reads
+        // the paragraph's own text).
+        let trimmed = |text: &str| lines(text).iter().map(|line| line.trim().to_string()).collect::<Vec<_>>();
+        assert_eq!(trimmed("**Palette**\n![P](p.png) \nnext"), ["Palette", "<img>", "next"]);
+        assert_eq!(trimmed("> **Palette**\n> ![P](p.png)"), ["Palette", "<img>"]);
+        assert_eq!(trimmed("> **Palette**\n> ![P](p.png)\n> next"), ["Palette", "<img>", "next"]);
+        // A list item's indented line keeps its picture (the item would take it in as alt text), and an image that
+        // opens a quote's paragraph keeps its line too.
+        assert_eq!(trimmed("1. Open settings\n   ![Settings](s.png)"), ["Open settings", "<img>"]);
+        // Its picture's line is the item's own: no second marker.
+        let Value::Record(fields) = document_with_tasks(Value::str("m"), "1. Open settings\n   ![Settings](s.png)", None, true) else {
+            unreachable!()
+        };
+        let Value::List(blocks) = &fields[1] else { unreachable!() };
+        let markers: Vec<&str> = blocks.iter().map(|block| match block { Value::Record(block) => block[3].as_str().unwrap_or(""), _ => "" }).collect();
+        assert_eq!(markers, ["1.", ""]);
+        assert_eq!(trimmed("> ![P](p.png)\n> caption"), ["<img>", "caption"]);
     }
 
     #[test]
