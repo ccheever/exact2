@@ -1703,6 +1703,7 @@ name = "exact-listen"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "socket2",
 ]
 
 [[package]]
