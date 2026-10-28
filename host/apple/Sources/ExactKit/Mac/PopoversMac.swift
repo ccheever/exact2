@@ -92,8 +92,15 @@ final class NativePopover: NSObject, NSPopoverDelegate {
 
 extension MenuHost {
     func wantsWindow(_ pop: NodeView) -> Bool {
-        pop.style["position_try_fallbacks"] == nil && !painted
+        !Self.selectsPainted(pop) && !painted
             && !(ExactEnv.agentMode && (isMenuShaped(pop) || isConfirmation(pop)))
+    }
+    /// What its author wrote that AppKit's popover cannot keep, so the page
+    /// paints it (LLP 1021 D2): fallbacks, whose order AppKit would replace
+    /// with a screen-based choice, and `left` or `top`, a point its top-left
+    /// goes to where AppKit's popover only points its arrow at a rectangle.
+    static func selectsPainted(_ pop: NodeView) -> Bool {
+        pop.style["position_try_fallbacks"] != nil || PositionArea.inset(of: pop, viewport: .zero) != nil
     }
 
     func paint(_ entry: Entry, in window: NSWindow) {
@@ -129,9 +136,9 @@ extension MenuHost {
     /// A style change moves the same open subtree between presentations;
     /// it neither toggles the popover nor gives it a new presentation identity.
     func syncPresentation(_ entry: Entry) {
-        let pop = entry.popover, hasFallbacks = pop.style["position_try_fallbacks"] != nil
-        guard entry.hasFallbacks != hasFallbacks else { return }
-        entry.hasFallbacks = hasFallbacks
+        let pop = entry.popover, selectsPainted = Self.selectsPainted(pop)
+        guard entry.selectsPainted != selectsPainted else { return }
+        entry.selectsPainted = selectsPainted
         guard entry.menu == nil, let presenter, presenter.viewport.window != nil,
               let source = entry.source, let window = source.window,
               wantsWindow(pop) != (entry.native != nil) else { return }

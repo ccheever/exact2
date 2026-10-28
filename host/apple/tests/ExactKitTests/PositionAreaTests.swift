@@ -355,4 +355,15 @@ final class PositionAreaTests: XCTestCase {
         XCTAssertNil(measure(3, refuse: true)); XCTAssertNil(measure(3, refuse: true))
         XCTAssertEqual(asked, 7, "a refusal is not kept")
     }
+
+    /// LLP 1021 D2: a box asked for at a point sits there; on an axis
+    /// without room it goes the other way from the point, as the web's sheet
+    /// opens it; where neither fits it is held in the bounds.
+    func testABoxAtAPointGoesTheOtherWayWhereItDoesNotFit() {
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300), size = CGSize(width: 120, height: 80)
+        XCTAssertEqual(PositionArea.at(CGPoint(x: 30, y: 8), size: size, in: bounds), CGPoint(x: 30, y: 8))
+        XCTAssertEqual(PositionArea.at(CGPoint(x: 390, y: 290), size: size, in: bounds), CGPoint(x: 270, y: 210), "up and to the left of it")
+        XCTAssertEqual(PositionArea.at(CGPoint(x: 390, y: 8), size: size, in: bounds), CGPoint(x: 270, y: 8), "only the axis without room")
+        XCTAssertEqual(PositionArea.at(CGPoint(x: 100, y: 40), size: CGSize(width: 120, height: 280), in: bounds), CGPoint(x: 100, y: 20), "neither way: held in")
+    }
 }

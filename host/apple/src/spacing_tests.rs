@@ -265,3 +265,25 @@ fn a_popovers_margins_cross_with_no_authored_area() {
         "{pop}"
     );
 }
+
+/// LLP 1021 D2: a popover's authored `left` and `top` cross, so the Apple
+/// hosts open it at that point of the viewport instead of at its invoker.
+#[test]
+fn a_popovers_insets_cross() {
+    let (host, ops) = boot(
+        r#"component App
+  view
+    column width=200 testId="root"
+      button popovertarget="pop" testId="open"
+        text "Open"
+      column id="pop" popover="auto" left=30 top=8 testId="pop"
+        text "Inside"
+"#,
+    );
+    let pop = style(&host, &ops, "pop");
+    assert_eq!(
+        (pop["left"].as_f64(), pop["top"].as_f64()),
+        (Some(30.0), Some(8.0)),
+        "{pop}"
+    );
+}

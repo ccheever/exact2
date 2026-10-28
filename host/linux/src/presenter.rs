@@ -229,9 +229,8 @@ pub struct Presenter<D: DataSource> {
     hover_point: Option<(f32, f32)>,
     /// The node holding the pointer's `pointerdown` until it lifts: the innermost hearing a pointer event, which hears the moves.
     pointer_held: Option<exact_kernel::NodeKey>,
-    /// Where the last pointer press was released, in the viewport: its
-    /// `MouseEvent`'s `clientX`/`clientY` (LLP 1021 D2).
-    press_point: Option<(f32, f32)>,
+    /// Where the last pointer press was, its `clientX`/`clientY` (LLP 1021 D2).
+    pub(crate) press_point: Option<(f32, f32)>,
     /// The nodes from the held one up that hear `pointerdown` or
     /// `pointerup`, innermost first: each hears the up.
     pointer_path: Vec<exact_kernel::NodeKey>,

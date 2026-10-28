@@ -314,7 +314,7 @@ extension Agent {
             if target != nil || reach.action == nil && reach.invocation?.isLive(in: presenter) == true {
                 presenter.menus.activating(from: node, pressing: target, consumed: reach.consumed) {
                     if let target {
-                        presenter.press(target.id, held: held, bubbled: reach.path?.bubbled == true || presenter.pressBox(of: target, from: node) !== target)
+                        presenter.press(target.id, held: held, at: p, bubbled: reach.path?.bubbled == true || presenter.pressBox(of: target, from: node) !== target)
                         pressed = Int(target.id)
                     }
                 }

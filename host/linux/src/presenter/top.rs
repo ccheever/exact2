@@ -403,6 +403,16 @@ impl<D: DataSource> Presenter<D> {
     ) -> bool {
         // Its session's roles (LLP 1121 stage 5): the surface's look resolves them.
         let _roles = self.host.runner().bind_roles();
+        // A popover its author placed by `left` or `top` opens at that point,
+        // as a context menu opens at the pointer (LLP 1021 D2).
+        let point = point.or_else(|| {
+            let node = self.host.kernel().node_by_key(target?)?;
+            let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
+            let popover = !modal && node.props.str(PropId::Popover).is_some();
+            popover
+                .then(|| area::inset_point(&style, &self.host.kernel().env(), self.viewport))
+                .flatten()
+        });
         if self.neutral_alerts() {
             return self.alert_present(target, name, invoker, point, modal, now_ms);
         }

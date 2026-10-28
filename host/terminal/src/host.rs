@@ -169,6 +169,9 @@ pub struct Host<D: DataSource> {
     pub(crate) caret: usize,
     pub(crate) scroll: HashMap<ViewId, f32>,
     pub(crate) collections: crate::collection::Collections,
+    /// The cell a mouse press is at while it is sent, from the painting's
+    /// top-left: its `MouseEvent`'s `clientX`/`clientY` (LLP 1021 D2).
+    pub(crate) press_point: Option<(i32, i32)>,
     /// Open dialogs and popovers, bottom to top, with the focus each took
     /// and whether it was opened modally (`show-modal`) or as a popover.
     pub(crate) layers: Vec<(ViewId, Option<ViewId>, bool)>,
@@ -284,6 +287,7 @@ impl<D: DataSource> Host<D> {
             caret: 0,
             scroll: HashMap::new(),
             collections: crate::collection::Collections::default(),
+            press_point: None,
             layers: Vec::new(),
             dark: true,
             painted: None,
@@ -1033,7 +1037,13 @@ impl<D: DataSource> Host<D> {
             } else if take && self.layers.is_empty() {
                 self.focus(None);
             }
-            self.dispatch(target, Event::Press);
+            let (x, y) = self.press_point.unwrap_or_default();
+            let mouse = exact_runner::MouseEvent {
+                client_x: x.into(),
+                client_y: y.into(),
+                ..Default::default()
+            };
+            self.dispatch(target, Event::pressed(mouse));
         }
         if let Some(key) = key {
             self.invoke(key);
