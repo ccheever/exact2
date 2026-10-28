@@ -9,6 +9,8 @@
 // {guild_id} after login, or op 14 {guild_id} / op 37 {subscriptions: {[guild_id]: {}}}.
 // Either subscription opcode accepts either shape.
 // POST /control/hold-sends {on} holds the app's sends until released, in order.
+// POST /control/hold-media {on} holds full-size pictures (a /media/ GET with no query, as the viewer asks;
+// the transcript's resized ones carry `width`) until released.
 // POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
 // {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
 // POST /control/vote {channel_id, message_id, user_id, answer_id, add} adds or takes back one vote on a poll.
@@ -295,6 +297,9 @@ export function startFixture(options: FixtureOptions = {}) {
   let holdSends = false;
   const heldSends: (() => void)[] = [];
   const releaseSends = () => { holdSends = false; for (const resume of heldSends.splice(0)) resume(); };
+  let holdMedia = false;
+  const heldMedia: (() => void)[] = [];
+  const releaseMedia = () => { holdMedia = false; for (const resume of heldMedia.splice(0)) resume(); };
   const injectionDispatches = new AsyncLocalStorage<InjectedDispatch[]>();
 
   function nextMessage(requested = nowMs()) {
@@ -772,7 +777,7 @@ export function startFixture(options: FixtureOptions = {}) {
       socket.data.closed = true; socket.close(keep ? 4004 : 1000, 'Fixture reset');
     }
     sockets.clear(); sessions.clear(); buckets.clear(); reactionUsers.clear();
-    typingUsers.clear(); failNext.clear(); releaseSends();
+    typingUsers.clear(); failNext.clear(); releaseSends(); releaseMedia();
     clearTimeout(reactionTimer); reactionTimer = undefined;
     clockOffsetMs = messageTimestamp = messageSequence = passiveUpdateCount = 0;
     forced.length = requests.length = frames.length = 0;
@@ -817,6 +822,10 @@ export function startFixture(options: FixtureOptions = {}) {
       case 'hold-sends':
         if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be a boolean');
         if (body.on) holdSends = true; else releaseSends();
+        break;
+      case 'hold-media':
+        if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be a boolean');
+        if (body.on) holdMedia = true; else releaseMedia();
         break;
       case 'clock':
         clockOffsetMs += integer(body.advance_ms, 0, 8640000000000000 - nowMs());
@@ -1084,6 +1093,7 @@ export function startFixture(options: FixtureOptions = {}) {
         const sticker = /^\/stickers\/601\.png$/.test(url.pathname);
         const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : sticker ? emojiNames[1] : undefined);
         if (!name || !/^[a-z]+$/.test(name)) return json({ message: 'Unknown asset', code: 0 }, 404);
+        if (media && holdMedia && !url.search) await new Promise<void>(resume => heldMedia.push(resume));
         const file = Bun.file(`${import.meta.dir}/../assets/${media ? 'media' : 'emoji'}/${name}.png`);
         if (!await file.exists()) return json({ message: 'Unknown asset', code: 0 }, 404);
         headers.set('Content-Type', 'image/png');

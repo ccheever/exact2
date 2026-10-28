@@ -120,12 +120,22 @@ test "the viewer draws the transcript's own picture under the full one, so it is
   expect state viewingThumb == ""
   tap "viewer-close"
   clock settle
-  // A tall picture the transcript shows resized (the proxy, asked at its box's pixels): drawn under the full one.
+  // A tall picture the transcript shows resized (the proxy, asked at its box's pixels): drawn under the full
+  // one, which is held.
   tap "transcript" drag 0 900 over 400
   clock settle
+  request POST "/control/hold-media" {"on": true}
   tap "open-1562867046130132736-1562867046130322582"
   clock settle
+  clock +1000 real
   expect tree has "viewer-thumb"
+  expect tree has "viewer-image"
+  expect state viewingLoaded == false
+  // Once the full picture loads the thumbnail goes, so a translucent picture never shows its thumbnail through.
+  request POST "/control/hold-media" {"on": false}
+  clock +3000 real
+  expect state viewingLoaded == true
+  expect tree missing "viewer-thumb"
   expect tree has "viewer-image"
   tap "viewer-close"
   clock settle
