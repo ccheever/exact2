@@ -196,6 +196,10 @@ test('a package token set for this app: its value edited before Apply is still t
       // Another file open: their rows show beside its own, but a name added there is that file's line (round 2).
       'type file brand.tamber', 'clock data', 'clock +1', 'clock data',
       'type new-name reading.measure', 'type new-value 780px', 'type new-value key Enter', 'clock data', 'state',
+      'tap cancel-edit', 'clock data',
+      // The app's design opened by its own path: still the app's line over theirs (re-check, Astra and Grok).
+      'type file app.tamber', 'clock data', 'clock +1', 'clock data',
+      'type new-name reading.measure', 'type new-value 790px', 'type new-value key Enter', 'clock data', 'state',
     ]);
     const states = replies.filter(r => r.slots);
     expect([states[0].slots.editKind, states[0].slots.editTarget, states[0].slots.editValue]).toEqual(['set-token', 'reading.measure', '700px']);
@@ -213,6 +217,7 @@ test('a package token set for this app: its value edited before Apply is still t
     expect(tool.writes[3].after).toBe(design);
     expect(tool.writes[4].after).toBe(`${design}  reading.measure: length = 760px\n`);
     expect([states[5].slots.file, states[5].slots.editKind, states[5].slots.editTarget]).toEqual(['brand.tamber', 'add-token', 'reading.measure']);
+    expect([states[6].slots.file, states[6].slots.editKind, states[6].slots.editTarget]).toEqual(['app.tamber', 'set-token', 'reading.measure']);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });

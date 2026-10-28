@@ -70,7 +70,7 @@ function change(e: any): Change | null {
 }
 
 type Design = Result<'loadDesign'>;
-const noDesign = (error: string): Design => ({ ok: false, error, file: '', answer: ++designs, groups: [], columns: [], firstColumn: '', tokenGroups: [], names: [], axes: [], icons: [], components: [] });
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', appDesign: false, answer: ++designs, groups: [], columns: [], firstColumn: '', tokenGroups: [], names: [], axes: [], icons: [], components: [] });
 let designs = 0;
 
 
@@ -861,7 +861,7 @@ const sources: Sources = {
         while (reads.size > 24) reads.delete(reads.keys().next().value!);
       }
       return {
-        ok: true, error: '', file: file || '', answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
+        ok: true, error: '', file: file || '', appDesign: !file || file === designFile, answer: number, groups: panel, axes: axes.map(a => ({ name: a.name, values: a.values })),
         columns: columns.map(({ id, label }) => ({ id, label })), firstColumn: columns[0]?.id ?? '',
         tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
         names: [...names],
