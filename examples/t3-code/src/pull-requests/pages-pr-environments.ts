@@ -5,7 +5,7 @@ import { requireRpcPermissions } from '../connections/command-permissions';
 // as the pull request code uses it (MIT, see LICENSE-T3: packages/client-runtime/src/connection/
 // {registry,githubRoutingPermissions}.ts, state/pullRequestRouting.ts): the router asks it which
 // servers are connected, local and trusted, and sends each routed request through it.
-import { observePullRequestSummary } from './pages-pr-shared';
+import { observePullRequestChecks, observePullRequestSummary } from './pages-pr-shared';
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
@@ -116,6 +116,7 @@ export async function routedPullRequestRequest(client: T3Client, native: Native,
   const origin = pullRequestServer(client, str(environmentId) || nested, rest);
   const answer = await pullRequestRouter.request(routerHost(client, native, origin, fleet, share), method, rest, write);
   if (method === 'pullRequests.detail' || method === 'pullRequests.summary') observePullRequestSummary(client, origin || client.environmentId, rest, answer);
+  if (method === 'pullRequests.checks') observePullRequestChecks(client, origin || client.environmentId, rest, answer);
   if (method === 'pullRequests.list') for (const entry of arr(answer.entries)) observePullRequestSummary(client, origin || client.environmentId, entry, entry);
   return answer;
 }

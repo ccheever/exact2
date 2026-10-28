@@ -1,7 +1,11 @@
-// T3 Code Nightly artwork, adapted from SidebarStageBackdrop.tsx (MIT).
+// T3 Code Nightly artwork, adapted from SidebarStageBackdrop.tsx (MIT). The reference masks the stage (opaque to 55%,
+// clear at 92%) and lays the stage-fade colour over it (index.css sidebar-stage-backdrop::after: clear to 28%, then 10%
+// at 40%, 30% at 52%, 58% at 64%, 82% at 75%, 96% at 85%, all of it at 93%). That colour is always the sidebar's own
+// (`--sidebar-stage-fade`, a theme's included), which shows through the mask, so one mask of the two curves' product
+// paints the same, for any theme: the sky fades into the sidebar behind Search.
 component NightlyBackdrop
   view
-    box position="absolute" top=0 left=0 width="100%" height="5rem" overflow="hidden" mask-image="linear-gradient(to bottom, #000000 0%, #000000 55%, #00000000 92%)" aria-hidden=true
+    box position="absolute" top=0 left=0 width="100%" height="5rem" overflow="hidden" mask-image="linear-gradient(to bottom, #000000ff 0%, #000000ff 28%, #000000e6 40%, #000000cc 46%, #000000b2 52%, #000000a1 55%, #00000071 60%, #00000051 64%, #0000002c 70%, #00000015 75%, #00000009 80%, #00000002 85%, #00000000 92%)" aria-hidden=true
      svg width="100%" height="5rem" viewBox="0 0 307.2 96" preserveAspectRatio="xMinYMin slice" fill="none" pointer-events="none" aria-hidden=true
       defs
         linearGradient id="sky" x1=24 y1=0 x2=264 y2=96 gradientUnits="userSpaceOnUse" spreadMethod="reflect"

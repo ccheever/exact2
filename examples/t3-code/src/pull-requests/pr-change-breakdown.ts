@@ -20,6 +20,7 @@ import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { width12 } from '../details/pr-row-logic';
 import { pullRequestRefreshEpoch } from './pages-pr-refresh';
+import { formatDiffCount } from '../details/diff-count';
 
 /** One line of the split: a kind's label and its counts, already formatted, and its grid row (from 1). */
 export type BreakdownLine = { key: string; label: string; additions: string; deletions: string; row: number };
@@ -40,8 +41,7 @@ const normalRef = (reference: Obj): Obj => {
 };
 const KIND_LABELS: Record<keyof Breakdown, string> = { code: 'Code', tests: 'Tests', mocks: 'Mocks', generated: 'Generated', docs: 'Docs' };
 
-const count = (value: number) => value.toLocaleString('en-US');
-const line = (key: string, label: string, counts: LineCount, row: number): BreakdownLine => ({ key, label, additions: `+${count(counts.additions)}`, deletions: `-${count(counts.deletions)}`, row });
+const line = (key: string, label: string, counts: LineCount, row: number): BreakdownLine => ({ key, label, additions: `+${formatDiffCount(counts.additions)}`, deletions: `-${formatDiffCount(counts.deletions)}`, row });
 /** ChangeBreakdownGrid: each kind that changed, in the reference's order. */
 export function breakdownLines(breakdown: Breakdown): BreakdownLine[] {
   return (Object.keys(KIND_LABELS) as (keyof Breakdown)[])

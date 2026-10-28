@@ -10,6 +10,9 @@ shape GitBranch
   show: bool
   open: bool
   label: string
+  // splitForMiddleTruncate: the label's head and the tail it keeps when cut, '' for a label too short to split.
+  labelHead: string
+  labelTail: string
   value: string
   disabled: bool
   query: string
@@ -62,6 +65,14 @@ shape RunOnOption
 shape GitCard
   writable: bool
   repo: bool
+  // A draft or a run-less thread with nothing to commit, push or diff: no Git action or Changes rows.
+  quiet: bool
+  // The Changes row's counts, grouped ("+1,234").
+  changesAdd: string
+  changesDel: string
+  // The run context's glyph tooltips (shell-details.ts): where it runs, and the workspace's path.
+  runTip: string
+  workspaceTip: string
   initLabel: string
   initPending: bool
   quickLabel: string

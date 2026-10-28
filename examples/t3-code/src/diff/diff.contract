@@ -65,6 +65,13 @@ component DiffPanelBody
     details: action
     local: action
   state hovered = ""
+  // The file under the pointer, any row of it (DiffRow hoveredPath).
+  state hoveredFile = ""
+  action hoverFile(path: string)
+    hoveredFile = path
+  action listHover(over: bool)
+    if not over
+      hoveredFile = ""
   // diff-review: the open comment draft's text (AnnotatableCodeView draftText), kept here so a scrolled-away row keeps it.
   state draftText = ""
   action findOp(op: string, value: string)
@@ -127,9 +134,9 @@ component DiffPanelBody
             else
               // DiffFileLoadingBoundary: nearing the end of a large diff asks for four more files (diff-review.ts).
               // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
-              list appearance="none" virtualized=true id="diff-list" reachend=command("diffreview", "next", "", 0) flex=1 min-height=0 width="100%" testId="diff-content"
+              list appearance="none" virtualized=true id="diff-list" hover=listHover reachend=command("diffreview", "next", "", 0) flex=1 min-height=0 width="100%" testId="diff-content"
                 for item in data.diffItems key=item.id
-                  DiffRow(family=data.look.codeFont, item=item, wrap=data.diffWrap, command=command, scheme=data.look.diff, size=data.look.codeSize, commentOpen=data.diffCommentOpen, draftText=draftText, editDraft=editDraft, beginComment=beginComment, cancelComment=cancelComment, saveComment=saveComment)
+                  DiffRow(family=data.look.codeFont, item=item, wrap=data.diffWrap, command=command, scheme=data.look.diff, size=data.look.codeSize, commentOpen=data.diffCommentOpen, draftText=draftText, editDraft=editDraft, beginComment=beginComment, cancelComment=cancelComment, saveComment=saveComment, hoveredPath=hoveredFile, hoverPath=hoverFile)
         if data.diffTree and data.diffFiles.length > 0
           DiffTree(data=data, command=command, scheme=data.look.diff)
       // The rail sits inside the panel and above its body: an overflowing child is not hit-testable natively.

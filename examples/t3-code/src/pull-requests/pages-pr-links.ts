@@ -7,6 +7,7 @@
 // components/CommandPalette.logic.ts (buildLinkedThreadActionItems), lib/openPullRequestLink.ts.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { terminologyForUrl } from '../details/git-logic';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
@@ -120,7 +121,8 @@ export function presentLinks(client: T3Client, context: LinkContext): PrLinksVie
  * the linked threads are read again after it lands.
  */
 export async function changeLink(client: T3Client, native: Native, storage: Files, context: LinkContext, threadId: string, linked: boolean,
-  failureTitle: (linked: boolean) => string = on => on ? 'Could not link the pull request' : 'Could not unlink the pull request'): Promise<boolean> {
+  // PullRequestThreadLinks: the link's URL names its host's term.
+  failureTitle: (linked: boolean) => string = on => `Could not ${on ? 'link' : 'unlink'} the ${terminologyForUrl(context.url).singular}`): Promise<boolean> {
   const state = stateOf(client);
   if (state.pending) return false;
   const environment = prEnvironment(client, context.environmentId);
@@ -261,10 +263,11 @@ export function linkChips(client: T3Client, environmentId: string, links: { href
   return links.flatMap(link => {
     if (seen.has(link.href)) return [];
     seen.add(link.href);
-    const candidate = link.kind === 'reference' ? pullRequestCandidateUrlFromReferenceAutolink(link.href) : link.kind === 'commit' ? null : link.href;
+    const candidate = link.kind === 'reference' ? pullRequestCandidateUrlFromReferenceAutolink(link.href) : link.kind === 'commit' || link.kind === 'mention' ? null : link.href;
     const target = candidate ? resolvePullRequestPreviewTarget({ environmentId: environment.id, projects: environment.projects.map(project => ({ ...project, environmentId: environment.id })),
       pullRequestsEnabled: readsPullRequests(environment), url: candidate }) : null;
-    if (!target && link.kind !== 'commit') return [];
+    // A commit or a mention is an autolink without a card: no favicon, and its press follows Open links in.
+    if (!target && link.kind !== 'commit' && link.kind !== 'mention') return [];
     const ref = target ? JSON.stringify({ ...target.input, ...(environment.focused ? {} : { environmentId: environment.id }) }) : '';
     return [{ id: `pr-link-${seen.size}`, href: link.href, kind: 'pr-link', label: '', size: '', tip: link.href, detail: link.kind, icon: '', target: ref, owner: candidate ?? '', menu: [] }];
   });

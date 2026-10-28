@@ -332,7 +332,7 @@ component SettingsWindow
                 // Both panels get the content column's width: the sheet less its border, the 15rem nav and the scroller's sides,
                 // held to the 56rem cap less its 1.5rem sides (readable SettingsPageContainer).
                 if settingsRoute == "connections"
-                  ConnectionsPanel(page=connectionsPage, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
+                  ConnectionsPanel(view=settingsRoute, page=connectionsPage, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
                 if settingsRoute == "providers"
                   ProvidersPanel(page=providerPage, scheme=scheme, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, addingUi=modelAddingUi, modelAdding=modelAddingLive)
                 if settingsRoute == "projects"

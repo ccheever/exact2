@@ -1,4 +1,4 @@
-// The pull request Code tab's pure logic, ported from T3 Code 9c161462c9
+// The pull request Code tab's pure logic, ported from T3 Code 7c3b3b3605ef
 // (MIT, see LICENSE-T3): apps/web/src/components/pullRequest/{pullRequestDiff.logic,
 // pullRequestFilesViewed.logic,pullRequestFileOrder.logic}.ts, pullRequestDetail.logic.ts (the
 // thread comment pages), apps/web/src/reviewCommentContext.ts resolveDiffReviewPosition,
@@ -317,13 +317,13 @@ export function fnv1a32(text: string): string {
 }
 
 /**
- * describePullRequestDiffError (T3 Code 74541bab17 pullRequestDiffError.ts): diff failures arrive wrapped by the
- * transport, so the reason is recognised inside them.
+ * describePullRequestDiffError (T3 Code 7c3b3b3605ef pullRequestDiffError.ts): diff failures arrive wrapped by the
+ * transport, so the reason is recognised inside them. `term`: the host's word for a change request.
  */
-export function describePullRequestDiffError(error: string, providerName: string): { title: string; description: string } {
+export function describePullRequestDiffError(error: string, providerName: string, term = 'pull request'): { title: string; description: string } {
   if (/\brate limit\b|\brate[-_]limited\b|\btoo many requests\b/i.test(error)) {
     return { title: `${providerName} rate limit reached`,
       description: `${providerName} is temporarily limiting requests, so this diff couldn't be loaded. Try again after the limit resets, or view the changes on ${providerName}.` };
   }
-  return { title: "Couldn't load the changes", description: `The environment couldn't load this pull request's diff. Try again, or view the changes on ${providerName}.` };
+  return { title: "Couldn't load the changes", description: `The environment couldn't load this ${term}'s diff. Try again, or view the changes on ${providerName}.` };
 }

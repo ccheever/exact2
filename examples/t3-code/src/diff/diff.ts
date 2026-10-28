@@ -254,12 +254,18 @@ export const plain = (text: string): Segment[] => [{ id: '0', text, mark: false,
 /** A Markdown list item's marker: the reference highlights with @pierre/highlights (d228f1f2c8 #23178), whose
  *  pierre themes paint `punctuation.list_marker` in the punctuation grey; the pierre Shiki themes give it the heading ink. */
 const LIST_MARKER = /^\s*([-*+]|\d+[.)])\s*$/;
+/** An ATX heading line, which @pierre/highlights draws in weight 700 (`markup.heading`); its tokens carry `+b`
+ *  (diff-rows.contract diffBold), as `+i` marks an italic one. */
+const HEADING_LINE = /^ {0,3}#{1,6}(?:\s|$)/;
 function diffLineTokens(lines: readonly string[], path: string): Token[][] {
   const tokens = lineTokens(lines, path);
   if (!/\.(md|mdx|markdown)$/i.test(path)) return tokens;
-  return tokens.map(line => {
+  return tokens.map((line, index) => {
+    // Both rules read the first token's class, the heading ink: a `#` comment in a fenced block is that language's comment.
     const first = line.findIndex(token => token.text.trim() !== '');
-    if (first < 0 || (line[first]!.cls !== 'tag' && line[first]!.cls !== 'heading') || !LIST_MARKER.test(line[first]!.text)) return line;
+    if (first < 0 || (line[first]!.cls !== 'tag' && line[first]!.cls !== 'heading')) return line;
+    if (HEADING_LINE.test(lines[index] ?? '')) return line.map(token => ({ ...token, cls: `${token.cls}+b` as unknown as Token['cls'] }));
+    if (!LIST_MARKER.test(line[first]!.text)) return line;
     return line.map((token, at) => at === first ? { ...token, cls: 'punct' } : token);
   });
 }

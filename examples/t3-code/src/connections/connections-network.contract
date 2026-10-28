@@ -141,7 +141,7 @@ component NetSwitch
     toggle: action
   view
     button id=switchId press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled testId=switchId width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") title=""
-      box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color=(checked ? "light-dark(#fcfcfc, #000000)" : "light-dark(#fcfcfc, #818181)")
+      box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color=(checked ? "light-dark(#fcfcfc, #000000)" : "light-dark(#fcfcfc, #a1a1a1)")
 
 // Button size xs (h-6 px-2 text-xs): outline, destructive-outline, ghost and default.
 component NetXs
@@ -318,7 +318,7 @@ component AuthorizedClients
     focus("pairing-label")
   derive revokingOthers = busy and othersAt == net.settled
   view
-    column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)" testId="authorized-clients"
+    column width="100%" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)" testId="authorized-clients"
       row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="center"
         button press=toggle aria-expanded=open testId="authorized-clients-toggle" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" flex=1 min-width=0 min-height="2.75rem" box-sizing="border-box" padding-top="0.5rem" padding-bottom="0.5rem" padding-left=0 padding-right=0 border-width=0 background-color="#00000000"
           box rotate=(open ? 90 : 0) display="flex"
@@ -415,7 +415,7 @@ component PairingLinkRow
                   NetXs(label="Copy code only", tone="ghost", disabled=false, test=`pairing-link-copy-code-only-${row.id}`, press=op("pairing-copy", row.id, "code"))
               if option.qr
                 box padding="0.75rem" border-radius="0.75rem" background-color="#ffffff" flex-shrink=0
-                  box width="10.5rem" height="10.5rem" position="relative" background-color="#ffffff" role="img" aria-label="Pairing link — scan to open on another device" testId=`pairing-link-qr-${row.id}`
+                  box width="10.5rem" height="10.5rem" position="relative" background-color="#ffffff" role="img" aria-label="Pairing link. Scan to open on another device" testId=`pairing-link-qr-${row.id}`
                     for cell in option.cells key=`${cell.x}:${cell.y}`
                       box position="absolute" left=cell.x top=cell.y width=cell.w height=cell.h background-color="#000000"
               else

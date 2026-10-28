@@ -9,7 +9,7 @@
 // is one of them whenever it is not the focus: it connects with `primary: true`
 // (its bearer is the embedded server's, in memory) and is never saved.
 import { pendingSubagentRequestsByThread } from '../sidebar/subagent-requests';
-import { obj, str, num, arr, initialShell, applyShell, type Obj, type Shell } from '../client/domain';
+import { obj, str, num, arr, initialShell, applyShell, decodeDeviceState, type Obj, type Shell } from '../client/domain';
 import { bridgeReply, applyConfig, type Native } from '../client/protocol';
 import { announceJobs } from './settings-b-outdated';
 import { announceServerUpdates } from './server-update';
@@ -43,6 +43,9 @@ export interface FleetEntry {
   primary?: boolean;
   terminalMetadata?: ReadonlyArray<TerminalSummary> | null;
   terminalAttempted?: boolean;
+  /** Its device hub's latest state (`subscribeDeviceState`): an agent in any of its threads can open a device. */
+  deviceState?: Obj | null;
+  deviceAttempted?: boolean;
 }
 export interface FocusedHost { origin: string; environmentId: string; connection: string }
 
@@ -185,12 +188,14 @@ export class EnvironmentFleet {
     }
     if (status.generation !== entry.generation) {
       entry.generation = status.generation; entry.synchronized = -1; entry.lastEvent = 0; entry.subscriptions = {}; entry.terminalMetadata = null; entry.terminalAttempted = false;
+      entry.deviceState = null; entry.deviceAttempted = false;
       this.retries.delete(entry);
     }
     if (entry.phase !== 'connected') return;
     if (entry.synchronized !== entry.generation) await this.bootstrap(remote, entry);
     await this.drain(remote, entry);
     await this.watchTerminals(remote, entry);
+    await this.watchDevices(remote, entry);
     await liveFleetPass(request => this.call(remote, entry, request), entry); // live-streams.ts: scheduled tasks and clones
     await keepAliveFleetPass(request => this.call(remote, entry, request), entry); // keep-alive.ts: running threads' detail streams, the primary's lifecycle
     await fleetPortsPass(request => this.call(remote, entry, request), entry); // legacy-sidebar-ports.ts: the legacy rows' discovered ports
@@ -214,7 +219,7 @@ export class EnvironmentFleet {
 
   private async bootstrap(remote: Native, entry: FleetEntry): Promise<void> {
     const generation = entry.generation;
-    const auth = await this.call(remote, entry, { op: 'http', path: '/api/auth/session' });
+    const auth = await readSessionState(request => bridgeReply(remote, { ...request, generation: entry.generation }), entry.generation);
     entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth);
     entry.config = await this.call(remote, entry, { op: 'request', method: 'server.getConfig', payload: {} });
     entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // hub sources, as the focused client asks
@@ -230,6 +235,18 @@ export class EnvironmentFleet {
     try {
       entry.subscriptions['terminal-metadata'] = str((await this.call(remote, entry, { op: 'subscribe', key: 'terminal-metadata', method: 'subscribeTerminalMetadata', payload: {} })).id);
     } catch { entry.terminalAttempted = false; }
+  }
+
+  /**
+   * startAgentOpenedPreviews' watchEnvironmentDevices: every connected environment's device sessions, so a device an
+   * agent opens in one of its threads can float over that thread (device/floating-player.ts reads fleetDeviceStates).
+   */
+  private async watchDevices(remote: Native, entry: FleetEntry): Promise<void> {
+    if (!entry.scopes.includes('orchestration:read') || entry.deviceAttempted || entry.subscriptions['device-state']) return;
+    entry.deviceAttempted = true;
+    try {
+      entry.subscriptions['device-state'] = str((await this.call(remote, entry, { op: 'subscribe', key: 'device-state', method: 'subscribeDeviceState', payload: {} })).id);
+    } catch { entry.deviceAttempted = false; }
   }
 
   private async drain(remote: Native, entry: FleetEntry): Promise<void> {
@@ -251,6 +268,13 @@ export class EnvironmentFleet {
         if (num(event.generation, -1) === entry.generation && (codexHandoffEvent(event) || providerSetupEvent(fleetSetupHost(entry), event))) { this.revision++; continue; } // codex-handoff-events.ts, codex-fleet-host.ts
         const key = str(event.key), item = obj(event.value);
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;
+        if (key === 'device-state') {
+          // A failed stream keeps its last state; one due again subscribes on the next pass.
+          if (item._retryDue) { entry.subscriptions[key] = ''; entry.deviceAttempted = false; continue; }
+          if (item._transportError || item._streamEnded) continue;
+          if (Array.isArray(item.hosts)) { entry.deviceState = decodeDeviceState(item); this.revision++; }
+          continue;
+        }
         if (key === 'terminal-metadata') {
           // Keep terminal failures isolated from shell/config. Authorization waits for a new
           // generation; other failures wait for the transport's bounded retry notification.
@@ -357,6 +381,30 @@ export function fleetRunningTerminalIds(environmentId: string, threadId: string,
   const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
   if (!entry || entry.phase !== 'connected' || entry.synchronized !== entry.generation) return [];
   return (entry.terminalMetadata ?? []).filter(terminal => terminal.threadId === threadId && terminal.hasRunningSubprocess).map(terminal => terminal.terminalId);
+}
+
+/** Every connected background environment's device hub state, for the devices its agents open (device/floating-player.ts). */
+export function fleetDeviceStates(source: EnvironmentFleet = fleet): { environmentId: string; state: Obj }[] {
+  return [...source.entries.values()].flatMap(entry => entry.phase === 'connected' && entry.synchronized === entry.generation && entry.deviceState
+    ? [{ environmentId: entry.environmentId, state: entry.deviceState }] : []);
+}
+
+export const SESSION_STATE_TIMEOUT_MS = 6_000;
+export const MAX_SESSION_STATE_TIMEOUT_MS = 60_000;
+/**
+ * fetchEnvironmentSessionState: the session read waits 6 s, and a timeout asks again at double the time up to 60 s,
+ * since it says nothing about grants: failing would show a busy host as read-only. The transport ends the read at
+ * `timeoutMs` and reports it with reason `timeout`; any other failure ends the bootstrap.
+ */
+export async function readSessionState(call: (request: Obj) => Promise<{ ok: boolean; generation: number; value?: unknown; error?: { kind: string; message: string; reason?: string } }>, generation: number): Promise<Obj> {
+  for (let timeoutMs = SESSION_STATE_TIMEOUT_MS; ; timeoutMs = Math.min(timeoutMs * 2, MAX_SESSION_STATE_TIMEOUT_MS)) {
+    const reply = await call({ op: 'http', path: '/api/auth/session', timeoutMs });
+    if (reply.ok) {
+      if (reply.generation !== generation) throw new Error('The connection changed.');
+      return obj(reply.value);
+    }
+    if (reply.error?.reason !== 'timeout' || timeoutMs >= MAX_SESSION_STATE_TIMEOUT_MS) throw new Error(reply.error?.message ?? 'The connection failed.');
+  }
 }
 
 /** The app's one fleet: background environments outlive any single answer. */
