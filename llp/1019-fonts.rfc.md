@@ -1006,7 +1006,8 @@ name: no CSS specification defines it (CSS Fonts 4 dropped `font-smooth`).
   (`TextRasterKey`, over the spec) tells the two apart and a change redraws.
   It is paint (`TextPaint`), not geometry: the kernel's request never carries
   it, and the paragraph it measured is the one an `antialiased` paint reuses.
-- **UIKit** sets the same flag in the same places. iOS's Core Graphics is not
+- **UIKit** sets the same flag in the paragraph raster and the direct draw
+  (the selection overlay is the Mac's alone). iOS's Core Graphics is not
   known to smooth fonts, so it is expected to draw as before, as iOS Safari
   ignores the property; not measured.
 - **Measured** (`scripts/fixtures/font-smoothing.contract`, black San

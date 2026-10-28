@@ -593,7 +593,8 @@ amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
 amends the 2026-10-12 textrows ruling above, which kept it deferred. Consumer:
 the T3 Code clone, whose web original sets `antialiased` on its root; drawn
 without it, its labels read a weight heavier than the original's. `none` and
-`subpixel-antialiased` stay refused.
+`subpixel-antialiased` stay refused. Take: waived (Daehyeon Mun, 2026-10-28):
+a paint-only row, no doing-list item in this area.
 
 **Runtime**
 
