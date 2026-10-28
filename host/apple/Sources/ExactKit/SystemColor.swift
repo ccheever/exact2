@@ -282,11 +282,12 @@ extension NodeView {
         // An `svg`'s paints are resolved into its scene's layers.
         if kind == "svg" { presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint) }
         // A symbol counts: hierarchical and palette glyphs bake the tint in. In a control, every
-        // colour greys with the tint (TintDimmingIOS.swift).
+        // colour greys with the tint (TintDimmingIOS.swift), and so do the boxes drawn flat in it and
+        // the pictures of the filtered boxes above it, which copy its paint.
         guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil || insideControl else { return }
         paragraphOwner.invalidateText(); paragraphOwner.setNeedsDisplay()
         applyStyle(style)
-        if insideControl { presenter?.flats.tintChanged(id) }
+        if insideControl { presenter?.flats.tintChanged(id); presenter?.boxFilters.changed(self) }
         presenter?.controls.tintChanged(self)
     }
 

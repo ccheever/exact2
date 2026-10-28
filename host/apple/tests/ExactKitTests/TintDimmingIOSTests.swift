@@ -345,6 +345,30 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try runChannels(paragraph), [0, 122, 255, 51], "a fifth of the tint once the dimming ends")
     }
 
+    /// A filtered box's picture copies the paint beneath it, so it draws again when a control beneath
+    /// it greys and when it takes its colour back
+    func testAFilteredBoxAboveAControlDrawsAgainWithTheTint() throws {
+        let sub: [Double] = [-10, -10, 20, 20]
+        let program = sub + [1] + [0, -1, -3] + sub + [0, 2, 2]
+        guard SvgFilterGPU.runs(program.map(Float.init)) else { throw missing("metal", "no GPU filter path") }
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "style": ["filter": ["p": program]]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["press"], "style": ["background_color": blue, "written": ["background_color"]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 44.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        XCTAssertNotNil(p.views[1]?.boxFilter?.picture, "the box is pictured")
+        until("the first picture lands") { !p.boxFilters.drawing }
+        dim(p, true)
+        XCTAssertTrue(p.boxFilters.drawing, "the picture draws again as the control greys")
+        until("that picture lands") { !p.boxFilters.drawing }
+        dim(p, false)
+        XCTAssertTrue(p.boxFilters.drawing, "and again as the control takes its colour back")
+        until("the last picture lands") { !p.boxFilters.drawing }
+    }
+
     /// A pressable route's backdrop, which its controller's view keeps, takes its fill as written
     /// while dimmed, so the view shows it once the dimming ends
     func testAPressableRoutesBackdropIsAsWrittenWhileDimmed() throws {
@@ -459,6 +483,13 @@ final class TintDimmingIOSTests: XCTestCase {
         if style["text_color"] != nil { props["symbolColorWritten"] = "1" }
         return [["op": "create", "id": id, "kind": "image", "props": props, "handlers": [], "style": ["font_size": 24.0].merging(style) { $1 }],
                 ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0]]
+    }
+
+    /// Runs the main run loop until `done`, for at most `seconds`: pictures land on it (docs/testing.md)
+    private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+        XCTAssertTrue(done(), what)
     }
 
     /// UIKit dims tints behind a sheet, or stops, and the window lays out what changed
