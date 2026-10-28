@@ -4,7 +4,11 @@
 use crate::instance::{Frame, TextureId};
 use std::fmt;
 
+#[cfg(exact_ink_metal)]
+pub mod metal;
+mod selected;
 pub mod wgpu;
+pub use selected::Selected;
 
 #[derive(Clone, Debug)]
 pub struct Info {
@@ -137,3 +141,35 @@ pub trait Device {
 
 #[cfg(test)]
 mod tests;
+
+/// Process counters for the S0 harness without spawning a child in the worker.
+/// CPU milliseconds, resident bytes, peak resident bytes, footprint bytes and
+/// peak footprint bytes. @ref LLP 1149 D15.
+#[cfg(target_os = "macos")]
+pub fn process_usage() -> std::io::Result<[f64; 5]> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v4>::zeroed();
+    let mut peak = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+    // SAFETY: both outputs have the sizes their selectors require. Neither
+    // pointer escapes the calls; values are read only on success.
+    unsafe {
+        if libc::proc_pid_rusage(
+            std::process::id() as i32,
+            libc::RUSAGE_INFO_V4,
+            usage.as_mut_ptr().cast(),
+        ) != 0
+            || libc::getrusage(libc::RUSAGE_SELF, peak.as_mut_ptr()) != 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        let usage = usage.assume_init();
+        let peak = peak.assume_init();
+        Ok([
+            (peak.ru_utime.tv_sec + peak.ru_stime.tv_sec) as f64 * 1000.
+                + (peak.ru_utime.tv_usec + peak.ru_stime.tv_usec) as f64 / 1000.,
+            usage.ri_resident_size as f64,
+            peak.ru_maxrss as f64,
+            usage.ri_phys_footprint as f64,
+            usage.ri_lifetime_max_phys_footprint as f64,
+        ])
+    }
+}

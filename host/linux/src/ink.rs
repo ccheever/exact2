@@ -5,9 +5,9 @@ use crate::paint::{Backend, FrameTarget, GradientPaint, Rect4, Shape, POINTER};
 use crate::raster::tiny_path as path;
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_ink::atlas::Atlas;
-use exact_ink::device::{Device, Error, Info, Result};
+use exact_ink::device::{Device, Error, Info, Result, Selected};
 use exact_ink::instance::{flags, Bindings, RoundedClip, TextureId};
-use exact_ink::{Brush, Encoder, Instance, Kind, Wgpu};
+use exact_ink::{Brush, Encoder, Instance, Kind};
 use std::sync::Arc;
 use std::time::Instant;
 use tiny_skia::{FillRule, Path, PathBuilder, Pixmap, Transform};
@@ -24,9 +24,9 @@ mod svg;
 mod tests;
 mod text;
 
-/// Headless wgpu painter; its premultiplied pixels use the presenter's ordinary path.
+/// Headless instanced painter; its premultiplied pixels use the presenter's ordinary path.
 pub struct Ink {
-    device: Wgpu,
+    device: Selected,
     encoder: Encoder,
     paths: Atlas,
     glyphs: exact_ink::glyph::Glyphs,
@@ -51,11 +51,11 @@ pub struct Ink {
 }
 
 impl Ink {
-    /// Open a native wgpu device and record its startup phases.
+    /// Open the selected native device and record its startup phases.
     pub fn new() -> std::result::Result<Self, String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            Wgpu::new()
+            Selected::from_env()
                 .map(Self::from_device)
                 .map_err(|e| e.to_string())
         }
@@ -66,9 +66,9 @@ impl Ink {
     }
 
     /// Adapt an already opened device, including one opened asynchronously.
-    pub fn from_device(device: Wgpu) -> Self {
+    pub fn from_device(device: impl Into<Selected>) -> Self {
         Self {
-            device,
+            device: device.into(),
             encoder: Encoder::new(1, 1),
             paths: Atlas::paths(),
             glyphs: Default::default(),

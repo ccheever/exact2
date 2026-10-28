@@ -284,7 +284,7 @@ impl Wgpu {
             errors: failures,
             info: Info {
                 adapter: adapter_info.name,
-                api: format!("{:?}", adapter_info.backend),
+                api: format!("wgpu {:?}", adapter_info.backend),
                 device_ms,
                 shaders_ms,
                 cached: data.is_some(),
@@ -502,9 +502,14 @@ impl Wgpu {
             .slice(..)
             .get_mapped_range()
             .map_err(|e| Error::Device(e.to_string()))?;
-        let mut pixels = Vec::with_capacity(row as usize * height as usize);
-        for line in mapped.chunks_exact(padded as usize) {
-            pixels.extend_from_slice(&line[..row as usize]);
+        // Zeroed allocation avoids retaining dirty large malloc blocks between
+        // readbacks on macOS. The returned image owns this allocation.
+        let mut pixels = vec![0; row as usize * height as usize];
+        for (dst, src) in pixels
+            .chunks_exact_mut(row as usize)
+            .zip(mapped.chunks_exact(padded as usize))
+        {
+            dst.copy_from_slice(&src[..row as usize]);
         }
         drop(mapped);
         buffer.unmap();

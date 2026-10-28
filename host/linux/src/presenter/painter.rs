@@ -9,7 +9,7 @@ pub enum PainterChoice {
     Auto,
     /// vello over wgpu; a boot error when there is no adapter.
     Gpu,
-    /// Instanced geometry over wgpu (LLP 1149).
+    /// Instanced geometry; `EXACT_INK_DEVICE` selects wgpu or Metal (LLP 1149).
     Ink,
     /// tiny-skia.
     Cpu,
