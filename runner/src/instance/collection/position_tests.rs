@@ -535,15 +535,18 @@ fn after_a_prepend_the_rows_equal_a_fresh_build_of_the_new_list() {
         h.update().unwrap();
         h.slots[0] = prepended(20);
         h.update().unwrap();
-        let mut fresh = plain(20, index, mark, nested);
-        fresh.slots = vec![prepended(20), Value::Number(3.0)];
-        fresh.update().unwrap();
+        // Built from the new list and slot at creation: no row of it was ever updated.
+        let fresh = Harness::from_parts(
+            plan_with(20, index, mark, false, nested),
+            vec![prepended(20), Value::Number(3.0)],
+        );
         let shown = |h: &Harness| {
             plain_texts(h)
                 .into_iter()
                 .map(|(_, t)| t)
                 .collect::<Vec<_>>()
         };
+        assert_eq!(shown(&fresh).len(), 21);
         assert_eq!(
             shown(&h),
             shown(&fresh),
