@@ -14,8 +14,11 @@ use crate::style;
 use exact_kernel::{NodeType, PropId};
 use exact_plan::{BindingKind, EventKind, NodesId, Plan, RegionKind, Value};
 use exact_web::host::template::Parts;
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
+#[path = "answers.rs"]
+mod answers;
 #[path = "list_options.rs"]
 mod list_options;
 #[path = "motion.rs"]
@@ -145,12 +148,17 @@ pub fn value_js(v: &Value) -> String {
 struct Em<'a> {
     plan: &'a Plan,
     sites: &'a Sites,
+    /// What its rows and arms ask of the whole plan, each answered once.
+    answers: answers::Answers<'a>,
     parts: Vec<Option<Parts>>,
     uses: Uses,
     out: String,
     classes: Vec<String>,
     /// Each distinct set of state looks (LLP 1121 D8), `data-exact-looks` index plus one.
     looks: Vec<Vec<(u8, String)>>,
+    /// Where each class and each set of looks is in `classes` and `looks`.
+    class_at: HashMap<String, usize>,
+    looks_at: HashMap<Vec<(u8, String)>, usize>,
 
     paint: bool,
     warnings: Vec<String>,
@@ -226,11 +234,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let mut em = Em {
         plan,
         sites: &sites,
+        answers: answers::Answers::new(plan),
         parts,
         uses: Uses::default(),
         out: String::new(),
         classes: Vec::new(),
         looks: Vec::new(),
+        class_at: HashMap::new(),
+        looks_at: HashMap::new(),
         paint,
         warnings,
         row_actions: Default::default(),
@@ -874,10 +885,12 @@ fn zero(plan: &Plan, ty: exact_plan::TypesId) -> String {
 
 impl Em<'_> {
     fn class(&mut self, css: &str) -> usize {
-        match self.classes.iter().position(|c| c == css) {
-            Some(i) => i,
+        match self.class_at.get(css) {
+            Some(i) => *i,
             None => {
                 self.classes.push(css.to_string());
+                self.class_at
+                    .insert(css.to_string(), self.classes.len() - 1);
                 self.classes.len() - 1
             }
         }
@@ -984,10 +997,12 @@ impl Em<'_> {
         }
         // Its state looks, by the rules the sheet carries for their set.
         if !parts.looks.is_empty() {
-            let at = match self.looks.iter().position(|l| *l == parts.looks) {
-                Some(at) => at,
+            let at = match self.looks_at.get(&parts.looks) {
+                Some(at) => *at,
                 None => {
                     self.looks.push(parts.looks.clone());
+                    self.looks_at
+                        .insert(parts.looks.clone(), self.looks.len() - 1);
                     self.looks.len() - 1
                 }
             };

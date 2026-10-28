@@ -190,37 +190,18 @@ impl Em<'_> {
         // A node with children reads no varying type or family token: they
         // would inherit it (the runner refuses it as an invalid value).
         // (Asked only where one varies: a map's name stays as it was.)
-        let varying = plan.theme.iter().any(|r| {
-            r.slices.len > 0
-                && matches!(
-                    crate::measures::kind(r),
-                    Some(
-                        exact_kernel::style::theme::Kind::Type
-                            | exact_kernel::style::theme::Kind::Family
-                    )
-                )
+        let container = self.answers.varying && !self.sites.of_node(i).is_empty();
+        let measured = if crate::measures::row(id) {
+            self.answers.map(id, attribute, container)
+        } else {
+            None
+        };
+        let measure = measured.map(|m| {
+            let bases = !crate::base_scale::named(plan).is_empty();
+            let name = crate::measures::map_name(id, attribute, container, bases);
+            let map = self.uses.constant(&name, || m.to_string());
+            format!("()=>{map}(({f})())")
         });
-        let container = varying
-            && (plan
-                .nodes
-                .iter()
-                .any(|n| n.parent.is_some_and(|p| p.0 == i))
-                || plan
-                    .regions
-                    .iter()
-                    .any(|r| r.parent.is_some_and(|p| p.0 == i)));
-        let measure = crate::measures::row(id)
-            .then(|| {
-                let props = crate::modes::properties(plan);
-                crate::measures::map(plan, &props, id, attribute, container)
-            })
-            .flatten()
-            .map(|m| {
-                let bases = !crate::base_scale::named(plan).is_empty();
-                let name = crate::measures::map_name(id, attribute, container, bases);
-                let map = self.uses.constant(&name, || m);
-                format!("()=>{map}(({f})())")
-            });
         let f = measure.as_deref().unwrap_or(f);
         // A list on a corner is the elliptical radius no row holds, which
         // the browser would draw: refused whole, as the kernel refuses it.
@@ -459,7 +440,8 @@ impl Em<'_> {
                 ]
             }
             StyleId::FontSize if parts.tag != "img" => {
-                text_style::font_size(plan, row, parts, &mut |map| self.uses.share('m', map))
+                let styles = self.answers.styles();
+                text_style::font_size(plan, row, parts, styles, &mut |map| self.uses.share('m', map))
             }
             StyleId::FontSize | StyleId::FontWeight if parts.tag == "img" => {
                 let size = id == StyleId::FontSize;
@@ -563,9 +545,11 @@ impl Em<'_> {
                     .filter(|b| style::literal(plan, plan.code(b.expr)).is_none())
                     .map(|b| {
                         let size = self.f(b.expr, scope)?;
-                        let map = self
-                            .uses
-                            .share('m', text_style::style_map(plan, &style::TEXT_STYLE_ROWS[0]));
+                        let styles = self.answers.styles();
+                        let map = self.uses.share(
+                            'm',
+                            text_style::style_map(styles, &style::TEXT_STYLE_ROWS[0]),
+                        );
                         Ok::<_, String>(format!("({map})(({size})())"))
                     })
                     .transpose()?
@@ -617,7 +601,7 @@ impl Em<'_> {
         });
         let f = clear.as_deref().unwrap_or(f);
         for (name, unit, map) in writes {
-            let modes = crate::modes::active(plan);
+            let modes = self.answers.modes;
             let channel = crate::modes::CHANNELS
                 .iter()
                 .position(|(_, p)| {
@@ -627,7 +611,7 @@ impl Em<'_> {
             let map = match map {
                 Some(m) if modes && name == "--exact-accent" => Some(format!(
                     "v=>{{v=({m})(v);if(!{e}.hasAttribute(\"data-x-b\"))return v;{e}.removeAttribute(\"data-x-accent\");if(v==null||/^\\s*(unset|inherit)?\\s*$/i.test(v))return null;const n={}.find(p=>v.includes(`var(${{p}})`));if(n){{{e}.setAttribute(\"data-x-accent\",n);return null}}return v}}",
-                    serde_json::to_string(&crate::modes::accent_properties(plan)).unwrap()
+                    self.answers.accent()
                 )),
                 map => map,
             };
