@@ -375,9 +375,9 @@ fn tests(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match contract::tests(&src) {
-        Ok(t) => {
-            println!("{}", contract::tests_json(&t));
+    match contract::tests(&src).and_then(|t| contract::properties(&src).map(|p| (t, p))) {
+        Ok((t, p)) => {
+            println!("{}", contract::authored_json(&t, &p));
             ExitCode::SUCCESS
         }
         Err(e) => {

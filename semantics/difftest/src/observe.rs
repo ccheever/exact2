@@ -298,6 +298,7 @@ fn deliver(
     let kind = match &event {
         HostEvent::Press => Some(exact_plan::EventKind::Press),
         HostEvent::Change(_) => Some(exact_plan::EventKind::Change),
+        HostEvent::Input(_) => Some(exact_plan::EventKind::Input),
         _ => None,
     };
     if !kind.is_some_and(|k| r.handlers_of(view).contains(&k)) {
@@ -324,6 +325,11 @@ pub(crate) fn apply(
                 r,
                 view,
                 match e {
+                    Event::Type(_, s)
+                        if r.handlers_of(view).contains(&exact_plan::EventKind::Input) =>
+                    {
+                        HostEvent::Input(ControlValue::Text(s.clone()))
+                    }
                     Event::Type(_, s) => HostEvent::Change(ControlValue::Text(s.clone())),
                     _ => HostEvent::Press,
                 },

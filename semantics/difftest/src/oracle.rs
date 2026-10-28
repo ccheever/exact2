@@ -250,6 +250,14 @@ fn generate(plan: &Plan, ty: TypesId, rng: &mut Rng, depth: u32) -> Value {
             }
         }
         TypeKind::Bool => Value::Bool(rng.chance(1, 2)),
+        TypeKind::String if !row.fields.is_empty() => {
+            let members: Vec<_> = row
+                .fields
+                .iter()
+                .map(|f| plan.str(plan.field(f).name))
+                .collect();
+            Value::str(rng.pick(&members))
+        }
         TypeKind::String => Value::str(rng.pick(STRINGS)),
         TypeKind::Unit => Value::Unit,
         TypeKind::Option => match row.elem {
@@ -334,5 +342,23 @@ pub fn text_value(plan: &Plan, ty: TypesId, v: &Value) -> String {
             )
         }
         _ => "u".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_strings_respect_enum_members_in_resource_records() {
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        let member = b.string_enum(&["photo".into(), "video".into()]);
+        let list = b.list(member);
+        let record = b.record("Assets", &[("assets", list)]);
+        let plan = b.plan();
+        for seed in 0..64 {
+            let v = generate(plan, record, &mut Rng::new(seed), 0);
+            assert!(v.conforms(plan, record), "{v:?}");
+        }
     }
 }

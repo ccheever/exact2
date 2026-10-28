@@ -50,20 +50,40 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
     leanrun::CACHE.store(true, std::sync::atomic::Ordering::Relaxed);
     let mut ok = true;
 
-    let mut located = Vec::new();
-    let (mut whole, mut partial, mut skipped) = (0, 0, 0);
-    for test_file in test_files(&file) {
-        let Ok(text) = std::fs::read_to_string(&test_file) else {
+    let mut property_files = Vec::new();
+    let mut properties = Vec::new();
+    let mut authored = Vec::new();
+    for path in test_files(&file) {
+        let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let tests = match contract::tests(&text) {
-            Ok(t) => t,
-            Err(e) => {
-                println!("SCRIPT {}: {e}", show(&test_file));
-                ok = false;
-                continue;
+        match contract::tests(&text)
+            .and_then(|tests| contract::properties(&text).map(|p| (tests, p)))
+        {
+            Ok((tests, declarations)) => {
+                if let Err(errors) = contract::check_properties_path(&file, &declarations) {
+                    for e in errors {
+                        println!("PROPERTY REFUSED {}:{e}", show(&path));
+                    }
+                    ok = false;
+                }
+                property_files.extend(declarations.iter().map(|_| path.clone()));
+                properties.extend(declarations);
+                authored.push((path, tests));
             }
-        };
+            Err(e) => {
+                println!("SCRIPT {}:{e}", show(&path));
+                ok = false;
+            }
+        }
+    }
+    if !ok {
+        return Ok(false);
+    }
+    let mut property_totals = crate::property::Report::new(&properties);
+    let mut located = Vec::new();
+    let (mut whole, mut partial, mut skipped) = (0, 0, 0);
+    for (test_file, tests) in authored {
         for t in &tests {
             let scripted =
                 crate::script::test_case(&show(&test_file), &source, Some(&file), t, Some(&plan))?;
@@ -128,6 +148,20 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
                     .map_or(e.as_str(), |(head, _)| head)
             );
         }
+        let matched = crate::property::evaluate(&properties, &rust);
+        property_totals.merge(&matched);
+        for failure in &matched.failures {
+            print_property(
+                &properties,
+                &property_files,
+                failure,
+                l,
+                &map,
+                &rust,
+                None,
+                false,
+            );
+        }
         findings.push((i, census.observe(&rust), rust));
     }
     for (i, found, rust) in &findings {
@@ -141,12 +175,13 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
             );
         }
     }
-    ok &= census.passed();
+    ok &= census.passed() && property_totals.passed();
     census.print(&plan);
     println!("world: settle omits host waits on motion, scrolling and hatches, and advances to animation ends");
     println!("verify: {} cases ({tests} tests, 1 explored); blocks: {whole} whole, {partial} partial, {skipped} skipped", located.len());
     if options.runner_only || !lean_available() {
         println!("semantics did not run ({}); install Lean: curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y", if options.runner_only { "--runner-only" } else { "lake is unavailable" });
+        print_properties(&properties, &property_files, &property_totals);
         return Ok(ok);
     }
     leanrun::build()?;
@@ -156,7 +191,47 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
     let dir = work_dir().join("failures");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for (i, (o, l)) in outcomes.iter().zip(&located).enumerate() {
+        let mut property_diverged = false;
+        if let Some((rust, lean)) = &o.observations {
+            let r = crate::property::evaluate(&properties, rust);
+            let m = crate::property::evaluate(&properties, lean);
+            ok &= m.passed();
+            let mut printed = std::collections::BTreeSet::new();
+            for f in r.failures.iter().chain(&m.failures) {
+                let key = (f.property, f.line, f.step);
+                if !printed.insert(key) {
+                    continue;
+                }
+                let differs = r
+                    .judged
+                    .get(&key)
+                    .zip(m.judged.get(&key))
+                    .is_some_and(|(a, b)| a != b);
+                property_diverged |= differs;
+                if !r
+                    .failures
+                    .iter()
+                    .any(|v| (v.property, v.line, v.step) == key)
+                {
+                    property_totals.counts[f.property][f.line].false_ += 1;
+                }
+                print_property(
+                    &properties,
+                    &property_files,
+                    f,
+                    l,
+                    &map,
+                    rust,
+                    Some(lean),
+                    differs,
+                );
+            }
+        }
+        if property_diverged {
+            ok = false;
+        }
         match &o.verdict {
+            Verdict::Agree if property_diverged => diverge += 1,
             Verdict::Agree => agree += 1,
             Verdict::Unsupported(why) => {
                 outside += 1;
@@ -201,6 +276,7 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         "semantics: {} cases: {agree} agree, {diverge} diverge, {outside} outside the semantics",
         outcomes.len()
     );
+    print_properties(&properties, &property_files, &property_totals);
     if options.types {
         ok &= types(&file)?;
     }
@@ -276,8 +352,13 @@ fn locate(
             out.push_str(&format!(" ({})", at_span(f, *s)));
         }
         out.push('\n');
-        if let Event::Tap(id) | Event::Type(id, _) = event {
-            if let Some(where_) = site(&case.events[..step - 1], id) {
+        let input_step = if matches!(event, Event::Land) && step > 1 {
+            step - 1
+        } else {
+            step
+        };
+        if let Event::Tap(id) | Event::Type(id, _) = &case.events[input_step - 1] {
+            if let Some(where_) = site(&case.events[..input_step - 1], id) {
                 out.push_str(&format!("  the element {id:?} is {where_}\n"));
             }
         }
@@ -447,6 +528,185 @@ fn prove(file: &Path, module: &str) -> Result<bool, String> {
     }
     println!("prove: {target} builds; every proof checked");
     Ok(true)
+}
+
+fn print_properties(
+    properties: &[contract_syntax::PropertyDecl],
+    files: &[PathBuf],
+    report: &crate::property::Report,
+) {
+    let (mut held, mut false_, mut counted, mut unexercised) = (0, 0, 0, 0);
+    for ((p, file), counts) in properties.iter().zip(files).zip(&report.counts) {
+        let bad = counts.iter().any(|c| c.false_ > 0);
+        let checked = counts.iter().all(|c| c.checked > 0);
+        let verdict = if bad {
+            false_ += 1;
+            "false"
+        } else if checked {
+            held += 1;
+            "held"
+        } else if counts.iter().any(|c| c.counted > 0) {
+            counted += 1;
+            "counted only"
+        } else {
+            unexercised += 1;
+            "not exercised"
+        };
+        println!("property {:?}: {verdict}", p.name);
+        for (i, c) in counts.iter().enumerate() {
+            let span = p.lines.get(i).map_or(p.span, |l| l.span);
+            println!(
+                "  {}: {} checked, {} counted only, {} violations",
+                at_span(file, span),
+                c.checked,
+                c.counted,
+                c.false_
+            );
+        }
+    }
+    println!("properties: {held} held, {false_} false, {counted} counted only, {unexercised} not exercised; {} violations, {} counted-only line steps", report.counts.iter().flatten().map(|c| c.false_).sum::<usize>(), report.counts.iter().flatten().map(|c| c.counted).sum::<usize>());
+}
+
+#[allow(clippy::too_many_arguments)]
+fn print_property(
+    properties: &[contract_syntax::PropertyDecl],
+    files: &[PathBuf],
+    failure: &crate::property::Failure,
+    located: &Located,
+    map: &contract::SourceMap,
+    rust: &[String],
+    lean: Option<&[String]>,
+    divergence: bool,
+) {
+    use contract_syntax::PropertyForm;
+    let p = &properties[failure.property];
+    let line = p.lines.get(failure.line);
+    let span = line.map_or(p.span, |l| l.span);
+    let value = |observation: &[String], at_step: usize| {
+        let steps = crate::chunks(observation);
+        let step = steps.get(at_step).copied().unwrap_or(&[]);
+        match line.map(|l| &l.form) {
+            Some(PropertyForm::Hold { name, .. }) => step
+                .iter()
+                .find(|l| {
+                    l.starts_with(&format!("slot {name} "))
+                        || l.starts_with(&format!("derive {name} "))
+                })
+                .cloned()
+                .unwrap_or_else(|| format!("slot {name} <not printed>")),
+            Some(PropertyForm::OnlyWrites(_)) => step
+                .iter()
+                .filter(|l| l.starts_with("slot "))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; "),
+            Some(PropertyForm::Command { .. }) => steps
+                .iter()
+                .take(at_step + 1)
+                .skip(
+                    if matches!(p.kind, contract_syntax::PropertyKind::After(_)) {
+                        at_step.saturating_sub(1)
+                    } else {
+                        at_step
+                    },
+                )
+                .flat_map(|s| s.iter())
+                .filter(|l| l.starts_with("command "))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; "),
+            None => step
+                .iter()
+                .filter(|l| l.starts_with("ran ") && l.split_whitespace().nth(2) == Some(&p.name))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; "),
+        }
+    };
+    let steps = crate::chunks(rust);
+    let mut lines: Vec<String> = steps
+        .iter()
+        .take(failure.step + 1)
+        .flat_map(|s| s.iter())
+        .filter(|l| !l.starts_with('#'))
+        .cloned()
+        .collect();
+    lines.push(value(rust, failure.step));
+    let at = lines.len() - 1;
+    let mut other = lines.clone();
+    other[at] = lean
+        .map(|o| value(o, failure.step))
+        .unwrap_or_else(|| "not run".into());
+    println!(
+        "PROPERTY {:?} is false{}\n  property line: {}\n{}",
+        p.name,
+        if divergence {
+            "; DIVERGE (the property differs between runner and Lean)"
+        } else {
+            ""
+        },
+        at_span(&files[failure.property], span),
+        locate(
+            &located.scripted.case,
+            &located.steps,
+            map,
+            at,
+            &lines,
+            &other
+        )
+    );
+    if failure.previous.is_some() {
+        let back = if matches!(p.kind, contract_syntax::PropertyKind::After(_)) {
+            2
+        } else {
+            1
+        };
+        if let Some(previous) = failure.step.checked_sub(back) {
+            println!("  before runner: {}", readable(&value(rust, previous)));
+            if let Some(lean) = lean {
+                println!("  before lean:   {}", readable(&value(lean, previous)));
+            }
+        }
+    }
+    let dir = work_dir().join("failures");
+    let stem = dir.join(format!(
+        "{}-property-{:x}-{}-{}-{}",
+        std::process::id(),
+        crate::seed_of(&located.scripted.case.name),
+        failure.property,
+        failure.line,
+        failure.step
+    ));
+    let saved = std::fs::create_dir_all(&dir).and_then(|()| {
+        std::fs::write(
+            stem.with_extension("contract"),
+            &located.scripted.case.source,
+        )?;
+        std::fs::write(
+            stem.with_extension("events"),
+            located
+                .scripted
+                .case
+                .events
+                .iter()
+                .map(Event::label)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )?;
+        std::fs::write(stem.with_extension("rust.txt"), rust.join("\n"))?;
+        if let Some(lean) = lean {
+            std::fs::write(stem.with_extension("lean.txt"), lean.join("\n"))?;
+        }
+        Ok(())
+    });
+    match saved {
+        Ok(()) => println!(
+            "  kept: {}.{{contract,events,rust.txt{}}}",
+            stem.display(),
+            if lean.is_some() { ",lean.txt" } else { "" }
+        ),
+        Err(e) => println!("  could not keep observation: {e}"),
+    }
 }
 
 #[cfg(test)]

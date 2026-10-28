@@ -563,7 +563,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // Native runs use the origin their build selected (LLP 1142 D13), else the scaffold's declared one, when no web
   // admission file exists.
   const appOrigin = host !== 'web' && existsSync(resolve(resolveApp(app).dir, 'app.ts')) ? backendOrigin(resolveApp(app).dir, { ...process.env, ...(env ?? {}) }) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(readFileSync(resolve(resolveApp(app).dir, 'app.ts'), 'utf8'))?.[1] : null;
-  const tests = backendFetchPrefixes(JSON.parse(c.stdout), granted.length ? granted : appOrigin ? [appOrigin] : []);
+  const tests = backendFetchPrefixes(JSON.parse(c.stdout).tests, granted.length ? granted : appOrigin ? [appOrigin] : []);
   const reseeded = tests.filter(t => t.steps.some(s => s.op === 'fresh')).length;
   if (reseeded) console.error(`fresh: reseeding before each of ${reseeded} tests`);
   const results = [];

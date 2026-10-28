@@ -338,9 +338,15 @@ def runScript (p : Program) (o : Oracle) (events : List ScriptEvent) : List Stri
   for e in events do
     let before := c.commands.length
     let (label, result, twin, ran) := match e.event with
-      | .some ev =>
+      | .some authored =>
+        let ev := match authored with
+          | .change target text =>
+            if ((findTestId target c.view).map fun n => n.handlers.any (·.1 == "input")).getD false then
+              .other target "input" (.some (.str text))
+            else authored
+          | _ => authored
         let (twin, ran) := stepTrace p o c ev
-        (ev.label, step p o c ev, twin, ran)
+        (authored.label, step p o c ev, twin, ran)
       | .none =>
         let (result, ran) := land p o c
         ("land", result, result, ran)

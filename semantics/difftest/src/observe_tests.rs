@@ -134,3 +134,36 @@ fn curried_refusal_names_the_action_without_claiming_it_ran() {
         .any(|l| l.contains("HandlerArguments { action: \"take\"")));
     assert!(!lines.iter().any(|l| l.starts_with("ran handler take")));
 }
+
+#[test]
+fn typing_uses_the_inputs_handler_before_falling_back_to_change() {
+    let source = r#"component App
+  state note = ""
+  action edit(value)
+    note = value
+  view
+    column
+      input testId="input" value=note input=edit
+      input testId="change" value=note change=edit
+test "type in both fields"
+  type "input" "first"
+  expect state note == "first"
+  type "change" "second"
+  expect state note == "second"
+"#;
+    let s = script::scripted("input", source, None).unwrap().remove(0);
+    let plan = compile(&s.case).unwrap();
+    let (lines, _) = observe::run(
+        plan.clone(),
+        Oracle::for_case(&plan, &s.case),
+        &s.case.events,
+    );
+    crate::expectations_on(&s, &lines).unwrap();
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|l| l.as_str() == "ran handler edit ok")
+            .count(),
+        2
+    );
+}

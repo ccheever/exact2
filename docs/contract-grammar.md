@@ -721,6 +721,84 @@ resource was refused while no `fail fetch` fired, a send failed that no `expect 
 or the runner said a resource was asked again and again (LLP 1146 D4). Without it, a test
 still prints those as `unarranged:` notes, and verify counts them as findings.
 
+Properties live beside the scripts in a test file; a file declaring a component
+cannot declare a property. They compile to nothing an app runs. `contract verify`
+checks them against each script's observations on the runner and Lean.
+
+```
+always "the phone is on one of its five screens"
+  expect state screen in "lock" "home" "settings" "display" "messages"
+
+always "the counter is a whole number of at least one"
+  expect state counter whole
+  expect state counter >= 1
+
+always "a probe's result is absent or an answer"
+  expect state tsResult in none some
+
+always "once the photo has loaded it stays loaded"
+  expect state ready stays true
+
+after "increment" "increment adds one"
+  expect state counter == old + 1
+
+after "reset" "reset puts the turns back and counts itself"
+  expect state turns == 0
+  expect state resets == old + 1
+
+after "rotate" "rotating touches nothing but the turns"
+  only writes turns
+
+after "done" "done writes nothing and focuses the button"
+  writes none
+  command focus "done"
+
+after clock "the probe never touches what the user set"
+  only writes tsResult rustResult rustExecutorResult
+
+never refuses "reset"
+```
+
+```ebnf
+property      = "always" STRING block( { hold } )
+              | "after" ( STRING | "clock" ) STRING block( { hold | frame } )
+              | "never" "refuses" STRING NL ;
+hold          = "expect" "state" IDENT ( "==" ( test-value | "old" [ ( "+" | "-" ) NUMBER ] | "not" "old" )
+                                      | "in" { test-value | "none" | "some" }
+                                      | ( ">=" | "<=" ) [ "-" ] NUMBER
+                                      | "whole"
+                                      | "stays" test-value ) NL ;
+frame         = "only" "writes" { IDENT } NL          (* no other root slot changes *)
+              | "writes" "none" NL
+              | "command" IDENT { test-value } NL ;    (* the commit issued this host command *)
+```
+
+`old` is admitted only in `after`, `stays` only in `always`, and frame lines only in
+`after`. The braces in the EBNF mean repetition, not written braces. A read names a
+whole root state or derive by its bare identifier; fields and indices are stage 2.
+Before any script runs, verify rejects a derive whose body, dependencies or called
+functions reach a resource, mutation status, clock or geometry read. A mutation's
+result slot is a state and may be named.
+
+`always` checks every printed configuration, including boot. `stays v` means that a
+previous observation equal to `v` must remain `v`. `after "action"` reads the value
+before an input and after its following `land`; the input must have only that
+successful handler commit, and its landing only `then` and `queue` commits. Other
+commits, including a commit omitted from the trace, make the pair counted only.
+`after clock` checks clock advances and landings not paired with inputs, over all
+their commits. `only writes` compares every root slot, including queue results.
+`never refuses` reads the action on each commit line; an action never run is
+reported as not exercised. Poisoned configurations are counted, not checked.
+Numbers use binary64 arithmetic and IEEE comparisons; other values compare by
+their whole printed text. These checks cover observed steps, not every commit
+inside a step, and are not proofs.
+
+`contract test <file>` emits an object with `tests` and `properties` arrays. Each
+property carries `kind`, `name`, its declaration `line` and parsed `lines`; each
+line has its source `line` and an `op` (`expect-state`, `only-writes`, `command`).
+Values carry a `kind` and, for numbers, strings and bools, a `value`. The device
+runner currently reads the scripts; property checking on a device is a later lane.
+
 `expect refusal "saved"` names a mutation slot, after `clock data` or `clock settle`
 lands its send. It asserts one observed refusal since the previous such assertion for
 that slot. Verify accepts that observed failure; other refusals remain findings. A refused

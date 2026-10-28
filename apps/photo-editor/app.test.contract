@@ -1,0 +1,15 @@
+always "ready_stays"
+  expect state ready stays true
+
+after "rotate" "rotate_only_turns"
+  only writes turns
+
+after "reset" "reset_spec"
+  expect state turns == 0
+  expect state resets == old + 1
+
+test "rotate and reset the photo"
+  tap "rotate"
+  tap "reset"
+  tap "rotate"
+  clock data

@@ -1,0 +1,6 @@
+// # expect property refused "fn `readClock` -> `performanceNow(…)`"
+fn readClock(): number = performanceNow()
+component App
+  derive time = readClock()
+  view
+    text `${time}` testId="value"

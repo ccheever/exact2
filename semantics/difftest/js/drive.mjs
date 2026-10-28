@@ -297,7 +297,8 @@ async function drive(code, c, hostSources) {
       const options = e?.localName === 'select' ? e.getElementsByTagName('option') : null;
       const deliverable = e && e.type !== 'checkbox' && e.type !== 'radio' && datetime(e, text)
         && (!options || options.some(o => !o.hasAttribute('disabled') && (o.getAttribute('value') ?? o.textContent) === text));
-      if (!deliverable || !e.$listeners?.change?.length) refused = true; else { e.value = text; fire(e, 'change'); }
+      const event = e?.$listeners?.input?.length ? 'input' : 'change';
+      if (!deliverable || !e.$listeners?.[event]?.length) refused = true; else { e.value = text; fire(e, event); }
     } else if (ev.land) {
       out.push('== land');
       advance(clock.now, false, undefined, false);

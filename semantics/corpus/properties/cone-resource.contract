@@ -1,0 +1,9 @@
+// # expect property refused "`outer` -> `inner` -> resource `data`"
+shape Data
+  n: number
+component App
+  resource data = fetchData() as shape Data
+  derive inner = data.n
+  derive outer = inner + 1
+  view
+    text `${outer}` testId="value"

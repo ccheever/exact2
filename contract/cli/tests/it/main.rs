@@ -266,3 +266,5 @@ mod wakelock;
 mod warnings;
 mod warnings_screens;
 mod windows_shortcuts;
+
+mod properties;

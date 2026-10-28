@@ -24,6 +24,8 @@ pub mod observe;
 #[cfg(test)]
 mod observe_tests;
 pub mod oracle;
+mod property;
+mod property_corpus;
 pub mod quick;
 #[cfg(test)]
 mod refusal_tests;
@@ -70,6 +72,8 @@ pub struct Outcome {
     pub case: Case,
     /// What happened.
     pub verdict: Verdict,
+    /// Both raw observations when the semantics ran.
+    pub observations: Option<(Vec<String>, Vec<String>)>,
 }
 
 /// A deterministic seed for a case name.
@@ -207,16 +211,25 @@ pub fn check(cases: Vec<Case>, batch: usize, tag: &str) -> Result<Vec<Outcome>, 
             .expect("every batch ran")?;
         let mut lean = lean.into_iter().zip(batch.ready);
         for (case, verdict) in chunk.iter().zip(batch.done) {
+            let mut observations = None;
             let verdict = match verdict {
                 Some(v) => v,
                 None => {
                     let (lean, p) = lean.next().expect("one result per prepared case");
-                    compare(p.rust, lean)
+                    observations = Some((p.rust.clone(), lean.clone()));
+                    let property_result = property_corpus::check(case, &p.rust, false)
+                        .and_then(|()| property_corpus::check(case, &lean, false));
+                    let verdict = compare(p.rust, lean);
+                    match (verdict, property_result) {
+                        (Verdict::Agree, Err(e)) => Verdict::Expectation(e),
+                        (verdict, _) => verdict,
+                    }
                 }
             };
             outcomes.push(Outcome {
                 case: case.clone(),
                 verdict,
+                observations,
             });
         }
     }
@@ -419,7 +432,8 @@ pub fn expectations(s: &Scripted) -> Result<(), String> {
     let plan = compile(&s.case)?;
     let oracle = oracle::Oracle::for_case(&plan, &s.case);
     let (rust, _) = observe::run(plan, oracle, &s.case.events);
-    expectations_on(s, &rust)
+    expectations_on(s, &rust)?;
+    property_corpus::check(&s.case, &rust, true)
 }
 
 /// Check expectations against an observation already produced by the runner.
@@ -469,6 +483,9 @@ pub fn corpus(dirs: &[PathBuf]) -> Result<(Vec<Scripted>, Vec<String>), String> 
     let mut out = Vec::new();
     let mut errors = Vec::new();
     for f in files {
+        if f.to_string_lossy().ends_with(".test.contract") {
+            continue;
+        }
         // Named from the project, however the path was spelled: the name
         // seeds the case's data.
         let f = f.canonicalize().unwrap_or(f);
@@ -482,6 +499,17 @@ pub fn corpus(dirs: &[PathBuf]) -> Result<(Vec<Scripted>, Vec<String>), String> 
             .unwrap_or(&f)
             .display()
             .to_string();
+        match property_corpus::cases(&f, &name, &src) {
+            Ok(Some(cases)) => {
+                out.extend(cases);
+                continue;
+            }
+            Err(e) => {
+                errors.push(e);
+                continue;
+            }
+            Ok(None) => {}
+        }
         let cases = script::scripted(&name, &src, Some(&f)).unwrap_or_else(|e| {
             errors.push(e);
             Vec::new()

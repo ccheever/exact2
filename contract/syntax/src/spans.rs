@@ -84,6 +84,8 @@ leaves!(
     UnOp,
     TaskKind,
     TapForm,
+    PropertyKind,
+    PropertyForm,
     ParamValue,
     ModuleKind,
     Consequence,
@@ -103,7 +105,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components, members, deferred }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, properties, launch, components, members, deferred }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
@@ -116,6 +118,8 @@ structs! {
     SoundDecl { source, span }
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, hosts, steps, span }
+    PropertyDecl { span, kind, name, lines }
+    PropertyLine { span, form }
     FnDecl { name, params, ret, body, span }
     ModuleDecl { name, declared, package, extension, kind, options, words, answers, args, raised, hold, budget, handler, live, request, sync, data_only, substitute, span }
     PlatformWords { platform, package, words }

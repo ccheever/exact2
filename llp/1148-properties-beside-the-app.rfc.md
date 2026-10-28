@@ -659,14 +659,56 @@ until it has an implementer and a date.
 
 ## 5. Measured
 
-Filled in by stage 1 before it lands: `contract verify` wall-clock on Type Tour and
-Excord with the defaults, runner-only and with Lean, warm and cold; the delivered,
-partial and skipped block counts over the ten apps with `land` and the settle
-expansion; steps with more than one commit, and per `after` line checked against
-counted only; the suggestions printed per app, with which of them were kept and by
-whom (Charlie or James, not this session); and the receipt of each of the four proof
-apps. Lean's time per script doubles while the traced twin runs beside the original,
-and the `--confirm` default is set with that measured.
+Stage 1's lanes measured these on this Mac (an Apple Silicon machine, Lean's
+observation cache warm, Cargo's startup included); the lanes' reports under
+`target/review-1148/` hold the raw logs.
+
+**Delivery** (lane A1b, with `land`, inputs followed by `land` and the settle
+expansion), over the 228 blocks of the ten apps' test files, the nested Harmony app's
+included:
+
+| App | Whole | Partial | Skipped | Partial blocks stop at | Skipped blocks stop at |
+|---|---:|---:|---:|---|---|
+| Agents | 0 | 0 | 3 | | `size` 3 |
+| Caltrain | 3 | 0 | 0 | | |
+| Design Tool | 11 | 39 | 45 | `request` 33; `type … key` 5; `reload` 1 | `request` 39; `fail fetch` 3; `size` 3 |
+| Excord | 0 | 85 | 3 | `clock until` 83; settle bound 2 | `fail fetch` 2; `size` 1 |
+| Harmony | 0 | 0 | 6 | | `fresh` 6 |
+| Messages | 0 | 2 | 0 | a tap that is not a press 2 | |
+| Metronome | 9 | 0 | 0 | | |
+| Reflow | 3 | 0 | 0 | | |
+| Shelf | 9 | 3 | 2 | `reload` 2; `back` 1 | a tap that is not a press 1; `fail fetch` 1 |
+| Variable Type | 2 | 0 | 3 | | `drag` 2; `type … key` 1 |
+| all | 37 | 129 | 62 | | |
+
+Before stage 1 about a dozen blocks ran at all. The 85 Excord prefixes all agree with
+the semantics; the next steps worth delivering are `request` (72 blocks) and `clock
+until` (83), then `size` (7), which is a launch fact the harness could take.
+
+**What delivery exposed.** Two divergences that no run reached before: Shelf's Back
+test, at its one-millisecond task, has the semantics emit `setContentIndex` and
+`setAppShortcuts` commands on every commit where the runner emits each once; and
+Agents' `remove` poisons the runner on a path parameter the semantics accepts. Both
+are findings about exact2, not about the apps, and are in `QUEUE.md`. The explore
+divergences on eight apps that call host operations outside the oracle
+(`registerLoginItem`, `getUserMedia`, `getCurrentPosition`, `selectContacts`,
+`addGeofence`, `cancelSpeech`, `exactTime`, a live time) are pre-existing: on
+origin/main `8233879705` all eight diverge at boot; after stage 1's capture of the
+boot's host facts they diverge at the first such call.
+
+**Wall-clock** (lane A1, before the twin ran beside `advance`; median of three warm
+runs, `cargo run -q`): Type Tour 1.3 s runner-only, 1.5 s with Lean; Excord 1.6 s
+runner-only, 3.1 s with Lean. The twin's cost and the walks' are lane A2's numbers.
+
+**The trace.** The projection proof (open question 2) did not close in a page; the
+twin runs beside the original on every step and `trace disagrees` has never printed
+on the corpus. Commit kinds the trace leaves out: a transport's or MIDI port's answer,
+a re-ask, a wake's delivery and expiry, a drop deadline, a transport-end action, and
+the advance tail's presence, polls, live times and text-axis frames.
+
+Still to fill by lanes B, A2 and C: steps with more than one commit and per `after`
+line checked against counted only; the suggestions per app and who kept them; the
+receipts of the four proof apps; the device-runner cost.
 
 ## Open questions
 

@@ -109,6 +109,11 @@ a timer, even one due exactly now. It is `Runner::land_then` on the runner and
 read the observation after that pair. A primitive `clock +0` still fires due
 timers as well as continuations.
 
+A typed value reaches an `input` handler when the target has one, otherwise its
+`change` handler. Both evaluators choose that event before advancing due work;
+the script label remains `type`. Oracle string enums draw from their declared
+members, including enum fields nested in resource answers.
+
 An authored `clock settle` expands on a live runner: `clock +0`, then at most
 sixteen repetitions of an advance to the latest task with
 `now < due <= now + 1`, followed by another `clock +0`. Every task qualifies,
@@ -253,6 +258,36 @@ launch settings remain undelivered. A block runs up to its first
 undeliverable step, with its location, kind and reason printed. Only a block
 that stops at its first step is `SKIP`. Expectations before the stop still
 run. The summary counts whole, partial and skipped blocks.
+
+Properties in the app's test files (`always`, `after`, `never refuses`; the grammar
+and example are in `docs/contract-grammar.md`, "Authored tests") apply to every
+delivered script and the explore script. Before delivery, the compiler checks reads
+against the expanded root and follows derives and functions to reject dependencies
+on resources, mutation status, the clock or geometry. `performanceNow` is the
+roster's clock read; date formatters read arguments, and `exactTime` is a resource.
+Mutation result slots remain admissible: their values here are oracle answers.
+
+`property.rs` matches the same observation on each side. `always` checks printed
+configurations; `stays` also reads the previous step. `after "a"` checks a successful
+handler-only input and its following `land`, from before the input through the
+landing. Extra commits on the input, commits other than `then` or `queue` on the
+landing, or an omitted-commit marker make the pair counted only. `after clock`
+checks `clock +N` and standalone `land` steps over all commits. Every changed root
+slot counts in a frame, including a queued mutation's slot. `never refuses` reads
+commit attribution, not the aggregate outcome. A poisoned step has no configuration
+and is counted only. Every line reports checks, counted-only steps and violations;
+an action never attempted is not exercised. A false property fails verify; if it
+holds on only one evaluator, it is also a divergence. These are observed-step
+checks under the seeded oracle, not proofs or device checks.
+
+Corpus properties live in `<program>.test.contract` beside the program. The corpus
+loads these sidecars as tests rather than programs; a sidecar without scripts uses
+the explore script. A program may declare the test-only comment
+`// # expect property false "name"`: corpus and quick require that named property to
+be falsified on both observations, and still compare the observations normally.
+`// # expect property refused "reason fragment"` requires the cone check to refuse
+before a script runs. These comments never exempt an app from verify. Unexpected
+violations, missing expected violations and missing expected refusals fail the corpus.
 
 The refusal census classifies every failed outcome and commit line as
 `world`, `limit`, `poisoned`, `cycle`, `value`, `app`, `type`, or

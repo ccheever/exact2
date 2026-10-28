@@ -1,0 +1,2 @@
+always "clock through a function"
+  expect state time whole

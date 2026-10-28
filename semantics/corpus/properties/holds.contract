@@ -1,0 +1,12 @@
+component App
+  state n = 1
+  state note = ""
+  derive twice = n * 2
+  action add
+    n = n + 1
+  action edit(value)
+    note = value
+  view
+    column
+      button "Add" testId="add" press=add
+      input testId="note" value=note input=edit
