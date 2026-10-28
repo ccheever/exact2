@@ -707,7 +707,9 @@ final class SecureField: NSSecureTextField {
     }
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
-        guard NSApp.currentEvent?.type == .leftMouseDown, let editor = currentEditor() as? NSView, hit === editor || hit?.isDescendant(of: editor) == true else { return hit }
+        // A Control-click is a menu's: AppKit asks the hit view, the editor.
+        guard let down = NSApp.currentEvent, down.type == .leftMouseDown, !down.modifierFlags.contains(.control),
+              let editor = currentEditor() as? NSView, hit === editor || hit?.isDescendant(of: editor) == true else { return hit }
         return self
     }
     // Editing, it has the focus already: the window's click must not begin it again.

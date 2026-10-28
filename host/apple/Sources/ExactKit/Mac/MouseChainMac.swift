@@ -331,7 +331,8 @@ extension NodeView {
     /// area or an input's editor, which keeps the button's drags and up from
     /// the node, as a native button's loop does (NativeButtonsMac.swift). An
     /// input's field hands its down to its editor, which reports nothing
-    /// again. A press that moves the focus has moved it by now: NSWindow
+    /// again. A press that moves the focus has delivered the old field's
+    /// `change` and `blur` and the new one's `focus` by now: NSWindow
     /// focuses the hit view before its `mouseDown` (LLP 1005). The press a
     /// nested event loop inside a handler tracks (an alert's, a menu's) is
     /// its own, and the outer one is kept.

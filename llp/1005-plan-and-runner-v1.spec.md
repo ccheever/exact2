@@ -607,10 +607,11 @@ UIKit.
   A press that moves the focus into one delivers the old field's `change`
   and `blur` and the new one's `focus` before `pointerdown`: NSWindow makes
   the hit view first responder before it sends `mouseDown`. Chrome fires
-  `pointerdown` first. A drag of selected text out of a text area is
-  AppKit's dragging session, which runs after the loop returns: `pointerup`
-  comes as the drag starts, where Chrome sends `pointercancel` (declared,
-  not measured). A disabled editor tracks nothing: its press
+  `pointerdown` first. A drag of selected text out of a text area or an
+  input's editor is AppKit's dragging session, which runs after the loop
+  returns: `pointerup` comes as the drag starts, where Chrome sends
+  `pointercancel` (declared, not measured). A disabled editor tracks
+  nothing: its press
   is the node's, as a disabled box's is, and its up the release. A press on
   an inline atom (a pill) is the text area's node's down and up. A held
   node's release drops it from the hold, and a reset clears the hold.
