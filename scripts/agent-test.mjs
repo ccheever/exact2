@@ -146,6 +146,10 @@ export function targetsIn(nodes, limit = 12) {
   return named.length ? `; targets here: ${named.slice(0, limit).join(', ')}${named.length > limit ? ', …' : ''}` : '';
 }
 
+/** The host as a test's `on` names it (LLP 1146 D7): `mac` is macOS's other name, and the sample host's
+ * sessions are the Mac's and the iPhone's. */
+export const testScope = (host) => ({ mac: 'macos', host: 'macos', 'host-ios': 'ios' })[host] ?? host;
+
 /** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or
  * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app. */
 export function storeBase(appId, host, env = process.env, home = homedir()) {
@@ -631,8 +635,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const chosen = backendOrigin(selected.dir, launched);
   const server = chosen && onThisMachine(chosen) ? chosen.replace(/\/+$/, '') : serverUrl(selected.dir);
   let done = false;
-  // The host as a test's `on` names it (LLP 1146 D7): the sample host's sessions are the Mac's and the iPhone's.
-  const scope = { host: 'macos', 'host-ios': 'ios' }[host] ?? host, timing = launched.EXACT_AGENT_TIMING;
+  const scope = testScope(host), timing = launched.EXACT_AGENT_TIMING;
   for (const [n, t] of tests.entries()) {
     if (done) break;
     if (t.hosts && !t.hosts.includes(scope)) { results.push({ name: t.name, failures: [], notes: [], skipped: `on ${t.hosts.join(', ')}` }); continue; }
