@@ -1,0 +1,305 @@
+{
+  "engine": "firefox",
+  "version": "157.0",
+  "date": "2026-10-28T01:12:59.274Z",
+  "ran": {
+    "support": {
+      "version": "157.0",
+      "date": "2026-10-27T18:40:36.474Z"
+    },
+    "scrollThenFrame": {
+      "version": "157.0",
+      "date": "2026-10-27T18:40:36.474Z"
+    },
+    "removedScroller": {
+      "version": "157.0",
+      "date": "2026-10-27T18:40:36.474Z"
+    },
+    "animations": {
+      "version": "157.0",
+      "date": "2026-10-27T18:40:36.474Z"
+    },
+    "idleDuringAnimation": {
+      "version": "157.0",
+      "date": "2026-10-27T18:40:36.474Z"
+    },
+    "offscreenIframe": {
+      "version": "157.0",
+      "date": "2026-10-28T01:12:59.274Z"
+    },
+    "heldDrag": {
+      "version": "157.0",
+      "date": "2026-10-27T18:40:36.474Z"
+    },
+    "blockedMainThread": {
+      "version": "157.0",
+      "date": "2026-10-27T18:40:36.474Z"
+    },
+    "stillBeforeEnd": {
+      "version": "157.0",
+      "date": "2026-10-27T23:44:35.157Z"
+    },
+    "scrolledDocument": {
+      "version": "157.0",
+      "date": "2026-10-28T01:12:59.274Z"
+    }
+  },
+  "probes": {
+    "support": {
+      "requestIdleCallback": true,
+      "scrollend": true,
+      "getAnimations": true,
+      "scrollTimeline": false
+    },
+    "scrollThenFrame": {
+      "scrolls": 32,
+      "scrollToNextFrameMs": {
+        "min": 0,
+        "p50": 0,
+        "max": 1
+      },
+      "scrollEnded": true
+    },
+    "removedScroller": {
+      "events": [
+        [
+          "scroll",
+          "s"
+        ]
+      ],
+      "connected": false
+    },
+    "animations": {
+      "rateZero": {
+        "playState": "running",
+        "playbackRate": 0,
+        "timeline": "DocumentTimeline"
+      },
+      "scrollDriven": "unsupported",
+      "settled": {
+        "css": "fulfilled",
+        "waapi": "fulfilled",
+        "cancelled": "rejected"
+      },
+      "documentEvents": [
+        [
+          "animationend",
+          "driven"
+        ],
+        [
+          "animationend",
+          "css"
+        ]
+      ],
+      "animationEvents": [
+        "cancel",
+        "finish"
+      ],
+      "runningAfter": [
+        "CSSAnimation"
+      ]
+    },
+    "idleDuringAnimation": {
+      "frames": 60,
+      "idleCallbacks": 61,
+      "budgetsMs": {
+        "min": 4.090624999999996,
+        "p50": 12.497208333333276,
+        "max": 16.095500000000015
+      }
+    },
+    "offscreenIframe": {
+      "onscreen": {
+        "frames": 121,
+        "timeouts": 19,
+        "timeoutDelayMs": {
+          "p50": 107,
+          "max": 111
+        },
+        "intersecting": true,
+        "pinIntersecting": true,
+        "coverIntersecting": true,
+        "visibility": "visible"
+      },
+      "partly": {
+        "frames": 121,
+        "timeouts": 19,
+        "timeoutDelayMs": {
+          "p50": 109,
+          "max": 111
+        },
+        "intersecting": true,
+        "pinIntersecting": false,
+        "coverIntersecting": true,
+        "visibility": "visible"
+      },
+      "offscreen": {
+        "frames": 2,
+        "timeouts": 19,
+        "timeoutDelayMs": {
+          "p50": 108,
+          "max": 113
+        },
+        "intersecting": false,
+        "pinIntersecting": false,
+        "coverIntersecting": false,
+        "visibility": "visible"
+      },
+      "back": {
+        "frames": 121,
+        "timeouts": 18,
+        "timeoutDelayMs": {
+          "p50": 110,
+          "max": 116
+        },
+        "intersecting": true,
+        "pinIntersecting": true,
+        "coverIntersecting": true,
+        "visibility": "visible"
+      },
+      "scrolledInside": {
+        "frames": 120,
+        "timeouts": 19,
+        "timeoutDelayMs": {
+          "p50": 109,
+          "max": 118
+        },
+        "intersecting": false,
+        "pinIntersecting": true,
+        "coverIntersecting": true,
+        "visibility": "visible"
+      }
+    },
+    "heldDrag": "chromium only",
+    "blockedMainThread": {
+      "smooth": {
+        "kind": "smooth",
+        "topAtBlock": 26,
+        "blockEnd": 1504,
+        "frameLateMs": 1268,
+        "topAtFirstFrame": 26,
+        "scrollendAfterBlockMs": 1,
+        "finalTop": 3000
+      },
+      "wheel": {
+        "kind": "wheel",
+        "topAtBlock": 400,
+        "blockEnd": 2801,
+        "frameLateMs": 1200,
+        "topAtFirstFrame": 400,
+        "timedOut": true
+      }
+    },
+    "stillBeforeEnd": {
+      "maxMidScrollStillMs": 68,
+      "maxLastChangeToScrollendMs": 101,
+      "runs": {
+        "smooth0": {
+          "midScrollStillMs": 53,
+          "lastChangeToScrollendMs": 99,
+          "ended": true,
+          "frames": 49
+        },
+        "smooth1": {
+          "midScrollStillMs": 50,
+          "lastChangeToScrollendMs": 99,
+          "ended": true,
+          "frames": 50
+        },
+        "smooth2": {
+          "midScrollStillMs": 68,
+          "lastChangeToScrollendMs": 84,
+          "ended": true,
+          "frames": 49
+        },
+        "smooth3": {
+          "midScrollStillMs": 34,
+          "lastChangeToScrollendMs": 101,
+          "ended": true,
+          "frames": 50
+        },
+        "smooth4": {
+          "midScrollStillMs": 68,
+          "lastChangeToScrollendMs": 83,
+          "ended": true,
+          "frames": 49
+        },
+        "smooth5": {
+          "midScrollStillMs": 67,
+          "lastChangeToScrollendMs": 84,
+          "ended": true,
+          "frames": 49
+        },
+        "smooth6": {
+          "midScrollStillMs": 50,
+          "lastChangeToScrollendMs": 85,
+          "ended": true,
+          "frames": 49
+        },
+        "smooth7": {
+          "midScrollStillMs": 67,
+          "lastChangeToScrollendMs": 76,
+          "ended": true,
+          "frames": 49
+        },
+        "smooth8": {
+          "midScrollStillMs": 66,
+          "lastChangeToScrollendMs": 84,
+          "ended": true,
+          "frames": 48
+        },
+        "smooth9": {
+          "midScrollStillMs": 50,
+          "lastChangeToScrollendMs": 100,
+          "ended": true,
+          "frames": 50
+        },
+        "wheel0": {
+          "midScrollStillMs": 0,
+          "lastChangeToScrollendMs": null,
+          "ended": false,
+          "frames": 114,
+          "lastWheelToScrollendMs": null
+        },
+        "wheel1": {
+          "midScrollStillMs": 0,
+          "lastChangeToScrollendMs": null,
+          "ended": false,
+          "frames": 113,
+          "lastWheelToScrollendMs": null
+        },
+        "wheel2": {
+          "midScrollStillMs": 0,
+          "lastChangeToScrollendMs": null,
+          "ended": false,
+          "frames": 115,
+          "lastWheelToScrollendMs": null
+        }
+      },
+      "replaced": {
+        "at": 1,
+        "moved": true,
+        "scrollends": 1,
+        "stillFramesMs": 1502
+      }
+    },
+    "scrolledDocument": {
+      "top": {
+        "scrollY": 0,
+        "rootIntersecting": true,
+        "pinIntersecting": true,
+        "coverIntersecting": true,
+        "frames": 19,
+        "visibility": "visible"
+      },
+      "scrolled": {
+        "scrollY": 2000,
+        "rootIntersecting": false,
+        "pinIntersecting": true,
+        "coverIntersecting": true,
+        "frames": 30,
+        "visibility": "visible"
+      }
+    }
+  }
+}

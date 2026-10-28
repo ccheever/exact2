@@ -1,0 +1,306 @@
+{
+  "environment" : {
+    "deviceName" : "Timer Waits Probe",
+    "driver" : "xctest",
+    "maximumFramesPerSecond" : "60",
+    "model" : "iPhone19,4",
+    "simulator" : "true",
+    "systemVersion" : "27.1"
+  },
+  "repetition" : 2,
+  "scenario" : "displayLink",
+  "summary" : {
+    "phases" : [
+      {
+        "counts" : {
+          "displayLink" : 125,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 2.0989610416581854,
+        "medianIntervalMs" : {
+          "displayLink" : 16.67
+        },
+        "modes" : {
+          "displayLink" : {
+            "kCFRunLoopDefaultMode" : 125
+          }
+        },
+        "name" : "still",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "displayLink" : 59.6,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 5.110170791740529
+      },
+      {
+        "counts" : {
+          "displayLink" : 62,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0244096249807626,
+        "medianIntervalMs" : {
+          "displayLink" : 16.67
+        },
+        "modes" : {
+          "displayLink" : {
+            "kCFRunLoopDefaultMode" : 62
+          }
+        },
+        "name" : "animate",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "displayLink" : 60.5,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 7.209144000080414
+      },
+      {
+        "counts" : {
+          "displayLink" : 63,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0499584999633953,
+        "medianIntervalMs" : {
+          "displayLink" : 16.67
+        },
+        "modes" : {
+          "displayLink" : {
+            "kCFRunLoopDefaultMode" : 63
+          }
+        },
+        "name" : "animate.tail",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "displayLink" : 60,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 8.233553625061177
+      },
+      {
+        "counts" : {
+          "displayLink" : 62,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.033557999995537,
+        "medianIntervalMs" : {
+          "displayLink" : 16.67
+        },
+        "modes" : {
+          "displayLink" : {
+            "kCFRunLoopDefaultMode" : 62
+          }
+        },
+        "name" : "animator",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "displayLink" : 60,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 9.283512125024572
+      },
+      {
+        "counts" : {
+          "displayLink" : 63,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0497722916770726,
+        "medianIntervalMs" : {
+          "displayLink" : 16.67
+        },
+        "modes" : {
+          "displayLink" : {
+            "kCFRunLoopDefaultMode" : 63
+          }
+        },
+        "name" : "animator.tail",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "displayLink" : 60,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 10.31707012502011
+      },
+      {
+        "counts" : {
+          "displayLink" : 9,
+          "scroll" : 6,
+          "touch.moved" : 8
+        },
+        "duration" : 0.14805979165248573,
+        "medianIntervalMs" : {
+          "displayLink" : 16.64,
+          "scroll" : 16.66,
+          "touch.moved" : 16.66
+        },
+        "modes" : {
+          "displayLink" : {
+            "UITrackingRunLoopMode" : 6,
+            "kCFRunLoopDefaultMode" : 3
+          },
+          "scroll" : {
+            "UITrackingRunLoopMode" : 6
+          },
+          "touch.moved" : {
+            "UITrackingRunLoopMode" : 6,
+            "kCFRunLoopDefaultMode" : 2
+          }
+        },
+        "name" : "fling.moving",
+        "offsetsMs" : {
+          "displayLink" : [
+            0.6,
+            17.1,
+            32.8,
+            48.4,
+            65,
+            81.6,
+            98.3,
+            115,
+            131.6
+          ],
+          "scroll" : [
+            48.3,
+            64.9,
+            81.6,
+            98.2,
+            114.9,
+            131.6
+          ],
+          "touch.moved" : [
+            14.8,
+            31.7,
+            48.1,
+            64.7,
+            81.4,
+            98.1,
+            114.7,
+            131.4
+          ]
+        },
+        "ratesHz" : {
+          "displayLink" : 60.8,
+          "scroll" : 40.5,
+          "touch.moved" : 54
+        },
+        "start" : 19.95226300007198
+      },
+      {
+        "counts" : {
+          "displayLink" : 1,
+          "scroll" : 1,
+          "touch.moved" : 1
+        },
+        "duration" : 0.016706874943338335,
+        "medianIntervalMs" : {
+
+        },
+        "modes" : {
+          "displayLink" : {
+            "UITrackingRunLoopMode" : 1
+          },
+          "scroll" : {
+            "UITrackingRunLoopMode" : 1
+          },
+          "touch.moved" : {
+            "UITrackingRunLoopMode" : 1
+          }
+        },
+        "name" : "fling.held",
+        "offsetsMs" : {
+          "displayLink" : [
+            0.2
+          ],
+          "scroll" : [
+            0.1
+          ],
+          "touch.moved" : [
+            0
+          ]
+        },
+        "ratesHz" : {
+          "displayLink" : 59.9,
+          "scroll" : 59.9,
+          "touch.moved" : 59.9
+        },
+        "start" : 20.100322791724466
+      },
+      {
+        "counts" : {
+          "displayLink" : 147,
+          "scroll" : 141,
+          "touch.moved" : 0
+        },
+        "duration" : 2.433217416750267,
+        "medianIntervalMs" : {
+          "displayLink" : 16.67,
+          "scroll" : 16.67
+        },
+        "modes" : {
+          "displayLink" : {
+            "UITrackingRunLoopMode" : 147
+          },
+          "scroll" : {
+            "UITrackingRunLoopMode" : 141
+          }
+        },
+        "name" : "fling.deceleration",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "displayLink" : 60.4,
+          "scroll" : 57.9,
+          "touch.moved" : 0
+        },
+        "start" : 20.117193833342753
+      },
+      {
+        "counts" : {
+          "displayLink" : 60,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0015354165807366,
+        "medianIntervalMs" : {
+          "displayLink" : 16.67
+        },
+        "modes" : {
+          "displayLink" : {
+            "kCFRunLoopDefaultMode" : 60
+          }
+        },
+        "name" : "fling.tail",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "displayLink" : 59.9,
+          "scroll" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 22.55041125009302
+      }
+    ]
+  }
+}
