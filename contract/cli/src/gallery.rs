@@ -936,12 +936,15 @@ fn source(
             Some((prop, value)) => format!("{} · {prop}={value}", c.component),
             None => format!("{} · first values", c.component),
         };
-        // (Each component at its own size, as a caller's column that doesn't stretch it shows it, D4 batch 2 #4.)
-        let _ = writeln!(
-            s,
-            "        column gap=4 align-items=\"flex-start\" testId={}",
-            literal(&id)
-        );
+        // (A component whose root writes its own width at that width, as its author sized it, not stretched to the
+        // cell's: FollowButton's pill, D4 batch 2 #4. One that writes none fills the cell, as a caller's column fills
+        // a row: PostCard, PersonRow.)
+        let own = if sizes_itself(of(placed, c).component) {
+            " align-items=\"flex-start\""
+        } else {
+            ""
+        };
+        let _ = writeln!(s, "        column gap=4{own} testId={}", literal(&id));
         let _ = writeln!(
             s,
             "          text {} font=\"-exact-footnote\"",
@@ -1025,28 +1028,45 @@ fn compiler_record(
     Ok(format!("{name}({})", fields.join(", ")))
 }
 
+/// Whether `c`'s root element writes its own `width` (or `align-self`): the
+/// gallery shows it at that size, not stretched to its cell (D4 batch 2 #4).
+fn sizes_itself(c: &Component) -> bool {
+    matches!(c.view.first(), Some(contract_syntax::Node::Element { attrs, .. })
+        if attrs.iter().any(|a| a.name == "width" || a.name == "align-self"))
+}
+
 /// The roles a component's colour props are shown with, in their declared
 /// order: two colours one draws over the other (VerifiedBadge's disc and
-/// its check, D4 batch 2 #5) never get the same one.
+/// its check, D4 batch 2 #5) never get the same one, and each is a colour
+/// text or a mark shows on the gallery's background (a second text colour
+/// must not vanish into it, round 1).
 const COLOUR_SAMPLES: [&str; 4] = [
     "-exact-label",
-    "-exact-background",
     "-exact-system-blue",
+    "-exact-system-red",
     "-exact-secondary-label",
 ];
 
 /// A style-row string prop's sample (`inert::style_sample`): a colour prop
 /// takes the next of [`COLOUR_SAMPLES`] by its place among `c`'s colour
-/// props, a length its length.
-fn sample(c: &Component, file: &File, prop: &str) -> &'static str {
-    let colour = |name: &str| inert::style_sample(c, file, name) == Some(COLOUR_SAMPLES[0]);
+/// props the cell gives no value, skipping a role a value the cell gives
+/// already is; a length its length.
+fn sample(c: &Component, file: &File, prop: &str, values: &[(String, String)]) -> &'static str {
+    let given = |name: &str| values.iter().any(|(q, _)| q == name);
+    let colour =
+        |name: &str| !given(name) && inert::style_sample(c, file, name) == Some(COLOUR_SAMPLES[0]);
     match inert::style_sample(c, file, prop) {
         Some(s) if s == COLOUR_SAMPLES[0] => {
+            let free: Vec<&str> = (COLOUR_SAMPLES.iter().copied())
+                .filter(|r| !values.iter().any(|(_, v)| v == r))
+                .collect();
             let rank = (c.props.iter())
                 .take_while(|p| p.name != prop)
                 .filter(|p| colour(&p.name))
                 .count();
-            COLOUR_SAMPLES[rank % COLOUR_SAMPLES.len()]
+            free.get(rank % free.len().max(1))
+                .copied()
+                .unwrap_or(COLOUR_SAMPLES[0])
         }
         s => s.unwrap_or_default(),
     }
@@ -1096,7 +1116,7 @@ fn args(
                     Some(TypeExpr::Named(t, _))
                         if t == "string" && inert::style_sample(c, file, &p.name).is_some() =>
                     {
-                        literal(sample(c, file, &p.name))
+                        literal(sample(c, file, &p.name, values))
                     }
                     Some(ty) => placeholder(ty, &p.name, file, shapes, compiler, &mut Vec::new())
                         .map_err(|why| format!("{} ({why})", p.name))?,
