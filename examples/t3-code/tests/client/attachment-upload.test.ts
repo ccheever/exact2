@@ -3,7 +3,8 @@
 // goes, and Send reuses the attachment it made. The host reports no upload progress, so it is 0 until the reply.
 import { expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
-import { obj, type Obj } from '../../src/client/domain';
+import { initialShell, obj, str, type Obj } from '../../src/client/domain';
+import { fleet } from '../../src/connections/settings-b-fleet';
 import type { Files, Native } from '../../src/client/protocol';
 import { memoryFiles, png } from '../support/app-files-fixture';
 
@@ -55,10 +56,36 @@ test('a second ask for an image whose upload runs joins that upload (attachmentU
   const [first, second] = await Promise.all([f.client.uploadDraftImage(f.native, f.files, f.image), f.client.uploadDraftImage(f.native, f.files, f.image)]);
   expect([first, second]).toEqual(['att-1', 'att-1']);
   expect(f.calls.filter(call => call.op === 'uploadAttachment' || call.method === 'attachments.createUploadUrl')).toHaveLength(2);
-  // Another environment's ask is its own upload.
-  delete f.image.uploadId;
-  const moving = f.client.uploadDraftImage(f.native, f.files, f.image);
-  f.client.environmentId = 'env-2';
-  await Promise.all([moving, f.client.uploadDraftImage(f.native, f.files, f.image)]);
-  expect(f.calls.filter(call => call.op === 'uploadAttachment')).toHaveLength(3);
+});
+
+// startAttachmentUpload and cancelAttachmentUpload: the image's upload belongs to one environment.
+test('an image that moves to another environment uploads there; the old upload stops, and its attachment is deleted where it was minted', async () => {
+  const f = fixture();
+  fleet.entries.set('old', { key: 'old', origin: 'http://old.example', environmentId: 'env', phase: 'connected', message: '', traceId: '', generation: 1, synchronized: 1,
+    lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: ['orchestration:read', 'orchestration:operate'], error: '', requested: true });
+  try {
+    let release: () => void = () => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const later = f.native.later.bind(f.native);
+    let minted = 0;
+    f.native.later = async (input: unknown) => {
+      const request = obj(input);
+      if (request.method === 'attachments.createUploadUrl') {
+        f.calls.push(request); const attachmentId = `att-${++minted}`;
+        return { ok: true, generation: 1, value: { attachmentId, relativeUrl: `/api/attachments/upload/${attachmentId}.signed`, expiresAt: 999999 } };
+      }
+      if (request.op === 'uploadAttachment' && str(request.path).includes('att-1')) { f.calls.push(request); await held; return { ok: true, generation: 1, value: {} }; }
+      return later(input);
+    };
+    const moving = f.client.uploadDraftImage(f.native, f.files, f.image).catch((error: unknown) => error);
+    for (let turn = 0; turn < 20 && !f.calls.some(call => call.op === 'uploadAttachment'); turn++) await Promise.resolve();
+    f.client.environmentId = 'env-2';
+    expect(await f.client.uploadDraftImage(f.native, f.files, f.image)).toBe('att-2');
+    release();
+    expect(await moving).toMatchObject({ kind: 'superseded' });
+    // Deleted once, through the old environment's own connection; the image keeps the new upload.
+    expect(f.calls.filter(call => call.method === 'attachments.delete').map(call => [obj(call.payload).attachmentId, call.fleet ?? 'focused'])).toEqual([['att-1', 'old']]);
+    expect(f.client.attachmentUploads[id]).toMatchObject({ status: 'ready', attachmentId: 'att-2' });
+    expect(f.image.uploadId).toBe('att-2');
+  } finally { fleet.entries.delete('old'); }
 });

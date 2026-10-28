@@ -140,6 +140,31 @@ describe('routes (driver.ts connectOverRoutes, supervisor.ts checkBetterRoutes)'
     expect([status.state, status.origin, status.activeRouteId]).toEqual(['connected', A, A]);
   });
 
+  // A session read asked for during the 60 s check moves `check`, which lets the answer running the check go.
+  test('a route check let go by a session read runs in the answer that replaces it, started before or after the rejection', async () => {
+    const letGo = Object.assign(new Error('the answer was let go before this reply; the request may already have been sent'), { name: 'FetchError', kind: 'Aborted' });
+    for (const order of ['rejection first', 'new answer first'] as const) {
+      const { drive, home } = await twoRoutes();
+      await drive.op({ op: 'disconnect', forget: false });
+      home.up = false;
+      await drive.op({ op: 'connect', origin: A, credential: '' });
+      home.up = true;
+      let refuse: (error: unknown) => void = () => {};
+      drive.holds['/.well-known/t3/environment'] = new Promise<void>((_resolve, reject) => { refuse = reject; });
+      await drive.advance(61_000, 1_000);
+      expect(value(await drive.op({ op: 'status' })).activeRouteId).toBe(B);
+      await drive.op({ op: 'readSession' });
+      const session = drive.transport.focused;
+      const replace = () => drive.transport.connect(0, 'focused', session.attempt, session.check, drive.module);
+      delete drive.holds['/.well-known/t3/environment'];
+      if (order === 'rejection first') { refuse(letGo); await drive.settle(); await replace(); }
+      else { const replaced = replace(); refuse(letGo); await replaced; }
+      await drive.advance(3_000, 250);
+      const status = value(await drive.op({ op: 'status' }));
+      expect([order, status.state, status.activeRouteId]).toEqual([order, 'connected', A]);
+    }
+  });
+
   test('removing the route in use reconnects; a removed paired route takes its token with it', async () => {
     const { drive } = await twoRoutes();
     const saved = value(await drive.op({ op: 'setRoutes', environmentId: 'env-1', routes: [{ id: B, origin: B, kind: '', learned: false, credential: B }] }));

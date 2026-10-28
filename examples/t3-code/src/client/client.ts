@@ -27,7 +27,7 @@ import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
 import { announceHostFreezes } from '../connections/host-freeze';
 import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/remote-scopes';
-import { routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
+import { environmentRequest, routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
 import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from '../connections/local-environment';
 import { groupLabel, repositoryGroupingKey } from '../sidebar/project-groups';
@@ -80,6 +80,8 @@ export type Pending = { method: string; payload: Obj; description: string; threa
   detached?: { images: Obj[] } };
 const CONTEXT_NOTICE = 'Update the T3 server to send messages from this client. Existing threads remain readable.';
 const PAIR_AGAIN = 'Pair with the T3 server again.';
+/** One draft image's upload on one environment, and the attachment it minted there. */
+type DraftUpload = { environmentId: string; upload: Promise<string>; cancelled: boolean; attachmentId: string; dropped: boolean };
 const uncertainError = (pending: Pending) => `${pending.description} may have reached T3. Check the synchronized thread, then retry only if needed.`;
 /** The types a draft image is kept in: a capture's PNG, an attached image's own (composer-attach-stage.ts). */
 const DRAFT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -151,7 +153,7 @@ export class T3Client {
    */
   attachmentUploads: Record<string, AttachmentUpload> = {};
   /** The uploads running, by image id (attachmentUploadQueue.ts jobsByImageId): a second ask joins the first. */
-  private uploadsRunning = new Map<string, { environmentId: string; upload: Promise<string> }>();
+  private uploadsRunning = new Map<string, DraftUpload>();
   get answers(): Record<string, RequestDraft> { return this.answerDrafts[`${this.environmentId}\u0000${this.threadId}`] ??= {}; }
   local = preferences();
   busy = false;
@@ -1090,13 +1092,24 @@ export class T3Client {
     if (uploaded) { this.attachmentUploads[id] = { status: 'ready', progress: 1, reason: '', attachmentId: uploaded }; return uploaded; }
     const running = this.uploadsRunning.get(id);
     if (running?.environmentId === this.environmentId) return running.upload;
-    const job = { environmentId: this.environmentId, upload: this.runDraftUpload(native, storage, image, current) };
+    // An image that moved to another environment uploads again there; the old upload stops and the attachment it
+    // minted is deleted on its own environment (attachmentUploadQueue.ts startAttachmentUpload, cancelAttachmentUpload).
+    let dropped: Promise<void> = Promise.resolve();
+    if (running) { running.cancelled = true; dropped = this.dropDraftUpload(native, running); }
+    const job: DraftUpload = { environmentId: this.environmentId, upload: Promise.resolve(''), cancelled: false, attachmentId: '', dropped: false };
+    job.upload = this.runDraftUpload(native, storage, image, () => !job.cancelled && job.environmentId === this.environmentId && current(), job);
     this.uploadsRunning.set(id, job);
     try { return await job.upload; }
-    finally { if (this.uploadsRunning.get(id) === job) this.uploadsRunning.delete(id); }
+    finally { if (this.uploadsRunning.get(id) === job) this.uploadsRunning.delete(id); await dropped; }
   }
-  private async runDraftUpload(native: Native, storage: Files, image: Obj, current: () => boolean): Promise<string> {
-    const id = str(image.id), generation = this.generation;
+  /** Deletes the attachment `job` minted, once, on the environment it was minted on. */
+  private async dropDraftUpload(native: Native, job: DraftUpload): Promise<void> {
+    if (!job.attachmentId || job.dropped) return;
+    job.dropped = true;
+    await environmentRequest(this, native, job.environmentId, 'attachments.delete', { attachmentId: job.attachmentId }).catch(() => undefined);
+  }
+  private async runDraftUpload(native: Native, storage: Files, image: Obj, current: () => boolean, job: DraftUpload): Promise<string> {
+    const id = str(image.id);
     this.attachmentUploads[id] = { status: 'uploading', progress: 0, reason: '', attachmentId: '' };
     let attachmentId = '';
     try {
@@ -1108,16 +1121,18 @@ export class T3Client {
       const upload = await this.request(native, 'attachments.createUploadUrl', { type: 'image', name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes });
       attachmentId = str(upload.attachmentId);
       if (!attachmentId || !str(upload.relativeUrl).startsWith('/api/attachments/upload/')) { attachmentId = ''; throw new ClientError('The server returned an invalid attachment upload.'); }
+      job.attachmentId = attachmentId;
       if (!current()) throw new ClientError('The draft changed before upload.');
       await this.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, bodyFrom: body.bodyFrom, sizeBytes: body.sizeBytes, ...(png ? {} : { contentType: str(image.mimeType) }) });
       if (!current()) throw new ClientError('The draft changed during upload.');
       image.uploadId = attachmentId;
       await this.persist(storage);
     } catch (error) {
+      // Only this operation's newly minted upload is eligible for cleanup; a newer upload of the image keeps its state.
+      await this.dropDraftUpload(native, job);
+      if (job.cancelled) throw new ClientError('The image moved to another environment.', 'superseded');
       delete image.uploadId;
       this.attachmentUploads[id] = { status: 'failed', progress: 0, reason: message(error), attachmentId: '' };
-      // Only this operation's newly minted upload is eligible for cleanup.
-      if (attachmentId && generation === this.generation) await this.request(native, 'attachments.delete', { attachmentId }).catch(() => {});
       throw error;
     }
     this.attachmentUploads[id] = { status: 'ready', progress: 1, reason: '', attachmentId };

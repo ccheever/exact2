@@ -6,6 +6,28 @@ import { providerBadge, providerInstanceInitials, snapshot } from '../../src/cli
 import { modelShortName, resolveModelShortName } from '../../src/client/model-short-name';
 import { arr, obj } from '../../src/client/domain';
 import { opened } from '../support/client-fixture';
+import { appText } from '../support/app-files';
+import { contractComponent, value } from '../support/contract-action-fixture';
+import type { T3Client } from '../../src/client/client';
+
+/** The Contract expression `attribute` takes (a balanced `(…)`) on composer-controls.contract's line holding `marker`. */
+function expression(marker: string, attribute: string): string {
+  const line = appText('src/composer/composer-controls.contract').split('\n').find(text => text.includes(marker))!;
+  const open = line.indexOf(attribute) + attribute.length;
+  for (let at = open, depth = 0; at < line.length; at++) {
+    if (line[at] === '"') { at = line.indexOf('"', at + 1); continue; }
+    if (line[at] === '(') depth++;
+    else if (line[at] === ')' && --depth === 0) return line.slice(open, at + 1);
+  }
+  throw new Error(`no ${attribute} on the line with ${marker}`);
+}
+/** What ModelTrigger shows for the client's snapshot: its text, its accessible name and whether the badge is drawn. */
+function trigger(client: T3Client) {
+  const data = snapshot(client), component = contractComponent('src/composer/composer-controls.contract', 'ModelTrigger');
+  const scope = { data, xs: false, open: false, label: true, keyModels: '', disabled: false, press: () => {} };
+  return { text: value(expression('testId="model-picker-label"', 'text '), scope), name: value(expression('testId="model-picker" ', 'aria-label='), scope),
+    badge: component.drawn('testId="model-picker-unavailable"', component.state(), scope) };
+}
 
 describe('account badges', () => {
   test('"Codex (hub)" reads CH and "Theo\'s Codex" TC', () => {
@@ -30,18 +52,22 @@ describe('the spoken model name', () => {
     expect([resolveModelShortName({ name: 'Grok 4 Pro' }, 'cursor'), resolveModelShortName({ name: 'Grok 4 Pro' }, 'codex')]).toEqual(['4 Pro', undefined]);
   });
 
-  test('the trigger names the model in full, and gives its short name apart for the visible text', async () => {
+  // ProviderModelPicker.tsx: the trigger's text is triggerTitle, its aria-label triggerLabel, and an unavailable model
+  // gets the Unavailable badge after the text.
+  test('the trigger shows the short name, is named by the full one, and badges an unavailable model', async () => {
     const { client } = await opened();
     const provider = arr(client.config.providers)[0]!;
     Object.assign(provider, { driver: 'claudeAgent' });
-    obj(arr(provider.models)[0]).name = 'Claude Opus 5.5';
-    // The accessible name stays the full name (ProviderModelPicker.tsx aria-label); only the visible text is short.
-    expect([snapshot(client).modelLabel, snapshot(client).modelShortLabel]).toEqual(['Claude Opus 5.5', 'Opus 5.5']);
-    obj(arr(provider.models)[0]).isUnavailable = true;
-    expect([snapshot(client).modelLabel, snapshot(client).modelShortLabel]).toEqual(['Claude Opus 5.5 (Unavailable)', 'Opus 5.5']);
-    // A name with no short form on its driver keeps the full name in both.
+    const model = obj(arr(provider.models)[0]);
+    model.name = 'Claude Opus 5.5';
+    expect(trigger(client)).toEqual({ text: 'Opus 5.5', name: 'Claude Opus 5.5', badge: false });
+    model.isUnavailable = true;
+    expect(trigger(client)).toEqual({ text: 'Opus 5.5', name: 'Claude Opus 5.5 (Unavailable)', badge: true });
+    // The catalog's own shortName wins; a name with no short form on its driver shows in full.
+    Object.assign(model, { isUnavailable: false, shortName: 'Opus' });
+    expect(trigger(client)).toEqual({ text: 'Opus', name: 'Claude Opus 5.5', badge: false });
     Object.assign(provider, { driver: 'codex' });
-    Object.assign(obj(arr(provider.models)[0]), { name: 'Grok 4 Pro', isUnavailable: false });
-    expect([snapshot(client).modelLabel, snapshot(client).modelShortLabel]).toEqual(['Grok 4 Pro', 'Grok 4 Pro']);
+    Object.assign(model, { name: 'Grok 4 Pro', shortName: undefined });
+    expect(trigger(client)).toEqual({ text: 'Grok 4 Pro', name: 'Grok 4 Pro', badge: false });
   });
 });

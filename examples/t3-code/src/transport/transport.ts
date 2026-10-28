@@ -151,7 +151,7 @@ export class Transport {
     if (!session || !key || (slot === 0 ? key !== FOCUSED : session.key !== key)) return { attempt, seq: this.seq };
     if (session.wantsFlow(attempt)) await session.connectFlow(attempt).catch(() => '');
     else if (session.flowRunning === attempt) await session.joinFlow(attempt);
-    else if (check > 0) await session.background(check).catch(() => undefined);
+    else if (check > 0) await session.background().catch(() => undefined);
     // The delivering answer is asked again, and sees the socket's URL in the table it reports.
     this.bump();
     return { attempt, seq: this.seq };

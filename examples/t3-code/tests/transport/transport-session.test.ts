@@ -521,22 +521,29 @@ describe('a slow host and a refused pairing (reference 7c3b3b3605ef)', () => {
     expect([value(await drive.op({ op: 'status' })).state, value(await refused.drive.op({ op: 'status' })).state]).toEqual(['connected', 'connected']);
   });
 
-  test('a connect answer let go leaves the session read for the next one', async () => {
-    const { drive, server } = await paired();
-    const letGo = Object.assign(new Error('the answer was let go before this reply; the request may already have been sent'), { name: 'FetchError', kind: 'Aborted' });
-    let refuse: (error: unknown) => void = () => {};
-    drive.holds['/api/auth/session'] = new Promise<void>((_resolve, reject) => { refuse = reject; });
-    await drive.op({ op: 'readSession' });
-    delete drive.holds['/api/auth/session'];
-    refuse(letGo);
-    await drive.settle();
-    expect(await sessionEvents(drive)).toEqual([]);
-    // The host asks the slot's answer again with the same inputs.
-    const session = drive.transport.focused;
-    await drive.transport.connect(0, 'focused', session.attempt, session.check, drive.module);
-    await drive.settle();
-    expect(await sessionEvents(drive)).toEqual([{ _reply: { authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] } }]);
-    expect(sessionDeadlines(server)).toEqual([6_000]);
+  // LLP 1016.000, "An answer let go": the runner may start the answer that replaces one before or after that one's
+  // rejection settles.
+  const LET_GO = Object.assign(new Error('the answer was let go before this reply; the request may already have been sent'), { name: 'FetchError', kind: 'Aborted' });
+
+  test('a connect answer let go leaves the session read for the next one, started before or after the rejection', async () => {
+    for (const order of ['rejection first', 'new answer first'] as const) {
+      const { drive, server } = await paired();
+      let refuse: (error: unknown) => void = () => {};
+      drive.holds['/api/auth/session'] = new Promise<void>((_resolve, reject) => { refuse = reject; });
+      await drive.op({ op: 'readSession' });
+      const session = drive.transport.focused;
+      // The runner starts the answer again with the same inputs.
+      const again = () => drive.transport.connect(0, 'focused', session.attempt, session.check, drive.module);
+      delete drive.holds['/api/auth/session'];
+      let replaced: Promise<unknown>;
+      if (order === 'rejection first') { refuse(LET_GO); await drive.settle(); expect(await sessionEvents(drive)).toEqual([]); replaced = again(); }
+      else { replaced = again(); refuse(LET_GO); }
+      await replaced;
+      await drive.settle();
+      expect(await sessionEvents(drive)).toEqual([{ _reply: { authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] } }]);
+      // The read let go never reached the server (the fixture holds it before it answers); the one that did starts again at 6 s.
+      expect(sessionDeadlines(server)).toEqual([6_000]);
+    }
   });
 
   test("an SSH host's pairing answered with HTTP 500 by a server on another version ends with the reference's sentence", async () => {

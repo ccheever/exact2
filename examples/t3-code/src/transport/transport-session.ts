@@ -151,14 +151,15 @@ export class Session {
   private openDeadline = 0;
   /**
    * Work the slot's connect answer runs while connected, asked for by moving `check`: a better-route check, the
-   * session read. `checked` is the last `check` run.
+   * session read. Each stays due until it ends in an answer that is not let go, and runs one at a time.
    */
   check = 0;
-  private checked = 0;
   private routeCheckDue = false;
+  private routeCheck: Promise<void> | null = null;
   /** The session read the reader asked for on this connection, and the deadline its next try takes. */
   private sessionRead: { epoch: number; id: number; timeoutMs: number } | null = null;
   private sessionReads = 0;
+  private sessionReading: Promise<void> | null = null;
   private socket: SocketHandle | null = null;
   private abort: AbortController | null = null;
   private readonly lease = {};
@@ -949,21 +950,28 @@ export class Session {
   lookForBetterRoute(): void {
     if (this.alive && this.wantsConnection && this.state === 'connected' && this.socket && this.routes.activeIndex > 0) { this.routeCheckDue = true; this.check += 1; }
   }
-  /** The work the connect answer runs for `check`: the better-route check and the session read it was asked for. */
-  async background(check: number): Promise<void> {
-    if (check <= this.checked || this.state !== 'connected') return;
-    this.checked = check;
-    const route = this.routeCheckDue;
-    this.routeCheckDue = false;
-    await Promise.all([route ? this.checkRoutes() : undefined, this.sessionRead ? this.readSession() : undefined])
-      .catch(error => { if (letGoAbort(error) && this.checked === check) this.checked = check - 1; throw error; });
+  /**
+   * The work the connect answer runs: the better-route check and the session read, while they are due. Moving `check`
+   * lets the running answer go (LLP 1016.000, "An answer let go"), and the answer that replaces it, started before
+   * or after that one's rejection settles, waits for the work in flight and runs what is still due.
+   */
+  async background(): Promise<void> {
+    if (this.state !== 'connected') return;
+    await Promise.all([this.routeCheckDue ? this.checkRoutes() : undefined, this.sessionRead ? this.readSession() : undefined]);
   }
   /** checkBetterRoutes: a better route that answers replaces the session. */
   private async checkRoutes(): Promise<void> {
-    const best = await this.routes.checkBetter(this.hooks.catalog, this.hooks.now());
-    if (!best || !this.alive || !this.wantsConnection || this.state !== 'connected') return;
-    this.retire(new TransportFailure('Replaced', 'The connection moved to a better route.', true));
-    this.failures = 0; this.start();
+    while (this.routeCheck) await this.routeCheck.catch(() => undefined);
+    if (!this.routeCheckDue) return;
+    const run = (async () => {
+      const best = await this.routes.checkBetter(this.hooks.catalog, this.hooks.now());
+      this.routeCheckDue = false;
+      if (!best || !this.alive || !this.wantsConnection || this.state !== 'connected') return;
+      this.retire(new TransportFailure('Replaced', 'The connection moved to a better route.', true));
+      this.failures = 0; this.start();
+    })();
+    this.routeCheck = run;
+    try { await run; } finally { if (this.routeCheck === run) this.routeCheck = null; }
   }
 
   /**
@@ -977,14 +985,20 @@ export class Session {
     this.check += 1;
     return { id: String(this.sessionRead.id) };
   }
-  /**
-   * fetchEnvironmentSessionState: a timeout says nothing about the grants, and failing would show a busy host as
-   * read-only, so the read asks again with double the time, from 6 s up to 60 s. A connect answer let go keeps the
-   * read due, for the next one to go on with.
-   */
+  /** The session read the reader asked for, one at a time; one let go stays due. */
   private async readSession(): Promise<void> {
+    while (this.sessionReading) await this.sessionReading.catch(() => undefined);
     const read = this.sessionRead;
     if (!read) return;
+    const run = this.readSessionFor(read);
+    this.sessionReading = run;
+    try { await run; } finally { if (this.sessionReading === run) this.sessionReading = null; }
+  }
+  /**
+   * fetchEnvironmentSessionState: a timeout says nothing about the grants, and failing would show a busy host as
+   * read-only, so the read asks again with double the time, from 6 s up to 60 s.
+   */
+  private async readSessionFor(read: { epoch: number; id: number; timeoutMs: number }): Promise<void> {
     const current = () => this.sessionRead === read && read.epoch === this.generation && this.alive;
     let reply: Obj;
     for (;;) {
