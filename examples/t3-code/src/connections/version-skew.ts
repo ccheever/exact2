@@ -1,16 +1,18 @@
 // Version skew between this client and a connected server (T3 Code MIT, see LICENSE-T3;
-// reference 9c161462c9: apps/web/src/versionSkew.ts, packages/shared/src/semver.ts).
+// reference 7c3b3b3605ef: apps/web/src/versionSkew.ts, packages/shared/src/semver.ts).
 // Port changes: APP_VERSION is CLIENT_VERSION (the Nightly this client mirrors) and
 // every resolver takes the client version as an optional argument; the dismissal
 // document lives in the client's preference file (shell-prefs.ts
 // `versionMismatchDismissals`) instead of localStorage, so a store is passed in
 // (a module store stands in for tests); the failed-attempt WeakSet keys by the
 // attempt the native update job numbers, since its state is rebuilt on each read.
+// `serverUpdateGuidance` stays while the composer's update notice reads it
+// (server-update-notices.ts); the reference dropped it with that notice.
 import { obj, str } from '../client/domain';
 import { manualServerUpdateCommand, type ServerInstallation } from './server-installation';
 
-/** This client's T3 Code release: the Nightly it mirrors (e64766c56a, 0.1.2-nightly.20261021.3457). */
-export const CLIENT_VERSION = '0.1.2-nightly.20261021.3457';
+/** This client's T3 Code release: the Nightly it mirrors (7c3b3b3605ef, 0.1.4-nightly.20261027.3770). */
+export const CLIENT_VERSION = '0.1.4-nightly.20261027.3770';
 
 export { manualServerUpdateCommand };
 export type { ServerInstallation };
@@ -112,10 +114,4 @@ export function isServerUpdateFailureDismissed(state: UpdateAttemptState): boole
 }
 export function dismissServerUpdateFailure(state: UpdateAttemptState): void {
   if (state.status === 'failed' && attemptOf(state)) dismissedServerUpdateFailures.add(attemptOf(state));
-}
-
-export function appendVersionMismatchHint(message: string | null | undefined, mismatch: VersionMismatch | null | undefined): string | null {
-  const normalized = normalizeVersion(message);
-  if (!normalized) return mismatch?.hint ?? null;
-  return mismatch ? `${normalized} Hint: ${mismatch.hint}` : normalized;
 }

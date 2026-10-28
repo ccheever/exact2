@@ -3,6 +3,7 @@
 // owning scope match this client.
 import { CATALOG } from './settings-catalog';
 import { commandLabel } from './keybinding-view'; // settingsSearch.ts imports KeybindingsSettings.logic's
+import { keybindingDefaults } from './keybinding-settings';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { canManageLocalBackend, primary } from '../connections/local-primary';
 
@@ -26,7 +27,8 @@ export const breadcrumbLabel = (route: string) => BREADCRUMB[route] ?? 'Settings
 const CATEGORY_SCOPE: Record<string, string> = { diagnostics: 'environment', projects: 'project', 'source-control': 'environment-defaults', worktrees: 'project-defaults', connections: 'connections', access: 'connections', archived: 'project-defaults' };
 /**
  * Every search target is its row's or section's own id, the catalog's `targetId ?? id` (upstream's `hash`), and a
- * keybinding result's is its row's, `keybinding-<command>`: the page puts each on the row it names. These targets sit
+ * keybinding result's is its command's row, `keybinding-<command>`, or with no default key the Keybindings section: the
+ * page puts each on the row it names. ⌘K jumps by the same targets (palette.ts settingTarget). These targets sit
  * under an Advanced fold (AdvancedSettings `targetIds`), by the fold's section id: a jump to one opens the fold first
  * (settings-advanced.contract), and lands on its stop while the row is not drawn yet. A source control host's
  * settings sit in its row's details, which open the same way (DiscoveryItemRow's `targetsThisRow`).
@@ -67,10 +69,12 @@ export type SettingsItem = { id: string; title: string; route: string; target: s
 /** settingsForThisPlatform over the catalog: the settings this client offers, each with its jump target. ⌘K ranks these too. */
 export function settingsCatalog(context: SearchContext): SettingsItem[] {
   const items: SettingsItem[] = CATALOG.map(([id, title, route, targetId, terms, scope, flags]) => ({ id, title, route, target: targetId || id, terms: terms ? [terms] : [], scope, flags: flags ? flags.split(',') : [], secondary: false }));
-  // KEYBINDING_SEARCH_ITEMS: one per command the server binds, alphabetical, default keys searchable.
+  // KEYBINDING_SEARCH_ITEMS: one per command the server binds, alphabetical, default keys searchable; a command with no
+  // default key lands on the Keybindings section.
   const commands = new Map<string, string[]>();
   for (const binding of arr(context.keybindings)) { const command = str(binding.command); if (command) commands.set(command, [...(commands.get(command) || []), str(binding.key)].filter(Boolean)); }
-  const keybindings = [...commands].map(([command, keys]) => ({ id: `keybinding-${command}`, title: commandLabel(command), route: 'keybindings', target: `keybinding-${command}`, terms: [command, ...keys], scope: '', flags: [], secondary: true }))
+  const keybindings = [...commands].map(([command, keys]) => ({ id: `keybinding-${command}`, title: commandLabel(command), route: 'keybindings',
+    target: keybindingDefaults.some(binding => binding.command === command) ? `keybinding-${command}` : 'keybindings', terms: [command, ...keys], scope: '', flags: [], secondary: true }))
     .sort((a, b) => a.title.localeCompare(b.title));
   // filterAvailableSettingsSearchItems on the macOS desktop: desktop and mac rows always, Windows, WSL and T3 Connect
   // (cloud) rows never; local-backend rows while this machine can be managed, local-environment rows while it is on.

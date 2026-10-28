@@ -145,7 +145,7 @@ describe('general rows', () => {
     expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
-    expect(row('version').value).toBe('0.1.2-nightly.20261021.3457'); // this app's own release, not the server's
+    expect(row('version').value).toBe('0.1.4-nightly.20261027.3770'); // this app's own release, not the server's
   });
   test('project scope: overrides, t3.json and environment-wide rows', () => {
     const client = as(fake({ projectSettingsOverrides: { p1: { defaultRuntimeMode: 'approval-required' }, p2: { defaultRuntimeMode: 'approval-required' } } }));

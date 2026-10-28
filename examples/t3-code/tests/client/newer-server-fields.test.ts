@@ -1,8 +1,9 @@
-// What a 0.1.2-nightly.20261021.3457 server adds (T3 Code 74541bab17, MIT, see LICENSE-T3: packages/contracts):
-// optional fields decode without failing, forward-compatible arrays and reasons drop what this build does not know,
-// a legacy writing-style string reads as the struct, and EAS hosts join the device state's hosts.
+// What 0.1.2-nightly.20261021.3457 and 0.1.4-nightly.20261027.3770 servers add (T3 Code 74541bab17 and 7c3b3b3605ef,
+// MIT, see LICENSE-T3: packages/contracts): optional fields decode without failing, forward-compatible arrays and
+// reasons drop what this build does not know, a legacy writing-style string reads as the struct, and EAS hosts join
+// the device state's hosts.
 import { describe, expect, test } from 'bun:test';
-import { applyShell, decodeChangeBreakdown, decodeDeviceState, decodeEasAccount, decodeIgnoredFiles, initialShell, obj, threadSnapshot, visibleTurnItems, type Obj } from '../../src/client/domain';
+import { applyShell, applyThread, decodeChangeBreakdown, decodeDeviceState, decodeEasAccount, decodeIgnoredFiles, initialShell, obj, threadSnapshot, visibleTurnItems, type Obj } from '../../src/client/domain';
 import { allowedMergeMethods, resolveBaseFreshness } from '../../src/details/pr-row-logic';
 import { contextCompactionLabel } from '../../src/timeline/timeline-worklog';
 import { failure } from '../../src/transport/transport-wire';
@@ -39,6 +40,46 @@ describe('new optional fields', () => {
     expect(decodeChangeBreakdown({ code: lines, tests: lines, mocks: lines, generated: lines })?.docs).toEqual({ additions: 0, deletions: 0 });
     expect(decodeChangeBreakdown(null)).toBeNull();
     expect(decodeEasAccount({ signedInAs: 'me', credentialSource: 'env', apps: [{ id: 'a', fullName: '@me/app' }] }).apps).toEqual([{ id: 'a', fullName: '@me/app' }]);
+  });
+});
+
+describe('what a 0.1.4 server adds', () => {
+  const row = (item: Obj, position: number) => ({ position, visibility: 'local', sourceThreadId: 't', sourceItemId: item.id, item });
+  const base = { threadId: 't', runId: 'r', nodeId: 'n' };
+  const items: Obj[] = [
+    { ...base, id: 'u', ordinal: 1, type: 'user_message', status: 'completed', messageId: 'm', text: '/compact', inputIntent: 'turn_start', attachments: [], idleCompaction: 'onReturn' },
+    { ...base, id: 'c', ordinal: 2, type: 'command_execution', status: 'running', input: 'grok monitor', monitor: true },
+    { ...base, id: 'a', ordinal: 3, type: 'approval_request', status: 'pending', requestId: 'q', requestKind: 'command', prompt: 'Run it?', reason: 'An ask rule matched.', fullAccessOverride: 'ask_rule' },
+    { ...base, id: 's', ordinal: 4, type: 'secret_request', status: 'pending', label: 'TOKEN', reason: '', secretStatus: 'pending', delivery: 'file' },
+  ];
+
+  test('a thread with an idle compaction, a monitor, a full-access approval reason and a file secret opens', () => {
+    const state = threadSnapshot({ snapshotSequence: 3, projection: {
+      thread: { id: 't', title: 'T', opens: { openedAt: 1, score: 2, picks: [{ query: 'api', at: 1 }] },
+        pullRequests: [{ host: 'github.com', repository: 'o/r', number: 1, url: 'https://github.com/o/r/pull/1', watch: { owedChecks: ['ci'], checksAwaitedSince: at } }] },
+      runs: [{ id: 'r', status: 'running', restartCancelledBackgroundWork: [{ kind: 'monitor', label: 'grok monitor', awaited: true }] }], attempts: [], nodes: [], subagents: [], providerSessions: [],
+      providerThreads: [{ id: 'pt', claudeAttachmentBudget: { bytesUsed: 1, pagesUsed: 1 } }], providerTurns: [],
+      runtimeRequests: [{ id: 'q', status: 'pending', responseCapability: { type: 'live', providerSessionId: 'ps', supportsFeedback: true }, feedback: 'Use the staging bucket.' }],
+      messages: [{ id: 'm', text: '/compact', role: 'user', idleCompaction: 'onReturn' }], plans: [], turnItems: items, checkpointScopes: [], checkpoints: [], contextHandoffs: [],
+      contextTransfers: [], visibleTurnItems: items.map(row), updatedAt: at,
+    } });
+    expect(visibleTurnItems(state).map(entry => obj(entry.item).id)).toEqual(['u', 'c', 'a', 's']);
+  });
+
+  test('a shell thread with an error code, open stats and awaited background work loads', () => {
+    const shell = applyShell(initialShell(), { snapshotSequence: 1, projects: [{ id: 'p', title: 'P', workspaceRoot: '/repo' }], threads: [{ id: 't', projectId: 'p', title: 'T', status: 'error',
+      lastError: 'Rate limited', lastErrorCode: 'rate_limit', opens: null, pendingBackgroundTasks: [{ taskId: 'w', kind: 'monitor', awaited: true }] }] });
+    expect(shell.threads[0]).toMatchObject({ lastErrorCode: 'rate_limit', pendingBackgroundTasks: [{ awaited: true }] });
+  });
+
+  test('a guest share update carries the whole thread and applies as a thread event', () => {
+    const state = threadSnapshot({ snapshotSequence: 3, projection: { thread: { id: 't', title: 'T' }, runs: [], attempts: [], nodes: [], subagents: [], providerSessions: [],
+      providerThreads: [], providerTurns: [], runtimeRequests: [], messages: [], plans: [], turnItems: [], checkpointScopes: [], checkpoints: [], contextHandoffs: [],
+      contextTransfers: [], visibleTurnItems: [], updatedAt: at } });
+    const later = '2026-10-27T12:00:00.000Z';
+    const next = applyThread(state, { kind: 'event', sequence: 4, event: { id: 'e', type: 'thread.guest-share-updated', threadId: 't', occurredAt: later,
+      payload: { id: 't', title: 'T', guestShare: { status: 'active' } } } });
+    expect([next.sequence, obj(next.projection.thread).guestShare, next.projection.updatedAt]).toEqual([4, { status: 'active' }, later]);
   });
 });
 

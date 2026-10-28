@@ -1,5 +1,5 @@
 // The embedded server's supervisor: a port of T3 Code's
-// desktop backend instance (MIT, see LICENSE-T3; reference 74541bab17:
+// desktop backend instance (MIT, see LICENSE-T3; reference 7c3b3b3605ef:
 // apps/desktop/src/backend/DesktopBackendManager.ts `makeBackendInstance`, `runBackendProcess`,
 // `calculateRestartDelay`; app/DesktopApp.ts `stopAllPoolInstances`).
 //
@@ -47,7 +47,9 @@ final class T3LocalQueueClock: T3LocalClock {
 }
 
 /// `DesktopBackendBootstrap` (packages/contracts/src/desktopBootstrap.ts), as this app sends it:
-/// no OTLP endpoints and no telemetry fds.
+/// no OTLP endpoints and no telemetry fds. `shellEnvironmentPrepared`: the login shell's values are
+/// already in the server's environment (T3LocalShellEnvironment.serverEnvironment), so the server does
+/// not ask the shell again (os-jank.ts `fixPath`), as for the reference's macOS envelope.
 struct T3LocalBootstrap: Codable, Equatable {
     var mode = "desktop"
     var noBrowser = true
@@ -56,6 +58,7 @@ struct T3LocalBootstrap: Codable, Equatable {
     var host = "127.0.0.1"
     var desktopBootstrapToken: String
     var desktopBootstrapSecret: String?
+    var shellEnvironmentPrepared = true
     var tailscaleServeEnabled = false
     var tailscaleServePort = 443
     var resourceMonitorPath: String?

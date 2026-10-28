@@ -51,9 +51,12 @@ describe('Advanced fold', () => {
   });
 
   test("the catalog is the search's and the palette's: every result with its target, keybinding commands by their row", () => {
-    const items = settingsCatalog({ ...context, keybindings: [{ command: 'sidebar.toggle', key: 'mod+b' }, { command: 'sidebar.toggle', key: 'mod+shift+b' }] });
+    const items = settingsCatalog({ ...context, keybindings: [{ command: 'sidebar.toggle', key: 'mod+b' }, { command: 'sidebar.toggle', key: 'mod+shift+b' }, { command: 'thread.stop', key: 'mod+.' }] });
     expect(items.find(entry => entry.id === 'keep-threads-with-pull-requests')).toMatchObject({ route: 'threads', target: 'auto-settle-inactive-threads' });
-    expect(items.filter(entry => entry.secondary)).toEqual([expect.objectContaining({ id: 'keybinding-sidebar.toggle', route: 'keybindings', target: 'keybinding-sidebar.toggle', terms: ['sidebar.toggle', 'mod+b', 'mod+shift+b'] })]);
+    // A command with a default key lands on its row; one without, on the Keybindings section (KEYBINDING_SEARCH_ITEMS).
+    expect(items.filter(entry => entry.secondary)).toEqual([
+      expect.objectContaining({ id: 'keybinding-sidebar.toggle', route: 'keybindings', target: 'keybinding-sidebar.toggle', terms: ['sidebar.toggle', 'mod+b', 'mod+shift+b'] }),
+      expect.objectContaining({ id: 'keybinding-thread.stop', route: 'keybindings', target: 'keybindings' })]);
     // Off the desktop's platform rows: no Windows or T3 Connect result.
     expect(items.some(entry => entry.id === 'wsl-backend' || entry.id === 't3-connect')).toBe(false);
   });
