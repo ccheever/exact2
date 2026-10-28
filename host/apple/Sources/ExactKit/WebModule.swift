@@ -19,6 +19,7 @@ private typealias WebReplyFn = @convention(c) (
     UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32
 ) -> Void
 
+private typealias WebConfiguringFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
 private typealias WebAssetSinkFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
 private typealias WebAssetReadFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, WebAssetSinkFn?) -> Void
 
@@ -45,6 +46,7 @@ private final class WebModule {
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
     typealias SetReaderFn = @convention(c) (WebAssetReadFn?) -> Void
     typealias ClearDoneFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+    typealias SetConfiguringFn = @convention(c) (UnsafeMutableRawPointer?, WebConfiguringFn?) -> Void
     typealias SetReaderlessFn = @convention(c) (UnsafePointer<UInt8>?, UInt32) -> Void
     typealias ClearFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, ClearDoneFn?) -> Void
 
@@ -66,6 +68,8 @@ private final class WebModule {
     let answer: PostFn
     /// The app's hatch had the frame's view: the arm checks what it owns (§9).
     let checkOwned: DestroyFn
+    /// Hands a frame's arm the host's moment before each web view it makes (§9).
+    let setConfiguring: SetConfiguringFn
 
     static func load(path: String) -> Result<WebModule, WebLoadError> {
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
@@ -89,7 +93,8 @@ private final class WebModule {
               let clearSiteData = symbol("exact_web_clear_site_data", ClearFn.self),
               let endSession = symbol("exact_web_end_session", SetReaderlessFn.self),
               let answer = symbol("exact_web_answer", PostFn.self),
-              let checkOwned = symbol("exact_web_check_owned", DestroyFn.self)
+              let checkOwned = symbol("exact_web_check_owned", DestroyFn.self),
+              let setConfiguring = symbol("exact_web_set_configuring", SetConfiguringFn.self)
         else {
             dlclose(library)
             return .failure(WebLoadError(message: "\(path) is not an exact web arm (missing exports)"))
@@ -99,7 +104,7 @@ private final class WebModule {
             library: library, create: create, platformView: platformView,
             setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
             evaluate: evaluate, destroy: destroy, configure: configure, command: command, clearSiteData: clearSiteData, endSession: endSession,
-            answer: answer, checkOwned: checkOwned))
+            answer: answer, checkOwned: checkOwned, setConfiguring: setConfiguring))
     }
 
     private init(
@@ -108,7 +113,7 @@ private final class WebModule {
         setSandbox: @escaping SetFn, postMessage: @escaping PostFn, snapshot: @escaping SnapshotFn,
         evaluate: @escaping EvalFn, destroy: @escaping DestroyFn,
         configure: @escaping PostFn, command: @escaping PostFn, clearSiteData: @escaping ClearFn, endSession: @escaping SetReaderlessFn,
-        answer: @escaping PostFn, checkOwned: @escaping DestroyFn
+        answer: @escaping PostFn, checkOwned: @escaping DestroyFn, setConfiguring: @escaping SetConfiguringFn
     ) {
         self.library = library
         self.create = create
@@ -126,6 +131,7 @@ private final class WebModule {
         self.endSession = endSession
         self.answer = answer
         self.checkOwned = checkOwned
+        self.setConfiguring = setConfiguring
     }
 }
 
@@ -177,6 +183,14 @@ private let exactWebEventCallback: WebEventFn = { context, _, kind, bytes, lengt
     let data = bytes.map { Data(bytes: $0, count: Int(length)) } ?? Data()
     let deliver = { if let manager = box.manager { manager.receivedEvent(id: box.id, kind: kind, data: data) } }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
+}
+
+/// Called on the main thread inside the arm's `build()`, before the web
+/// view exists: no queueing, or the configuration would be made already.
+private let exactWebConfiguringCallback: WebConfiguringFn = { context, configuration in
+    guard let context, let configuration else { return }
+    let box = Unmanaged<WebCallbackBox>.fromOpaque(context).takeUnretainedValue()
+    box.manager?.configuring(id: box.id, Unmanaged<AnyObject>.fromOpaque(configuration).takeUnretainedValue())
 }
 
 private let exactWebReplyCallback: WebReplyFn = { context, _, token, kind, bytes, length in
@@ -254,6 +268,7 @@ final class WebViews {
             FileHandle.standardError.write(Data("exact web: \(failure!)\n".utf8))
             return nil
         }
+        module.setConfiguring(handle, exactWebConfiguringCallback)
         configure(entry, owner, module: module, handle: handle)
         guard let rawView = module.platformView(handle) else {
             module.destroy(handle)
@@ -283,6 +298,8 @@ final class WebViews {
         }
         // Only a frame that handles `newwindow=` asks for popups and tabs (@ref LLP 1020.002 D5).
         if owner.handlers.contains("newwindow") { values["newwindow"] = true }
+        // A hatched frame's web view has its own preferences (§9).
+        if owner.props["hatch"] != nil { values["hatched"] = true }
         if let zoom = owner.style["zoom"]?.number, zoom > 0 { values["zoom"] = zoom }
         for (prop, key) in WebViews.appleWords {
             guard let value = owner.props[prop] else { continue }
@@ -398,6 +415,7 @@ final class WebViews {
         let old = entry.platformView
         view.frame = old?.frame ?? owner.bounds
         view.autoresizingMask = old?.autoresizingMask ?? []
+        view.isHidden = owner.cssVisibilityHidden
         #if os(macOS)
         view.wantsLayer = true
         #endif
@@ -406,6 +424,13 @@ final class WebViews {
         owner.web = view
         entry.platformView = view
         owner.presenter?.elements.realized(owner)
+    }
+
+    /// The arm is about to make a frame's web view: a hatched frame's hatch
+    /// hears `configuring` with its configuration (@ref LLP 1020.002 §9).
+    fileprivate func configuring(id: UInt32, _ configuration: AnyObject) {
+        guard let owner = entries[id]?.owner else { return }
+        owner.presenter?.elements.configuring(owner, configuration)
     }
 
     /// The app's hatch was called with the frame's view: a development arm
