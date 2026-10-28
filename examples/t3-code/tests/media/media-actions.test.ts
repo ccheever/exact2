@@ -194,6 +194,15 @@ describe('media views', () => {
     await mediaLocal(client, native, 'retry', first.retryKey, '');
     expect((await view('w3')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=4&file-revision=r2');
   });
+  // WorkspaceVideoPreview's `fileRevision ?? workspaceMutationId`: an older server's video follows the workspace revision.
+  test('Files: with no file revision a video takes the workspace revision', async () => {
+    let signature = 0;
+    const { client } = fakeClient(() => ({}), { rpc: async () => ({ relativeUrl: `/api/assets/clip.mp4?sig=${++signature}` }) });
+    const view = (workspace: string) => filesMediaView(client, native, 'media/clip.mp4', '/repo/media/clip.mp4', '/repo', workspace, 1000);
+    expect((await view('w1')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=1&workspace-revision=w1');
+    expect((await view('w1')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=1&workspace-revision=w1');
+    expect((await view('w2')).url).toBe('http://127.0.0.1:16260/api/assets/clip.mp4?sig=2&workspace-revision=w2');
+  });
   // WorkspaceImagePreview at 7c3b3b3605ef: an image is not signed again for a workspace revision; the revision on its URL
   // reloads it.
   test('Files: an image keeps its signature and reloads by the workspace revision', async () => {

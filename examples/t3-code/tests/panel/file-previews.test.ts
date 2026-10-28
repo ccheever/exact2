@@ -447,20 +447,22 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
     expect(new URL(changed.url).searchParams.get('workspace-revision')).toBe('["cmd-a",null]');
   });
 
-  test('an image and a PDF carry the workspace revision in their URL, so a change loads them again; a video keeps its URL', async () => {
-    const { client, projection } = filesClient();
+  test('an image and a PDF carry the workspace revision in their URL, so a change loads them again; a video its file\'s revision', async () => {
+    const { client, projection, fileRevisions } = filesClient();
+    fileRevisions['/repo/clip.mp4'] = 'v1';
     const files = memoryAppFiles();
     const server = serveAssets(() => ({ body: '%PDF-1.4' }));
     try {
       const image = await filesView(client, native, surface('photo.png'), 1000);
       expect([image.preview, image.media.url.includes('workspace-revision')]).toEqual(['media', false]);
       const video = await filesView(client, native, surface('clip.mp4'), 1000);
-      expect([video.media.kind, video.media.url.startsWith('http://127.0.0.1:9/api/assets/signed/')]).toEqual(['video', true]);
+      expect([video.media.kind, video.media.url.startsWith('http://127.0.0.1:9/api/assets/signed/'), new URL(video.media.url).searchParams.get('file-revision')]).toEqual(['video', true, 'v1']);
       const pdf = await filesView(client, native, surface('report.pdf'), 1000);
       expect(pdf.preview).toBe('pdf');
       projection.visibleTurnItems.push({ item: { id: 'cmd-m', type: 'file_change', status: 'completed' } });
       const imageAfter = await filesView(client, native, surface('photo.png'), 1000);
       expect(new URL(imageAfter.media.url).searchParams.get('workspace-revision')).toBe('["cmd-m",null]');
+      // Signed again for the change, the same file: the player keeps the URL it loaded (MediaVideoPlayer's playbackSource).
       expect((await filesView(client, native, surface('clip.mp4'), 1000)).media.url).toBe(video.media.url);
       // The frame loads the new revision itself (BrowserDocumentFrame's documentKey); no copy is written.
       const pdfAfter = await filesView(client, native, surface('report.pdf'), 1000);
