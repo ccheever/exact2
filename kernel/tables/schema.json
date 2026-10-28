@@ -1755,7 +1755,7 @@
       "id": 292,
       "name": "menuKeys",
       "kind": "str",
-      "_comment": "@ref LLP 1021 §5.3.3: root -exact-menu-keys, a literal whitespace-separated list of id=chord, where id names a standard AppKit menu item and chord is one aria-keyshortcuts chord with Meta, or none. AppKit gives that item the chord, or no chord. Other hosts ignore this presentation hint."
+      "_comment": "@ref LLP 1021 §5.3.3: root -exact-menu-keys, a literal whitespace-separated list of id=chord, where id is close-window (File ▸ Close Window) and chord is one aria-keyshortcuts chord with Meta that is not a standard one, or none. AppKit gives that item the chord, or no chord. Other hosts ignore this presentation hint."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

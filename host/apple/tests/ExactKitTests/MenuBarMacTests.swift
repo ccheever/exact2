@@ -209,27 +209,22 @@ final class MenuBarMacTests: XCTestCase {
     }
 
     /// `-exact-menu-keys` (LLP 1021 §5.3.3): Close Window keeps its place
-    /// without ⌘W, Zoom takes ⌃⌘Z and Minimize ⇧⌘K, a command's ⌘W is the command's alone,
-    /// and the bar's built chords come back with the declaration.
-    func testRootKeysRekeyTheHostsOwnItems() throws {
+    /// without ⌘W, and a command's ⌘W takes nothing from it; a declared ⇧⌘W
+    /// that a command claims comes back when the command goes; without the
+    /// declaration Close Window has ⌘W again.
+    func testRootKeysSetCloseWindowsChord() throws {
         let presenter = Presenter(), window = window(presenter)
         defer { window.close() }
         let root = NodeView(id: 900, kind: "view", presenter: presenter)
-        root.props = ["menuKeys": "close-window=none zoom=Meta+Control+Z minimize=Meta+Shift+K"]
+        root.props = ["menuKeys": "close-window=none"]
         presenter.views[root.id] = root; presenter.root.addSubview(root)
         let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: false)
         NSApp.mainMenu = bar
         presenter.shortcuts.sync()
-        let file = bar.items[1].submenu!, windowMenu = try XCTUnwrap(NSApp.windowsMenu)
+        let file = bar.items[1].submenu!
         let close = try XCTUnwrap(file.items.first { $0.action == #selector(NSWindow.performClose(_:)) })
-        let zoom = try XCTUnwrap(windowMenu.items.first { $0.action == #selector(NSWindow.performZoom(_:)) })
-        let minimize = try XCTUnwrap(windowMenu.items.first { $0.action == #selector(NSWindow.performMiniaturize(_:)) })
         XCTAssertFalse(close.isHidden)
         XCTAssertEqual(close.keyEquivalent, "")
-        XCTAssertEqual(zoom.keyEquivalent, "z")
-        XCTAssertEqual(zoom.keyEquivalentModifierMask, [.command, .control])
-        XCTAssertEqual(minimize.keyEquivalent, "k")
-        XCTAssertEqual(minimize.keyEquivalentModifierMask, [.command, .shift])
         XCTAssertFalse(bar.performKeyEquivalent(with: key("w", code: 13, window: window)), "⌘W goes on to the window")
         // A command's ⌘W takes nothing from Close Window, and leaving takes nothing back.
         button(1, "Close Tab", "Meta+W", menu: "none", in: presenter)
@@ -239,20 +234,27 @@ final class MenuBarMacTests: XCTestCase {
         presenter.views[1]?.removeFromSuperview(); presenter.views.removeValue(forKey: 1)
         presenter.shortcuts.sync()
         XCTAssertEqual(close.keyEquivalent, "")
-        // A command holding ⌃⌘Z while the declaration ends leaves Zoom as built, with no chord.
-        button(2, "Zap", "Meta+Control+Z", in: presenter)
+        // ⇧⌘W, claimed by a command and released when it goes.
+        root.props["menuKeys"] = "close-window=Meta+Shift+W"
         presenter.shortcuts.sync()
-        XCTAssertEqual(zoom.keyEquivalent, "")
+        XCTAssertEqual(close.keyEquivalent, "w")
+        XCTAssertEqual(close.keyEquivalentModifierMask, [.command, .shift])
+        button(2, "Close All Tabs", "Meta+Shift+W", in: presenter)
+        presenter.shortcuts.sync()
+        XCTAssertEqual(close.keyEquivalent, "", "the command holds ⇧⌘W")
+        XCTAssertEqual(try XCTUnwrap(item(file, 2)).keyEquivalentModifierMask, [.command, .shift])
+        presenter.views[2]?.removeFromSuperview(); presenter.views.removeValue(forKey: 2)
+        presenter.shortcuts.sync()
+        XCTAssertEqual(close.keyEquivalent, "w")
+        XCTAssertEqual(close.keyEquivalentModifierMask, [.command, .shift], "the declared chord comes back")
+        // A command holding ⇧⌘W while the declaration ends leaves ⌘W to Close Window.
+        button(3, "Close All Tabs", "Meta+Shift+W", in: presenter)
+        presenter.shortcuts.sync()
         root.props["menuKeys"] = ""
         presenter.shortcuts.sync()
         XCTAssertEqual(close.keyEquivalent, "w")
         XCTAssertEqual(close.keyEquivalentModifierMask, .command)
-        XCTAssertEqual(zoom.keyEquivalent, "")
-        presenter.views[2]?.removeFromSuperview(); presenter.views.removeValue(forKey: 2)
-        presenter.shortcuts.sync()
-        XCTAssertEqual(zoom.keyEquivalent, "", "nothing to give back")
-        XCTAssertEqual(minimize.keyEquivalent, "m")
-        XCTAssertEqual(minimize.keyEquivalentModifierMask, .command)
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("w", code: 13, window: window)), "⌘W is Close Window's again")
     }
 
     /// View ▸ Actual Size ⌘0, Zoom In ⌘+ and Zoom Out ⌘-, which step

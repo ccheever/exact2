@@ -998,13 +998,14 @@ are harmless. The view’s root is a node, not a conditional. Root replacement a
 window switching restore the appropriate menu. App buttons and other standard
 items remain. Other hosts ignore removal (LLP 1021 §5.3).
 A root `-exact-menu-keys="close-window=none"` keeps File ▸ Close Window with no
-chord, so ⌘W reaches the page; `close-window=Meta+Shift+W` gives it ⇧⌘W. Each
-literal pair is an id and one `aria-keyshortcuts` chord with `Meta`, or `none`;
-the ids are `close-window`, `minimize`, `zoom`, `bring-all-to-front`,
-`enter-full-screen`, `back`, `paste-and-match-style` and `app-help`. Unknown
-ids, an id named twice and nested use fail with `lower-menu-keys`. An app
-command with the chord still takes it; without the declaration each item has
-its built chord (LLP 1021 §5.3.3).
+chord, so ⌘W reaches the page; declare `-exact-menu-remove="close-all"` with it,
+or AppKit's Close All ⌥⌘W shows as a row of its own. `close-window=Meta+Shift+W`
+gives it ⇧⌘W. `close-window` is the one id; the chord is one `aria-keyshortcuts`
+chord with `Meta` that is not the host's or the system's own (⌘Q, ⌘W, ⌘H, ⌘M,
+⌘, and the like). Another id, an id named twice, a chord without `Meta`, a
+standard chord and nested use fail with `lower-menu-keys`. An app command with
+the chord still takes it; without the declaration Close Window has ⌘W (LLP 1021
+§5.3.3).
 
 ```contract
 component App

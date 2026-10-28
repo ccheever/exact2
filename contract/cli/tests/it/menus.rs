@@ -638,12 +638,12 @@ fn menu_bar_removal_accepts_only_root_literal_standard_ids() {
 }
 
 #[test]
-fn menu_bar_keys_accept_only_root_literal_ids_and_chords() {
-    let ids = "close-window minimize zoom bring-all-to-front enter-full-screen back paste-and-match-style app-help";
+fn menu_bar_keys_accept_only_close_window_and_a_free_chord() {
     for value in [
         "close-window=none",
-        "close-window=Meta+Shift+W minimize=none",
-        "zoom=Meta+Control+Z app-help=Meta+F1 back=Meta++",
+        "close-window=Meta+Shift+W",
+        "close-window=Meta+F1",
+        "close-window=Meta+Alt++",
         "",
     ] {
         let source = format!(
@@ -653,19 +653,39 @@ fn menu_bar_keys_accept_only_root_literal_ids_and_chords() {
         let prop = PropId::from_name("menuKeys").expect("menu keys prop");
         assert_eq!(node(&r, "root").props.str(prop), Some(value));
     }
-    for source in [
-        "component App\n  view\n    column -exact-menu-keys=\"close-all=none\"\n".to_owned(),
-        "component App\n  view\n    column -exact-menu-keys=\"close-window\"\n".to_owned(),
-        "component App\n  view\n    column -exact-menu-keys=\"close-window=Control+W\"\n".to_owned(),
-        "component App\n  view\n    column -exact-menu-keys=\"close-window=Meta+Hyper+W\"\n".to_owned(),
-        "component App\n  view\n    column -exact-menu-keys=\"close-window=Meta+WW\"\n".to_owned(),
-        "component App\n  view\n    column -exact-menu-keys=\"close-window=none close-window=Meta+W\"\n".to_owned(),
-        "component App\n  state keys = \"close-window=none\"\n  view\n    column -exact-menu-keys=keys\n".to_owned(),
-        app("column -exact-menu-keys=\"close-window=none\""),
-    ] {
+    let keys =
+        |value: &str| format!("component App\n  view\n    column -exact-menu-keys=\"{value}\"\n");
+    let mut refused: Vec<String> = [
+        "minimize=none",
+        "close-all=none",
+        "close-window",
+        "close-window=Control+W",
+        "close-window=Meta+Hyper+W",
+        "close-window=Meta+WW",
+        "close-window=Meta+F01",
+        "close-window=Meta+F36",
+        "close-window=none close-window=Meta+Shift+W",
+        // The host's and the system's own chords.
+        "close-window=Meta+W",
+        "close-window=Meta+Q",
+        "close-window=Meta+H",
+        "close-window=Meta+M",
+        "close-window=Meta+,",
+        "close-window=Meta+Alt+W",
+        "close-window=Meta+Shift+Z",
+        "close-window=Meta+Tab",
+        "close-window=Meta+Space",
+        "close-window=Meta++",
+    ]
+    .iter()
+    .map(|value| keys(value))
+    .collect();
+    refused.push("component App\n  state keys = \"close-window=none\"\n  view\n    column -exact-menu-keys=keys\n".to_owned());
+    refused.push(app("column -exact-menu-keys=\"close-window=none\""));
+    for source in refused {
         let e = contract::compile(&source).unwrap_err();
         assert_eq!(e.id, "lower-menu-keys", "{source}: {e}");
-        for id in ids.split_whitespace() { assert!(e.message.contains(id), "{e}"); }
+        assert!(e.message.contains("close-window"), "{e}");
     }
 }
 

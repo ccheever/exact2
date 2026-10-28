@@ -1407,43 +1407,38 @@ the chords that work on Windows: an item's declared `Control` chord, never a
 app-wide items hold, except under a modal dialog, which disables the row as a
 Windows owner window's modality does.
 
-### 5.3.3 The host's own items' chords (2026-10-28)
+### 5.3.3 Close Window's chord (2026-10-28)
 
-Implementer: Claude (Opus 5.5), 2026-10-28. Consumer: the T3 Code clone,
-whose original gives File ▸ Close Window no accelerator on macOS, so that ⌘W
-reaches the page, which closes a sidebar tab or does nothing
+Implementer: Claude (Opus 5.5), 2026-10-28. Consumer: the T3 Code clone. Its
+original's File ▸ Close Window (Electron's `close` role) has no accelerator on
+macOS, so ⌘W reaches the page, which closes a sidebar tab or does nothing
 (`apps/desktop/src/window/DesktopApplicationMenu.ts`, T3 Code `a86c05f977`).
-Electron's menu template sets each role item's `accelerator` the same way.
 
 On a top-level root, `-exact-menu-keys` takes a whitespace-separated literal
-list of `id=chord`: `close-window=none` keeps File ▸ Close Window in its
-place with no chord; `close-window=Meta+Shift+W` gives it ⇧⌘W, as Safari and
-Chrome give it beside their ⌘W Close Tab. The chord is one
-`aria-keyshortcuts` chord with `Meta`, as a menu item's key equivalent has ⌘.
+list of `id=chord` pairs. Its one id is `close-window`, File ▸ Close Window,
+built with ⌘W: `close-window=none` keeps the item in its place with no chord,
+and `close-window=Meta+Shift+W` gives it ⇧⌘W, as Safari and Chrome give it
+beside their ⌘W Close Tab. The chord is one `aria-keyshortcuts` chord. It
+must hold `Meta`: that is a choice, not AppKit's rule (AppKit accepts a key
+equivalent without ⌘), made because every item in the host's bar has one and
+a chord without ⌘ would reach the menu before a field's typing. It may not be
+one of the host's own or the system's standard chords (⌘Q, ⌘W, ⌘H, ⌘M, ⌘,,
+Edit's, View's, Develop's, ⌘Tab, ⌘Space and the like), which would take that
+chord from its item or never reach the app. Function keys are spelled `F1` to
+`F35`, as the host's shortcuts parse them (`ShortcutsMac.swift`, `Shortcut`).
+Another id, an id named twice, a chord without `Meta`, a standard chord,
+expressions and non-root use fail with `lower-menu-keys`.
 
-| ID | Standard item | Built with |
-|---|---|---|
-| `close-window` | File → Close Window | ⌘W |
-| `minimize` | Window → Minimize | ⌘M |
-| `zoom` | Window → Zoom | none |
-| `bring-all-to-front` | Window → Bring All to Front | none |
-| `enter-full-screen` | View → Enter/Exit Full Screen | ⌃⌘F |
-| `back` | Go → Back | ⌘[ |
-| `paste-and-match-style` | Edit → Paste and Match Style | ⌥⇧⌘V |
-| `app-help` | Help → *App* Help | ⌘? |
-
-These are the items the host builds with one action each. AppKit's own (the
-tab items, AutoFill) and the zoom items, whose ⌘+ has a hidden ⌘= beside it,
-take no declared chord; an app command with the chord stands in for a zoom
-item as before. Unknown ids, an id named twice, a chord without `Meta`,
-expressions and non-root use fail with `lower-menu-keys`, which names the
-ids. An app command that declares the same chord still takes it from the item
+An app command that declares the same chord still takes it from the item
 (§5.3), and the item gets the declared chord back once no command claims it;
 a command's ⌘W takes nothing from a Close Window declared `none`. Removing
-the declaration gives each item the chord it was built with. AppKit keeps
-Minimize's own ⌘ alone while its key is M: `minimize=Meta+Shift+M` leaves it
-⌘M, where `Meta+Shift+K` gives ⇧⌘K and `none` takes the chord (measured,
-macOS 27).
+the declaration gives the item ⌘W again.
+
+With nothing holding ⌘W, AppKit's File ▸ Close All (⌥⌘W), which it adds
+itself as Close Window's alternate, no longer pairs with an item and shows as
+a row of its own. The original's File menu has no Close All, so an app that
+removes ⌘W should also declare `-exact-menu-remove="close-all"`, as the clone
+does; the host does not remove it on its own.
 
 Other hosts ignore the hint: the web has no menu bar, and Windows' row
 (§5.3.2) builds no Close Window.

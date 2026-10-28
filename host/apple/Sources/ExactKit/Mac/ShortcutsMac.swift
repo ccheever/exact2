@@ -575,9 +575,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         (presenter?.root.subviews ?? []).compactMap { ($0 as? NodeView)?.props[name] }
             .flatMap { $0.split(whereSeparator: \.isWhitespace).map(String.init) }
     }
-    /// Gives the host's items the chords the root declares, `id=chord` or
-    /// `id=none`, and an item no longer named the one it was built with. A
-    /// chord a command has claimed (`claim`) is what it gets back.
+    /// Sets the chord of each host item the root's `-exact-menu-keys` names
+    /// (`close-window=<chord>`, or `=none` for no chord), and gives an item
+    /// the root no longer names the chord it was built with. While a command
+    /// holds the item's chord (`claim`), the new chord is the one `release`
+    /// gives back.
     private func rekey(_ pairs: [String]) {
         var declared: [String: (String, NSEvent.ModifierFlags)] = [:]
         for pair in pairs {
