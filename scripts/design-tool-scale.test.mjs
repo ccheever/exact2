@@ -154,3 +154,42 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     rmSync(app, { recursive: true, force: true });
   }
 }, 900_000);
+
+test('a package token set for this app: its value edited before Apply is still the app\'s line (set-token), and edited again after (D4 batch 2 #1)', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-override-'));
+  const design = 'tamber t\n\ntheme\n  brand = reading.card\n';
+  writeFileSync(join(app, 'app.tamber'), design);
+  const pkg = join(app, 'node_modules/@acme/reading');
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(join(pkg, 'package.json'), '{"name":"@acme/reading","version":"1.0.0","exports":{".":"./index.contract"}}');
+  writeFileSync(join(pkg, 'index.contract'), 'component ReadingCard\n  view\n    column background-color="reading.card" width="reading.measure"\n      text "x"\n');
+  writeFileSync(join(pkg, 'reading.tamber'), 'tamber reading\n\ntheme\n  reading.card = #112233\n  reading.measure: length = 640px\n');
+  writeFileSync(join(app, 'app.contract'), 'use ReadingCard from "@acme/reading"\ncomponent App\n  view\n    column background-color="brand"\n      ReadingCard()\n');
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
+  git('init', '-q'); git('add', 'app.tamber', 'app.contract'); git('commit', '-q', '-m', 'design');
+  const tool = await proxied(app);
+  try {
+    const replies = await drive(tool.url, `design-tool-override-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data', 'clock +1', 'clock data',
+      // Set for this app, its value changed in the proposal's field before Apply (Enter submits it).
+      'tap cell-reading.measure-0-light', 'clock data',
+      'tap set-for-app-reading.measure', 'clock data',
+      'type new-value 700px', 'type new-value key Enter', 'clock data', 'clock +1', 'clock data', 'state',
+      'tap apply', 'clock data', 'clock +1', 'clock data',
+      // Now the app's line: its cell edits it again.
+      'tap cell-reading.measure-0-light', 'clock data', 'clock +1', 'clock data',
+      'type branch-value 720px', 'type branch-value key Enter', 'clock data', 'clock +1', 'clock data', 'state',
+      'tap apply', 'clock data', 'clock +1', 'clock data',
+    ]);
+    const states = replies.filter(r => r.slots);
+    expect([states[0].slots.editKind, states[0].slots.editTarget, states[0].slots.editValue]).toEqual(['set-token', 'reading.measure', '700px']);
+    expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true });
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['transaction', true], ['transaction', true]]);
+    expect(tool.writes[0].after).toBe(`${design}  reading.measure: length = 700px\n`);
+    expect([states[1].slots.editKind, states[1].slots.editTarget, states[1].slots.editValue]).toEqual(['set-token', 'reading.measure', '720px']);
+    expect(tool.writes[1].after).toBe(`${design}  reading.measure: length = 720px\n`);
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);

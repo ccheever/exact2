@@ -748,7 +748,9 @@ component DesignTool
         scrubTick = scrubTick + 1
         scrubWant = false
         send written = cancelScrub(scrubAsk)
-      editKind = "add-token"
+      // (Set for this app's own draft, its value changed before Apply: still the app's line over theirs, set-token, which
+      // the server writes as one; an add-token of a package's or the base's name is refused.)
+      editKind = newName.trim() == setForAppName ? "set-token" : "add-token"
       editTarget = newName.trim()
       editWhen = ""
       editValue = newValue.trim()
