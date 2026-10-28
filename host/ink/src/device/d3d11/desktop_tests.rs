@@ -637,7 +637,13 @@ fn shelf_dpi_roundtrip() {
     for pass in ["150", "roundtrip-150"] {
         until("Settings display scaling 150%", || {
             app.alive();
-            (unsafe { GetDpiForWindow(app.hwnd) == 144 }) && app.text().contains("scale 1.5,")
+            (unsafe { GetDpiForWindow(app.hwnd) == 144 })
+                && app
+                    .text()
+                    .lines()
+                    .rev()
+                    .find(|s| s.starts_with("exact-windows: frame "))
+                    .is_some_and(|s| s.contains(", scale 1.5,"))
         });
         unsafe {
             let _ = SetForegroundWindow(app.hwnd);
@@ -657,7 +663,13 @@ fn shelf_dpi_roundtrip() {
         fs::write(out().join(format!("dpi-at-{pass}")), "return to 100%").unwrap();
         until("Settings display scaling 100%", || {
             app.alive();
-            unsafe { GetDpiForWindow(app.hwnd) == 96 }
+            (unsafe { GetDpiForWindow(app.hwnd) == 96 })
+                && app
+                    .text()
+                    .lines()
+                    .rev()
+                    .find(|s| s.starts_with("exact-windows: frame "))
+                    .is_some_and(|s| s.contains(", scale 1,"))
         });
         app.place(1024, 720);
         app.capture(&format!("dpi-after-{pass}-100"));
