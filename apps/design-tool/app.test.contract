@@ -741,7 +741,6 @@ test "H3: a tick made after another client's choice rebased the card counts (tam
   clock +1
   clock data
   request POST "/__stub/choose" {"proposal": "imp", "items": [0, 1], "client": "design-tool:Bo"} as ada
-  clock +1
   clock data
   tap "take-imp-0"
   clock data

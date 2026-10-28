@@ -42,13 +42,13 @@ component Proposals
             else if h.from != ""
               text `Held again from ${h.from} with your edit, on the files as they are now: review its diff, then accept it.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
             if h.replaces != "" or h.from != ""
-              // (what is chosen now, once that is known; the held diff until then)
-              for d in diffs.filter(d => d.proposal == h.proposal) key=d.proposal
+              // (what is chosen now, planned for the card as it is shown; none while that is being planned)
+              for d in diffs.filter(d => d.proposal == h.proposal and d.shown == `${h.choiceGen}|${picked.filter(p => p.startsWith(`${h.proposal}:`)).join(";")}`) key=d.proposal
                 if d.note != ""
                   text d.note color="-exact-secondary-label" font="-exact-footnote" testId=`held-diff-note-${h.proposal}`
                 text d.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
-              if diffs.filter(d => d.proposal == h.proposal).length == 0
-                text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
+              if diffs.filter(d => d.proposal == h.proposal and d.shown == `${h.choiceGen}|${picked.filter(p => p.startsWith(`${h.proposal}:`)).join(";")}`).length == 0
+                text "Planning the diff of what is chosen…" color="-exact-secondary-label" font="-exact-footnote" testId=`held-diff-note-${h.proposal}`
             text `Tokens (${h.mapped.length})` role="heading" aria-level=3
             for m in h.mapped key=`${m.index}`
               row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`

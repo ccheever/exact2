@@ -177,6 +177,8 @@ shape Unmapped
 // else the plan of what is chosen; `note` says when there is none, or it could not be planned.
 shape ChosenDiff
   proposal: string
+  // The card as it was when this was planned: its choiceGen and its flips, `<gen>|<flip;…>`.
+  shown: string
   diff: string
   note: string
 

@@ -154,3 +154,20 @@ test('H3: a flip made after another client\'s choice rebased the card counts; on
   heldChoice.drop(['k:1']);
   expect(heldChoice.inStep('k', 'k:1', heldChoice.gen('k'))).toBe(true);
 });
+
+test('H2, round 1 (Astra): a rebase ends the page\'s unanswered asks, so a same-name tab choosing them after it rebases; two lost answers both come back as the page\'s own', async () => {
+  heldChoice.saw([{ proposal: 'm', choiceAt: 0 }], 'e9', 'design-tool:Ada');
+  expect(await heldChoice.send('m', [0, 1], () => Promise.resolve(null))).toBe(false);
+  heldChoice.saw([{ proposal: 'm', choice: [1], choiceBy: 'design-tool:Bo', choiceAt: 2 }], 'e9', 'design-tool:Ada');
+  expect(heldChoice.gen('m')).toBe(1);
+  heldChoice.saw([{ proposal: 'm', choice: [0, 1], choiceBy: 'design-tool:Ada', choiceAt: 3 }], 'e9', 'design-tool:Ada');
+  expect(heldChoice.gen('m')).toBe(2);
+  expect(heldChoice.base('m')).toEqual([0, 1]);
+  heldChoice.saw([{ proposal: 'n', choiceAt: 0 }], 'e9', 'design-tool:Ada');
+  await heldChoice.send('n', [0], () => Promise.resolve(null));
+  await heldChoice.send('n', [1], () => Promise.resolve(null));
+  heldChoice.saw([{ proposal: 'n', choice: [0], choiceBy: 'design-tool:Ada', choiceAt: 1 }], 'e9', 'design-tool:Ada');
+  heldChoice.saw([{ proposal: 'n', choice: [1], choiceBy: 'design-tool:Ada', choiceAt: 2 }], 'e9', 'design-tool:Ada');
+  expect(heldChoice.gen('n')).toBe(0);
+  expect(heldChoice.at('n')).toBe(2);
+});

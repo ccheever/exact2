@@ -757,7 +757,7 @@ async function rescopeFor(file: string, op: Record<string, unknown>, token: stri
 
 const sources: Sources = {
   ...pairingSources(call, pairWith, remote), sendSelectUp: async ([client, build, up]) => { stepping.add(String(build)); const r = await call('/__tamber', { method: 'inspect', client, build, select: { up } }); if (r.error) stepping.delete(String(build)); return { ok: !r.error, error: r.error }; },
-  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API), ...chosenDiffSources(call, () => held.filter(h => h.importer && (h.replaces || h.from)), (p, picked) => chosen(p, picked), p => heldOps.get(p) ?? [], () => heldToken || undefined), // (D1.1: the diff a card shows follows its choice)
+  ...gridSources(call, () => buildsNow, () => selectionNow, () => designAxes), loadCanvasCheck: () => canvasRefusal(API), ...chosenDiffSources(call, () => held.filter(h => h.importer && (h.replaces || h.from)), (p, picked) => chosen(p, picked), p => heldOps.get(p) ?? [], () => heldToken || undefined, () => digestKey(lastFiles)), // (D1.1: the diff a card shows follows its choice)
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [], page: '', frame: '', live: false, scope: '', local: false, client: '', epoch: '' };
