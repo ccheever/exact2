@@ -748,12 +748,18 @@ component DesignTool
         scrubTick = scrubTick + 1
         scrubWant = false
         send written = cancelScrub(scrubAsk)
-      // (Set for this app's own draft, its value changed before Apply: still the app's line over theirs, set-token, which
-      // the server writes as one; an add-token of a package's or the base's name is refused.)
-      editKind = newName.trim() == setForAppName ? "set-token" : "add-token"
-      editTarget = newName.trim()
+      // A package's or the base's name (its own row, or the app's override of it, `of`): the app's line over theirs is
+      // set-token, which the server writes as one, Set for this app's draft with its value changed included; add-token
+      // of their name is refused. Decided by the rows as they are now, not the name last set.
+      let n = newName.trim()
+      editKind = design.tokenGroups.filter(g => g.tokens.filter(t => t.name == n and (t.of == "base" or t.of == "package")).length > 0).length > 0 ? "set-token" : "add-token"
+      editTarget = n
       editWhen = ""
       editValue = newValue.trim()
+      // (A form's edit: no branch draft, as setForApp starts one.)
+      draftFor = ""
+      rawFor = ""
+      partFor = ""
   // Stage 11: a base or package value set for this app (its override line: set-token, theme2's 17:09Z
   // ruling, one op for both), or the app's line over one of theirs taken away (remove-token), each
   // reviewed and applied as any edit.

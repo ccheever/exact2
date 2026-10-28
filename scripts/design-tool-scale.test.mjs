@@ -180,14 +180,23 @@ test('a package token set for this app: its value edited before Apply is still t
       'tap cell-reading.measure-0-light', 'clock data', 'clock +1', 'clock data',
       'type branch-value 720px', 'type branch-value key Enter', 'clock data', 'clock +1', 'clock data', 'state',
       'tap apply', 'clock data', 'clock +1', 'clock data',
+      // The form again after a cell edit (round 1, Astra): its own draft, not the cell's, so Apply goes.
+      'type new-name reading.measure', 'type new-value 740px', 'type new-value key Enter', 'clock data', 'clock +1', 'clock data', 'state',
+      'tap apply', 'clock data', 'clock +1', 'clock data',
+      // An app token's name typed in the form stays add-token (round 1, Grok and Astra: decided by the rows, not the last Set).
+      'type new-name brand.two', 'type new-value #445566', 'type new-value key Enter', 'clock data', 'state',
     ]);
     const states = replies.filter(r => r.slots);
     expect([states[0].slots.editKind, states[0].slots.editTarget, states[0].slots.editValue]).toEqual(['set-token', 'reading.measure', '700px']);
     expect(states[0].resources.proposal).toMatchObject({ ok: true, active: true });
-    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['transaction', true], ['transaction', true]]);
+    expect(tool.writes.slice(0, 2).map(w => [w.method, w.ok])).toEqual([['transaction', true], ['transaction', true]]);
     expect(tool.writes[0].after).toBe(`${design}  reading.measure: length = 700px\n`);
     expect([states[1].slots.editKind, states[1].slots.editTarget, states[1].slots.editValue]).toEqual(['set-token', 'reading.measure', '720px']);
     expect(tool.writes[1].after).toBe(`${design}  reading.measure: length = 720px\n`);
+    expect([states[2].slots.editKind, states[2].slots.editValue]).toEqual(['set-token', '740px']);
+    expect(tool.writes[2]).toMatchObject({ method: 'transaction', ok: true });
+    expect(tool.writes[2].after).toBe(`${design}  reading.measure: length = 740px\n`);
+    expect([states[3].slots.editKind, states[3].slots.editTarget]).toEqual(['add-token', 'brand.two']);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
