@@ -23,13 +23,16 @@ unsigned char *g1_thumbnail(const char *path, unsigned requestedWidth,
         });
         CFRelease(source);
         if (!image) return NULL;
-        *width = (unsigned)CGImageGetWidth(image);
-        *height = (unsigned)CGImageGetHeight(image);
+        *width = requestedWidth;
+        *height = requestedHeight;
         unsigned char *bytes = calloc((size_t)*width * *height, 4);
         CGColorSpaceRef color = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
         CGContextRef context = CGBitmapContextCreate(bytes, *width, *height, 8, *width * 4,
             color, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
-        CGContextDrawImage(context, CGRectMake(0, 0, *width, *height), image);
+        double iw = CGImageGetWidth(image), ih = CGImageGetHeight(image);
+        double fill = fmax(*width / iw, *height / ih);
+        CGContextDrawImage(context, CGRectMake((*width - iw * fill) / 2,
+            (*height - ih * fill) / 2, iw * fill, ih * fill), image);
         CGContextRelease(context);
         CGColorSpaceRelease(color);
         CGImageRelease(image);
@@ -38,10 +41,10 @@ unsigned char *g1_thumbnail(const char *path, unsigned requestedWidth,
 }
 
 // Optional linked probe; readiness describes the scene about to be submitted.
-void g1_scene_complete(int complete) {
-    typedef void (*Note)(int);
+void g1_scene_complete(int complete, size_t item, float offset) {
+    typedef void (*Note)(int, size_t, float);
     static Note note;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ note = (Note)dlsym(RTLD_DEFAULT, "g1_ready"); });
-    if (note) note(complete);
+    if (note) note(complete, item, offset);
 }

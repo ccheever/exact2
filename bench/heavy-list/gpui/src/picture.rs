@@ -6,7 +6,7 @@ thread_local! { static MISSING: Cell<bool> = const { Cell::new(false) }; }
 unsafe extern "C" {
     fn g1_thumbnail(path: *const i8, w: u32, h: u32, ow: *mut u32, oh: *mut u32) -> *mut u8;
     fn free(bytes: *mut std::ffi::c_void);
-    fn g1_scene_complete(complete: i32);
+    fn g1_scene_complete(complete: i32, item: usize, offset: f32);
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]
@@ -59,10 +59,19 @@ pub fn begin_frame() {
     MISSING.set(false);
 }
 
-pub fn complete() -> impl IntoElement {
+pub fn complete(list: ListState) -> impl IntoElement {
     canvas(
         |_, _, _| (),
-        |_, _, _, _| unsafe { g1_scene_complete(i32::from(!MISSING.get())) },
+        move |_, _, _, _| {
+            let top = list.logical_scroll_top();
+            unsafe {
+                g1_scene_complete(
+                    i32::from(!MISSING.get()),
+                    top.item_ix,
+                    top.offset_in_item.into(),
+                )
+            }
+        },
     )
     .absolute()
     .size(px(0.))
@@ -74,7 +83,7 @@ pub fn picture(
     width: f32,
     height: f32,
     scale: f32,
-) -> impl IntoElement {
+) -> Img {
     let key = Key {
         path: directory.join(file),
         width: (width * scale).ceil() as u32,

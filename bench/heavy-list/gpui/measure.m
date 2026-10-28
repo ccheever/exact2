@@ -43,12 +43,6 @@ static NSTask *launch(NSString *path, NSArray *arguments, NSDictionary *environm
     return task;
 }
 
-static void capture(NSDictionary *ready, NSString *path) {
-    NSTask *task = launch(@"/usr/sbin/screencapture", @[@"-x", @"-o", @"-l", [ready[@"window"] stringValue], path], nil, nil);
-    [task waitUntilExit];
-    if (task.terminationStatus) fail(@"window capture failed");
-}
-
 int main(int argc, const char **argv) {
     @autoreleasepool {
         if (argc < 5 || argc > 6) fail(@"measure <result-dir> <native-executable> <gpui-executable> <exact-wheel> [rounds=5]");
@@ -74,15 +68,17 @@ int main(int argc, const char **argv) {
                 NSTask *app = launch([arm isEqual:@"native"] ? @(argv[2]) : @(argv[3]), @[], env, log);
                 fprintf(stdout, "%s pid=%d\n", name.UTF8String, app.processIdentifier); fflush(stdout);
                 NSDictionary *ready = waitFile([output stringByAppendingString:@".ready"], app);
-                if (round == 1) capture(ready, [directory stringByAppendingPathComponent:[arm stringByAppendingString:@"-top.png"]]);
                 kill(app.processIdentifier, SIGUSR2);
                 NSDictionary *start = waitFile([output stringByAppendingString:@".fling"], app);
                 double began = [start[@"time"] doubleValue];
+                NSMutableArray *inputs = [NSMutableArray array];
                 for (int fling = 0; fling < 4; fling++) {
                     until(began + fling * 2.5);
                     NSData *json = [NSJSONSerialization dataWithJSONObject:ready options:0 error:NULL];
+                    double inputStart = CACurrentMediaTime();
                     NSTask *wheel = launch(@(argv[4]), @[[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]], nil, log);
                     [wheel waitUntilExit];
+                    [inputs addObject:@[@(inputStart), @(CACurrentMediaTime())]];
                     if (wheel.terminationStatus) { [app terminate]; fail(@"wheel helper failed"); }
                 }
                 until(began + 10);
@@ -90,10 +86,17 @@ int main(int argc, const char **argv) {
                 NSDictionary *rest = waitFile([output stringByAppendingString:@".rest"], app);
                 until([rest[@"time"] doubleValue] + 10);
                 kill(app.processIdentifier, SIGUSR2);
-                NSDictionary *result = waitFile(output, app);
+                NSMutableDictionary *result = [waitFile(output, app) mutableCopy];
+                result[@"inputWindows"] = inputs;
+                [[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:NULL]
+                    writeToFile:output atomically:YES];
                 [app waitUntilExit];
                 [log closeFile];
                 if (app.terminationStatus) fail(@"app failed after reporting");
+                if ([arm isEqual:@"native"] && [result[@"nativeOffsetEnd"] doubleValue] < 500) fail(@"native list did not scroll");
+                if ([arm isEqual:@"gpui"] && [result[@"gpuiOffsetEnd"][@"item"] intValue] == 0) fail(@"GPUI list did not scroll");
+                if (![result[@"activeAtStart"] boolValue] || ![result[@"activeAtEnd"] boolValue]
+                    || [result[@"fling"][@"inactiveTicks"] unsignedIntegerValue]) fail(@"window lost focus; retain this run but do not compare it");
                 if ([result[@"thermalStart"] intValue] != 0 || [result[@"thermalEnd"] intValue] != 0) fail(@"thermal state changed; retain this run but do not compare it");
                 fprintf(stdout, "%s cold=%.3f ms\n", name.UTF8String, [result[@"coldMs"] doubleValue]); fflush(stdout);
             }

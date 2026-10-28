@@ -5,9 +5,9 @@
 #import <objc/runtime.h>
 #include <libproc.h>
 #include <mach/mach.h>
+#include <mach/mach_time.h>
 #include <pthread.h>
 #include <stdatomic.h>
-#include <sys/time.h>
 
 static double processStart, loaded, firstDrawable, firstComplete;
 static mach_port_t mainThread;
@@ -16,8 +16,15 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static NSMutableArray<NSNumber *> *presented;
 static NSString *output;
 static BOOL gpui;
+static double tickSeconds;
+static size_t topItem;
+static float topOffset;
 
-void g1_ready(int complete) { atomic_store(&completeScene, complete != 0); }
+void g1_ready(int complete, size_t item, float offset) {
+    atomic_store(&completeScene, complete != 0);
+    topItem = item;
+    topOffset = offset;
+}
 
 static id nextDrawable(id layer, SEL selector) {
     static IMP original;
@@ -44,7 +51,7 @@ static NSDictionary *usage(void) {
     if (thread_info(mainThread, THREAD_BASIC_INFO, (thread_info_t)&thread, &count) != KERN_SUCCESS) abort();
     double main = thread.user_time.seconds + thread.system_time.seconds
         + (thread.user_time.microseconds + thread.system_time.microseconds) / 1e6;
-    return @{@"time": @(CACurrentMediaTime()), @"cpu": @((r.ri_user_time + r.ri_system_time) / 1e9),
+    return @{@"time": @(CACurrentMediaTime()), @"cpu": @((r.ri_user_time + r.ri_system_time) * tickSeconds),
              @"main": @(main), @"footprint": @(r.ri_phys_footprint), @"lifetimePeak": @(r.ri_lifetime_max_phys_footprint)};
 }
 
@@ -59,6 +66,7 @@ static void writeJSON(NSDictionary *data, NSString *path) {
 
 static NSScrollView *scrollView(NSView *root) {
     NSScrollView *largest = [root isKindOfClass:NSScrollView.class] ? (NSScrollView *)root : nil;
+    if (largest.documentView.bounds.size.height <= largest.contentView.bounds.size.height) largest = nil;
     for (NSView *child in root.subviews) {
         NSScrollView *found = scrollView(child);
         if (found.bounds.size.height > largest.bounds.size.height) largest = found;
@@ -88,6 +96,7 @@ static NSData *signature(NSView *view) {
 @property NSMutableArray *ticks;
 @property NSMutableArray *coldPixels;
 @property NSMutableArray *coldTimes;
+@property NSMutableArray *samples;
 @property NSMutableDictionary *result;
 @property NSDictionary *start;
 @property uint64_t peak;
@@ -98,6 +107,8 @@ static NSData *signature(NSView *view) {
 @property id wheelMonitor;
 @property NSUInteger wheels;
 @property double wheelDelta;
+@property NSMutableArray *wheelPositions;
+@property NSUInteger inactiveTicks;
 @end
 
 @implementation G1Probe
@@ -110,17 +121,23 @@ static NSData *signature(NSView *view) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1000000), dispatch_get_main_queue(), ^{ [self attach]; });
         return;
     }
+    [NSApp activate];
+    [self.window makeKeyAndOrderFront:nil];
     self.windowAt = CACurrentMediaTime();
     self.ticks = [NSMutableArray array];
     self.coldPixels = [NSMutableArray array];
     self.coldTimes = [NSMutableArray array];
     self.result = [NSMutableDictionary dictionary];
+    self.wheelPositions = [NSMutableArray array];
     self.link = [self.window.contentView displayLinkWithTarget:self selector:@selector(tick:)];
     float hz = self.window.screen.maximumFramesPerSecond;
     self.link.preferredFrameRateRange = CAFrameRateRangeMake(hz, hz, hz);
     [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     self.wheelMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event) {
-        if (self.phase == 1) { self.wheels++; self.wheelDelta += event.scrollingDeltaY; }
+        if (self.phase == 1) {
+            self.wheels++; self.wheelDelta += event.scrollingDeltaY;
+            if (self.wheelPositions.count < 3) [self.wheelPositions addObject:@[@(event.locationInWindow.x), @(event.locationInWindow.y)]];
+        }
         return event;
     }];
     signal(SIGUSR2, SIG_IGN);
@@ -141,6 +158,7 @@ static NSData *signature(NSView *view) {
         if (now - self.windowAt >= 2 && (!gpui || ready)) [self ready];
         if (now - processStart > 30) { fprintf(stderr, "probe: first complete frame timed out\n"); exit(2); }
     } else if (self.phase == 1) {
+        if (!NSApp.active || !self.window.keyWindow) self.inactiveTicks++;
         [self.ticks addObject:@{@"timestamp": @(link.timestamp), @"delivered": @(now),
             @"period": @(link.targetTimestamp - link.timestamp)}];
         self.peak = MAX(self.peak, [usage()[@"footprint"] unsignedLongLongValue]);
@@ -172,8 +190,10 @@ static NSData *signature(NSView *view) {
     self.result[@"pid"] = @(getpid());
     self.result[@"scale"] = @(self.window.backingScaleFactor);
     self.result[@"size"] = @[@(self.window.contentView.bounds.size.width), @(self.window.contentView.bounds.size.height)];
+    self.result[@"frameSize"] = @[@(self.window.frame.size.width), @(self.window.frame.size.height)];
     self.result[@"thermalStart"] = @(NSProcessInfo.processInfo.thermalState);
     self.result[@"lowPower"] = @(NSProcessInfo.processInfo.lowPowerModeEnabled);
+    self.result[@"activeAtStart"] = @(NSApp.active && self.window.keyWindow);
     self.result[@"screenHz"] = @(self.window.screen.maximumFramesPerSecond);
     self.coldPixels = nil;
     self.coldTimes = nil;
@@ -190,28 +210,37 @@ static NSData *signature(NSView *view) {
 - (void)advance {
     if (self.phase == -1) {
         self.start = usage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue];
+        self.samples = [NSMutableArray arrayWithObject:self.start];
+        self.memory = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        dispatch_source_set_timer(self.memory, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_MSEC);
+        dispatch_source_set_event_handler(self.memory, ^{
+            NSDictionary *sample = usage();
+            [self.samples addObject:sample];
+            self.peak = MAX(self.peak, [sample[@"footprint"] unsignedLongLongValue]);
+        });
+        dispatch_resume(self.memory);
         self.phase = 1; self.link.paused = NO;
         writeJSON(self.start, [output stringByAppendingString:@".fling"]);
     } else if (self.phase == 1) {
         NSDictionary *end = usage();
         self.result[@"fling"] = @{ @"start": self.start, @"end": end, @"peak": @(self.peak), @"displayLink": self.ticks,
-            @"wheelEvents": @(self.wheels), @"wheelDeltaY": @(self.wheelDelta) };
+            @"wheelEvents": @(self.wheels), @"wheelDeltaY": @(self.wheelDelta), @"wheelPositions": self.wheelPositions,
+            @"inactiveTicks": @(self.inactiveTicks), @"samples": self.samples };
         pthread_mutex_lock(&lock);
         self.result[@"presented"] = [presented copy];
         pthread_mutex_unlock(&lock);
         self.ticks = nil; self.link.paused = YES;
         NSScrollView *scroll = scrollView(self.window.contentView);
         if (scroll) self.result[@"nativeOffsetEnd"] = @(scroll.contentView.bounds.origin.y);
+        if (gpui) self.result[@"gpuiOffsetEnd"] = @{@"item": @(topItem), @"withinItem": @(topOffset)};
         self.start = usage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue];
+        self.samples = [NSMutableArray arrayWithObject:self.start];
         self.phase = 2;
-        self.memory = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-        dispatch_source_set_timer(self.memory, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_MSEC);
-        dispatch_source_set_event_handler(self.memory, ^{ self.peak = MAX(self.peak, [usage()[@"footprint"] unsignedLongLongValue]); });
-        dispatch_resume(self.memory);
         writeJSON(self.start, [output stringByAppendingString:@".rest"]);
     } else if (self.phase == 2) {
-        self.result[@"rest"] = @{ @"start": self.start, @"end": usage(), @"peak": @(self.peak) };
+        self.result[@"rest"] = @{ @"start": self.start, @"end": usage(), @"peak": @(self.peak), @"samples": self.samples };
         self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
+        self.result[@"activeAtEnd"] = @(NSApp.active && self.window.keyWindow);
         writeJSON(self.result, output);
         exit(0);
     }
@@ -223,13 +252,15 @@ __attribute__((constructor)) static void initialize(void) {
         const char *path = getenv("G1_OUTPUT");
         if (!path) return;
         loaded = CACurrentMediaTime();
+        mach_timebase_info_data_t timebase;
+        mach_timebase_info(&timebase);
+        tickSeconds = (double)timebase.numer / timebase.denom / 1e9;
         output = @(path);
         gpui = strcmp(getenv("G1_ARM") ?: "", "gpui") == 0;
         mainThread = mach_thread_self();
-        struct proc_bsdinfo info;
-        if (proc_pidinfo(getpid(), PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info)) abort();
-        struct timeval wall; gettimeofday(&wall, NULL);
-        processStart = loaded - ((double)wall.tv_sec + wall.tv_usec / 1e6 - info.pbi_start_tvsec - info.pbi_start_tvusec / 1e6);
+        struct rusage_info_v4 initial = {0};
+        if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&initial) || !initial.ri_proc_start_abstime) abort();
+        processStart = initial.ri_proc_start_abstime * tickSeconds;
         presented = [NSMutableArray array];
         if (gpui) {
             Method method = class_getInstanceMethod(CAMetalLayer.class, @selector(nextDrawable));

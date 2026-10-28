@@ -41,25 +41,35 @@ impl Render for HeavyList {
                     .child(
                         div()
                             .text_size(px(17.))
-                            .line_height(px(20.3))
+                            .line_height(px(20.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Heavy list"),
                     )
                     .child(
                         div()
                             .text_size(px(13.))
+                            .line_height(px(16.))
                             .text_color(rgb(0x8e8e93))
                             .child("Live: off"),
                     ),
             )
             .child(
                 list(self.list.clone(), move |index, _, cx| {
-                    row::row(&messages[index], width, scale, &images, &reactions, cx)
+                    row::row(
+                        &messages[index],
+                        width - 32.,
+                        scale,
+                        &images,
+                        &reactions,
+                        cx,
+                    )
                 })
                 .size_full()
+                .w(px(width - 32.))
+                .mx(px(16.))
                 .flex_1(),
             )
-            .child(picture::complete())
+            .child(picture::complete(self.list.clone()))
     }
 }
 
@@ -85,7 +95,12 @@ fn main() {
     .expect("heavy-list data");
     assert_eq!(file.messages.len(), 10_000);
     Application::new().run(move |cx| {
-        let bounds = Bounds::centered(None, size(px(800.), px(800.)), cx);
+        // AppKit's 32 pt title bar makes the outer window 800 pt high on this Mac.
+        let mut bounds = Bounds::centered(None, size(px(800.), px(768.)), cx);
+        bounds.origin = point(
+            px(f32::from(bounds.origin.x).round()),
+            px(f32::from(bounds.origin.y).round()),
+        );
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -96,7 +111,8 @@ fn main() {
                 ..Default::default()
             },
             |_, cx| {
-                let list = ListState::new(file.messages.len(), ListAlignment::Top, px(0.));
+                // Prime the next viewport so wheel input can pass the last measured row.
+                let list = ListState::new(file.messages.len(), ListAlignment::Top, px(800.));
                 if let Ok(index) = std::env::var("BENCH_START_INDEX") {
                     list.scroll_to(ListOffset {
                         item_ix: index.parse().unwrap(),

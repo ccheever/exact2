@@ -8,7 +8,9 @@ fn text(size: f32, weight: FontWeight, color: u32, cx: &App) -> Div {
     let mut face = font(".SystemUIFont");
     face.weight = weight;
     let id = cx.text_system().resolve_font(&face);
-    let height = cx.text_system().ascent(id, px(size)) + cx.text_system().descent(id, px(size));
+    // ExactCore's CSSLineBox rounds the two platform extents independently.
+    let height = px(f32::from(cx.text_system().ascent(id, px(size))).round()
+        - f32::from(cx.text_system().descent(id, px(size))).round());
     div()
         .text_size(px(size))
         .font_weight(weight)
@@ -68,7 +70,8 @@ fn photos(items: &[model::Photo], width: f32, scale: f32, directory: &Path) -> D
         .flex_col()
         .gap(px(4.));
     match items.len() {
-        1 => group.child(image(0, width, (width * items[0].h / items[0].w).min(320.))),
+        1 => group
+            .child(image(0, width, (width * items[0].h / items[0].w).min(320.)).rounded(px(12.))),
         3 => {
             let large = (width - 4.) * 2. / 3.;
             let small = (width - 4.) / 3.;
@@ -76,14 +79,14 @@ fn photos(items: &[model::Photo], width: f32, scale: f32, directory: &Path) -> D
                 div()
                     .flex()
                     .gap(px(4.))
-                    .child(image(0, large, large))
+                    .child(image(0, large, large).rounded_l(px(12.)))
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .gap(px(4.))
-                            .child(image(1, small, (large - 4.) / 2.))
-                            .child(image(2, small, (large - 4.) / 2.)),
+                            .child(image(1, small, (large - 4.) / 2.).rounded_tr(px(12.)))
+                            .child(image(2, small, (large - 4.) / 2.).rounded_br(px(12.))),
                     ),
             )
         }
@@ -93,8 +96,16 @@ fn photos(items: &[model::Photo], width: f32, scale: f32, directory: &Path) -> D
                 div()
                     .flex()
                     .gap(px(4.))
-                    .child(image(i, side, side))
-                    .child(image(i + 1, side, side))
+                    .child(
+                        image(i, side, side)
+                            .when(i == 0, |image| image.rounded_tl(px(12.)))
+                            .when(i + 2 == items.len(), |image| image.rounded_bl(px(12.))),
+                    )
+                    .child(
+                        image(i + 1, side, side)
+                            .when(i == 0, |image| image.rounded_tr(px(12.)))
+                            .when(i + 2 == items.len(), |image| image.rounded_br(px(12.))),
+                    )
             }))
         }
         _ => panic!("SPEC permits one to four photos"),
@@ -165,7 +176,9 @@ pub fn row(
                 .overflow_hidden()
                 .flex()
                 .flex_col()
-                .child(picture(directory, &link.thumb, content - 1., 140., scale))
+                .child(
+                    picture(directory, &link.thumb, content - 1., 140., scale).rounded_t(px(12.)),
+                )
                 .child(
                     div()
                         .p(px(10.))
@@ -243,7 +256,9 @@ pub fn row(
                         .flex_none()
                         .rounded(px(20.))
                         .overflow_hidden()
-                        .child(picture(directory, &message.avatar, 40., 40., scale)),
+                        .child(
+                            picture(directory, &message.avatar, 40., 40., scale).rounded(px(20.)),
+                        ),
                 )
                 .child(column),
         )
