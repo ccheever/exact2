@@ -1850,7 +1850,7 @@ bound `animation` the plan's `@keyframes` (`paint.rs`). Measured on
 2026-10-29 with the host-dev compiler: a synthetic app of 500 to 16,000
 components (3,001 to 96,001 nodes) emits in 0.11 to 3.2 s, twice the time
 for twice the plan; the T3 Code clone's plan (261,364 nodes, `--sites`) in
-65 s, writing a 753 MB `app.js`.
+55 to 65 s over two runs, writing a 753 MB `app.js`.
 
 Measuring note: a CDP client that enables the Network domain (Playwright
 does) captures each request's initiator stack, which makes V8 collect source
