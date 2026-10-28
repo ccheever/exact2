@@ -7,7 +7,7 @@ import { obj, str, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import { readFileSync } from 'node:fs';
 import { appPath } from '../support/app-files';
-import { value } from '../support/contract-action-fixture';
+import { contractComponent, value } from '../support/contract-action-fixture';
 
 /** The `disabled=(…)` of the requests.contract view line holding `marker`, read over `env`. */
 function viewDisabled(marker: string, env: Record<string, unknown>): boolean {
@@ -74,7 +74,7 @@ describe('approvals', () => {
     const { client, command, committed } = harness({
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'not_resumable' } }],
       turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'run ls' }] });
-    expect(requestPresentation(client).approvals[0]).toMatchObject({ canRespond: false, detail: 'Provider process is gone — interrupt or restart the run to respond.' });
+    expect(requestPresentation(client).approvals[0]).toMatchObject({ canRespond: false, detail: 'Provider process is gone. Interrupt or restart the run to respond.' });
     expect((await command('approval', 'a', 'accept')).message).toBe('This approval is no longer live.');
     expect(committed).toHaveLength(0);
   });
@@ -300,5 +300,51 @@ describe('Pi editor initial answers', () => {
     g.client.answers['r1::scope'] = { selected: ['Workspace'], custom: '', index: 0 };
     expect(requestPresentation(g.client).draft).toBe('');
     expect(g.client.answers['r1::scope']?.selected).toEqual(['Workspace']);
+  });
+});
+
+// ComposerPendingUserInputPanel at 7c3b3b3605ef (d414cb5103), as requests.contract draws it.
+describe('the question card', () => {
+  const file = 'src/composer/requests.contract';
+  const banner = contractComponent(file, 'QuestionBanner'), choice = contractComponent(file, 'QuestionChoice');
+  const q = { id: 'q', requestId: 'r', header: 'Window', question: 'Which window shows the problem?', position: '1/2', dismissible: true, responding: false,
+    live: true, operable: true, multiSelect: false, options: [], md: {} };
+  /** The `name=` value of the first view line holding `marker`, read over `env` (a quoted value as it stands). */
+  const attribute = (marker: string, name: string, env: Record<string, unknown>) => {
+    const line = readFileSync(appPath(file), 'utf8').split('\n').find(text => text.includes(marker))!;
+    const at = line.indexOf(` ${name}=`) + name.length + 2;
+    if (line[at] === '"') return line.slice(at + 1, line.indexOf('"', at + 1));
+    let depth = 0, end = at;
+    do { if (line[end] === '(') depth++; else if (line[end] === ')') depth--; end++; } while (depth > 0);
+    return value(line.slice(at, end), env);
+  };
+  test('the header row starts with the header, no icon before it; collapsed, it adds "·" and the question', () => {
+    const lines = readFileSync(appPath(file), 'utf8').split('\n');
+    const row = lines.findIndex(line => line.includes('row flex=1 min-width=0 gap="0.25rem" align-items="center"'));
+    expect(lines[row + 1]!.trim().startsWith('text q.header ')).toBe(true);
+    expect(attribute('row width="100%" min-height="1.5rem"', 'padding-left', {})).toBe('1rem');
+    for (const collapsed of ['', 'q']) {
+      expect(banner.drawn('text "·"', { collapsed }, { q })).toBe(collapsed === 'q');
+      expect(banner.drawn('text q.question', { collapsed }, { q })).toBe(collapsed === 'q');
+      expect(banner.drawn('testId=`question-body-', { collapsed }, { q })).toBe(collapsed === '');
+    }
+  });
+  test('an option has a radio, or a checkbox when several can be chosen; unselected labels at 70%; its key cap in a 1.5rem column', () => {
+    const option = { id: 'o', label: 'Main', description: '', shortcut: '1', selected: false };
+    for (const multi of [false, true]) {
+      const scope = { option, questionId: 'q', multi, disabled: false };
+      expect(choice.drawn('testId=`choice-radio-', { hovering: false }, scope)).toBe(!multi);
+      expect(choice.drawn('testId=`choice-checkbox-', { hovering: false }, scope)).toBe(multi);
+    }
+    const color = (selected: boolean) => attribute('testId=`choice-label-', 'color', { option: { ...option, selected } });
+    expect(color(false)).toBe('light-dark(#18181bb3, #f5f5f5b3)');
+    expect(color(true)).toBe('light-dark(#18181b, #f5f5f5)');
+    const scope = { option, questionId: 'q', multi: false, disabled: false };
+    expect(choice.drawn('testId=`choice-key-', { hovering: false }, scope)).toBe(true);
+    expect(attribute('testId=`choice-key-', 'width', {})).toBe('1.5rem');
+    expect(choice.drawn('testId=`choice-key-', { hovering: false }, { ...scope, option: { ...option, shortcut: '' } })).toBe(false);
+    // A description that repeats the label is not drawn twice.
+    expect(choice.drawn('text option.description', { hovering: false }, { ...scope, option: { ...option, description: 'Main' } })).toBe(false);
+    expect(choice.drawn('text option.description', { hovering: false }, { ...scope, option: { ...option, description: 'The main window' } })).toBe(true);
   });
 });

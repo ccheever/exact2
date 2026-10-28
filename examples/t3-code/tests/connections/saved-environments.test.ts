@@ -191,6 +191,15 @@ describe('PullRequestThreadDialog', () => {
       expect(toasts(client).map(toast => [toast.kind, toast.title])).toEqual(onHead ? [] : [['warning', 'Checked out, but not confirmed on the latest commit']]);
     }
   });
+  test('the warning names the host\'s own change request', async () => {
+    for (const [status, term] of [[github, 'pull request'], [{ sourceControlProvider: { kind: 'gitlab', name: 'GitLab' } }, 'merge request']] as const) {
+      const { client } = checkoutClient('', false);
+      checkoutItems(client, '7', status);
+      await checkoutLocal(client, nativeStub, 'open', '101');
+      await checkoutConfirm(client, nativeStub, 'worktree');
+      expect(toasts(client)[0]!.description).toBe(`This checkout could not be confirmed at the ${term}'s latest commit, so its code may differ. Local commits or uncommitted work keep a checkout where it is.`);
+    }
+  });
   test('Local passes no thread id; a failure stays in the dialog', async () => {
     const { client, calls } = checkoutClient();
     await checkoutLocal(client, nativeStub, 'open', '101');
