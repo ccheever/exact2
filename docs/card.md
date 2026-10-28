@@ -179,7 +179,7 @@ a dated record: The write reads the clock, not a ticked `now`, and stores `at`; 
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: Each test starts with empty storage; target by `testId` or text. `clock data` lands replies, `clock settle` settles presentation, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens and relaunches; `verify ios` last; `--shots <dir>` keeps screenshots. It runs `contract verify app.contract` too; keep its receipt of source digests, coverage and the world checked.
+a test, and verify: Each test starts with empty storage; target by `testId` or text. `clock data` lands replies, `clock settle` settles presentation, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens and relaunches; `verify ios` last; `--shots <dir>` keeps screenshots. It runs `contract verify app.contract` too; keep its receipt.
   test "a pick survives a relaunch"
     tap "pick"
     clock data

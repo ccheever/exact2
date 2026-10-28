@@ -32,12 +32,6 @@ test "a repeat is refused and keeps its text; the list survives a relaunch"
 | `size 390x844`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines: before a test's steps, or atop the file. |
 
 Every other form (drags, `perf`, `on web`): [the grammar](../contract-grammar.md#authored-tests).
-Put [properties](properties.md) beside the tests: device runs check `always` after each
-input and clock step; `after` and `never refuses` need the harness's commit trace.
-`bun exact.mjs verify` also runs `contract verify app.contract`, even after a device
-failure, and fails if either run fails. Save its receipt in the diary: it names the
-source digests, scripts, coverage, property results and limits of the world checked;
-without Lean, the runner still searches and the receipt says the semantics did not run.
 
 `expect` has no `<` or `contains`: compare a derive with `==`. `clock data` after an
 input whose reply the next `expect` reads (iOS needs it); `clock settle` after a sheet, an
