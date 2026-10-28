@@ -109,14 +109,20 @@ open class ExactActivity : Activity() {
         // A launch with a URL (a shortcut, a link) into a process whose host runs goes where the URL says; one the
         // system restores (a saved state) keeps where it was. The first launch's is the host's launch location
         // ([environment]).
-        if (again && state == null) intent.data?.let { Exact.open(it.toString()) }
+        if (again && state == null) received(intent)
     }
 
-    /** A URL given to the running activity (LLP 1133.023 D15 item 3): its location, as a link's. */
+    /** A URL or a share given to the running activity: its location, as a link's (LLP 1133.023 D15 item 3), or the
+     * share's (LLP 1133.024 D5; `singleTask` brings this task forward for it). */
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.data?.let { Exact.open(it.toString()) }
+        received(intent)
+    }
+
+    private fun received(intent: android.content.Intent) {
+        if (Shares.isShare(intent)) Shares.request(this, intent)?.let { Exact.share(it) }
+        else intent.data?.let { Exact.open(it.toString()) }
     }
 
     /** Whether an accessibility service is on (LLP 1115.001 D13). The reader answers one through its root
@@ -538,7 +544,9 @@ open class ExactActivity : Activity() {
         android.system.Os.setenv("XDG_CACHE_HOME", cacheDir.absolutePath, true)
         // The launching intent's URL is the launch location (LLP 1133.023 D15 item 3): the activity is exported, so
         // any app may start it with one, which reaches only what the navigation root routes, as a link does.
-        intent.data?.let { android.system.Os.setenv("EXACT_LAUNCH_URL", it.toString(), true) }
+        intent.data?.takeUnless { Shares.isShare(intent) }?.let { android.system.Os.setenv("EXACT_LAUNCH_URL", it.toString(), true) }
+        // A share that starts the app is its launch location, claimed before the boot (LLP 1133.024 D5).
+        Shares.request(this, intent)?.let { android.system.Os.setenv("EXACT_SHARE", it, true) }
         // rows=0: no kept rows, every frame walks every row (exact2's EXACT_ROWS), to compare.
         if (intent.getStringExtra("rows") == "0") android.system.Os.setenv("EXACT_ROWS", "0", true)
         // imgvp=N: keep N viewports of decoded pictures (exact2's EXACT_IMAGE_VIEWPORTS; 12 by default).

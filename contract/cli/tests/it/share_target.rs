@@ -96,6 +96,7 @@ fn a_cold_share_shows_its_text_first_with_its_files_pending_then_they_land() {
                 name: format!("from sender {n}"),
                 mime: None,
                 member: None,
+                size: None,
             })
             .to_vec(),
         ..Pending::default()
@@ -150,6 +151,7 @@ fn a_cold_share_shows_its_text_first_with_its_files_pending_then_they_land() {
             name: "later.txt".into(),
             mime: None,
             member: None,
+            size: None,
         }],
         ..Pending::default()
     };

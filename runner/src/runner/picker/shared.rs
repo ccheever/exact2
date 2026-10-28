@@ -191,6 +191,7 @@ impl Pending {
                 name,
                 mime: f.get("type").and_then(|v| v.as_str()).map(str::to_owned),
                 member: f.get("member").and_then(|v| v.as_str()).map(str::to_owned),
+                size: f.get("size").and_then(|v| v.as_u64()),
             });
         }
         let dropped = record
@@ -315,6 +316,9 @@ pub struct PendingFile {
     pub mime: Option<String>,
     /// The member it arrived under, when the sender said (Apple's inbox).
     pub member: Option<String>,
+    /// Its size, when the host read it from what it opened (Android's
+    /// descriptors, whose path the app cannot stat); else the source's.
+    pub size: Option<u64>,
 }
 
 /// A share as a host found it: text members and files, and what the
@@ -389,7 +393,9 @@ impl Claims {
                 .mime
                 .clone()
                 .unwrap_or_else(|| super::mime_for(&file.name).into());
-            let size = std::fs::metadata(&file.source).map(|m| m.len()).ok();
+            let size = file
+                .size
+                .or_else(|| std::fs::metadata(&file.source).map(|m| m.len()).ok());
             let member = by_member
                 .iter()
                 .position(|(name, _, _)| match &file.member {
@@ -477,6 +483,18 @@ impl Claimed {
         shared_dir: &std::path::Path,
         moving: bool,
     ) -> Vec<(String, SharedFiles)> {
+        self.copy_with(shared_dir, moving, |_| None)
+    }
+
+    /// [`Claimed::copy`], reading a source from what `opened` answers for
+    /// it when it answers one: a file the host already holds open, which
+    /// opening its path again would not reach (Android's descriptors).
+    pub fn copy_with(
+        &mut self,
+        shared_dir: &std::path::Path,
+        moving: bool,
+        opened: impl Fn(&std::path::Path) -> Option<std::fs::File>,
+    ) -> Vec<(String, SharedFiles)> {
         let mut out = Vec::new();
         for ((token, files), (_, now)) in self.copies.iter_mut().zip(self.tokens.iter()) {
             let mut answer = SharedFiles {
@@ -487,8 +505,15 @@ impl Claimed {
             let _ = std::fs::create_dir_all(shared_dir);
             for (source, picked) in files.drain(..) {
                 let local = shared_dir.join(picked.path.trim_start_matches(SHARED));
-                let done = (moving && std::fs::rename(&source, &local).is_ok())
-                    || std::fs::copy(&source, &local).is_ok();
+                let done = match opened(&source) {
+                    Some(mut from) => std::fs::File::create(&local)
+                        .and_then(|mut to| std::io::copy(&mut from, &mut to))
+                        .is_ok(),
+                    None => {
+                        (moving && std::fs::rename(&source, &local).is_ok())
+                            || std::fs::copy(&source, &local).is_ok()
+                    }
+                };
                 if done {
                     answer.files.push(picked);
                 } else {

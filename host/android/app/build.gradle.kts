@@ -68,7 +68,8 @@ android {
     providers.gradleProperty("extensionDirs").orNull?.split(',')?.filter { it.isNotEmpty() }?.forEach { sourceSets["main"].kotlin.directories.add(it) }
     // The runtime permissions the app's grant lines derive (`-Ppermissions`, LLP 1133.002 D6), and the queries and
     // components its packages' manifest fragments declare (`-PmanifestFragment`, checked and written by
-    // scripts/android-manifest.mjs, LLP 1133.030 D9, LLP 1133.026 D19 item 3), merged into the shell's manifest from the release source set's: an app that grants no device asks
+    // scripts/android-manifest.mjs, LLP 1133.030 D9, LLP 1133.026 D19 item 3; with the share target's filters on the
+    // app's activity, scripts/share-target.mjs, LLP 1133.024 D5), merged into the shell's manifest from the release source set's: an app that grants no device asks
     // for none, and one that uses no such package runs nothing beyond the shell's activity.
     val fragment = providers.gradleProperty("manifestFragment").orNull?.let { file(it).readText() }?.takeIf { it.isNotBlank() }
     // The hardware a grant line uses where present (`-PandroidFeatures`, LLP 1133.037 D17), never required.
@@ -104,7 +105,7 @@ android {
                 else -> (fragment?.let { "$it\n" } ?: "") + "    <application>\n$services    </application>\n"
             }
         }
-        permissions.writeText("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n" +
+        permissions.writeText("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" xmlns:tools=\"http://schemas.android.com/tools\">\n" +
             names.joinToString("") { permission(it) } +
             features.joinToString("") { "    <uses-feature android:name=\"android.hardware.$it\" android:required=\"false\" />\n" } +
             manifestChildren(fragment, services.entries.joinToString("") { service(it.key, it.value) }) + "</manifest>\n")

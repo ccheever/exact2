@@ -174,6 +174,8 @@ object Native {
     @JvmStatic external fun back(): Boolean
     /** A URL given to the running app: its location goes to the navigation root's `navigate` (LLP 1133.023 D15 item 3). */
     @JvmStatic external fun open(href: String)
+    /** A share given to the running app, `{"target", "share"}` as [Shares.request] writes it (LLP 1133.024 D5). */
+    @JvmStatic external fun share(request: String)
     /** What exact2 asks of the platform since this last returned any (LLP 1115.001 D5), or null when it asks
      * nothing: the one channel out, which [Requests] reads and acts on, on the main thread. exact2 queues a request
      * and makes the first of [fds] readable, so the reader comes for it whether or not a frame follows. The words:

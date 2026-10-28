@@ -1,7 +1,7 @@
 //! The reader's keys and system Back (`canvas/keys.rs`): what `canvas_jni!`
 //! defines beside its own, over the same `HOST`.
 
-/// `Native.key`, `Native.namedKey`, `Native.back` and `Native.open`, expanded inside
+/// `Native.key`, `Native.namedKey`, `Native.back`, `Native.open` and `Native.share`, expanded inside
 /// `canvas_jni!`'s module, whose `with`, `string` and `flag` they use.
 #[macro_export]
 #[doc(hidden)]
@@ -53,6 +53,17 @@ macro_rules! canvas_jni_keys {
         ) {
             let href = string(env, href);
             with(|h| h.open(&href));
+        }
+
+        /// A share given to the running app (`CanvasHost::share`).
+        #[no_mangle]
+        pub unsafe extern "system" fn Java_dev_exact_canvas_Native_share(
+            env: *mut JNIEnv,
+            _class: jclass,
+            request: jstring,
+        ) {
+            let request = string(env, request);
+            with(|h| h.share(&request));
         }
     };
 }

@@ -64,4 +64,18 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.force = true;
     }
+
+    /// A share the activity was given while the app runs (`onNewIntent`,
+    /// LLP 1133.024 D5): `{"target", "share"}`, its files descriptors the
+    /// reader opened. The one at launch is `EXACT_SHARE`.
+    pub fn share(&mut self, request: &str) {
+        let now = self.now();
+        let received = serde_json::from_str(request)
+            .map_err(|e| e.to_string())
+            .and_then(|q| self.p.receive_platform_share(&q, now));
+        if let Err(error) = received {
+            eprintln!("exact: share: {error}");
+        }
+        self.force = true;
+    }
 }

@@ -106,3 +106,19 @@ export function androidShareTypes(target) {
   const types = [...new Set(files.flatMap(f => list(f.accept).map(acceptType)).filter(Boolean))];
   return { text: !!(text || url), files: types };
 }
+
+/** The app activity's share filters and its `share_target` (D5), as lines inside a manifest's `<application>`: the
+ * activity becomes `singleTask`, so a share brings the app's one task forward rather than starting it in the
+ * sender's, and carries the member as `dev.exact.share_target` meta-data, which the reader hands exact2 with each
+ * share (`Shares.kt`). The platform words stay out of it. Null when the app declares no target. */
+export function androidShareActivity(target) {
+  if (!target) return null;
+  const { text, files } = androidShareTypes(target);
+  const send = [...new Set([...(text ? ['text/plain'] : []), ...files])], multiple = files;
+  const member = JSON.stringify({ action: target.action, params: target.params ?? {} }).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+  const filter = (action, types) => types.length ? ['            <intent-filter>', `                <action android:name="android.intent.action.${action}" />`,
+    '                <category android:name="android.intent.category.DEFAULT" />', ...types.map((t) => `                <data android:mimeType="${t}" />`), '            </intent-filter>'] : [];
+  return ['        <activity android:name="dev.exact.app.MainActivity" android:launchMode="singleTask" tools:replace="android:launchMode">',
+    ...filter('SEND', send), ...filter('SEND_MULTIPLE', multiple),
+    `            <meta-data android:name="dev.exact.share_target" android:value="${member}" />`, '        </activity>'];
+}

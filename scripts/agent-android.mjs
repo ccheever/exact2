@@ -36,6 +36,7 @@ import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 import { androidImplementations, packageConfig } from '../js/bake/src/typescript.mjs';
 import { configMetaData, fragmentPermissions, manifestFragment, withMetaData } from './android-manifest.mjs';
+import { androidShareActivity } from './share-target.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -198,11 +199,14 @@ const SHOT_SETTLE_MS = 400;
 async function relay([serial, id, vars]) {
   const tool = adb(), sh = (...args) => spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
   const name = `exact-agent-${process.pid}`;
-  const extras = Object.entries(JSON.parse(vars)).flatMap(([k, v]) => ['--es', `x_${k.slice('EXACT_'.length).toLowerCase()}`, quote(v)]);
+  // EXACT_AGENT_INTENT: `am start` words the launch carries besides the drive's, for a drive that starts the app
+  // as another app would (a share's `-a android.intent.action.SEND …`, LLP 1133.024 D5).
+  const { EXACT_AGENT_INTENT: intent = '', ...launch } = JSON.parse(vars);
+  const extras = Object.entries(launch).flatMap(([k, v]) => ['--es', `x_${k.slice('EXACT_'.length).toLowerCase()}`, quote(v)]);
   sh('shell', 'am', 'force-stop', id);
   sh('logcat', '-c');
   // `lower=0`: the engine samples every animation, so none plays on the reader's own clock.
-  const started = sh('shell', ['am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras].join(' '));
+  const started = sh('shell', ['am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras, intent].join(' '));
   if (started.status !== 0 || /Error/.test(started.stdout + started.stderr)) throw new Error(`am start ${id}: ${(started.stderr || started.stdout).trim()}`);
   const port = Number(sh('forward', 'tcp:0', `localabstract:${name}`).stdout.trim());
   if (!port) throw new Error('adb forward gave no port');
@@ -390,7 +394,8 @@ function extensionArgs(app, out, config) {
   for (const [name, targets] of Object.entries(app.manifest?.packages ?? {})) for (const [key, value] of Object.entries(targets?.android ?? {})) {
     if (typeof value?.env === 'string' && !process.env[value.env] && config.has(name.split('/').at(-1))) console.warn(`${app.name}: ${value.env} is unset, so ${name}'s ${key} is absent from this development build (a release build refuses it)`);
   }
-  const fragment = withMetaData(manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), configMetaData(config)), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
+  // The share target's filters on the app's activity (LLP 1133.024 D5), inside the same `<application>`.
+  const fragment = withMetaData(manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), [...configMetaData(config), ...(androidShareActivity(app.manifest?.share_target) ?? [])]), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
   rmSync(fragmentFile, { force: true });
   if (fragment) { mkdirSync(dirname(fragmentFile), { recursive: true }); writeFileSync(fragmentFile, fragment); }
   return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : []),
