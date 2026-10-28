@@ -34,6 +34,21 @@ pub fn touches_ephemeral(backend: &Json, op: &str) -> bool {
         .any(|table| schema["tables"][table]["ephemeral"].is_object())
 }
 
+/// The visible tables the device does not sync (`online only`), sorted and
+/// bounded, for the change poll's `tables=`: the server wakes this device
+/// for their writes, which log no partition (Snapback LLP 3000.041 §4.1).
+pub fn online_only_tables(backend: &Json) -> Vec<String> {
+    let Some(tables) = backend["schema"]["tables"].as_object() else { return Vec::new() };
+    let mut names: Vec<String> = tables
+        .iter()
+        .filter(|(_, table)| !table["sync"].is_object() && !table["ephemeral"].is_object())
+        .map(|(name, _)| name.clone())
+        .collect();
+    names.sort();
+    names.truncate(256);
+    names
+}
+
 /// The tables an operation reads or writes, its rules' included, and a
 /// timeline's sources for its posts table.
 pub fn operation_tables(program: &Json, schema: &Json) -> BTreeSet<String> {
