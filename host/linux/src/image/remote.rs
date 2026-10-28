@@ -324,14 +324,16 @@ impl Downloads {
             .cloned()
     }
     /// Remember that `url`'s server said not before `at`: the expired let go
-    /// of, and at most [`CACHE_ENTRIES`] kept, those ending soonest first to go.
+    /// of, and at most [`CACHE_ENTRIES`] kept, the others ending soonest
+    /// first to go (never this one).
     fn cool(&self, url: &str, at: Instant, message: &str) {
         let mut cooling = self.cooling.lock().unwrap();
         let now = Instant::now();
         cooling.retain(|_, (until, _)| *until > now);
         cooling.insert(url.to_owned(), (at, message.to_owned()));
         while cooling.len() > CACHE_ENTRIES {
-            let soonest = cooling.iter().min_by_key(|(_, (until, _))| *until);
+            let others = cooling.iter().filter(|(other, _)| *other != url);
+            let soonest = others.min_by_key(|(_, (until, _))| *until);
             let soonest = soonest.map(|(url, _)| url.clone()).expect("not empty");
             cooling.remove(&soonest);
         }

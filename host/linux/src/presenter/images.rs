@@ -29,11 +29,18 @@ impl<D: DataSource> Presenter<D> {
     /// A source's first picture sends its `load` to an image that hears it
     /// (LLP 1011 §4) and is still that node showing that source as it is
     /// sent: since it landed, input, a timer or an earlier load's action may
-    /// have changed either. (Dispatching at the host's own time runs no timer
-    /// first: those due by it have run.) Whether any was sent.
+    /// have changed either. What is due by now (a mutation's `then`, armed
+    /// at an earlier load's commit with no gap) runs before the check, as
+    /// dispatching would run it before the handler. Whether any was sent.
     pub(crate) fn deliver_image_loads(&mut self) -> bool {
         let mut loads = false;
         for (id, key, source) in std::mem::take(&mut self.images.load_events) {
+            let now = self.host.now();
+            if self.host.timer_due_ms().is_some_and(|due| due <= now) {
+                if let Some(error) = self.advance(now) {
+                    self.host.log(error);
+                }
+            }
             let same = self.host.kernel().node(id).is_some_and(|n| {
                 n.node_type == NodeType::Image
                     && (u64::from(n.key.index) | (u64::from(n.key.generation) << 32)) == key
@@ -48,7 +55,7 @@ impl<D: DataSource> Presenter<D> {
             {
                 continue;
             }
-            let sent = self.host.dispatch_at(id, Event::Load, self.host.now());
+            let sent = self.host.dispatch_at(id, Event::Load, now);
             let after = self.after_commit();
             if let Some(error) = sent.or(after) {
                 self.host.log(error);
