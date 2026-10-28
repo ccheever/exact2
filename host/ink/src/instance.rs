@@ -263,6 +263,37 @@ pub struct Encoder {
 }
 
 impl Encoder {
+    /// An empty draw list with the same effective clip, independent of its stack.
+    pub fn fork(&self) -> Self {
+        Self {
+            frame: Frame::default(),
+            state: self.state,
+            stack: Vec::new(),
+        }
+    }
+
+    /// Replace the effective clip with its rasterized intersection, saving the parent.
+    pub fn push_combined_clip(&mut self, coverage: CoverageClip) {
+        self.stack.push(self.state);
+        self.state.rounded = [None; 2];
+        self.state.coverage = Some(coverage);
+        self.state.needs_layer = false;
+    }
+
+    /// Composition of already clipped children must not multiply coverage again.
+    pub fn push_unclipped(
+        &mut self,
+        instance: Instance,
+        bindings: Bindings,
+        size: [u32; 2],
+    ) -> Result<(), NeedsLayer> {
+        let saved = self.state;
+        self.state = Self::new(size[0], size[1]).state;
+        let result = self.push(instance, bindings);
+        self.state = saved;
+        result
+    }
+
     pub fn scissor(&self) -> Scissor {
         self.state.scissor
     }

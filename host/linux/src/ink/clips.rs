@@ -7,57 +7,70 @@ pub(super) struct Group {
     target: Option<TextureId>,
     clear: Option<[f64; 4]>,
     opacity: f32,
-    mask: Option<Coverage>,
-    destination: Option<TextureId>,
     pub(super) transform: Option<Transform>,
 }
 
 impl Ink {
-    pub(super) fn open_group(&mut self, opacity: f32, mask: Option<Coverage>) {
-        let next = Encoder::new(self.size[0], self.size[1]);
+    pub(super) fn open_group(&mut self, opacity: f32) {
+        let next = self.encoder.fork();
         let parent = std::mem::replace(&mut self.encoder, next);
         self.groups.push(Group {
             parent,
             target: self.draw_target.take(),
             clear: self.draw_clear.replace([0.; 4]),
             opacity,
-            mask,
-            destination: None,
             transform: None,
         });
     }
 
-    pub(super) fn open_clip_group(&mut self, mask: Coverage) -> Result<()> {
-        // A clip changes coverage, not the backdrop root. Seed the layer with
-        // its parent's pixels, then replace under the parent's clips on close.
-        let source = self.flush()?;
-        let started = Instant::now();
-        let destination = self.pool.take(&mut self.device)?;
-        self.device
-            .copy_region(source, [0, 0], destination, [0, 0], self.size)?;
-        self.layer_ms += started.elapsed().as_secs_f64() * 1000.;
-        self.open_group(1., None);
-        self.groups.last_mut().unwrap().destination = Some(destination);
-        self.encoder
+    /// Flatten overflowing clips into one mask, so every child sees their intersection.
+    pub(super) fn combined_clip(&mut self, mask: Option<Coverage>) -> Result<CoverageClip> {
+        let rect = [0., 0., self.size[0] as f32, self.size[1] as f32];
+        let mut encoder = self.encoder.fork();
+        encoder
             .push(
-                Instance::new(
-                    Kind::Layer,
-                    Brush::Image,
-                    [0., 0., self.size[0] as f32, self.size[1] as f32],
-                ),
-                Bindings {
-                    image: destination,
-                    ..Default::default()
-                },
+                Instance::new(Kind::RoundedRect, Brush::Solid, rect),
+                Bindings::default(),
             )
-            .map_err(|_| Error::Invalid("clip layer background".into()))?;
-        self.encoder
-            .push_clip(Clip::Coverage(CoverageClip {
+            .map_err(|_| Error::Invalid("parent clip mask".into()))?;
+        let parent = self.pool.take(&mut self.device)?;
+        self.device
+            .render(&encoder.finish(), parent, Some([0.; 4]))?;
+        let texture = if let Some(mask) = mask {
+            let mut encoder = Encoder::new(self.size[0], self.size[1]);
+            let mut instance = Instance::new(Kind::Layer, Brush::Image, rect);
+            instance.set_mask(CoverageClip {
                 texture: mask.entry.texture,
                 rect: mask.rect,
                 uv: mask.entry.uv,
-            }))
-            .map_err(|_| Error::Invalid("clip layer mask".into()))?;
+            });
+            encoder
+                .push(
+                    instance,
+                    Bindings {
+                        image: parent,
+                        mask: mask.entry.texture,
+                        ..Default::default()
+                    },
+                )
+                .map_err(|_| Error::Invalid("clip intersection".into()))?;
+            let target = self.pool.take(&mut self.device)?;
+            self.device
+                .render(&encoder.finish(), target, Some([0.; 4]))?;
+            target
+        } else {
+            parent
+        };
+        Ok(CoverageClip {
+            texture,
+            rect,
+            uv: [0., 0., 1., 1.],
+        })
+    }
+
+    pub(super) fn open_clip_group(&mut self, mask: Coverage) -> Result<()> {
+        let clip = self.combined_clip(Some(mask))?;
+        self.encoder.push_combined_clip(clip);
         Ok(())
     }
 
@@ -87,23 +100,13 @@ impl Ink {
             image: target,
             ..Default::default()
         };
-        if let Some(destination) = group.destination {
-            instance.flags |= flags::REPLACE;
-            bindings.destination = destination;
-        }
         if let Some(mask) = alpha_mask {
             instance.flags |= flags::LAYER_MASK;
             bindings.color = mask;
         }
-        if let Some(mask) = group.mask {
-            instance.set_mask(CoverageClip {
-                texture: mask.entry.texture,
-                rect: mask.rect,
-                uv: mask.entry.uv,
-            });
-            bindings.mask = mask.entry.texture;
-        }
-        self.emit(instance, bindings)
+        self.encoder
+            .push_unclipped(instance, bindings, self.size)
+            .map_err(|_| Error::Invalid("group composition".into()))
     }
 
     pub(super) fn clip(&mut self, shape: &Shape, ts: Transform) -> Result<()> {
@@ -145,7 +148,7 @@ impl Ink {
         };
         if let Some(mask) = coverage {
             self.open_clip_group(mask)?;
-            self.clips.push(true);
+            self.clips.push(false);
         } else {
             self.encoder
                 .push_clip(Clip::Scissor(Scissor {

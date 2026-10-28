@@ -288,7 +288,7 @@ impl Ink {
                         self.coverage_clip(c, *transformed)?;
                     }
                     Marker::PopClip => self.pop_clip(),
-                    Marker::Opacity(alpha) => self.open_group(*alpha, None),
+                    Marker::Opacity(alpha) => self.open_group(*alpha),
                     Marker::PopOpacity => self.close_group()?,
                     Marker::Mask(shape, mask, ts) => {
                         self.masked(shape, mask, ts.post_translate(origin.0, origin.1))?
@@ -303,7 +303,7 @@ impl Ink {
                         }
                     }
                     Marker::Layer(drawing, transform, alpha) => {
-                        self.open_group(*alpha, None);
+                        self.open_group(*alpha);
                         let ts = Transform::from_translate(offset[0], offset[1])
                             .pre_concat(*transform)
                             .pre_translate(-offset[0], -offset[1]);
