@@ -554,9 +554,9 @@ all its items, and a code block stays left to right.
   Apple draws one.
 - **Apple.** The restyle sets each line's
   `NSParagraphStyle.baseWritingDirection` (TextKit 2, AppKit and UIKit) over
-  the paragraph rows' styles. TextKit measures their indents from the
-  leading edge and aligns natural text to it, so a right-to-left list item
-  indents from the right. Typing takes the caret line's direction, which
+  the paragraph rows' styles. A `headIndent` is measured from the leading
+  margin and natural text aligns to it, so a right-to-left list item indents
+  from the right. Typing takes the caret line's direction, which
   places an empty last line's caret. A new list restyles though the source
   has not changed. tvOS draws the same and does not edit.
 - **Declared.** Linux, Windows and Android show the source in a plain field
