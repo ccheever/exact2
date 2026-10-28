@@ -352,7 +352,8 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     avatar: dirs.avatar(user), color: dirs.nameColor(m.channel_id, m.member?.roles ?? []),
     bot: m.author?.bot === true, at, prevAt,
     grouped: !!previous && String(previous.author?.id) === authorId && delta >= 0 && delta < 7 * 60000 &&
-      (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',
+      // A reply heads a group; the author's next messages join it, as in Discord.
+      [0, 19].includes(previous.type ?? 0) && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',
     edited, mine: authorId === me, state: m.status, mentionsMe, jumbo: isJumbo,
     // A forward is never edited: it has no words of its own to edit.
     system, systemIcon, plain: system || text, source: snapshot ? '' : editable(content, dirs), isNew: false, blocks,

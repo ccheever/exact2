@@ -238,7 +238,7 @@ test('join rows use the author directory and expose their system text as plain t
     source: '', grouped: false, blocks: [] });
 });
 
-test('grouping stops at seven minutes, a different author, replies and system rows', () => {
+test('grouping stops at seven minutes, a different author, a reply and system rows', () => {
   const first = message(0), near = message(7 * 60000 - 1), boundary = message(7 * 60000);
   const reply = message(1000, { type: 19, message_reference: reference(first.id), referenced_message: first });
   const join = message(2000, { type: 7 }), other = message(3000, { author: me });
@@ -246,7 +246,8 @@ test('grouping stops at seven minutes, a different author, replies and system ro
   expect(f.render(f.row(near.id), previous)).toMatchObject({ grouped: true, prevAt: NOW });
   expect(f.render(f.row(boundary.id), previous)).toMatchObject({ grouped: false, prevAt: NOW });
   for (const m of [reply, join, other]) expect(f.render(f.row(m.id), previous).grouped).toBe(false);
-  for (const m of [reply, join]) expect(f.render(f.row(near.id), f.row(m.id)).grouped).toBe(false);
+  expect(f.render(f.row(near.id), f.row(reply.id)).grouped).toBe(true);
+  expect(f.render(f.row(near.id), f.row(join.id)).grouped).toBe(false);
   expect(f.render(previous, f.row(near.id)).grouped).toBe(false);
   expect(f.render(previous)).toMatchObject({ grouped: false, prevAt: 0 });
 });
