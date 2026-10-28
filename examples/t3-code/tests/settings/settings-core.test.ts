@@ -445,6 +445,12 @@ describe('navigation and search', () => {
     expect(settingsNavigation('git fetch', desktop)).toMatchObject({ firstRoute: 'maintenance', firstTarget: 'background-activity' });
     expect(titles('diff colors')).toEqual(['Diff colors / Diffs & pull requests']);
   });
+  test('the settings answer names the jump it is for and the reveal stop of the fold its row sits under', async () => {
+    const core = await settingsCore(as(fake()), native, '', '', '', '', 'chat', 'skills-in-slash-menu', true);
+    expect(core).toMatchObject({ route: 'chat', jumpTarget: 'skills-in-slash-menu', jumpStop: 'settings-advanced-composer-reveal', notice: '' });
+    expect(core.sections.find(section => section.id === 'composer')!.advanced.map(row => row.id)).toEqual(['skills-in-slash-menu']);
+    expect(await settingsCore(as(fake()), native, '', '', '', '', 'chat', 'send-shortcut', true)).toMatchObject({ jumpTarget: 'send-shortcut', jumpStop: '' });
+  });
   test('every result lands on an element its page draws', () => {
     // Upstream's hash is `targetId ?? id`, the id SettingsRow, SettingsSection, FoldedSettingsSection and SettingsSearchTarget
     // carry. Here: core sections and rows (CoreSections, CoreRowView), scoped rows' targets, and the ids the contracts write.
