@@ -15,7 +15,7 @@ use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
-    platform::windows::EventLoopBuilderExtWindows,
+    platform::windows::{EventLoopBuilderExtWindows, WindowAttributesExtWindows},
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{CursorIcon, Fullscreen, Theme, Window, WindowId},
 };
@@ -339,7 +339,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             return Ok(());
         }
         let now = self.now();
-        let (Some(window), Some(surface), Some(p)) =
+        let (Some(window), surface, Some(p)) =
             (&self.window, &mut self.surface, &mut self.presenter)
         else {
             return Ok(());
@@ -448,6 +448,9 @@ impl<D: DataSource + Default + 'static> App<D> {
         self.paint_ms += paint_ms;
         let present = Instant::now();
         if let Some(frame) = frame {
+            let surface = surface
+                .as_mut()
+                .ok_or("direct painter returned an unpresented frame")?;
             surface.resize(width, height).map_err(|e| e.to_string())?;
             let mut buffer = surface.buffer_mut().map_err(|e| e.to_string())?;
             if buffer.len() != frame.data().len() / 4 {
@@ -614,6 +617,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         let window = match events.create_window(
             Window::default_attributes()
+                .with_no_redirection_bitmap(
+                    std::env::var("EXACT_PAINTER").as_deref() == Ok("ink")
+                        && std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("wgpu"),
+                )
                 .with_visible(false)
                 .with_title(&self.name)
                 .with_fullscreen(
@@ -657,8 +664,25 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
             }
         }
+        let mut direct = false;
         match app::boot_presenter::<D>(&mut self.config, viewport) {
             Ok((mut p, warning)) => {
+                if let Ok(handle) = window.window_handle() {
+                    if let RawWindowHandle::Win32(handle) = handle.as_raw() {
+                        // SAFETY: the retained Rc owns this HWND on the event-loop thread.
+                        #[allow(unsafe_code)]
+                        let owned = unsafe {
+                            exact_ink::device::d3d11::Window::new(handle.hwnd.get(), window.clone())
+                        };
+                        match p.attach_painter_window(owned, [size.width, size.height]) {
+                            Ok(attached) => direct = attached,
+                            Err(e) => {
+                                self.fail(events, e);
+                                return;
+                            }
+                        }
+                    }
+                }
                 p.host_mut().runner_mut().set_row_reuse(true);
                 if let Some(scale) = self.appearance.text_scale() {
                     if let Some(error) = p.set_text_scale(scale) {
@@ -689,18 +713,20 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 return;
             }
         }
-        let context = match softbuffer::Context::new(window.clone()) {
-            Ok(c) => c,
-            Err(e) => {
-                self.fail(events, e);
-                return;
-            }
-        };
-        match softbuffer::Surface::new(&context, window.clone()) {
-            Ok(surface) => self.surface = Some(surface),
-            Err(e) => {
-                self.fail(events, e);
-                return;
+        if !direct {
+            let context = match softbuffer::Context::new(window.clone()) {
+                Ok(c) => c,
+                Err(e) => {
+                    self.fail(events, e);
+                    return;
+                }
+            };
+            match softbuffer::Surface::new(&context, window.clone()) {
+                Ok(surface) => self.surface = Some(surface),
+                Err(e) => {
+                    self.fail(events, e);
+                    return;
+                }
             }
         }
         window.set_visible(true);

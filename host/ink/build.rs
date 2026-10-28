@@ -87,10 +87,13 @@ fn main() {
     let translated = hlsl::Writer::new(&mut hlsl_source, &hlsl_options, &pipeline)
         .write(&module, &info, None)
         .expect("HLSL 5.0 translation");
-    for entry in translated.entry_point_names {
-        entry.expect("HLSL entry point");
-    }
+    let entries: Vec<_> = translated
+        .entry_point_names
+        .into_iter()
+        .map(|entry| entry.expect("HLSL entry point"))
+        .collect();
     fs::write(out.join("ink.hlsl"), fixed_sampler_hlsl(&hlsl_source)).unwrap();
+    build_dxbc(&out, &entries);
 
     for entry in &module.entry_points {
         let pipeline = spv::PipelineOptions {
@@ -242,4 +245,42 @@ fn fixed_sampler_hlsl(source: &str) -> String {
         "HLSL 5.0 must not contain descriptor heaps or register spaces"
     );
     out
+}
+
+// The cross-check has no Windows SDK. Empty binaries refuse at device creation.
+// @ref LLP 1149 D6.1.
+fn build_dxbc(out: &Path, entries: &[String]) {
+    println!("cargo:rerun-if-env-changed=PATH");
+    let available = std::env::var("TARGET").unwrap().contains("windows")
+        && Command::new("fxc").arg("/?").output().is_ok();
+    for (entry, profile, file) in [(0, "vs_5_0", "ink.vs.dxbc"), (1, "ps_5_0", "ink.ps.dxbc")] {
+        let path = out.join(file);
+        if !available {
+            fs::write(path, []).unwrap();
+            continue;
+        }
+        let result = Command::new("fxc")
+            .args([
+                "/nologo",
+                "/O3",
+                "/T",
+                profile,
+                "/E",
+                &entries[entry],
+                "/Fo",
+            ])
+            .arg(&path)
+            .arg(out.join("ink.hlsl"))
+            .output()
+            .expect("fxc");
+        assert!(
+            result.status.success(),
+            "fxc {profile}: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    if !available && std::env::var("TARGET").unwrap().contains("windows") {
+        println!("cargo:warning=exact-ink: fxc is not on PATH; the Direct3D 11 device will refuse to open");
+    }
 }

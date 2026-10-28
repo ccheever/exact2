@@ -9,7 +9,7 @@ pub enum PainterChoice {
     Auto,
     /// vello over wgpu; a boot error when there is no adapter.
     Gpu,
-    /// Instanced geometry; `EXACT_INK_DEVICE` selects wgpu or Metal (LLP 1149).
+    /// Instanced geometry; `EXACT_INK_DEVICE` selects wgpu, Metal or D3D11 (LLP 1149).
     Ink,
     /// tiny-skia.
     Cpu,
@@ -164,6 +164,16 @@ pub(super) fn open_backend(
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// The carrier transfers a retained window to a directly presenting backend.
+    #[cfg(windows)]
+    pub fn attach_painter_window(
+        &mut self,
+        window: exact_ink::device::d3d11::Window,
+        size: [u32; 2],
+    ) -> Result<bool, String> {
+        self.brush.attach_window(window, size)
+    }
+
     /// The pixels, as a PNG at `path`.
     pub fn screenshot(&mut self, path: &str) -> Result<String, String> {
         let frame = self.frame();

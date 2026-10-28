@@ -1559,6 +1559,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-time",
  "wgpu 30.0.1",
+ "windows",
 ]
 
 [[package]]
@@ -2070,6 +2071,7 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",
+ "exact-ink",
  "exact-kernel",
  "exact-linux",
  "exact-runner",
