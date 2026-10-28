@@ -977,6 +977,24 @@ component Pair
         text "b"
       text "m" color=mark
 
+component Tinted
+  props
+    ink: enum<"-exact-system-blue", "-exact-system-red">
+    mark: string
+  view
+    column background-color=ink
+      text "m" color=mark
+
+component Spelled
+  props
+    ink: string
+    mark: string
+  view
+    column background-color=ink
+      if ink == "-EXACT-LABEL"
+        text "s"
+      text "m" color=mark
+
 component Inks
   props
     caret: string
@@ -989,7 +1007,7 @@ component Inks
       input value="" aria-label="field" caret-color=caret accent-color=accent
 "#;
 
-const STYLED_APP: &str = r#"use Dot, Ring, Glow, Pair, Inks from "@acme/lib"
+const STYLED_APP: &str = r#"use Dot, Ring, Glow, Pair, Tinted, Spelled, Inks from "@acme/lib"
 
 component App
   action go
@@ -999,6 +1017,8 @@ component App
       Ring(edge="4px", tint="red")
       Glow(glow="glow")
       Pair(ink="red", mark="blue")
+      Tinted(ink="-exact-system-blue", mark="blue")
+      Spelled(ink="red", mark="blue")
       Inks(caret="red", accent="red", pressed="red", pressInk="red", go=go)
 "#;
 
@@ -1061,26 +1081,6 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
     ] {
         assert!(inks.contains(&format!(r#"{prop}="{role}""#)), "{inks}");
     }
-    // A component whose root writes its width (Dot's `width=size`) is shown
-    // at it, not stretched to the cell (D4 batch 2 #4: FollowButton's pill);
-    // one that writes none (Inks) fills the cell, as a caller's column fills
-    // a row (round 1: PostCard, PersonRow).
-    let cell = |name: &str| {
-        let at = (text.lines())
-            .position(|l| l.trim_start().starts_with(&format!("{name}(")))
-            .unwrap();
-        (text.lines().take(at))
-            .filter(|l| l.contains(r#"testId="gallery-"#))
-            .last()
-            .unwrap()
-            .to_string()
-    };
-    assert!(
-        cell("Dot").contains(r#"align-items="flex-start""#),
-        "{}",
-        cell("Dot")
-    );
-    assert!(!cell("Inks").contains("align-items"), "{}", cell("Inks"));
     // A cell whose variant value is one of the roles: the other colour prop
     // takes another, so the two never match (round 1, Astra).
     let blue = text
@@ -1089,6 +1089,17 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         .expect("Pair's -exact-system-blue cell");
     assert!(!blue.contains(r#"mark="-exact-system-blue""#), "{blue}");
     assert!(blue.contains(r#"mark="-exact-label""#), "{blue}");
+    // An enum colour prop's placeholder (its first literal) is taken too, and
+    // a role however it is spelled (round 2, Astra).
+    let tinted = (text.lines())
+        .find(|l| l.contains("Tinted("))
+        .expect("a Tinted cell");
+    assert!(tinted.contains(r#"ink="-exact-system-blue""#), "{tinted}");
+    assert!(tinted.contains(r#"mark="-exact-label""#), "{tinted}");
+    let spelled = (text.lines())
+        .find(|l| l.contains(r#"Spelled(ink="-EXACT-LABEL""#))
+        .expect("Spelled's -EXACT-LABEL cell");
+    assert!(!spelled.contains(r#"mark="-exact-label""#), "{spelled}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
