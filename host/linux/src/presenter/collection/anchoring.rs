@@ -103,7 +103,13 @@ impl<D: DataSource> Presenter<D> {
         cursor.advance();
         if self.display.attached() && top != next.1 {
             let mut acknowledged = next;
-            cursor.model_offset(cursor.key?, (next.0, top), true, &mut acknowledged);
+            cursor.model_offset(
+                cursor.key?,
+                (next.0, top),
+                true,
+                Origin::Anchor,
+                &mut acknowledged,
+            );
             if let Some(pending) = &mut cursor.model_scroll {
                 pending.rebase = top - next.1;
             }
@@ -118,6 +124,12 @@ impl<D: DataSource> Presenter<D> {
         before: (f32, f32),
         after: (f32, f32),
     ) {
+        // A clamp is the list's own (its range shrank under it): the reader stands where
+        // it put it, and its revision stands too.
+        self.reader.rebased(view, before, after);
+        // It moved the input offset under any pending position too: that position's change is
+        // from the clamped offset now, or a reader's next move would carry it again.
+        self.advance_pending_base(view, (after.0 - before.0, after.1 - before.1));
         let Some(pending) = self
             .collection
             .cursors
@@ -130,7 +142,6 @@ impl<D: DataSource> Presenter<D> {
         // A stale picture can narrow the input range while a newer intent waits.
         // Keep that intent's destination and move its remaining correction's base.
         pending.rebase += before.1 - after.1;
-        self.reader.rebased(view, before, after);
     }
 
     pub(in crate::presenter) fn restore_scroll_anchors(&mut self) {
@@ -181,7 +192,13 @@ impl<D: DataSource> Presenter<D> {
             let left = cursor
                 .model_scroll
                 .map_or(offset.0, |p| p.left.unwrap_or(offset.0));
-            cursor.model_offset(key, (left, top), self.display.attached(), offset);
+            cursor.model_offset(
+                key,
+                (left, top),
+                self.display.attached(),
+                Origin::Anchor,
+                offset,
+            );
             if let Some(pending) = &mut cursor.model_scroll {
                 pending.rebase = rebase;
             }

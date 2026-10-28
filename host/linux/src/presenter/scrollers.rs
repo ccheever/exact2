@@ -79,9 +79,13 @@ pub(super) struct Reader {
 impl Reader {
     /// A scroller corrected its own offset from `was` to `now`: its content
     /// stays where it shows, so the reader's moves still stand.
+    /// A reader that stood where it was stands where it is now, exactly: in
+    /// f32, `at + now - was` can miss `now` by an ulp, which the revision's
+    /// exact compare would take for an app scroll.
     pub(super) fn rebased(&mut self, id: ViewId, was: (f32, f32), now: (f32, f32)) {
         if let Some((_, at)) = self.tracked.get_mut(&id) {
-            *at = (at.0 + now.0 - was.0, at.1 + now.1 - was.1);
+            let axis = |at: f32, was: f32, now: f32| if at == was { now } else { at + now - was };
+            *at = (axis(at.0, was.0, now.0), axis(at.1, was.1, now.1));
         }
     }
 }
@@ -282,6 +286,10 @@ impl<D: DataSource> Presenter<D> {
                 // A scroll handler may rebase this position before dispatch returns.
                 *accepted = next;
             }
+        }
+        // A reader's move carries the list's own pending position across it (`ack.rs`).
+        if completion == Completion::Reader {
+            self.keep_own_position(id);
         }
         if id == PAGE {
             self.page = next;
