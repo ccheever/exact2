@@ -40,7 +40,8 @@ export function answer(name: string): any { throw new Error('no source ' + name)
 export async function driveGlide(s) {
   const top = () => s.carrier.evaluate(`document.querySelector('[data-testid="feed"]').scrollTop`);
   const timed = async () => { const t0 = performance.now(); const r = await s.clock('settle'); return { r, ms: performance.now() - t0 }; };
-  const seen = async () => ({ y: (await s.state()).slots?.y, top: Math.round(await top()) });
+  // (both rounded: a resting offset can be fractional)
+  const seen = async () => ({ y: Math.round((await s.state()).slots?.y), top: Math.round(await top()) });
   const home = async () => { await s.carrier.evaluate(`document.querySelector('[data-testid="feed"]').scrollTop = 0`); await s.clock('settle'); };
   await s.clock('data');
   const out = {};
@@ -55,10 +56,12 @@ export async function driveGlide(s) {
   await s.tap('feed', { drag: { dx: 0, dy: -400, hold: 300 } });
   out.held = await timed();
   out.heldAt = await seen();
-  // 3. A scroller the page keeps moving on its own (an auto-scrolling list): settle gives up at 4 s, reason `scroll`.
+  // 3. A scroller the page keeps moving on its own (an auto-scrolling list), begun from a frame's callbacks after a
+  // quiet spell, so its first event comes a frame later: settle gives up at 4 s, reason `scroll`.
   await home();
+  await Bun.sleep(600);
   await s.carrier.evaluate(`(() => { const e = document.querySelector('[data-testid="feed"]'); globalThis.__glideStop = false;
-    const step = () => { e.scrollTop = (e.scrollTop + 2) % 2000; if (!globalThis.__glideStop) requestAnimationFrame(step); }; step(); })()`);
+    const step = () => { e.scrollTop = (e.scrollTop + 2) % 2000; if (!globalThis.__glideStop) requestAnimationFrame(step); }; requestAnimationFrame(step); })()`);
   out.auto = await timed();
   await s.carrier.evaluate('globalThis.__glideStop = true');
   return out;
@@ -75,6 +78,7 @@ export function expectGlide(out, expect) {
   expect(out.heldAt.y).toBe(out.heldAt.top);
   expect(out.auto.r).toMatchObject({ settled: false, reason: 'scroll' });
   expect(out.auto.ms).toBeGreaterThan(3500);
+  expect(out.auto.ms).toBeLessThan(8000);
 }
 
 // `bun scripts/glide-fixture.mjs native <dir>`: the app as an `exact new` app at `dir` (outside the repo), for the

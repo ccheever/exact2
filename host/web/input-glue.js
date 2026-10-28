@@ -1131,28 +1131,26 @@ export function typeControl(el, request, inertAncestor, settleValue) {
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
 // A scroller moving on its own after an input (a fling's glide, a smooth scroll, a page that scrolls it every frame):
-// a `scroll` event came within the last two frames. `clock settle` waits until none has, 4 s at most, as a native
-// host waits for a scroll view a finger left moving (agent.mjs reason `scroll`). (Not `scrollend`: a page's instant
-// step each frame ends each time.) Watched from the agent's first operation on: never in an app's own run.
-let scrolls = 0, lastScroll = -Infinity, glides = false;
+// its `scroll` events go on. `clock settle` waits until two whole frames pass with none, 4 s at most, as a native
+// host waits for a scroll view a finger left moving (agent.mjs reason `scroll`). Two frames: a scroll written in a
+// frame's callbacks has its event at the next frame's rendering step. (Not `scrollend`: a page's instant step each
+// frame ends each time.) Watched from the agent's first operation on: never in an app's own run.
+let scrolls = 0, glides = false;
 export function watchGlides() {
   if (glides) return;
   glides = true;
-  addEventListener('scroll', () => { scrolls += 1; lastScroll = performance.now(); }, { capture: true, passive: true });
+  addEventListener('scroll', () => { scrolls += 1; }, { capture: true, passive: true });
 }
-/** Waits until two frames pass with no `scroll` event (one, when nothing has scrolled lately), or `deadline`
- * (performance.now()): whether they did. */
+/** Waits until two frames pass with no `scroll` event, or `deadline` (performance.now()), whichever is first:
+ * whether they did. A frame that doesn't come by the deadline (a throttled page) is the deadline's. */
 export async function glidesSettled(deadline) {
-  const frame = () => new Promise(r => requestAnimationFrame(() => r()));
-  // One frame first, for a scroll begun since the last (its event comes at the frame's rendering step); then, with
-  // nothing scrolled in the last 500 ms, longer than any frame of a page in view takes, settled.
-  const first = scrolls;
-  await frame();
-  if (scrolls === first && performance.now() - lastScroll > 500) return true;
+  const frame = () => new Promise(r => {
+    const timer = setTimeout(() => r(false), Math.max(0, deadline - performance.now()));
+    requestAnimationFrame(() => { clearTimeout(timer); r(true); });
+  });
   for (;;) {
     const before = scrolls;
-    await frame();
-    await frame();
+    if (!(await frame()) || !(await frame())) return false;
     if (scrolls === before) return true;
     if (performance.now() >= deadline) return false;
   }
