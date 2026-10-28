@@ -13,6 +13,7 @@ mod format;
 mod frames_agent;
 mod height_binding;
 mod incremental;
+mod keep_mounted;
 mod launch_stand_in;
 mod list_layout;
 mod listen;

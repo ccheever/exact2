@@ -49,6 +49,39 @@ fn reach_margin(a: &Attr, virtualized: bool) -> Result<(), LowerError> {
 }
 
 impl Lowerer<'_> {
+    /// `keep-mounted=keys` (@ref LLP 1010 §6.11): a list of row keys, each a
+    /// string, number or bool or an option of one, as a `for`'s `key=` is.
+    pub(super) fn bind_keep_mounted(
+        &mut self,
+        attr: &Attr,
+        scope: &Scope,
+        locals: u16,
+        bindings: &mut Vec<exact_plan::BindingsRow>,
+    ) -> Result<(), LowerError> {
+        let (code, ty) = self.typed_code(&attr.value, scope, locals)?;
+        let key = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Enum(_) | Ty::Unknown);
+        let keys = match &ty {
+            Ty::List(item) => match item.as_ref() {
+                Ty::Option(inner) => key(inner),
+                item => key(item),
+            },
+            _ => false,
+        };
+        if !keys {
+            return err(
+                "lower-attr-type",
+                format!("`keep-mounted` takes a list of row keys, each a string, number or bool (or an option of one, `none` naming no row), as the `for`'s `key=` gives them: `keep-mounted=[first(ids), ids.at(-1)]`; this is {ty}"),
+                attr.span,
+            );
+        }
+        bindings.push(super::prop_row(
+            exact_kernel::PropId::KeepMounted,
+            code,
+            attr.written,
+        ));
+        Ok(())
+    }
+
     pub(super) fn check_collection(
         &self,
         tag: &str,
@@ -79,6 +112,9 @@ impl Lowerer<'_> {
         }
         if let Some(margin) = literal(attrs, "reach-margin") {
             reach_margin(margin, virtualized)?;
+        }
+        if let Some(keep) = literal(attrs, "keep-mounted").filter(|_| !virtualized) {
+            return err("lower-list-virtualized", "`keep-mounted` names rows a virtualized list keeps mounted wherever its window is; it goes on `list virtualized=true`, whose rows are the only ones that unmount", keep.span);
         }
         if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
             if !virtualized {

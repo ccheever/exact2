@@ -1272,3 +1272,44 @@ and JS target use the same index and bounded correction path as other row
 jumps. No top-level cache is added. The tests and remaining native GUI
 qualification are recorded there; this does not widen §6.9's scroll-padding
 admission or add scroll-margin, smooth element jumps or authored scrollend.
+
+### 6.11 Rows the author keeps mounted (2026-10-28)
+
+A window mounts the rows near the port and the rows §6.2 pins. A screen
+reader moves through what is mounted: VoiceOver on a long transcript cannot
+move from the first message to the last, and a row that plays audio loses its
+player when the reader scrolls away. `@legendapp/list` answers both with
+`alwaysRender`; the T3 Code timeline keeps its first and last message mounted
+with it (upstream `6838e31b9c`).
+
+```contract
+list virtualized=true height=600 keep-mounted=[first(ids), ids.at(-1)]
+  for m in messages key=m.id
+    Message(m=m)
+```
+
+- **Value.** `keep-mounted` takes a list of row keys as the `for`'s `key=`
+  gives them: strings, numbers or bools, or options of one, `none` naming no
+  row. It may be computed and change; the compiler refuses another type
+  (`lower-attr-type`) and the attribute anywhere but `list virtualized=true`
+  (`lower-list-virtualized`).
+- **Window.** A kept row the list holds is owed wherever the window is, like a
+  pin: it is built in a report with any limit, never retired as the window
+  passes it, and published with its `listitem` position like any row. A key
+  the list does not hold is passed over; a repeated key keeps its first row.
+  When the set changes, its new rows mount and the rows it dropped go once the
+  window does not hold them, in the same commit, and the revision moves so the
+  host measures the new rows.
+- **Bound.** At most 64 keys, the most rows a list builds before its first
+  report (`initial-item-count`). Another value (more keys, a non-key) is
+  invalid at computed-value time: the list keeps none and the journal says so,
+  as for any refused prop. The set is the author's and does not grow as the
+  reader scrolls, so §6.2's memory requirement holds.
+- **Hosts.** The runner owns it (`runner/src/instance/collection/keep.rs`), so
+  every host the runner windows for keeps the rows: the Apple hosts, Linux,
+  Windows and the wasm web host. A kept row is an ordinary mounted row, a
+  subview of the scroll document at its offset, so AppKit and UIKit expose it
+  to accessibility as they expose the window's rows. The JS target's `list.js`
+  reads it as the runner does. Scrolling a kept row into view when VoiceOver
+  lands on it is the platform's, as for any element of a scroll view, and the
+  window follows that scroll; it was not driven with VoiceOver on 2026-10-28.

@@ -4,6 +4,7 @@ mod api;
 mod index;
 mod inset;
 mod into_view;
+mod keep;
 mod nest;
 mod reach;
 mod rekey;
@@ -24,6 +25,7 @@ mod within;
 pub(super) mod work;
 use super::*;
 pub use api::*;
+pub(crate) use keep::idents as keep_mounted;
 use exact_kernel::PropId;
 use exact_plan::EventKind;
 use index::{MeasurementToken, SizeIndex};
@@ -37,9 +39,11 @@ pub(super) fn update_collection(
     u: &mut Update<'_>,
     frames: &[Frame],
     follow: bool,
+    keep: Option<&Value>,
 ) -> Result<(), InstanceError> {
     c.follow_end(follow);
-    c.update_data(u, frames, false)
+    let remount = c.keep_mounted(keep);
+    c.update_data(u, frames, false, remount)
 }
 
 const BOOTSTRAP_ROWS: usize = 16;
@@ -215,6 +219,8 @@ pub(crate) struct Collection {
     start_offset: f64,
     /// How far ahead of an edge it fires (`reach-margin`).
     reach: reach::Margin,
+    /// The rows it keeps mounted wherever its window is (`keep-mounted`).
+    keep: Vec<Rc<str>>,
     /// `scroll-start: end`, until the list has opened there.
     at_end: bool,
     /// Consecutive reports that said the port was travelling, while it opens.
@@ -318,6 +324,7 @@ impl Collection {
         let mut smooth = false;
         let mut at_end = false;
         let mut reach = reach::Margin::default();
+        let mut keep = Vec::new();
         let mut estimated_height = ESTIMATED_HEIGHT;
         let mut initial: Option<usize> = None;
         let mut axis = ListAxis::Vertical;
@@ -370,6 +377,9 @@ impl Collection {
                     .ok_or_else(|| {
                         invalid("reach margin must be one or two nonnegative px or % lengths")
                     })?;
+            }
+            if binding.kind == BindingKind::Prop && binding.id == PropId::KeepMounted as u16 {
+                keep = keep::idents(&u.eval(binding.expr, frames)?).unwrap_or_default();
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollStart as u16 {
                 at_end = u.eval(binding.expr, frames)?.as_str() == Some("end");
@@ -504,28 +514,31 @@ impl Collection {
             covered: [0.0; 2],
             start_offset: 0.0,
             reach,
+            keep,
             at_end,
             end_travel: 0,
             end_sent: f64::NAN,
             reuse,
         });
-        this.update_data(u, frames, true)?;
+        this.update_data(u, frames, true, false)?;
         Ok(Some(this))
     }
     /// Bring the rows up to date when the subject, the keys' other inputs or
-    /// anything a mounted row reads changed; `fresh` on creation.
+    /// anything a mounted row reads changed; `fresh` on creation, `remount`
+    /// when the rows it keeps mounted changed.
     pub(super) fn update_data(
         &mut self,
         u: &mut Update<'_>,
         frames: &[Frame],
         fresh: bool,
+        remount: bool,
     ) -> Result<(), InstanceError> {
         let deps = &u.sites.deps;
         let index = self.region.0 as usize;
         let keys_stale = fresh || u.stale_outside(&deps.keys[index], 1);
         let data_changed = keys_stale || u.stale(&deps.subjects[index]);
         let body_changed = u.stale_outside(&deps.bodies[index], 1);
-        if !data_changed && !body_changed {
+        if !data_changed && !body_changed && !remount {
             u.work.regions_skipped += 1;
             return Ok(());
         }
@@ -626,6 +639,9 @@ impl Collection {
         let realized = self.realize_window(u, frames, true, CollectionFill::default());
         self.instant = false;
         realized?;
+        if remount && !changed {
+            advance(&mut self.revision)?;
+        }
         if changed {
             let unchanged = previous.is_some_and(|mut before| {
                 let now = self.snapshot();
@@ -899,7 +915,8 @@ impl Collection {
             let first = self.bootstrap_first()?;
             std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
-        if let Some(position) = required {
+        // The rows it keeps mounted are owed wherever the window is.
+        for position in required.into_iter().chain(self.kept_rows()) {
             owed.push(position..position + 1);
             if !ranges.iter().any(|range| range.contains(&position)) {
                 ranges.push(position..position + 1);

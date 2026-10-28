@@ -49,6 +49,7 @@ pub struct ListLinks {
         &mut Update<'_>,
         &[Frame],
         bool,
+        Option<&Value>,
     ) -> Result<(), InstanceError>,
     typography: ListTypography,
     pub(crate) collections_json: fn(&Tree) -> String,
@@ -1225,12 +1226,15 @@ impl NodeInst {
                         && b.id == exact_kernel::PropId::ScrollFollowEnd as u16
                 })
                 .is_some_and(|i| self.emitted(plan, u.sites, i) == Some(Value::Bool(true)));
+        let keep = self
+            .collection()
+            .and_then(|_| self.bound_prop(plan, u.sites, exact_kernel::PropId::KeepMounted));
         if let Some(collection) = self.collection_mut() {
             collection.around = theme::Around {
                 retheme: false,
                 ..u.theme.clone()
             };
-            (u.env.lists.ok_or_else(unlinked)?.update)(collection, u, frames, follow)?;
+            (u.env.lists.ok_or_else(unlinked)?.update)(collection, u, frames, follow, keep.as_ref())?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
         }

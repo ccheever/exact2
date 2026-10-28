@@ -1322,7 +1322,11 @@ reach is past it, and on iOS the pull-to-refresh spinner draws below
 same forms) is where its `scrollIntoView` aligns a row, as CSS's snapport:
 with `scroll-padding-top` equal to a header's height, the first row's
 `block="start"` is `scrollTop` 0. Only a virtualized list takes it
-(`lower-scroll-padding` elsewhere: native hosts read it nowhere else). `reorderdrop` belongs only on a vertical `list virtualized=true`
+(`lower-scroll-padding` elsewhere: native hosts read it nowhere else).
+`keep-mounted=[first(ids), ids.at(-1)]` names rows by key that stay mounted
+wherever the window is: a transcript's first and last message, so VoiceOver
+moves from one to the other, or a row that is playing (up to 64 keys, LLP 1010
+§6.11). `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
