@@ -1756,6 +1756,12 @@
       "name": "menuKeys",
       "kind": "str",
       "_comment": "@ref LLP 1021 §5.3.3: root -exact-menu-keys, a literal whitespace-separated list of id=chord, where id is close-window (File ▸ Close Window) and chord is one aria-keyshortcuts chord with Meta that is not a standard one, or none. AppKit gives that item the chord, or no chord. Other hosts ignore this presentation hint."
+    },
+    {
+      "id": 293,
+      "name": "paragraphDirs",
+      "kind": "str",
+      "_comment": "@ref LLP 1045 D11: a Markdown editor's base direction for each line of its source, HTML's `dir` words (`ltr`, `rtl`, `auto`) separated by white space, the first word the first line's; a line past the last word takes the last. Read where the editor draws its lines (markup-editor.js, Apple's MarkupEditor). Not measured: a base direction changes no line's length."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

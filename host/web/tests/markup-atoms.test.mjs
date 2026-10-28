@@ -270,6 +270,19 @@ for (const engine of engines) {
       expect(end[0]).toBe(pill[0]);
     });
   }, 60000);
+
+  // @ref LLP 1045 D11 — a pill reads left to right in any line, as Apple draws one.
+  engineTest[engine](`${engine}: in a line paragraphDirs makes right to left, a pill keeps its content left to right`, async () => {
+    await editor(engine, `שלום ${CITE} עולם`, async (page, field) => {
+      await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'rtl'); el.exactMarkup.sync(); });
+      const [line, pill, start, right] = await field.evaluate((el, a) => {
+        const island = el.querySelector('.exact-atom');
+        return [getComputedStyle(el.firstChild).direction, getComputedStyle(island).direction, Math.round(el.exactMarkup.rangeFrame(a, a).left), Math.round(island.getBoundingClientRect().right)];
+      }, 5);
+      expect([line, pill]).toEqual(['rtl', 'ltr']);
+      expect(start).toBe(right);
+    });
+  }, 60000);
 }
 
 for (const engine of engines) {

@@ -509,6 +509,45 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertNil(MarkupEdit(source: "🎉", object: ["replacements": [[1, 2, "x"]], "selection": [0, 0]]))
         XCTAssertNil(MarkupEdit(source: "abcd", object: ["replacements": [[1, 3, "x"], [2, 4, "y"]], "selection": [0, 0]]))
     }
+
+    /// LLP 1045 D11: each line's paragraph takes the app's word as its base
+    /// direction, a line past the last word the last; a new `paragraphDirs`
+    /// alone restyles, and the source never changes.
+    func testParagraphDirsGiveEachLineItsBaseWritingDirection() throws {
+        let source = "One\nReact هو مكتبة\n- عنصر\n"
+        let (node, field, window, presenter) = editor(source, selection: NSRange(location: (source as NSString).length, length: 0))
+        // The session's text engine is the editor's fonts: without one it styles nothing.
+        let session = ExactApp.shared.makeSession(label: "paragraph-dirs")
+        presenter.session = session
+        defer { window.close(); session.destroy() }
+        node.restyleMarkup()
+        let storage = try XCTUnwrap(field.textStorage)
+        let starts = [0, 4, 19]
+        let directions = { starts.map { (storage.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.baseWritingDirection } }
+        // Where "React" starts, from the line's leading edge: TextKit's natural base is its first strong letter, an R.
+        let react = { () -> CGFloat in
+            var actual = NSRange()
+            return field.firstRect(forCharacterRange: NSRange(location: 4, length: 1), actualRange: &actual).minX - window.frame.minX
+        }
+        XCTAssertEqual(directions(), [.natural, .natural, .natural])
+        XCTAssertLessThan(react(), 100)
+        node.props["paragraphDirs"] = "ltr rtl"
+        node.applyTextArea()
+        XCTAssertEqual(directions(), [.leftToRight, .rightToLeft, .rightToLeft])
+        XCTAssertGreaterThan(react(), 250, "a right-to-left line starts at the right")
+        // The caret on the empty last line types in its line's direction.
+        XCTAssertEqual((field.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection, .rightToLeft)
+        // The list item keeps its paragraph row's indents, now from the right.
+        let item = try XCTUnwrap(storage.attribute(.paragraphStyle, at: 19, effectiveRange: nil) as? NSParagraphStyle)
+        XCTAssertEqual(item.headIndent, 20)
+        node.props["paragraphDirs"] = "rtl sideways"
+        node.applyTextArea()
+        XCTAssertEqual(directions(), [.rightToLeft, .natural, .natural])
+        node.props["paragraphDirs"] = nil
+        node.applyTextArea()
+        XCTAssertEqual(directions(), [.natural, .natural, .natural])
+        XCTAssertEqual(field.string, source)
+    }
 }
 #endif
 
@@ -625,6 +664,27 @@ final class MarkupEditorIOSTests: XCTestCase {
         f.insertText("\n")
         XCTAssertEqual(f.text, "- one\n- ")
         XCTAssertEqual(heard, ["before - one 5 insertLineBreak", "before - one 5 insertLineBreak", "input - one\n-  8 insertLineBreak"])
+    }
+
+    /// LLP 1045 D11 on UIKit: a `paragraphDirs` the app sends alone restyles
+    /// each line's base direction, and the empty last line types in its line's.
+    func testParagraphDirsGiveEachLineItsBaseWritingDirection() {
+        let source = "One\nReact هو مكتبة\n"
+        let (p, node, f) = markdownField(source)
+        // The session's text engine is the editor's fonts: without one it styles nothing.
+        let session = ExactApp.shared.makeSession(label: "paragraph-dirs")
+        p.session = session
+        defer { session.destroy() }
+        node.restyleMarkup()
+        let directions = { [0, 4].map { (f.textStorage.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.baseWritingDirection } }
+        XCTAssertEqual(directions(), [.natural, .natural])
+        f.selectedRange = NSRange(location: (source as NSString).length, length: 0)
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl"]]]))
+        XCTAssertEqual(directions(), [.leftToRight, .rightToLeft])
+        XCTAssertEqual((f.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection, .rightToLeft)
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["paragraphDirs"]]]))
+        XCTAssertEqual(directions(), [.natural, .natural])
+        XCTAssertEqual(f.text, source)
     }
 }
 #endif

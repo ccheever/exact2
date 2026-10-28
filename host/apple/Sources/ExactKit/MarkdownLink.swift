@@ -48,6 +48,8 @@ package protocol MarkdownEditing: AnyObject {
     var bookmark: NSRange? { get set }
     /// The attributes plain typing takes.
     var plainAttributes: [NSAttributedString.Key: Any] { get }
+    /// The `paragraphDirs` its last restyle drew (LLP 1045 D11).
+    var paragraphDirs: String { get }
     /// Remove every Markdown attribute.
     func detach(_ storage: NSTextStorage)
     /// Where a person's selection change from `old` to `new` lands beside a
@@ -187,6 +189,12 @@ extension NodeView {
     func restyleMarkup() {
         MarkdownLink.installed?.restyle(self)
         restyleDecorations()
+    }
+    /// Restyle an editor whose lines the app gave new directions: a new
+    /// `paragraphDirs` changes no text, so no edit restyles it (LLP 1045 D11).
+    func restyleMarkupDirections() {
+        guard let editor = (textArea as? TextArea)?.markup, editor.paragraphDirs != props["paragraphDirs"] ?? "" else { return }
+        restyleMarkup()
     }
 }
 

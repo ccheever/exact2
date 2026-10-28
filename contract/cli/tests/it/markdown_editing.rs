@@ -1,5 +1,5 @@
 //! A real editor compiles its toolbar commands and receives a typed selection record.
-use exact_kernel::Kernel;
+use exact_kernel::{Kernel, PropId};
 use exact_plan::{EventKind, Plan, Value};
 use exact_runner::{DataError, DataSource, Event, Runner};
 
@@ -213,4 +213,71 @@ fn the_editors_text_events_carry_the_source_selection() {
     ))
     .unwrap_err();
     assert!(error.id.contains("handler"), "{error}");
+}
+
+/// `paragraphDirs` is the editor's (LLP 1045 D11): HTML's `dir` words, one
+/// for each line of its source, reach its node as written and follow a bound
+/// value. Another word, a list, and any other node are refused.
+#[test]
+fn paragraph_dirs_reach_the_editor_and_are_refused_elsewhere() {
+    let source = r#"component App
+  state dirs = "ltr rtl"
+  action flip
+    dirs = "rtl"
+  view
+    column
+      textarea testId="editor" value="" markup="markdown" paragraphDirs=dirs
+      textarea testId="fixed" value="" markup="markdown" paragraphDirs="auto"
+      button testId="flip" press=flip
+        text "Flip"
+"#;
+    let plan = Plan::decode(&contract::compile(source).unwrap().encode()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let dirs = |r: &Runner<NoData>, name| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id(name)[0]).unwrap();
+        (
+            node.id,
+            node.props.str(PropId::ParagraphDirs).map(str::to_owned),
+        )
+    };
+    assert_eq!(dirs(&r, "editor").1.as_deref(), Some("ltr rtl"));
+    assert_eq!(dirs(&r, "fixed").1.as_deref(), Some("auto"));
+    r.dispatch(dirs(&r, "flip").0, Event::Press).unwrap();
+    assert_eq!(dirs(&r, "editor").1.as_deref(), Some("rtl"));
+    let field = |tag: &str| {
+        format!(
+            "component App\n  state dirs = [\"rtl\"]\n  view\n    {tag} paragraphDirs=\"rtl\"\n"
+        )
+    };
+    for (source, code) in [
+        (field("textarea value=\"\""), "lower-paragraph-dirs-field"),
+        (
+            field("textarea value=\"\" markup=\"none\""),
+            "lower-paragraph-dirs-field",
+        ),
+        (
+            field("text \"a\" markup=\"markdown\""),
+            "lower-paragraph-dirs-field",
+        ),
+        (
+            field("textarea value=\"\" markup=\"markdown\"")
+                .replace("\"rtl\"\n", "\"rtl right\"\n"),
+            "lower-attr-value",
+        ),
+        (
+            field("textarea value=\"\" markup=\"markdown\"").replace("=\"rtl\"\n", "=dirs\n"),
+            "lower-attr-type",
+        ),
+    ] {
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, code, "{source}\n{error}");
+    }
 }

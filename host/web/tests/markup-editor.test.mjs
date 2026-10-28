@@ -52,6 +52,7 @@ async function editor(engine, source, drive, runtime = false) {
             if (key === 'x' || key.toLowerCase() === 'b') Hosts.preventDefault();
             if (key === 't') Hosts.stopPropagation();
           }, onKey);
+          window.original = field; // the runtime's element, whose attributes it forwards to the editor
           mde(field);
         } else {
           await import('./markup-editor.js');
@@ -259,6 +260,46 @@ const heard = page => page.evaluate(() => events.splice(0));
 const only = (list, type) => list.filter(e => e.type === type).map(({ value, start, end, direction, inputType, data, cancelable, composing }) => [value, start, end, direction, inputType, data, cancelable, composing]);
 
 for (const engine of engines) for (const runtime of [false, true]) {
+  // @ref LLP 1045 D11 — the app's base direction for each line, as HTML's `dir`.
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: each line takes its paragraphDirs word, in place`, async () => {
+    await editor(engine, 'One\nاثنان ثلاثة\n- [ ] أربعة\n', async (page, field) => {
+      // The app's words: the runtime writes the textarea it replaced and forwards them; the glue syncs the editor.
+      const say = async words => {
+        await page.evaluate(([words, runtime]) => {
+          (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', words);
+          if (!runtime) field().exactMarkup.sync();
+        }, [words, runtime]);
+        await settle(page);
+      };
+      const dirs = () => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+      await say('ltr rtl');
+      // A line past the last word takes the last: the list item and the empty last line.
+      expect(await dirs()).toEqual(['ltr', 'rtl', 'rtl', 'rtl']);
+      // A right-to-left list item's marker and gutter are on its right, where a press toggles its box.
+      const gutter = await field.evaluate(el => {
+        const line = el.children[2], box = line.getBoundingClientRect(), css = getComputedStyle(line);
+        return { x: box.right - 10, y: box.top + box.height / 2, left: css.paddingLeft, right: css.paddingRight };
+      });
+      expect([gutter.left, gutter.right]).toEqual(['0px', '28px']);
+      await page.mouse.click(gutter.x, gutter.y); await settle(page);
+      expect(await field.evaluate(el => el.value)).toBe('One\nاثنان ثلاثة\n- [x] أربعة\n');
+      // The empty last line's caret is at its start, the right.
+      expect(await field.evaluate(el => {
+        const caret = el.exactMarkup.rangeFrame(el.value.length, el.value.length), box = el.getBoundingClientRect();
+        return caret.x > box.x + box.width / 2;
+      })).toBe(true);
+      // Typing keeps the line's node and its word: a direction never redraws a line.
+      await field.evaluate(el => { window.kept = el.children[1]; el.focus(); el.setSelectionRange(15, 15); });
+      await page.keyboard.type('y'); await settle(page);
+      expect(await field.evaluate(el => [el.value.split('\n')[1], el.children[1] === window.kept, window.kept.getAttribute('dir')])).toEqual(['اثنان ثلاثةy', true, 'rtl']);
+      // Another word leaves its line, and those past it, to the field.
+      await say('rtl sideways');
+      expect(await dirs()).toEqual(['rtl', null, null, null]);
+      await say('');
+      expect(await dirs()).toEqual([null, null, null, null]);
+    }, runtime);
+  }, 60000);
+
   engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: source selection, range edits, their undo and the app's beforeinput`, async () => {
     await editor(engine, 'hello', async (page, field) => {
       const command = (name, ...args) => page.evaluate(([name, args]) => command(name, args), [name, args]);

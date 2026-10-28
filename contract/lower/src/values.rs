@@ -291,6 +291,25 @@ pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
         a.span,
     )
 }
+/// Refuse `paragraphDirs` except on a `textarea` with a literal
+/// `markup="markdown"`, whose editor draws each line of the source as a
+/// paragraph (LLP 1045 D11).
+pub(crate) fn check_paragraph_dirs(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
+    let Some(a) = attrs.iter().find(|a| a.name == "paragraphDirs") else {
+        return Ok(());
+    };
+    let markdown = attrs.iter().any(|a| {
+        a.name == "markup" && matches!(&a.value, Expr::Str(word, _) if word == "markdown")
+    });
+    if tag == "textarea" && markdown {
+        return Ok(());
+    }
+    err(
+        "lower-paragraph-dirs-field",
+        "`paragraphDirs` belongs on a `textarea` with `markup=\"markdown\"`: its words are the base directions of the Markdown editor's lines (LLP 1045 D11). A whole text or field takes one with `direction`",
+        a.span,
+    )
+}
 impl crate::Lowerer<'_> {
     /// `check_style_value` with this lowering's shapes.
     pub(crate) fn check_style(
@@ -975,6 +994,24 @@ pub(crate) fn check_prop_value(
                 return err(
                     "lower-attr-value",
                     format!("`navigationDetent`'s heights go from shortest to tallest on every screen, as UIKit takes them; a point height and a share of the screen (`medium`, half, or a percentage) cross on some screen, so use one kind, each taller than the one before, with `large` last; given \"{word}\" in \"{s}\""),
+                    span,
+                );
+            }
+        }
+    }
+    // @ref LLP 1045 D11 — HTML's `dir` words, one for each line of the source.
+    if prop == PropId::ParagraphDirs {
+        if let Expr::Str(s, _) = value {
+            if let Some(word) = s
+                .split_ascii_whitespace()
+                .find(|w| !matches!(*w, "ltr" | "rtl" | "auto"))
+            {
+                return err(
+                    "lower-attr-value",
+                    format!(
+                        "`paragraphDirs` accepts {}; given \"{word}\"",
+                        vocab::accepts(prop).unwrap()
+                    ),
                     span,
                 );
             }

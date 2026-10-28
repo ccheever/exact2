@@ -12,9 +12,10 @@ extension NodeView {
             size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
             italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", SystemColor.canvasText))
         look.atoms = markdownAtoms
+        look.paragraphDirs = props["paragraphDirs"] ?? ""
         if let content = f.textLayoutManager?.textContentManager as? NSTextContentStorage, content.delegate !== editor { content.delegate = editor }
         editor.restyle(f.textStorage, selection: f.selectedRange, look: look)
-        f.typingAttributes = editor.baseAttributes(look)
+        f.typingAttributes = editor.typingAttributes(look, caret: f.selectedRange.location, in: f.textStorage)
         DispatchQueue.main.async { [weak f] in f?.atomsChanged() }
     }
 

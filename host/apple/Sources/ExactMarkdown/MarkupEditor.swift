@@ -1,5 +1,5 @@
 // Source-backed TextKit 2 Markdown styling, shared by UIKit and AppKit.
-// @ref LLP 1045 D1, D5 — only attributes change; source and native selection
+// @ref LLP 1045 D1, D5, D11 — only attributes change; source and native selection
 // stay intact. Hosts guard composition before entering this styler. A link's
 // destination is hidden, as the web editor hides it (`MarkupHidden.swift`);
 // other syntax is dimmed at full advance.
@@ -17,7 +17,8 @@ final class MarkupEditor: NSObject, MarkdownEditing {
     var bookmark: NSRange?
     var lastSelectionState: String?
     private(set) var plainAttributes: [NSAttributedString.Key: Any] = [:]
-
+    /// The `paragraphDirs` the last restyle drew.
+    private(set) var paragraphDirs = ""
 
     struct Look {
         let font: (CGFloat, Int, Int, Bool) -> PlatformFont
@@ -29,6 +30,8 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         let ink: PlatformColor
         /// The node's inline atoms (LLP 1045.000), and the appearance their pills draw for.
         var atoms = MarkdownAtoms()
+        /// The app's base direction for each line, `paragraphDirs` (LLP 1045 D11).
+        var paragraphDirs = ""
     }
 
     /// The attributes plain typing takes, whatever the caret sits beside.
@@ -36,6 +39,37 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         let paragraph = NSMutableParagraphStyle()
         if let h = look.lineHeight { paragraph.minimumLineHeight = h; paragraph.maximumLineHeight = h }
         return [.font: look.font(look.size, look.weight, look.family, look.italic), .foregroundColor: look.ink, .paragraphStyle: paragraph]
+    }
+
+    /// The base attributes in the direction of the line `caret` is on: an
+    /// empty last line has no text of its own, and draws its caret by these.
+    func typingAttributes(_ look: Look, caret: Int, in storage: NSAttributedString) -> [NSAttributedString.Key: Any] {
+        var attributes = baseAttributes(look)
+        let line = storage.string.utf16.prefix(max(0, caret)).reduce(0) { $1 == 10 ? $0 + 1 : $0 }
+        if let direction = Self.direction(of: line, in: Self.words(look.paragraphDirs)),
+           let paragraph = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            paragraph.baseWritingDirection = direction
+            attributes[.paragraphStyle] = paragraph
+        }
+        return attributes
+    }
+
+    /// `paragraphDirs`' words, split at HTML's ASCII white space.
+    static func words(_ said: String) -> [Substring] {
+        said.split { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" || $0 == "\r\n" || $0 == "\u{0C}" }
+    }
+
+    /// Line `line`'s base direction (LLP 1045 D11): its word, HTML's `dir`, a
+    /// line past the last word taking the last. Nil for none, or another
+    /// word, which leaves the natural one, the line's first strong letter.
+    static func direction(of line: Int, in words: [Substring]) -> NSWritingDirection? {
+        guard !words.isEmpty else { return nil }
+        switch words[min(line, words.count - 1)] {
+        case "ltr": return .leftToRight
+        case "rtl": return .rightToLeft
+        case "auto": return .natural
+        default: return nil
+        }
     }
 
     /// Remove all Markdown attributes when the authored row becomes `none`.
@@ -93,6 +127,27 @@ final class MarkupEditor: NSObject, MarkdownEditing {
             attributes[.paragraphStyle] = style
             storage.addAttributes(attributes, range: range)
         }
+        // Each line's base direction, the app's (LLP 1045 D11): TextKit takes
+        // a paragraph's from its style, and a line feed ends a paragraph.
+        let words = Self.words(look.paragraphDirs)
+        if !words.isEmpty {
+            let text = storage.string as NSString
+            var line = 0, start = 0
+            while start < length {
+                let feed = text.range(of: "\n", options: .literal, range: NSRange(location: start, length: length - start))
+                let end = feed.location == NSNotFound ? length : NSMaxRange(feed)
+                if let direction = Self.direction(of: line, in: words) {
+                    storage.enumerateAttribute(.paragraphStyle, in: NSRange(location: start, length: end - start)) { value, run, _ in
+                        let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+                        style.baseWritingDirection = direction
+                        storage.addAttribute(.paragraphStyle, value: style, range: run)
+                    }
+                }
+                line += 1
+                start = end
+            }
+        }
+        paragraphDirs = look.paragraphDirs
         for s in object["s"] ?? [] where s.count >= 4 {
             let range = clamp(s[0], s[1])
             guard range.length > 0 else { continue }
