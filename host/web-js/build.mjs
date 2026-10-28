@@ -1,4 +1,4 @@
-import { asyncContext, bundleOptions, lowered, webImplementations } from '../../js/bake/src/typescript.mjs';
+import { asyncContext, bundleOptions, lowered, packageConfig, webImplementations } from '../../js/bake/src/typescript.mjs';
 import { hatchWords, moduleDirectory, webAppManifest } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
@@ -204,11 +204,15 @@ const time = Object.hasOwn(sources, 'exactTime');
 const moduleFlag = existsSync(resolve(gen, 'modules.flag')) ? JSON.parse(readFileSync(resolve(gen, 'modules.flag'), 'utf8')) : { extensions: [], sources: [] };
 if (moduleFlag.extensions.length) {
   const bound = webImplementations(appDir);
+  // `app.json`'s package configuration (LLP 1133.021 §9 item 7): refused here when a required key is absent.
+  let configs;
+  try { configs = packageConfig(appDir, 'web'); } catch (e) { console.error(`${app}: ${e.message}`); process.exit(1); }
   for (const extension of moduleFlag.extensions) {
     const at = bound.get(extension);
     // `roster`: the views it serves (views.js), where it exports one.
     const views = at && /\bexport\s+(const|let|var|function)\s+roster\b|\bexport\s*\{[^}]*\broster\b/.test(readFileSync(at, 'utf8'));
-    writeFileSync(resolve(gen, `ext-${extension}.js`), at ? `export { implementation${views ? ', roster' : ''} } from ${JSON.stringify(at)};\n` : 'export const implementation = null;\n');
+    const config = `export const config = ${JSON.stringify(configs.get(extension) ?? {})};\n`;
+    writeFileSync(resolve(gen, `ext-${extension}.js`), at ? `export { implementation${views ? ', roster' : ''} } from ${JSON.stringify(at)};\n${config}` : 'export const implementation = null;\n');
   }
 }
 // A source a data module answers: not one the runtime reserves (`exact…`), nor a native module's.

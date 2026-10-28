@@ -10,9 +10,8 @@ export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation:
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
 // The JS runtime is imported by name, so a bundle carries only what its generated plan uses.
 // Semantics kept from the runner (LLP 1005 §6):
-// - an action's writes land together at its commit (the VM collects
-//   `StoreSlot`s), then one synchronous flush updates the DOM, then its
-//   commands run (focus after the tree is there);
+// - an action's writes land together at its commit (the VM collects `StoreSlot`s), then one
+//   synchronous flush updates the DOM, then its commands run (focus after the tree is there);
 // - derives and resources settle lazily and glitch-free (a pull, not a push);
 //   an equal value keeps its old object, so nothing downstream reruns;
 // - a resource admits its compiled value only while its arguments equal the
@@ -932,6 +931,8 @@ export const onMIDI = (e, kind, f) => { (Sounds.midi ??= new Set()).add([e, f]);
 export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
 // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)
 export const onSubmit = (e, kind, f, l) => { return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && ev.keyCode !== 229 && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w !== ev || ev.defaultPrevented) return; const run = () => { if (run.done) return; run.done = true; e.removeEventListener("keydown", run, true); e.removeEventListener("beforeinput", run, true); f(); }; e.addEventListener("keydown", run, true); if (ev.target.localName !== "textarea" && !ev.target.isContentEditable) e.addEventListener("beforeinput", run, true); setTimeout(run); }, { once: true }); } }); };
+// A package view's declared event (LLP 1133.021 §9 item 2): a message `{"exact:event": name, "args": […]}` runs `f` with the arguments as the runtime holds values of `types` (facts.rs `surface_type_json`): a record by position, a field left out none.
+const fromJSON = (j, t) => typeof t === "string" ? j : Array.isArray(t) ? (t[0] === "?" ? (j == null ? null : fromJSON(j, t[1])) : t[0] === "e" ? j : (Array.isArray(j) ? j : []).map(x => fromJSON(x, t[1]))) : Object.entries(t).map(([f, u]) => fromJSON(j?.[f] ?? null, u)); export const viewEvent = (name, types, f) => text => { let m; try { m = JSON.parse(text); } catch { return; } if (m?.["exact:event"] === name) f(...types.map((t, i) => fromJSON(m.args?.[i] ?? null, t))); };
 // Only from the origin of the src the app committed (glue.js `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is not heard; an opaque sandbox's origin is "null".
 export const onMessage = (e, kind, f, l) => { return addEventListener("message", ev => { if (ev.source === e.contentWindow && guestMessageAuthorized(e, ev.origin)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
 // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.

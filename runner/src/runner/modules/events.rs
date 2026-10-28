@@ -154,7 +154,11 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// One argument as the action's parameter takes it.
-    pub(super) fn event_arg(&self, ty: exact_plan::TypesId, json: &Json) -> Result<Value, String> {
+    pub(in crate::runner) fn event_arg(
+        &self,
+        ty: exact_plan::TypesId,
+        json: &Json,
+    ) -> Result<Value, String> {
         let shape = exact_js_value::Shape::from_plan(&self.plan, ty)?;
         let mut json = json.clone();
         super::absent_is_none(&mut json, &shape);

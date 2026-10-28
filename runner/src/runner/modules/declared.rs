@@ -31,7 +31,7 @@
 //!   badge.
 //!
 //! Outside the agent a bound implementation takes the call, and journals
-//! its own outcome.
+//! its own outcome; a data-code call settles from its reply.
 
 use super::super::{DataSource, Runner};
 use super::{error_code, response, CallOrigin, Json, ModulesRow, Pending, Waits};
@@ -44,6 +44,7 @@ use std::sync::{Arc, Mutex};
 
 mod app_list;
 mod reach;
+mod region_list;
 mod update;
 mod wake_list;
 
@@ -183,27 +184,39 @@ impl<D: DataSource> Runner<D> {
             let request = self.as_origin(origin, |r| r.bound_request(row, args, None));
             let lines = self.extensions.declared.lines.clone();
             let slot = self.native_slot();
-            if let Some(handler) = slot.handler() {
-                handler(
-                    request.body,
-                    Reply::new(move |outcome| {
-                        let refused = match &outcome {
-                            Outcome::Response(r) => serde_json::from_slice::<Json>(&r.body)
-                                .ok()
-                                .and_then(|v| error_code(&v).map(str::to_owned)),
-                            Outcome::Failed { message, .. } => Some(message.clone()),
-                            _ => None,
-                        };
-                        if let Some(why) = refused {
-                            let mut lines = lines.lock().unwrap_or_else(|e| e.into_inner());
-                            lines.push(format!("{declared}: refused: {why}"));
-                            drop(lines);
-                            slot.changed("");
-                        }
-                    }),
-                );
-            }
-            return Effect::Now(Json::Null);
+            let Some(handler) = slot.handler() else {
+                return Effect::Now(json!({ "error": "NotSupportedError" }));
+            };
+            // A data-code call settles from the implementation's reply, so
+            // it is the caller's work until the platform has the effect (LLP
+            // 1133.004 D5; LLP 1133.021 §9 item 10): a wake does not end on
+            // the handoff. A Contract statement answers nothing to wait for.
+            let pending = reply.clone();
+            handler(
+                request.body,
+                Reply::new(move |outcome| {
+                    let refused = match &outcome {
+                        Outcome::Response(r) => serde_json::from_slice::<Json>(&r.body)
+                            .ok()
+                            .and_then(|v| error_code(&v).map(str::to_owned)),
+                        Outcome::Failed { message, .. } => Some(message.clone()),
+                        _ => None,
+                    };
+                    if let Some(why) = refused {
+                        let mut lines = lines.lock().unwrap_or_else(|e| e.into_inner());
+                        lines.push(format!("{declared}: refused: {why}"));
+                        drop(lines);
+                        slot.changed("");
+                    }
+                    if let Some(pending) = &pending {
+                        Pending::complete(pending, outcome);
+                    }
+                }),
+            );
+            return match reply {
+                Some(_) => Effect::Held,
+                None => Effect::Now(Json::Null),
+            };
         }
         let said = self.say_person_required(row, true, origin);
         // The permission that settles the call: its own, or one it requires.
@@ -246,7 +259,7 @@ impl<D: DataSource> Runner<D> {
             {
                 Ok(()) => {
                     self.effect_played(row, &args, origin);
-                    Effect::Now(Json::Null)
+                    Effect::Now(self.effect_answer(row, &args))
                 }
                 Err(refusal) => {
                     let code = refusal["error"].as_str().unwrap_or_default();
@@ -351,6 +364,17 @@ impl<D: DataSource> Runner<D> {
                 fields.insert("kind".into(), kind.clone());
             }
             self.due_fields(&sub["list"], &mut fields);
+            // What an entry starts with beside its options (`initial`), and
+            // the most a list holds of its kind (`most`, LLP 1133.021 D11).
+            for (field, v) in list
+                .get("initial")
+                .and_then(Json::as_object)
+                .into_iter()
+                .flatten()
+            {
+                fields.entry(field.clone()).or_insert_with(|| v.clone());
+            }
+            self.list_room(&extension, list, &value)?;
             let reference = if list.get("scope").and_then(Json::as_str) == Some("app") {
                 self.app_reference()
             } else {
@@ -527,7 +551,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 ("granted", "denied") => json!({ "error": next["denied"] }),
                 ("granted", _) => match self.apply_effect(&row, &h.args) {
-                    Ok(()) => Json::Null,
+                    Ok(()) => self.effect_answer(&row, &h.args),
                     Err(refusal) => refusal,
                 },
                 _ => json!({ "error": self.permission_named(&row, name)["denied"] }),
@@ -799,20 +823,27 @@ pub(super) fn entry_args(tap: &Json, entry: &Json) -> Vec<Json> {
     (tap["args"].as_array().into_iter().flatten())
         .map(|a| match a {
             Json::String(field) => entry.get(field).cloned().unwrap_or(Json::Null),
-            Json::Object(map) => Json::Object(
-                map.iter()
-                    .map(|(k, f)| {
-                        let v = match f {
-                            Json::String(f) => entry.get(f).cloned(),
-                            literal => Some(literal.clone()),
-                        };
-                        (k.clone(), v.unwrap_or(Json::Null))
-                    })
-                    .collect(),
-            ),
+            Json::Object(map) => entry_record(map, entry),
             other => other.clone(),
         })
         .collect()
+}
+
+/// An object of an entry's fields, each named by its field, a record of
+/// them in turn (a `GeofenceEvent`'s `geofence`), or a literal.
+fn entry_record(map: &Map<String, Json>, entry: &Json) -> Json {
+    Json::Object(
+        map.iter()
+            .map(|(k, f)| {
+                let v = match f {
+                    Json::Object(inner) => entry_record(inner, entry),
+                    Json::String(f) => entry.get(f).cloned().unwrap_or(Json::Null),
+                    literal => literal.clone(),
+                };
+                (k.clone(), v)
+            })
+            .collect(),
+    )
 }
 
 /// A number the plan holds as a float, written as JSON writes a whole

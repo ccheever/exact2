@@ -743,7 +743,9 @@ impl Lowerer<'_> {
                 .iter()
                 .filter(|a| native::leftover(tag, a))
                 .collect();
-            if let Err(e) = self.native_bindings(tag, &rest, scope, locals, &mut bindings) {
+            let made =
+                self.native_bindings(tag, &rest, scope, locals, &mut bindings, &mut handlers);
+            if let Err(e) = made {
                 self.errors.push(e);
             }
             if let Some(origins) = &mut origins {

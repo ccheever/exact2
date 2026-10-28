@@ -2326,6 +2326,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "geofence-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "geofence-fixture-data",
+]
+
+[[package]]
+name = "geofence-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "geofence-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "geofence-fixture-data",
+]
+
+[[package]]
+name = "geofence-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "geofence-fixture-data",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"

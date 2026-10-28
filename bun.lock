@@ -20,11 +20,14 @@
         "@exact/cards": "workspace:*",
         "@exact/contacts": "workspace:*",
         "@exact/gamepad": "workspace:*",
+        "@exact/geocoding": "workspace:*",
+        "@exact/geofencing": "workspace:*",
         "@exact/geolocation": "workspace:*",
         "@exact/health": "workspace:*",
         "@exact/language-model": "workspace:*",
         "@exact/lists": "workspace:*",
         "@exact/local-auth": "workspace:*",
+        "@exact/maps": "workspace:*",
         "@exact/media-capture": "workspace:*",
         "@exact/motion": "workspace:*",
         "@exact/nfc": "workspace:*",
@@ -124,6 +127,14 @@
       "name": "@exact/gamepad",
       "version": "1.0.0",
     },
+    "packages/geocoding": {
+      "name": "@exact/geocoding",
+      "version": "1.0.0",
+    },
+    "packages/geofencing": {
+      "name": "@exact/geofencing",
+      "version": "1.0.0",
+    },
     "packages/geolocation": {
       "name": "@exact/geolocation",
       "version": "1.0.0",
@@ -142,6 +153,10 @@
     },
     "packages/local-auth": {
       "name": "@exact/local-auth",
+      "version": "1.0.0",
+    },
+    "packages/maps": {
+      "name": "@exact/maps",
       "version": "1.0.0",
     },
     "packages/media-capture": {
@@ -256,6 +271,10 @@
 
     "@exact/gamepad": ["@exact/gamepad@workspace:packages/gamepad"],
 
+    "@exact/geocoding": ["@exact/geocoding@workspace:packages/geocoding"],
+
+    "@exact/geofencing": ["@exact/geofencing@workspace:packages/geofencing"],
+
     "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
 
     "@exact/health": ["@exact/health@workspace:packages/health"],
@@ -265,6 +284,8 @@
     "@exact/lists": ["@exact/lists@workspace:packages/lists"],
 
     "@exact/local-auth": ["@exact/local-auth@workspace:packages/local-auth"],
+
+    "@exact/maps": ["@exact/maps@workspace:packages/maps"],
 
     "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
 

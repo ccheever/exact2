@@ -904,6 +904,11 @@ fn compile_loaded(
             .map(|e| sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
+    let _declared = contract_lower::DeclaredViews::set(
+        (views.iter())
+            .map(|v| (v.tag.clone(), v.declared.clone()))
+            .collect(),
+    );
     picker::check(&file, Some(&app_root))
         .and(orientationlock::check(&file, Some(&app_root)))
         .map_err(|all| {

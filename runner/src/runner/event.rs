@@ -9,6 +9,7 @@ use std::rc::Rc;
 mod focus;
 pub(super) mod frame_navigation;
 mod keyboard;
+mod view_event;
 pub use keyboard::KeyboardEvent;
 
 const BINDING_ARGS: usize = 8;
@@ -1347,6 +1348,12 @@ impl<D: DataSource> Runner<D> {
                 (EventKind::Navigate, Some(Value::str(location)), "navigate")
             }
         };
+        // A package view's declared event (`view_event.rs`).
+        if let Event::Message(text) = &event {
+            if let Some(done) = self.view_event(node, text, &frames, what) {
+                return done;
+            }
+        }
         let row = self.plan.node(node);
         let handler = row
             .handlers

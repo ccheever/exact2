@@ -216,7 +216,10 @@ impl<D: DataSource> Runner<D> {
                     }
                 ));
             };
-            if row.send {
+            // A send answered from its own preferred value (`from` itself,
+            // LLP 1133.021 §12's geocoder) takes one; any other is answered.
+            let own = self.substitute(&row)["from"] == self.plan.str(row.declared);
+            if row.send && !own {
                 return refuse(format!(
                     "prefer extension: `{key}` is a send, which the module answers"
                 ));

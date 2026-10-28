@@ -152,8 +152,10 @@ export function install(exact) {
   // `tap <node>/<part>` (LLP 1075.003.000.001 §3.5): the aim (which changes nothing) and the landing; the driver delivers
   // a real pointer event at the aimed point between them. The token binds the part's element: one replaced since is stale.
   let PartAim = null, PartAims = 0;
+  // A package view's own parts (LLP 1133.021 §9 item 3): the view the package made answers `part(id)` and `partIds()`.
+  const packaged = node => node?.exactNative?.package ? node.exactNative.handle : null;
   const partTap = req => {
-    const node = views.get(req.id), el = node && exact.hatchRegions?.part(node, String(req.part));
+    const node = views.get(req.id), el = node && (exact.hatchRegions?.part(node, String(req.part)) ?? packaged(node)?.part?.(String(req.part)));
     if (!el) return { error: `part ${req.part}: view ${req.id} has no live part of that id` };
     const b = el.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2, under = document.elementFromPoint(x, y), on = t => !!t && (t === el || el.contains(t));
     if (req.aim) {
@@ -346,6 +348,7 @@ export function install(exact) {
         }
         // A hatch's regions and parts, under their node (LLP 1075.003.000.001 §3.4, §3.5; hatches.js).
         if (exact.hatchRegions) nodes = nodes.map(n => { const o = exact.hatchRegions.of(views.get(n.id)); return o ? { ...n, ...o } : n; });
+        nodes = nodes.map(n => { const ids = packaged(views.get(n.id))?.partIds?.(); return ids?.length ? { ...n, parts: ids.map(id => ({ id, live: true })) } : n; });
         if (req.plan) for (const n of nodes) { const site = views.get(n.id)?.dataset?.site; if (site != null) n.site = Number(site); }
         return { nodes, roots, ...tags(), ...(req.plan && exact.plan ? { planDigest: exact.plan } : {}) };
       }

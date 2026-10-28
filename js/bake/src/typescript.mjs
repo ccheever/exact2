@@ -1202,6 +1202,34 @@ export function androidImplementations(app) {
   });
 }
 
+/** Each used interface's package configuration for `target` (LLP 1133.021 §9 item 7): extension name to the
+ * values `app.json` gives under `packages.<interface>.<target>`, for the keys the interface's `config` declares. A
+ * key typed `env` names a variable (`{"env": "NAME"}`) whose value is read here and never written to the repo. A
+ * required key that is absent throws its declared code; one required only at `release` throws only for a release. */
+export function packageConfig(app, target, { release = false } = {}) {
+  const { names: used, text } = usedPackages(app), named = `${text}\n${appText(app)}`;
+  let manifest = {};
+  try { manifest = JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8')); } catch { /* a plain Contract directory */ }
+  const out = new Map();
+  for (const i of moduleInterfaces(app).filter(i => used.has(i.name) || usesInterface(i, named))) {
+    const declared = i.declaration?.config?.[target];
+    if (!declared) continue;
+    const given = manifest.packages?.[i.name]?.[target] ?? {}, config = {};
+    for (const [key, d] of Object.entries(declared)) {
+      let value = given[key];
+      if (d.type === 'env' && value !== undefined) value = typeof value?.env === 'string' ? process.env[value.env] : undefined;
+      const required = d.required === true || (d.required === 'release' && release);
+      if ((value === undefined || value === '') && required) {
+        const how = d.type === 'env' ? `{"env": "<VARIABLE>"} naming a variable that is set` : `a ${d.type}`;
+        throw new Error(`${d.missing ?? 'bake-config-missing'}: app.json "packages": {"${i.name}": {"${target}": {"${key}": …}}} needs ${how}`);
+      }
+      if (value !== undefined && value !== '') config[key] = value;
+    }
+    out.set(i.name.split('/').at(-1), config);
+  }
+  return out;
+}
+
 /** Each extension's web implementation, as bound (LLP 1133.001 D4):
  * extension name to the implementation's JavaScript entry. */
 export function webImplementations(app) {

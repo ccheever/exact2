@@ -53,6 +53,23 @@
         "additionalProperties": { "type": "string" }
       }
     },
+    "packages": {
+      "description": "Each package's configuration by target (LLP 1133.021 §9 item 7), as its interface's `config` declares it, read at bake and written into the bundle: {\"@exact/maps\": {\"web\": {\"tiles\": \"https://tile.openstreetmap.org/{z}/{x}/{y}.png\"}, \"android\": {\"apiKey\": {\"env\": \"EXACT_GOOGLE_MAPS_API_KEY\"}}}}. A secret is named by the environment variable that holds it, never written here.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] },
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              { "type": ["string", "number", "boolean"] },
+              { "type": "object", "properties": { "env": { "type": "string" } }, "required": ["env"], "additionalProperties": false }
+            ]
+          }
+        }
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,

@@ -121,6 +121,44 @@ impl<D: DataSource> Runner<D> {
         .collect()
     }
 
+    /// A permission that adds to another (`base`, LLP 1133.021 §12:
+    /// background location to location) granted grants its base too; its
+    /// base set to `prompt` or `denied` sets it the same. Each direction
+    /// sets states only toward its own, so the two never loop.
+    fn couple_base(&mut self, name: &str, state: &str) {
+        if state == "granted" {
+            let base = self.declared_permission(name)["base"]
+                .as_str()
+                .map(str::to_owned);
+            if let Some(base) = base.filter(|b| self.permission_state(b) != "granted") {
+                self.set_permission(&base, "granted");
+            }
+            return;
+        }
+        if !matches!(state, "prompt" | "denied") {
+            return;
+        }
+        let mut dependents: Vec<String> = Vec::new();
+        for row in &self.plan.modules {
+            let sub = self.substitute(row);
+            let list = sub["permissionList"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            for p in std::iter::once(sub["permission"].clone()).chain(list) {
+                let dependent = p["name"].as_str().filter(|_| p["base"] == name);
+                if let Some(d) = dependent.filter(|d| !dependents.iter().any(|x| x == d)) {
+                    dependents.push(d.to_owned());
+                }
+            }
+        }
+        for d in dependents {
+            if self.extensions.permission.get(&d).map(String::as_str) != Some(state) {
+                self.set_permission(&d, state);
+            }
+        }
+    }
+
     /// Permission `name`'s own state, before what it requires.
     pub(super) fn own_permission_state(&self, name: &str, declared: &Json) -> String {
         if let Some(by) = declared["grantedBy"].as_str().filter(|by| *by != name) {
@@ -178,6 +216,7 @@ impl<D: DataSource> Runner<D> {
             .permission
             .insert(name.to_owned(), state.to_owned());
         self.log(format!("permission {name}: {state}"));
+        self.couple_base(name, state);
         let rows: Vec<ModulesRow> = (self.plan.modules.iter())
             .filter(|m| {
                 self.asks_permission(m, name)
@@ -242,7 +281,10 @@ impl<D: DataSource> Runner<D> {
                         continue;
                     }
                     match self.decide_timed(&row, send, timeout, &args) {
-                        Decision::Now(answer) => self.release(token, answer),
+                        Decision::Now(answer) => {
+                            let answer = self.listed_or(&row, &args, answer);
+                            self.release(token, answer)
+                        }
                         Decision::Forward => self.release_forward(token),
                         Decision::Hold(waits) => {
                             if let Some((held_by, origin)) = self.held_name(token, &row) {
