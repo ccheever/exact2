@@ -1,5 +1,5 @@
 //! Shelf pages stay valid while a frame or kept row references them. @ref LLP 1149 D4, D8.
-use crate::device::{Device, Format, Result, Submission, TextureDesc};
+use crate::device::{Device, Error, Format, Result, Submission, TextureDesc};
 use crate::instance::TextureId;
 use std::collections::HashMap;
 
@@ -79,6 +79,13 @@ impl Atlas {
 
     pub fn ramps() -> Self {
         Self::new([256, 64], Format::Rgba, 0, 16)
+    }
+
+    /// The usable extent after reserving the filtering border.
+    pub fn max_entry_dimension(&self, device: &impl Device) -> u32 {
+        device
+            .max_texture_dimension()
+            .saturating_sub(2 * self.padding)
     }
 
     pub(crate) fn new(size: [u32; 2], format: Format, padding: u32, ceiling: usize) -> Self {
@@ -162,6 +169,11 @@ impl Atlas {
         size: [u32; 2],
         pixels: &[u8],
     ) -> Result<Entry> {
+        if size.iter().any(|s| *s > self.max_entry_dimension(device)) {
+            return Err(Error::Invalid(
+                "atlas entry exceeds device texture limit".into(),
+            ));
+        }
         let mut completed = device.completed()?;
         let mut busy = std::collections::HashSet::new();
         for p in &self.pages {

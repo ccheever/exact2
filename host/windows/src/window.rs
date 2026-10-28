@@ -115,6 +115,11 @@ fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) ->
     }
 }
 
+fn direct_device(painter: exact_linux::presenter::PainterChoice, device: Option<&str>) -> bool {
+    painter == exact_linux::presenter::PainterChoice::Ink
+        && matches!(device, Some("d3d11" | "warp"))
+}
+
 pub(super) fn run<D: DataSource + Default + 'static>(
     name: &str,
     opening: crate::Window,
@@ -593,7 +598,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         Ok(())
     }
 
-    fn blink(&mut self) -> Result<(), String> {
+    fn blink(&mut self, now: Instant) -> Result<(), String> {
         if self.minimized || self.occluded || !self.focused {
             return Ok(());
         }
@@ -603,7 +608,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         if p.dirty() || p.wants_display_frames() || p.host().motion() {
             return Ok(());
         }
-        if !self.caret.advance(Instant::now()) {
+        if !self.caret.advance(now) {
             return Ok(());
         }
         p.set_caret_visible(self.caret.visible());
@@ -670,10 +675,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         let window = match events.create_window(
             Window::default_attributes()
-                .with_no_redirection_bitmap(
-                    self.config.painter() == exact_linux::presenter::PainterChoice::Ink
-                        && std::env::var("EXACT_INK_DEVICE").as_deref() != Ok("wgpu"),
-                )
+                .with_no_redirection_bitmap(direct_device(
+                    self.config.painter(),
+                    std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
+                ))
                 .with_visible(false)
                 .with_title(&self.name)
                 .with_fullscreen(
@@ -1037,7 +1042,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 window.request_redraw();
             }
         }
-        if let Err(error) = self.blink() {
+        if let Err(error) = self.blink(Instant::now()) {
             self.fail(events, error);
             return;
         }
@@ -1121,6 +1126,121 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn default_ink_window_keeps_redirection_for_softbuffer() {
+        use exact_linux::presenter::PainterChoice::*;
+        assert!(!direct_device(Ink, None));
+        assert!(!direct_device(Ink, Some("wgpu")));
+        assert!(direct_device(Ink, Some("d3d11")));
+        assert!(direct_device(Ink, Some("warp")));
+        for painter in [Auto, Cpu, Gpu, Custom] {
+            assert!(!direct_device(painter, Some("d3d11")));
+        }
+    }
+
+    #[test]
+    #[ignore = "native Windows desktop, system caret blink enabled, EXACT_INK_DEVICE=d3d11"]
+    #[allow(deprecated)]
+    fn direct_window_blinks_without_a_softbuffer_surface() {
+        let events = EventLoop::<crate::accessibility::Event>::with_user_event()
+            .with_any_thread(true)
+            .build()
+            .unwrap();
+        let window = Rc::new(
+            events
+                .create_window(
+                    Window::default_attributes()
+                        .with_title("Ink caret regression")
+                        .with_no_redirection_bitmap(true)
+                        .with_inner_size(LogicalSize::new(160., 80.)),
+                )
+                .unwrap(),
+        );
+        let owned = exact_ink::device::d3d11::Window::from_owner(window.clone()).unwrap();
+        let plan = contract::compile("component App\n  view\n    input testId=\"field\" value=\"blink\" width=140 height=40\n").unwrap().encode();
+        let (mut p, warning) = Presenter::boot_with(
+            &plan,
+            (),
+            (160., 80.),
+            1.,
+            Default::default(),
+            exact_linux::presenter::PainterChoice::Ink,
+        )
+        .unwrap();
+        assert!(warning.is_none());
+        assert!(p.attach_painter_window(owned.clone(), [160, 80]).unwrap());
+        let k = p.host().kernel();
+        let field = k.node_by_key(k.find_by_test_id("field")[0]).unwrap().id;
+        p.tap(field).unwrap();
+        assert!(p.window_frame(owned.clone()).unwrap().is_none());
+        let started = Instant::now();
+        let mut caret = crate::caret::Caret::default();
+        caret.presented(owned.hwnd() as isize, p.caret_frame(), 1., None, started);
+        let due = caret.deadline().expect("system caret blink enabled");
+        let mut state = App {
+            proxy: events.create_proxy(),
+            accessibility: None,
+            name: "Ink caret regression".into(),
+            min_size: (1., 1.),
+            config: Config::from_env(&plan, ""),
+            window: Some(window),
+            surface: None,
+            presenter: Some(p),
+            started,
+            pointer: (0., 0.),
+            pointer_inside: false,
+            focused: true,
+            cursor: CursorIcon::Default,
+            buttons: 0,
+            clicks: Default::default(),
+            scale: 1.,
+            refit_after_scale: false,
+            next_frame: started,
+            failed: false,
+            minimized: false,
+            occluded: false,
+            frames: 1,
+            measured_first_screen: false,
+            paint_ms: 0.,
+            present_ms: 0.,
+            previous_frame: None,
+            samples: Vec::new(),
+            frame_limit: None,
+            first_tap: None,
+            pads: Default::default(),
+            pads_active: false,
+            caret,
+            edit_menu: None,
+            ime: Default::default(),
+            appearance: Default::default(),
+            modal: Default::default(),
+            desktop: crate::desktop::Desktop::install("Ink caret regression"),
+        };
+        assert!(!state.presenter.as_ref().unwrap().dirty());
+        state.blink(due).unwrap();
+        assert!(!state.caret.visible());
+        let next = state.caret.deadline().unwrap();
+        assert!(next > due);
+        assert!(state.presenter.as_ref().unwrap().dirty());
+        assert!(state
+            .presenter
+            .as_mut()
+            .unwrap()
+            .window_frame(owned.clone())
+            .unwrap()
+            .is_none());
+        state.blink(due).unwrap();
+        assert_eq!(state.caret.deadline(), Some(next));
+        state.blink(next).unwrap();
+        assert!(state.caret.visible());
+        assert!(state
+            .presenter
+            .as_mut()
+            .unwrap()
+            .window_frame(owned)
+            .unwrap()
+            .is_none());
+    }
     #[test]
     fn text_without_a_physical_key_reaches_the_editor() {
         use winit::keyboard::{KeyCode, NamedKey, NativeKey, NativeKeyCode};

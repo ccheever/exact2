@@ -101,62 +101,100 @@ fn kept_rows_move_reclip_and_replace_a_slot_without_recording_the_row() {
 fn failed_recordings_are_not_kept_and_the_next_row_is_complete() {
     let mut ink = Ink::new().unwrap();
     let ts = Transform::identity();
-    for failure in 0..3 {
+    let mut fresh = Ink::new().unwrap();
+    fresh.begin(90., 85., 1.);
+    fresh.row_begin(1, (0., 0.), None);
+    scene(&mut fresh, (0., 0.), true);
+    fresh.row_end((0., 0., 90., 85.));
+    fresh.row_draw(1, (0., 0.), (0., 0., 90., 85.));
+    let expected = fresh.finish().unwrap();
+    for failure in 0..4 {
+        let image = Arc::new(Pixmap::new(2, 2).unwrap());
         ink.begin(90., 85., 1.);
         ink.row_begin(1, (0., 0.), None);
         scene(&mut ink, (0., 0.), true);
+        ink.slot_begin(17);
+        ink.fill(
+            &Shape::elliptical((1., 2., 30., 20.), [(6., 4.); 4]),
+            [100, 150, 200, 255],
+            ts,
+        );
+        ink.canvas(&image, (0., 0., 2., 2.), &[], ts);
+        ink.slot_end();
+        assert!(ink.paths.stats().pinned_textures > 0);
         if failure == 1 {
             ink.slot_begin(8);
         }
         if failure == 2 {
             assert!(ink.layer_begin(9, ts, (0., 0.), [0., 0., 1., 0., 1., 0., 0.]));
         }
+        if failure == 3 {
+            ink.row_end((0., 0., 90., 85.));
+            ink.row_draw(1, (0., 0.), (0., 0., 90., 85.));
+            ink.finish().unwrap();
+            ink.begin(90., 85., 1.);
+            assert!(ink.slot_again(1, 17));
+        }
         ink.error = Some("injected recording failure".into());
         ink.fill(&Shape::rect((0., 0., 90., 85.)), [200, 0, 0, 255], ts);
-        if failure == 1 {
+        if failure == 1 || failure == 3 {
             ink.slot_end();
         }
         if failure == 2 {
             ink.layer_end();
         }
-        ink.row_end((0., 0., 90., 85.));
+        if failure != 3 {
+            ink.row_end((0., 0., 90., 85.));
+        }
         assert!(
             !ink.rows.kept.contains_key(&1),
             "failed recording was published"
         );
+        assert_eq!(ink.paths.stats().pinned_textures, 0);
         assert!(ink.finish().is_err());
+        let released = Arc::downgrade(&image);
+        drop(image);
         ink.begin(90., 85., 1.);
+        assert!(
+            released.upgrade().is_none(),
+            "failed row kept its image pinned"
+        );
         ink.row_begin(2, (0., 0.), None);
         scene(&mut ink, (0., 0.), true);
         ink.row_end((0., 0., 90., 85.));
         ink.row_draw(2, (0., 0.), (0., 0., 90., 85.));
         let actual = ink.finish().unwrap();
         ink.row_free(2);
-        ink.begin(90., 85., 1.);
-        scene(&mut ink, (0., 0.), true);
-        assert!(actual.data() == ink.finish().unwrap().data());
+        assert_eq!(ink.paths.stats().pinned_textures, 0);
+        assert!(
+            actual.data() == expected.data(),
+            "recording failure {failure}"
+        );
     }
 }
 
 #[test]
 fn oversized_retained_coverage_rasterizes_only_the_visible_region() {
     let mut ink = Ink::new().unwrap();
-    let shape = Shape::elliptical((0., 0., 300., 20_000.), [(80., 40.); 4]);
-    ink.begin(320., 200., 1.);
-    ink.row_begin(1, (0., 0.), None);
-    ink.fill(&shape, [10, 120, 220, 255], Transform::identity());
-    ink.row_end(shape.rect);
-    for y in [0., -10_000., -19_800.] {
+    for height in [20_000., ink.device.max_texture_dimension() as f32 - 1.] {
+        let shape = Shape::elliptical((0., 0., 300., height), [(80., 40.); 4]);
         ink.begin(320., 200., 1.);
-        ink.row_draw(1, (0., y), (0., y, 300., 20_000.));
-        let actual = ink.finish().unwrap();
-        ink.begin(320., 200., 1.);
-        ink.fill(
-            &shape,
-            [10, 120, 220, 255],
-            Transform::from_translate(0., y),
-        );
-        assert!(actual.data() == ink.finish().unwrap().data());
+        ink.row_begin(1, (0., 0.), None);
+        ink.fill(&shape, [10, 120, 220, 255], Transform::identity());
+        ink.row_end(shape.rect);
+        for y in [0., -height / 2., -height + 200.] {
+            ink.begin(320., 200., 1.);
+            ink.row_draw(1, (0., y), (0., y, 300., height));
+            let actual = ink.finish().unwrap();
+            ink.begin(320., 200., 1.);
+            ink.fill(
+                &shape,
+                [10, 120, 220, 255],
+                Transform::from_translate(0., y),
+            );
+            assert!(actual.data() == ink.finish().unwrap().data());
+        }
+        ink.row_free(1);
     }
 }
 

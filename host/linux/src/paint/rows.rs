@@ -165,7 +165,9 @@ fn within(a: Option<Rect4>, outer: Option<Rect4>) -> Option<Rect4> {
 
 impl Painter {
     pub(super) fn discard_rows(&mut self) {
-        for row in self.rows.kept.values() { self.backend.row_free(row.id); }
+        for row in self.rows.kept.values() {
+            self.backend.row_free(row.id);
+        }
         self.forget_rows();
     }
 

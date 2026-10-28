@@ -2085,6 +2085,7 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",
+ "contract",
  "exact-ink",
  "exact-kernel",
  "exact-linux",

@@ -35,7 +35,7 @@ pub fn coverage(
         return Ok(None);
     }
     let size = [(right - x) as u32, (bottom - y) as u32];
-    if size.iter().any(|s| *s > device.max_texture_dimension()) {
+    if size.iter().any(|s| *s > atlas.max_entry_dimension(device)) {
         return Err(Error::Invalid(
             "coverage exceeds device texture limit".into(),
         ));
@@ -163,7 +163,7 @@ pub fn clip_union(
     let y = bound(bounds[1].floor(), 1);
     let w = (bound(bounds[2].ceil(), 0) - x).max(1.) as u32;
     let h = (bound(bounds[3].ceil(), 1) - y).max(1.) as u32;
-    if w > device.max_texture_dimension() || h > device.max_texture_dimension() {
+    if w > atlas.max_entry_dimension(device) || h > atlas.max_entry_dimension(device) {
         return Err(Error::Invalid(
             "coverage clip exceeds device texture limit".into(),
         ));

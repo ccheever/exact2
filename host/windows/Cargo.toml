@@ -11,6 +11,9 @@ exact-linux = { path = "../linux" }
 exact-runner = { path = "../../runner" }
 serde_json = "1.0"
 
+[target.'cfg(windows)'.dev-dependencies]
+contract = { path = "../../contract/cli" }
+
 [target.'cfg(windows)'.dependencies]
 exact-ink = { path = "../ink" }
 accesskit = "0.25.1"

@@ -170,7 +170,7 @@ impl Ink {
         }
         let oversized = path.clone().transform(dev).is_some_and(|p| {
             let b = p.bounds();
-            let limit = self.device.max_texture_dimension() as f32;
+            let limit = self.paths.max_entry_dimension(&self.device) as f32;
             b.right().ceil() - b.left().floor() > limit
                 || b.bottom().ceil() - b.top().floor() > limit
         });
