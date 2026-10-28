@@ -216,7 +216,11 @@ export function analyze(t, meta) {
     const moves = tt.filter((x) => x.ph === 'moved' && x.t <= ended.t);
     const last = moves.at(-1), base = moves.findLast((x) => last && last.t - x.t >= 0.03);
     const finger = last && base ? -(last.y - base.y) / (last.t - base.t) : null;
-    const dec = stepsIn(ended.t + P, Math.min(next, g.until)).filter((s) => s.f.down === 0 && s.f.de && inside(s.f) && inside(s.prev));
+    // A fling that reaches the list's end decelerates until then: the bounce back, which `edgeBounce` measures, is
+    // no part of its curve. Its last frames settle within the half point `inside` allows (notes-exact's 6,000 pt/s
+    // fling, rounds r25 to r29: two still frames 0.47 pt past an end off the pixel grid), and read as jumps.
+    const glide = stepsIn(ended.t + P, Math.min(next, g.until)), edgeAt = glide.find((s) => !inside(s.f))?.f.t ?? Infinity;
+    const dec = glide.filter((s) => s.f.t < edgeAt && s.f.down === 0 && s.f.de && inside(s.f) && inside(s.prev));
     const dir = Math.sign(dec.reduce((sum, s) => sum + s.v, 0));
     const usable = dec.filter((s) => Math.abs(s.v) > 60 && Math.sign(s.v) === dir);
     const r = { name: g.name, asked: g.velocity, fingerV: round(finger, 0) };
