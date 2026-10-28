@@ -35,6 +35,12 @@ component MediaFailedFrame
       ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
       text ["Image unavailable", alt, detail].filter((part) => part != "").join(" · ") font-size="0.75rem" line-height="1rem" line-clamp=2 text-align="center" color="light-dark(#71717b, #a1a1a1)"
 
+// A sound's signed source ("" while it is signed) and whether its signing failed (`media-failed:<path>`).
+shape AudioSource
+  src: string
+  failed: bool
+fn audioSource(urls: AttachmentUrl[], target: string, access: string): AudioSource = AudioSource(src=(access == "direct" ? target : urls.filter((entry) => entry.id == target and entry.url != "").map((entry) => entry.url).join("")), failed=(access == "environment" and urls.filter((entry) => entry.id == `media-failed:${target.slice(6)}`).length > 0))
+
 // A Markdown image (ChatMarkdown's `img` renderer): its chip (media-views.ts markdownMediaChips: `size` the kind, `icon`
 // the access, `target` the URL or the signed URL's key, `detail` the actions' source) and the signed URLs (`media:<path>`,
 // `media-failed:<path>`). `standalone` (an image line, or an image that is the only content of its paragraph, list item
@@ -45,9 +51,10 @@ component MediaFailedFrame
 // `link`: inside a link's text (MarkdownAnchor's `<a>` around the `<img>`), where the settled image has no preview of its
 // own (expandableMarkdownImageProps returns early inside an `<a>`): the link node around it, named `linkLabel`, takes the
 // press and the menu, a web link's favicon first when `favicon` (the image starts the link).
-// T3 Code 7c3b3b3605ef (#21363): a file of no media kind ("file") is its file chip (MarkdownFileChip), with `label`,
-// `access` its Pierre icon, `tip` its full path, `target` the path a lookup resolves and `menu` the file link's rows. A
-// sound ("audio") here is one that cannot play: "Audio unavailable"; MarkdownMediaLine plays one.
+// T3 Code 7c3b3b3605ef (#21363): a sound (`kind` "audio") is its audio chip (InlineAudioPreview over AudioChip), named
+// `tip`, whose name opens `source` (the host file; "" for a web URL); a file of no media kind ("file") is its file chip
+// (MarkdownFileChip), with `label`, `access` its Pierre icon, `tip` its full path, `target` the path a lookup resolves
+// and `menu` the file link's rows.
 component MarkdownMedia
   inject
     galleryIds: string[]
@@ -79,6 +86,11 @@ component MarkdownMedia
       MarkdownFileChip(label=label, icon=access, tip=tip, target=target, menu=menu, local=local, testId=`markdown-file-${nodeId}`)
     if kind != "file" and access == "blocked"
       MediaUnavailableLabel(alt=alt, kind=kind, detail="")
+    // The chip reads its source and failure once, from the `for`: a derive would be substituted, with its scan of
+    // `urls`, into each of the chip's reads.
+    if kind == "audio" and access != "blocked"
+      for sound in [audioSource(urls, target, access)] key=target
+        AudioChip(name=tip, src=sound.src, failed=sound.failed, open=local("media-open-file", source, ""), id=nodeId)
     if visual and access != "blocked" and refused
       MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
         if kind == "video"
@@ -95,37 +107,6 @@ component MarkdownMedia
       box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599, #ffffff0a)" role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
     if visual and access != "blocked" and not refused and url != ""
       MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, link=link, linkLabel=linkLabel, favicon=favicon, open=local("image-md-open", target, `${owner}\n${nodeId}\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}`), nodeId=nodeId)
-
-// An image line (markdown.contract BlockBody): a sound plays in its audio chip (InlineAudioPreview over AudioChip), named
-// `tip`, whose name opens `source` (the host file; "" for a web URL); anything else is MarkdownMedia's. Only image lines
-// draw the audio chip: each use of it is about 10 KB of the plan's code, which the 16 MiB code limit cannot spend on the
-// hundreds of places runs of text are drawn, so a sound inside a line of text is its file chip (media-views.ts
-// markdownMediaChips).
-component MarkdownMediaLine
-  props
-    alt: string
-    kind: string
-    access: string
-    target: string
-    tip: string
-    source: string
-    urls: AttachmentUrl[]
-    local: action
-    standalone: bool
-    link: string
-    linkLabel: string
-    favicon: bool
-    owner: string
-    nodeId: string
-    label: string
-    menu: LinkMenuRow[]
-  derive url = access == "direct" ? target : urls.filter((entry) => entry.id == target and entry.url != "").map((entry) => entry.url).join("")
-  derive refused = access == "environment" and urls.filter((entry) => entry.id == `media-failed:${target.slice(6)}`).length > 0
-  view
-    if kind == "audio" and access != "blocked"
-      AudioChip(name=tip, src=url, failed=refused, open=local("media-open-file", source, ""), id=nodeId)
-    else
-      MarkdownMedia(alt=alt, kind=kind, access=access, target=target, tip=tip, source=source, urls=urls, local=local, standalone=standalone, link=link, linkLabel=linkLabel, favicon=favicon, owner=owner, nodeId=nodeId, label=label, menu=menu)
 
 // A file of no media kind written as an image (`![report](report.pdf)`): the file chip a link to it draws (ChatMarkdown's
 // img renderer, fileLinkChip; markdown.contract InlineFileChip and FileChipFace): its press opens the file in Files, its
