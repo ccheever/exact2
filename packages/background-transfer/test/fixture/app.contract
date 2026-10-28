@@ -1,0 +1,58 @@
+// The conformance fixture (LLP 1133.001 D7): @exact/background-transfer's
+// names as an app uses them. Data code starts each transfer; the root's
+// three handlers hand the registration to data code, which tells the
+// suite's server what it carried and then retires it.
+use backgroundFetchStatus, backgroundFetchIds, backgroundfetchsuccess, backgroundfetchfail, backgroundfetchabort, BackgroundFetchStatus, BackgroundFetchRegistration from "@exact/background-transfer"
+
+shape Said
+  text: string
+
+component Fixture
+  resource status = backgroundFetchStatus() as shape BackgroundFetchStatus
+  resource ids = backgroundFetchIds() as shape string[]
+  mutation started as shape Said
+  mutation noted as shape Said
+  mutation aborted as shape Said
+  action start(kind: string, id: string)
+    send started = startFetch(kind, id)
+  action abort(id: string)
+    send aborted = abortFetch(id)
+  action ended(r: BackgroundFetchRegistration)
+    send noted = note(r.id, "success")
+  action failed(r: BackgroundFetchRegistration)
+    send noted = note(r.id, "fail")
+  action cancelled(r: BackgroundFetchRegistration)
+    send noted = note(r.id, "abort")
+  view
+    column backgroundfetchsuccess=ended backgroundfetchfail=failed backgroundfetchabort=cancelled gap=8 padding=16
+      text `${status.available} ${status.state}` testId="status"
+      text ids.join(" ") testId="ids"
+      match started
+        case some(s)
+          text s.text testId="started"
+        case none
+          text "none" testId="started"
+      match noted
+        case some(n)
+          text n.text testId="noted"
+        case none
+          text "none" testId="noted"
+      match aborted
+        case some(a)
+          text a.text testId="aborted"
+        case none
+          text "none" testId="aborted"
+      button press=start("upload", "u1") testId="upload-u1"
+        text "Upload u1"
+      button press=start("upload", "u2") testId="upload-u2"
+        text "Upload u2"
+      button press=start("download", "d1") testId="download-d1"
+        text "Download d1"
+      button press=start("missing", "m1") testId="missing-m1"
+        text "Download a missing file"
+      button press=start("ungranted", "x1") testId="ungranted-x1"
+        text "Upload to an ungranted origin"
+      button press=start("hold", "h1") testId="hold-h1"
+        text "Download, held"
+      button press=abort("h1") testId="abort-h1"
+        text "Abort h1"

@@ -1,0 +1,11 @@
+{
+  "name": "@exact/background-transfer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Uploads and downloads the system finishes after the app has left the screen, with Background Fetch's names (LLP 1133.017).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

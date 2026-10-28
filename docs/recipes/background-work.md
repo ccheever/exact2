@@ -63,3 +63,5 @@ in a wake with no window or a hidden one. A quit Mac app has no wake:
 due` early, `offline` while `prefer online false`); `state.wake` shows its
 outcome; `--wake '<entry>'` launches the app cold for one. Harmony's
 `packages/background/test/harmony.mjs` is a whole example.
+
+Transfers the system finishes: `contract vocab background-transfers`.

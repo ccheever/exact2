@@ -107,6 +107,7 @@ public final class ExactPackageContext {
     private let emitFn: (String, [Any]) -> Void
     private let activationFn: (String, [Any], String?) -> [AnyHashable: Any]
     private let wakeFn: (String, [Any], String, @escaping (String) -> Void) -> Void
+    private let expireWakeFn: (String) -> Void
     /// The host's wake requests (LLP 1133.017 D8).
     public let wakes: ExactWakes
     /// The host's transfer carrier (LLP 1133.017 D8, D10).
@@ -141,13 +142,14 @@ public final class ExactPackageContext {
                     DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: work)
                     return work.cancel
                 },
-                regions: ExactRegions = ExactRegions { _, _ in nil }) {
+                regions: ExactRegions = ExactRegions { _, _ in nil },
+                expireWake: @escaping (String) -> Void = { _ in }) {
         self.agent = agent; self.session = session
         changedFn = changed; logFn = log; nowFn = now
         self.tracks = tracks; fileFn = file; self.audioSession = audioSession; pictureFn = picture
         self.surfaces = surfaces; orientationFn = orientation; viewFn = view; invokeFn = invoke
         emitFn = emit; activationFn = activation; wakeFn = wake; self.wakes = wakes; self.transfers = transfers
-        self.pads = pads; afterFn = after; self.regions = regions
+        self.pads = pads; afterFn = after; self.regions = regions; expireWakeFn = expireWake
     }
 
     /// `body` once, `ms` later on the session's clock: the agent's under the
@@ -165,6 +167,12 @@ public final class ExactPackageContext {
     public func wake(_ name: String, _ args: [Any], id: String, ended: @escaping (String) -> Void = { _ in }) {
         wakeFn(name, args, id, ended)
     }
+
+    /// The platform expired the wake raised as `id` before its budget ran
+    /// out: it expires now, or ends `expired` unrun if it had not begun, and
+    /// its `ended` hears `expired`. `ExactWake` says this itself when the
+    /// host's task expires. Main thread.
+    public func expireWake(id: String) { expireWakeFn(id) }
 
     /// Raise the interface's event `name` with `args` (LLP 1133.004 D6):
     /// delivered in order, once, with the device's origin. Any thread.
@@ -272,8 +280,8 @@ public protocol ExactPackage: AnyObject {
     /// arguments the call wrote; `reply` once. Under the agent, `preferred`
     /// is the agent's value for the name, which the runner also lays over
     /// the answer (LLP 1133.009 D10 item 11). An answer that is not an
-    /// object (a list) is replied as `["exact:answer": value]`, a key no
-    /// shape's field can take.
+    /// object (a list, a `bool`, or `NSNull()` for an absent `option`) is
+    /// replied as `["exact:answer": value]`, a key no shape's field can take.
     func later(_ name: String, _ args: [String: Any], preferred: Any?, reply: @escaping ([String: Any]) -> Void)
     /// A synchronous form, answered now (LLP 1133.002 D14).
     func call(_ name: String, _ args: [String: Any]) throws -> [String: Any]
@@ -416,17 +424,23 @@ public final class ExactTransfers {
     private let callFn: (String, [String: Any]) -> Any?
     public init(_ call: @escaping (String, [String: Any]) -> Any?) { callFn = call }
     /// Start registration `id`: each request `{url, method, headers,
-    /// bodyFrom}`, `bodyFrom` a file path the host copies first. Nil, or the
-    /// error's name (`TypeError` for an id in flight or a bad request).
-    public func start(id: String, requests: [[String: Any]], discretionary: Bool = false) -> String? {
-        callFn("start", ["id": id, "requests": requests, "discretionary": discretionary]) as? String
+    /// bodyFrom, saveTo}`, `bodyFrom` a file path the host copies first,
+    /// `saveTo` kept as given; past `downloadTotal` bytes received it fails.
+    /// Nil, or the error's name (`TypeError` for an id in flight or a bad
+    /// request). The host posts `exact.transfers.changed` `{package, id}` as
+    /// its bytes move and when it ends.
+    public func start(id: String, requests: [[String: Any]], discretionary: Bool = false, downloadTotal: Int64? = nil) -> String? {
+        var args: [String: Any] = ["id": id, "requests": requests, "discretionary": discretionary]
+        if let downloadTotal { args["downloadTotal"] = downloadTotal }
+        return callFn("start", args) as? String
     }
     /// Cancel its requests in flight; false when none is.
     public func abort(id: String) -> Bool { callFn("abort", ["id": id]) as? Bool ?? false }
     /// Delete its record and the response files the host kept.
     public func retire(id: String) { _ = callFn("retire", ["id": id]) }
-    /// `{id, result, failureReason, records: [{index, url, status,
-    /// contentType, path?, location?, bodyLost}]}`, never a header or a query.
+    /// `{id, uploadTotal, uploaded, downloadTotal, downloaded, result,
+    /// failureReason, records: [{index, url, status, contentType, path?,
+    /// location?, saveTo?, bodyLost}], apple?}`, never a header or a query.
     public func record(id: String) -> [String: Any]? { callFn("record", ["id": id]) as? [String: Any] }
     /// This implementation's registrations not retired.
     public var ids: [String] { callFn("ids", [:]) as? [String] ?? [] }
@@ -480,11 +494,29 @@ public final class ExactWake {
     /// Every event this wake raised has ended: the host completes the
     /// platform's task once each implementation it woke is done. Once.
     public func done(success: Bool) { let d = doneFn; doneFn = nil; d?(success) }
-    /// The host's due wake as the composed adapter hears it; each event raised is a wake of its own id.
+    /// The host's due wake as the composed adapter hears it; each event
+    /// raised is a wake of its own id. When the host says the platform
+    /// expired its task (`exact.wakes.expired` with this wake's token), each
+    /// event raised that has not ended expires.
     public convenience init(_ wake: [String: Any], context: ExactPackageContext, done: @escaping (Bool) -> Void) {
+        var open: Set<String> = []
+        var observer: NSObjectProtocol?
         self.init(kind: wake["kind"] as? String ?? "refresh", keys: wake["keys"] as? [String] ?? [], deadline: wake["deadline"] as? Double,
                   platform: wake["task"] as AnyObject?,
-                  raise: { [context] event, args, ended in context.wake(event, args, id: UUID().uuidString, ended: ended) }, done: done)
+                  raise: { [context] event, args, ended in
+                      let id = UUID().uuidString
+                      open.insert(id)
+                      context.wake(event, args, id: id) { outcome in open.remove(id); ended(outcome) }
+                  },
+                  done: { success in
+                      if let o = observer { NotificationCenter.default.removeObserver(o); observer = nil }
+                      done(success)
+                  })
+        guard let token = wake["token"] as? String else { return }
+        observer = NotificationCenter.default.addObserver(forName: Notification.Name("exact.wakes.expired"), object: nil, queue: .main) { [context] note in
+            guard (note.object as? [String: Any])?["token"] as? String == token else { return }
+            for id in open { context.expireWake(id: id) }
+        }
     }
 }
 

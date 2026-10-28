@@ -645,6 +645,28 @@ fn substitute(entry: &Value, interface: &Value) -> Result<String, String> {
     if !paths.is_empty() {
         out.insert("paths".into(), Value::Object(paths));
     }
+    // The fields of an option's records that name a URL or an app file,
+    // `{"type", "admit": {field: "net.fetch"|"fs.read"|"fs.write"}}`: each
+    // record's are admitted as a fetch's URL and a path option are (LLP
+    // 1133.017 D3, a transfer's requests).
+    let mut admits = Map::new();
+    for (option, ty) in object(&entry["options"]) {
+        let Some(fields) = ty.get("admit") else {
+            continue;
+        };
+        let ok = fields.as_object().is_some_and(|f| {
+            f.values()
+                .all(|c| matches!(c.as_str(), Some("net.fetch" | "fs.read" | "fs.write")))
+        });
+        check(
+            ok,
+            &format!("option `{option}`'s `admit` maps fields to \"net.fetch\", \"fs.read\" or \"fs.write\""),
+        )?;
+        admits.insert(option.clone(), fields.clone());
+    }
+    if !admits.is_empty() {
+        out.insert("admits".into(), Value::Object(admits));
+    }
     // The options that name a handle: a read whose every one is empty names
     // no object, and a poll does not ask it again (LLP 1133.009 D10 item 7).
     let handles: Vec<Value> = (object(&entry["options"]).iter())

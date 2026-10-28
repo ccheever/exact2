@@ -919,6 +919,40 @@ impl<D: DataSource> Runner<D> {
                 ));
             }
         }
+        // An option's records name URLs and app files (`"admit"`, LLP
+        // 1133.017 D3): each admitted as a fetch's URL or a path option is.
+        // A refusal names the URL without its query or fragment.
+        for (option, fields) in sub["admits"].as_object().into_iter().flatten() {
+            let records: Vec<&Json> = match &args[option] {
+                Json::Array(list) => list.iter().collect(),
+                record @ Json::Object(_) => vec![record],
+                _ => Vec::new(),
+            };
+            for (i, record) in records.into_iter().enumerate() {
+                for (field, capability) in fields.as_object().into_iter().flatten() {
+                    let (Some(given), Some(capability)) =
+                        (record[field].as_str(), capability.as_str())
+                    else {
+                        continue;
+                    };
+                    let grants = self.data.grants();
+                    let (ok, shown) = if capability == "net.fetch" {
+                        let web = given.starts_with("https://") || given.starts_with("http://");
+                        let ok = web && crate::grants::admitting(grants, None, given).is_some();
+                        (ok, given.split(['?', '#']).next().unwrap_or_default())
+                    } else {
+                        let ok = crate::save_file::plain_app_path(given)
+                            && crate::save_file::covered(grants, capability, given);
+                        (ok, given)
+                    };
+                    if !ok {
+                        return Err(format!(
+                            "grant-missing ({option}[{i}].{field}={shown} needs {capability})"
+                        ));
+                    }
+                }
+            }
+        }
         let applies = sub["when"]
             .as_object()
             .is_none_or(|when| when.iter().all(|(k, v)| args.get(k) == Some(v)));

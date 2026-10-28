@@ -24,13 +24,18 @@ const run = (cmd, args, cwd, env = process.env, ok = false) => {
 };
 const { check, failed } = checker();
 
+// The fixture's handler pulls from this server, whose origin the build writes into the app; the emulator reaches it
+// at its own 127.0.0.1 (`adb reverse`).
+let pulls = 0;
+const puller = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch() { pulls++; return new Response('ok'); } });
+
 const dir = mkdtempSync(join(tmpdir(), 'exact-background-')), name = 'bgfixture', app = join(dir, name);
 try {
   run('bun', [resolve(root, 'scripts/exact.mjs'), 'new', app], root);
   for (const f of ['app.contract', 'app.ts']) cpSync(join(here, 'fixture', f), join(app, f));
   rmSync(join(app, 'app.test.contract'), { force: true });
   const id = JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).app.id;
-  writeFileSync(join(app, 'app.ts'), readFileSync(join(app, 'app.ts'), 'utf8').replace('__APP_ID__', id).replace('__PULL_ORIGIN__', 'http://127.0.0.1:9'));
+  writeFileSync(join(app, 'app.ts'), readFileSync(join(app, 'app.ts'), 'utf8').replace('__APP_ID__', id).replace('__PULL_ORIGIN__', `http://127.0.0.1:${puller.port}`));
   const manifest = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
   manifest.dependencies = { ...manifest.dependencies, '@exact/background': `file:${pkg}` };
   writeFileSync(join(app, 'package.json'), JSON.stringify(manifest, null, 2));
@@ -70,9 +75,6 @@ try {
   check('android', 'a build checks the graph against the lock and checksums', strict.status === 0, (strict.stdout + strict.stderr).slice(-2000));
 
   if (emulator) {
-    // The fixture's handler pulls from this server, which the emulator reaches at its own 127.0.0.1 (`adb reverse`).
-    let pulls = 0;
-    const puller = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch() { pulls++; return new Response('ok'); } });
     run('adb', ['-s', emulator, 'reverse', `tcp:${puller.port}`, `tcp:${puller.port}`], root);
     Object.assign(process.env, env, { ANDROID_SERIAL: emulator, EXACT_ANDROID_READER: '1' });
     const { open } = await import(resolve(root, 'scripts/agent.mjs'));
@@ -91,12 +93,12 @@ try {
       if (failed()) console.log((await s.logs({ all: true })).lines.filter((l) => /background|wake/.test(l)).join('\n'));
     } finally {
       await s.close();
-      puller.stop(true);
     }
     const jobs = run('adb', ['-s', emulator, 'shell', 'dumpsys', 'jobscheduler'], root, process.env, true);
     console.log(`note android WorkManager's jobs for the fixture: ${jobs.split('\n').filter((l) => /SystemJobService/.test(l) && /bgfixture/.test(l)).length}`);
   }
 } finally {
+  puller.stop(true);
   rmSync(dir, { recursive: true, force: true });
 }
 console.log(failed() ? `${failed()} failed` : 'all passed');

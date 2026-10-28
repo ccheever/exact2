@@ -205,10 +205,13 @@ public final class ExactReply: @unchecked Sendable {
     }
 
     /// Resolve the TypeScript promise with a JSON object, or with the value
-    /// of its one key `exact:answer` (a package's list, ExactPackage.swift).
+    /// of its one key `exact:answer` (a package's list, a `bool`, or null for
+    /// an absent `option`; ExactPackage.swift).
     public func send(_ value: [String: Any]) {
         let sent: Any = value.count == 1 ? value["exact:answer"] ?? value : value
-        guard JSONSerialization.isValidJSONObject(sent), let data = try? JSONSerialization.data(withJSONObject: sent) else {
+        let scalar = sent is NSNull || sent is NSNumber || sent is String
+        guard scalar || JSONSerialization.isValidJSONObject(sent),
+              let data = try? JSONSerialization.data(withJSONObject: sent, options: .fragmentsAllowed) else {
             return fail("the reply was not JSON")
         }
         answer(200, String(decoding: data, as: UTF8.self))

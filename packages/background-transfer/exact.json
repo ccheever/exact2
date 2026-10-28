@@ -1,0 +1,106 @@
+{
+  "kind": "interface",
+  "name": "@exact/background-transfer",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "BackgroundFetchHeader": {
+      "name": "string",
+      "value": "string"
+    },
+    "BackgroundFetchRequest": {
+      "url": "string",
+      "method": "option<string>",
+      "headers": "option<BackgroundFetchHeader[]>",
+      "bodyFrom": "option<string>",
+      "saveTo": "option<string>"
+    },
+    "BackgroundFetchRecord": {
+      "index": "number",
+      "url": "string",
+      "status": "number",
+      "contentType": "string",
+      "path": "option<string>",
+      "bodyLost": "bool"
+    },
+    "BackgroundFetchRegistration": {
+      "id": "string",
+      "uploadTotal": "number",
+      "uploaded": "number",
+      "downloadTotal": "number",
+      "downloaded": "number",
+      "result": "string",
+      "failureReason": "string",
+      "records": "BackgroundFetchRecord[]",
+      "apple": "option<AppleBackgroundFetch>"
+    },
+    "AppleBackgroundFetch": {
+      "cancelledReason": "option<number>",
+      "reason": "option<string>"
+    },
+    "BackgroundFetchStatus": {
+      "available": "bool",
+      "state": "enum<granted|denied|unknown>"
+    }
+  },
+  "names": [
+    {
+      "send": "backgroundFetch",
+      "permission": "none",
+      "contract": false,
+      "options": {
+        "id": "string",
+        "requests": {
+          "type": "BackgroundFetchRequest[]",
+          "admit": { "url": "net.fetch", "bodyFrom": "fs.read", "saveTo": "fs.write" }
+        },
+        "title": "option<string>",
+        "downloadTotal": "option<number>"
+      },
+      "answers": "BackgroundFetchRegistration",
+      "substitute": { "unsupported": ["web", "linux", "windows", "tvos"] }
+    },
+    {
+      "source": "backgroundFetchRegistration",
+      "live": true,
+      "options": { "id": "string" },
+      "answers": "option<BackgroundFetchRegistration>",
+      "substitute": { "unsupported": ["web", "linux", "windows", "tvos"] }
+    },
+    {
+      "source": "backgroundFetchIds",
+      "live": true,
+      "answers": "string[]",
+      "substitute": { "unsupported": ["web", "linux", "windows", "tvos"] }
+    },
+    {
+      "send": "abortBackgroundFetch",
+      "permission": "none",
+      "options": { "id": "string" },
+      "answers": "bool",
+      "substitute": { "unsupported": ["web", "linux", "windows", "tvos"] }
+    },
+    {
+      "send": "retireBackgroundFetch",
+      "permission": "none",
+      "options": { "id": "string" },
+      "answers": null,
+      "substitute": { "unsupported": ["web", "linux", "windows", "tvos"] }
+    },
+    {
+      "source": "backgroundFetchStatus",
+      "live": true,
+      "answers": "BackgroundFetchStatus",
+      "substitute": {
+        "default": { "available": false, "state": "unknown" },
+        "targets": {
+          "ios": { "available": true, "state": "granted" },
+          "macos": { "available": true, "state": "granted" }
+        }
+      }
+    },
+    { "event": "backgroundfetchsuccess", "on": "root", "raised": "wake", "args": ["BackgroundFetchRegistration"], "hold": 16, "budget": 30000 },
+    { "event": "backgroundfetchfail", "on": "root", "raised": "wake", "args": ["BackgroundFetchRegistration"], "hold": 16, "budget": 30000 },
+    { "event": "backgroundfetchabort", "on": "root", "raised": "wake", "args": ["BackgroundFetchRegistration"], "hold": 16, "budget": 30000 }
+  ]
+}

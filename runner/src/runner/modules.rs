@@ -77,7 +77,7 @@ use values::{absent_is_none, fill, set_path};
 /// which its caller turns into the entry (`region_list.rs`, `listed_or`).
 const LISTS: &str = "exact:lists";
 pub use wakes::WakeHow;
-pub(super) use wakes::TOLD;
+pub(super) use wakes::{EXPIRED, TOLD};
 
 /// The continuation tokens the runner keeps for its held module requests:
 /// a data source's count up from zero, far below, and its reserved ones

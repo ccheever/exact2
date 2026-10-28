@@ -8,9 +8,11 @@
 //
 // The module side reaches it through `NotificationCenter`
 // (`exact.transfers`, an `NSMutableDictionary` whose `reply` the carrier
-// sets): `{op: start, package, id, requests, discretionary}`, `{op: abort,
-// package, id}`, `{op: retire, package, id}`, `{op: record, package, id}`,
-// `{op: ids, package}`.
+// sets): `{op: start, package, id, requests, discretionary, downloadTotal}`,
+// `{op: abort, package, id}`, `{op: retire, package, id}`, `{op: record,
+// package, id}`, `{op: ids, package}`. It posts `exact.transfers.changed`
+// `{package, id}` as a registration's bytes move, at most once a second,
+// and when it ends.
 //
 // The record is the truth and the event a notice of it (D10): a
 // registration whose requests have all ended is offered to its package as
@@ -29,6 +31,8 @@ public enum TransferCarrier {
         var cancelledReason: Int?
         /// The wakes this registration's ending was offered in.
         var delivered = 0
+        /// The web's ceiling on the bytes downloaded, past which it fails.
+        var downloadTotal: Int64?
         var ended: Bool { requests.allSatisfy(\.ended) }
     }
 
@@ -41,6 +45,12 @@ public enum TransferCarrier {
         var status: Int?, contentType: String?, location: String?, error: String?
         var length: Int64?
         var bodyLost = false
+        /// The app file the response body goes to (`saveTo`), which the
+        /// package moves it to; the carrier keeps it as given.
+        var saveTo: String?
+        /// The request body's size, and the bytes sent and received so far;
+        /// optional, so a record an earlier build wrote still reads.
+        var size: Int64?, sent: Int64?, received: Int64?
     }
 
     private static var records: [String: Record] = [:]
@@ -51,6 +61,8 @@ public enum TransferCarrier {
     private static var installed = false
     /// Registrations in a wake now, not offered again until it is done.
     private static var offering: Set<String> = []
+    /// When each registration's progress was last told.
+    private static var told: [String: Date] = [:]
 
     private static var bundle: String { Bundle.main.bundleIdentifier ?? "app" }
     private static func identifier(_ discretionary: Bool) -> String { bundle + (discretionary ? ".transfers.discretionary" : ".transfers") }
@@ -125,7 +137,9 @@ public enum TransferCarrier {
         guard let package = box["package"] as? String else { return nil }
         let id = box["id"] as? String ?? ""
         switch box["op"] as? String {
-        case "start": return start(package, id, box["requests"] as? [[String: Any]] ?? [], discretionary: box["discretionary"] as? Bool ?? false)
+        case "start":
+            let total = (box["downloadTotal"] as? NSNumber)?.int64Value
+            return start(package, id, box["requests"] as? [[String: Any]] ?? [], discretionary: box["discretionary"] as? Bool ?? false, downloadTotal: total)
         case "abort":
             guard let r = records[id], r.package == package, !r.ended else { return false }
             session(r.discretionary).getAllTasks { tasks in
@@ -143,10 +157,10 @@ public enum TransferCarrier {
         }
     }
 
-    /// Each request `{url, method, headers, bodyFrom}`; `bodyFrom` a file,
-    /// copied into the record's folder first, since a background session
-    /// uploads only from a file. Nil, or the error's name.
-    private static func start(_ package: String, _ id: String, _ requests: [[String: Any]], discretionary: Bool) -> String? {
+    /// Each request `{url, method, headers, bodyFrom, saveTo}`; `bodyFrom` a
+    /// file, copied into the record's folder first, since a background
+    /// session uploads only from a file. Nil, or the error's name.
+    private static func start(_ package: String, _ id: String, _ requests: [[String: Any]], discretionary: Bool, downloadTotal: Int64? = nil) -> String? {
         guard !id.isEmpty, !requests.isEmpty, records[id].map({ $0.ended }) ?? true else { return "TypeError" }
         try? FileManager.default.removeItem(at: folder(id))
         try? FileManager.default.createDirectory(at: folder(id), withIntermediateDirectories: true)
@@ -161,31 +175,41 @@ public enum TransferCarrier {
             shownURL?.query = nil
             shownURL?.fragment = nil
             let task: URLSessionTask
+            var size: Int64?
             if let from = r["bodyFrom"] as? String {
                 let copy = folder(id).appendingPathComponent("upload-\(index)")
                 do { try FileManager.default.copyItem(at: URL(fileURLWithPath: from), to: copy) } catch { return "NotAllowedError" }
+                size = try? FileManager.default.attributesOfItem(atPath: copy.path)[.size] as? Int64
                 task = s.uploadTask(with: request, fromFile: copy)
             } else {
                 task = s.downloadTask(with: request)
             }
             task.taskDescription = "\(id) \(index)"
-            items.append(Item(index: index, method: request.httpMethod ?? "GET", url: shownURL?.string ?? text, upload: r["bodyFrom"] != nil))
+            var item = Item(index: index, method: request.httpMethod ?? "GET", url: shownURL?.string ?? text, upload: r["bodyFrom"] != nil)
+            item.saveTo = r["saveTo"] as? String
+            item.size = size
+            items.append(item)
             tasks.append(task)
         }
-        keep(Record(id: id, package: package, discretionary: discretionary, requests: items))
+        var record = Record(id: id, package: package, discretionary: discretionary, requests: items)
+        record.downloadTotal = downloadTotal
+        keep(record)
         tasks.forEach { $0.resume() }
         return nil
     }
 
     /// What a package reads of a record: never a header or a query.
     private static func shown(_ r: Record) -> [String: Any] {
-        var out: [String: Any] = ["id": r.id, "result": r.result, "failureReason": r.failureReason]
+        var out: [String: Any] = ["id": r.id, "result": r.result, "failureReason": r.failureReason,
+                                  "uploadTotal": r.requests.reduce(0) { $0 + ($1.size ?? 0) }, "uploaded": r.requests.reduce(0) { $0 + ($1.sent ?? 0) },
+                                  "downloadTotal": r.downloadTotal ?? 0, "downloaded": r.requests.reduce(0) { $0 + ($1.received ?? 0) }]
         if let c = r.cancelledReason { out["apple"] = ["cancelledReason": c] }
         out["records"] = r.requests.map { i -> [String: Any] in
             let file = body(r.id, i.index)
             var o: [String: Any] = ["index": i.index, "url": i.url, "status": i.status ?? 0, "contentType": i.contentType ?? "", "bodyLost": i.bodyLost]
             if FileManager.default.fileExists(atPath: file.path) { o["path"] = file.path }
             if let l = i.location { o["location"] = l }
+            if let t = i.saveTo { o["saveTo"] = t }
             return o
         }
         return out
@@ -197,6 +221,29 @@ public enum TransferCarrier {
         guard let (id, index) = which(task), records[id] != nil else { return }
         let file = body(id, index)
         if let h = try? FileHandle(forWritingTo: file) { h.seekToEndOfFile(); h.write(data); h.closeFile() } else { try? data.write(to: file) }
+        progressed(task) { $0.received = ($0.received ?? 0) + Int64(data.count) }
+    }
+
+    /// A request's bytes moved: kept in memory, written with the ending, and
+    /// told at most once a second. A download past `downloadTotal` is
+    /// cancelled and fails `download-total-exceeded`.
+    fileprivate static func progressed(_ task: URLSessionTask, _ change: (inout Item) -> Void) {
+        guard let (id, index) = which(task), var r = records[id], index < r.requests.count else { return }
+        change(&r.requests[index])
+        if let ceiling = r.downloadTotal, ceiling > 0, r.requests.reduce(0, { $0 + ($1.received ?? 0) }) > ceiling, r.failureReason.isEmpty {
+            r.failureReason = "download-total-exceeded"
+            task.cancel()
+        }
+        records[id] = r
+        if told[id].map({ Date().timeIntervalSince($0) >= 1 }) ?? true {
+            told[id] = Date()
+            tell(r)
+        }
+    }
+
+    private static func tell(_ r: Record) {
+        let body: [String: Any] = ["package": r.package, "id": r.id]
+        NotificationCenter.default.post(name: Notification.Name("exact.transfers.changed"), object: body as NSDictionary)
     }
 
     fileprivate static func downloaded(_ task: URLSessionTask, to location: URL) {
@@ -215,11 +262,16 @@ public enum TransferCarrier {
         i.contentType = http?.value(forHTTPHeaderField: "Content-Type")
         i.location = http?.value(forHTTPHeaderField: "Location")
         i.length = http.map { $0.expectedContentLength }
+        // A small body's progress may never be told; the task's counts are final here.
+        i.sent = max(i.sent ?? 0, task.countOfBytesSent)
+        i.received = max(i.received ?? 0, task.countOfBytesReceived)
         let have = (try? FileManager.default.attributesOfItem(atPath: body(id, index).path)[.size] as? Int64) ?? 0
         i.bodyLost = error == nil && (i.length ?? 0) > have
         if let e = error as NSError? {
             i.error = e.localizedDescription
-            if e.code == NSURLErrorCancelled {
+            if e.code == NSURLErrorCancelled && r.failureReason == "download-total-exceeded" {
+                // Cancelled by the carrier at the ceiling, not by the app.
+            } else if e.code == NSURLErrorCancelled {
                 r.failureReason = "aborted"
                 r.cancelledReason = e.userInfo[NSURLErrorBackgroundTaskCancelledReasonKey] as? Int
             } else if r.failureReason.isEmpty {
@@ -231,6 +283,7 @@ public enum TransferCarrier {
         r.requests[index] = i
         if r.ended { r.result = r.failureReason.isEmpty ? "success" : "failure" }
         keep(r)
+        tell(r)
         WakeStore.log("transfers: \(id) \(index) ended \(i.status.map(String.init) ?? i.error ?? "?")\(i.bodyLost ? ", its body lost" : "")")
         // While the app runs and no relaunch waits on these events, the ending is offered now.
         if r.ended, relaunched[identifier(r.discretionary)] == nil { offer([id]) }
@@ -271,6 +324,12 @@ public enum TransferCarrier {
             downloaded(downloadTask, to: location)
         }
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) { completed(task, error) }
+        func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+            progressed(task) { $0.sent = totalBytesSent }
+        }
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+            progressed(downloadTask) { $0.received = totalBytesWritten }
+        }
         func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) { finished(session) }
     }
 }

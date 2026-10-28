@@ -187,7 +187,9 @@ impl<D: DataSource> Runner<D> {
             ));
             return Effect::Now(refusal);
         }
-        if self.route(row) == super::Route::Real {
+        // The implementation answers: bound as in production, or, for an
+        // interface that is its own substitute, told it runs under the agent.
+        if self.route(row) != super::Route::Substitute {
             let request = self.as_origin(origin, |r| r.bound_request(row, args, None));
             let lines = self.extensions.declared.lines.clone();
             let slot = self.native_slot();
@@ -281,7 +283,7 @@ impl<D: DataSource> Runner<D> {
     /// a target the name does not exist on (under the agent), a declared
     /// check, or an `update` with nothing in the state it changes.
     fn effect_refusal(&self, row: &ModulesRow, args: &Json) -> Option<Json> {
-        let real = self.route(row) == super::Route::Real;
+        let real = self.route(row) != super::Route::Substitute;
         if !real && self.unsupported_here(row) {
             return Some(json!({ "error": "NotSupportedError" }));
         }

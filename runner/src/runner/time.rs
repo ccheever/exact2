@@ -204,6 +204,15 @@ impl<D: DataSource> Runner<D> {
                 self.raise_emitted(event);
                 continue;
             }
+            // The platform expired a wake an implementation raised.
+            if let Some(expired) = topic.strip_prefix(super::modules::EXPIRED) {
+                let (more, error) = self.expire_told_wake(expired);
+                receipts.extend(more);
+                if let Some(error) = error {
+                    return (receipts, Some(error));
+                }
+                continue;
+            }
             // A wake a bound implementation raised (LLP 1133.017 D8).
             if let Some(wake) = topic.strip_prefix(super::modules::TOLD) {
                 self.raise_told_wake(wake);

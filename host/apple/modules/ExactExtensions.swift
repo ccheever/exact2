@@ -417,7 +417,8 @@ extension ExactExtensions {
                 box["package"] = name
                 NotificationCenter.default.post(name: Notification.Name("exact.regions"), object: box)
                 return box["reply"]
-            })
+            },
+            expireWake: { [weak module] id in module?.expireWake(name, id: id) })
     }
 
     /// `EXACT_AGENT_PADS`: a drive's test pads (ExactPads), a JSON list.
@@ -457,6 +458,13 @@ extension ExactModuleContext {
             return
         }
         changed("exact-wake:" + String(decoding: json, as: UTF8.self))
+    }
+
+    /// The platform expired `extensionName`'s wake `id` (`context.expireWake`).
+    public func expireWake(_ extensionName: String, id: String) {
+        let body = ["extension": extensionName, "id": id]
+        guard let json = try? JSONSerialization.data(withJSONObject: body) else { return }
+        changed("exact-wake-expired:" + String(decoding: json, as: UTF8.self))
     }
 
     /// The `userInfo` entry for content the module posts whose activation

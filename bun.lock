@@ -83,6 +83,10 @@
       "name": "@exact/background",
       "version": "1.0.0",
     },
+    "packages/background-transfer": {
+      "name": "@exact/background-transfer",
+      "version": "1.0.0",
+    },
     "packages/barcode-detection": {
       "name": "@exact/barcode-detection",
       "version": "1.0.0",
@@ -296,6 +300,8 @@
     "@exact/attestation": ["@exact/attestation@workspace:packages/attestation"],
 
     "@exact/background": ["@exact/background@workspace:packages/background"],
+
+    "@exact/background-transfer": ["@exact/background-transfer@workspace:packages/background-transfer"],
 
     "@exact/barcode-detection": ["@exact/barcode-detection@workspace:packages/barcode-detection"],
 
