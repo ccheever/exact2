@@ -24,17 +24,16 @@ import { followUpBehavior } from './shared/composer-controls';
 import { queueState } from './shared/composer-controls-queue';
 import { requestPresentation } from './shared/requests';
 import { emptyPendingInput, type PendingInputView } from './pending-input';
-import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
+import { mobileMarkdownBlocks, type MarkdownBlock } from './markdown-blocks';
 import { mobileForkLifecycleActivity, mobileThreadActivity } from './thread-work';
 import type { ThreadActivity } from './thread-work';
 import { mobileThreadOutbox, threadOutboxStatus, threadOutboxPreview, prepareThreadOutboxPreviews } from './thread-outbox';
 export type { ThreadActivity } from './thread-work';
 
-export interface ThreadBlock { id: string; kind: string; text: string; language: string; tokens: ThreadCodeToken[] }
 export interface ThreadMedia { id: string; name: string; kind: string; url: string }
 export interface ThreadHtmlPresentation { context: string; width: number; theme: HtmlRenderTheme; iconColor: string }
 const emptyHtmlRender: HtmlRenderSnapshot = { context: '', key: '', identifier: '', sourceJSON: '', title: '', height: 80, available: false };
-export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: ThreadBlock[]; user: boolean;
+export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: MarkdownBlock[]; user: boolean;
   timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; senderThreadId: string; intent: string; intentDescription: string; intentTone: string; copyConfiguration: string;
   expanded: boolean; toggleOp: string; toggleId: string; failed: boolean; live: boolean; activities: ThreadActivity[];
   htmlRender: HtmlRenderSnapshot; media: ThreadMedia[]; first: boolean; last: boolean; canFork: boolean; forkKey: string; forkBusy: boolean; }
@@ -51,21 +50,6 @@ const legacyAutomationPrefix = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r
 const legacyAutomationMessageId = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
 export function mobileMessageTime(value: unknown): string { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? timeFormatter.format(stamp) : ''; }
 
-/** Keep rich prose on the portable Markdown reader; fenced blocks use the pinned mobile Shiki theme. */
-export function mobileThreadBlocks(body: string, dark: boolean): ThreadBlock[] {
-  const blocks: ThreadBlock[] = [];
-  const fence = /^( {0,3})(`{3,}|~{3,})([^\n`]*)\n([\s\S]*?)\n? {0,3}\2[`~]*[ \t]*(?:\n|$)/gm;
-  let position = 0;
-  const prose = (text: string) => { if (text.trim()) blocks.push({ id: String(blocks.length), kind: 'markdown', text, language: '', tokens: [] }); };
-  for (const match of body.matchAll(fence)) {
-    prose(body.slice(position, match.index));
-    const indent = match[1]!.length, language = match[3]!.trim().split(/\s+/)[0] || 'text';
-    const text = (indent ? match[4]!.split('\n').map(line => line.replace(new RegExp(`^ {0,${indent}}`), '')).join('\n') : match[4]!).replace(/\n$/, '');
-    blocks.push({ id: String(blocks.length), kind: 'code', text, language, tokens: mobileCodeTokens(text, language, dark) });
-    position = match.index! + match[0].length;
-  }
-  prose(body.slice(position)); return blocks;
-}
 // Pinned mobile userMessageIntentBadge.ts preserves a promoted message's queued origin.
 function userIntentBadge(intent: unknown): { label: string; description: string; tone: 'queued' | 'steer' } | null {
   switch (intent) {
@@ -100,7 +84,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
       : ['group', 'live', 'thinking'].includes(message.kind) && message.groupId ? 'chatlocal:group' : '';
     const showMeta = user || ['assistant', 'plan'].includes(message.kind) && message.meta !== false && message.completed === true && message.streaming !== true;
     const title = fork ? '' : message.kind === 'working' && message.startedMs ? `${message.title} ${elapsed(now - message.startedMs)}` : message.title;
-    rows.push({ id: message.id, kind: message.kind, title, body, blocks: mobileThreadBlocks(body, dark), user,
+    rows.push({ id: message.id, kind: message.kind, title, body, blocks: mobileMarkdownBlocks(body, dark), user,
       timestamp: mobileMessageTime(user ? item?.startedAt ?? message.createdAt : item?.updatedAt ?? message.createdAt), showMeta,
       streaming: message.streaming === true, attribution: automation ? 'Sent by automation' : agent ? 'Sent by another agent' : '', senderThreadId: agent ? message.targetId ?? '' : '',
       intent: intent?.label ?? '', intentDescription: intent?.description ?? '', intentTone: intent?.tone ?? '', copyConfiguration: item && ['user', 'assistant', 'plan'].includes(message.kind) ? JSON.stringify({ id: message.id,
@@ -114,13 +98,13 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
       activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark, routeKey)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
         const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp), routeKey);
         // Parse only visible reasoning; tools keep literal command/result output.
-        return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? mobileThreadBlocks(shown.output, dark) : [] };
+        return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? mobileMarkdownBlocks(shown.output, dark) : [] };
       }) });
   }
   for(const pending of mobileThreadOutbox(client,now)) {
     const record=pending.record;
     rows.push({id:`outbox:${record.messageId}`,kind:'pending',title:pending.reason,body:record.text,
-      blocks:mobileThreadBlocks(record.text,dark),user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
+      blocks:mobileMarkdownBlocks(record.text,dark),user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
       showMeta:true,streaming:false,attribution:'',senderThreadId:'',intent:threadOutboxStatus(pending.status),intentDescription:'',intentTone:'',copyConfiguration:'',expanded:false,
       toggleOp:pending.canRetry?'outbox:retry':'',toggleId:pending.owner,failed:pending.status==='recovery-required',live:false,activities:[],
       canFork:false,forkKey:'',forkBusy:false,htmlRender:emptyHtmlRender,media:record.attachments.map(file=>({id:file.id,name:file.name,kind:file.kind==='image'?'image':'file',

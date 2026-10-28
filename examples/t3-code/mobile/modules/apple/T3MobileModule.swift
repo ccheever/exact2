@@ -31,6 +31,10 @@ final class T3MobileModule: ExactModule {
         "t3-document-menu": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.documentMenus.makeView(props: props, events: events)
         },
+        "t3-file-code-copy": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            let instance = T3MobileFileCodeCopy(owner: module.documentMenus, agent: module.context.agent, events: events)
+            try instance.setProps(props); return instance
+        },
         "t3-document-html": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             if try T3MobileHTMLRender.requested(props) {
                 let instance = T3MobileHTMLRender(audioSession: module.audioSession, events: events)
@@ -671,6 +675,7 @@ import Foundation
 final class T3MobileModule: ExactModule {
     override class var views: [String: ExactNativeFactory] {
         ["t3-document-menu": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-file-code-copy": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-information-legal": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-information-search": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-information-notice": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },

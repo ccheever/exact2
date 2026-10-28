@@ -1,3 +1,4 @@
+import { mobileMarkdownBlocks } from './markdown-blocks';
 import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-memory';
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
@@ -5,7 +6,7 @@ import { arr, obj, type Obj } from './shared/domain';
 import { chatLocal, transcriptRows } from './shared/timeline-presentation';
 import { timelineEntries } from './shared/timeline-rows';
 import type { Native } from './shared/protocol';
-import { mobileThread, mobileThreadRows, mobileThreadComposer, mobileThreadBlocks } from './thread';
+import { mobileThread, mobileThreadRows, mobileThreadComposer } from './thread';
 import { mobileCodeTokens } from './thread-highlight';
 import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
 import { htmlRenderFileName, htmlRenderFrameHeight, htmlRenderFromToolItem, htmlRenderReferencesEqual, readHtmlRenderReference } from './html-render';
@@ -435,10 +436,22 @@ describe('mobile V2 transcript presentation', () => {
     expect(mobileThreadComposer(client)).toMatchObject({ canSend: false, modelUnavailable: true });
   });
   test('fenced blocks retain literal content and unknown languages remain readable', () => {
-    const blocks = mobileThreadBlocks('Before\n\n```typescript\nconst a = 1;\n```\nAfter', false);
+    const blocks = mobileMarkdownBlocks('Before\n\n```typescript\nconst a = 1;\n```\nAfter', false);
     expect(blocks.map(block => block.kind)).toEqual(['markdown', 'code', 'markdown']);
     expect(blocks[1]?.tokens.map(token => token.text).join('')).toBe('const a = 1;');
     expect(mobileCodeTokens('<unknown>', 'unregistered-language', true).map(token => token.text).join('')).toBe('<unknown>');
+    for (const [body, expected] of [
+      ['```text\nword```\nlast\n```', 'word```\nlast'],
+      ['```text\none\n\n```', 'one\n'],
+      ['````text\n```\nlast\n````', '```\nlast'],
+      ['```text\n```~\nlast\n```', '```~\nlast'],
+      ['  ~~~text\n  first\n second\n  ~~~~', 'first\nsecond'],
+      ['```\n```', ''],
+    ]) {
+      const code = mobileMarkdownBlocks(body!, false);
+      expect(code).toHaveLength(1); expect(code[0]?.kind).toBe('code'); expect(code[0]?.text).toBe(expected);
+      expect(code[0]?.tokens.map(token => token.text).join('')).toBe(expected);
+    }
   });
 });
 

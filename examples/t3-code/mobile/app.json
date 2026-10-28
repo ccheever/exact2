@@ -56,6 +56,7 @@
   },
   "modules": [
     "t3-symbol",
+    "t3-file-code-copy",
     "t3-message-copy",
     "t3-qr-scanner",
     "t3-home-chrome",

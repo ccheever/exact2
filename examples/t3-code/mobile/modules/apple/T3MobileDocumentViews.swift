@@ -21,6 +21,14 @@ final class T3MobileDocumentMenus {
         guard routes[route.key]?.value === route else { return }
         menus[route.key]?.value?.detach(); routes.removeValue(forKey: route.key)
     }
+    func canCopy(from view: UIView, routeKey: String) -> Bool {
+        guard alive, let route = routes[routeKey]?.value, route.isLive,
+              route.controller.navigationController?.topViewController === route.controller,
+              route.controller.presentedViewController == nil,
+              let host = route.controller.viewIfLoaded, host.window != nil,
+              view.window === host.window, view.isDescendant(of: host) else { return false }
+        return true
+    }
     fileprivate func bind(_ menu: T3MobileDocumentMenu, key: String) {
         guard alive else { return }
         if let old = menus[key]?.value, old !== menu { old.detach() }

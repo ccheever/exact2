@@ -1,3 +1,4 @@
+import { mobileMarkdownBlocks } from './markdown-blocks';
 // Source365aa87982 pending-new-tasks-model and pending-thread-feed.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#queued-command-construction
 import { arr, obj } from './shared/domain';
@@ -9,7 +10,7 @@ import { mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileOutboxCreationShell, mobileOutboxDriveCompleted, mobileOutboxDriveSnapshot } from './mobile-outbox-drive';
 import type { MobileOutboxRecord } from './mobile-outbox-model';
 import { homeDraftTitle, type HomeDraftOptions } from './home-drafts';
-import { mobileMessageTime, mobileThreadBlocks, mobileThreadRows, type ThreadSnapshot } from './thread';
+import { mobileMessageTime, mobileThreadRows, type ThreadSnapshot } from './thread';
 
 export interface MobilePendingTask {
   owner: string; record: MobileOutboxRecord; status: string; reason: string; canRetry: boolean;
@@ -69,7 +70,7 @@ export function mobileOutboxThread(environmentId: string, threadId: string, now:
     queuedCanRetry: !failure && item!.canRetry, queuedFailed: !!failure, queuedCanEdit: failure?.editable ?? false,
     loaded: true, loading: false, emptyTitle: '', emptyDetail: '', error: '', uncertain: false, hasMore: false,
     historyLoading: false, historyError: '', readsNeeded: false, answerFilesOwner: '', answerFilesRequest: '', approvals: [],
-    rows: [...rows, ...(detail && arr(detail.messages).some(message => message.id === record.messageId) ? [] : [{ id: record.messageId, kind: 'pending', title: '', body: record.text, blocks: mobileThreadBlocks(record.text, dark),
+    rows: [...rows, ...(detail && arr(detail.messages).some(message => message.id === record.messageId) ? [] : [{ id: record.messageId, kind: 'pending', title: '', body: record.text, blocks: mobileMarkdownBlocks(record.text, dark),
       user: true, timestamp: mobileMessageTime(record.createdAt), showMeta: true, streaming: false, attribution: '', senderThreadId: '', intent: status, intentDescription: '', intentTone: '',
       copyConfiguration: '', expanded: false, toggleOp: '', toggleId: '', failed: false, live: false, activities: [],
       htmlRender: { context: '', key: '', identifier: '', sourceJSON: '', title: '', height: 80, available: false }, media: [], first: rows.length === 0, last: true, canFork: false, forkKey: '', forkBusy: false }])].map((row, index, all) => ({ ...row, first: index === 0, last: index === all.length - 1 })),

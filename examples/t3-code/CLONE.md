@@ -104,8 +104,19 @@ capped like the reference. Tiny files stay within the viewport; a short wide
 file stops at its final character after repeated pans. The normal iPhone
 drive verifies this on the large schema file, including newly revealed rows,
 wrapping after a pan, a pull to refresh, and opening a second file. Wrapping
-remounts the viewer and resets both offsets as the reference does. Markdown code
-styling still differs. Files rows now align their labels beside the icons without
+remounts the viewer and resets both offsets as the reference does. Markdown file
+previews now render closed fences as syntax-colored code cards with independent
+horizontal scrolling and native Copy feedback. Code uses the reference card
+geometry and scales with the base text size. The normal phone copies the same
+344-character Caltrain block as the reference, then copies both Messages README
+blocks independently. UIKit word selection copies the selected code word.
+Preview/Source switching, pulling to refresh and returning to the filtered Files
+list pass. The shared splitter now requires a valid closing fence on its own
+line and preserves meaningful trailing blank lines. Prose still uses portable
+Markdown; heading sizes, soft line breaks, tables and images remain parity gaps.
+Unclosed/nested fences and reference links across preview chunks remain open.
+The draft file route shares this projection but has no new native acceptance.
+Files rows now align their labels beside the icons without
 system cell separators. Its Files/project header and bottom search reuse the
 existing native coordinators. The focused field and dismiss-button frames match
 the reference capture. Native no-results search, directory expansion, result
@@ -116,7 +127,7 @@ The inspector-supported Files/chat branch retains its existing search input.
 Source rows carry only source fields and reuse their
 highlighted projection while the read is unchanged. The normal iPhone app opens
 the real 6,175-line schema file that previously exceeded the 100 ms turn budget.
-Read failures show an error and Try again instead of an empty body. All 3,706
+Read failures show an error and Try again instead of an empty body. All 3,707
 mobile tests and strict app TypeScript pass. These phone fixes are not in the POC build.
 The Apple host preserves pull-to-refresh for a short file that also scrolls
 horizontally. Its new regression assertions pass, and the native short-file drive
