@@ -719,7 +719,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package var reach: UIEdgeInsets = .zero
     /// PROTO: the laid-out box in this view's own coordinates, its bounds less its reach.
     package var boxBounds: CGRect { bounds.inset(by: reach) }
-    /// PROTO: the cross-axis reach written into its scroll view's `contentInset` (by delta, as bands are).
+    /// PROTO: the adjustment behaviour the reach pass set on its scroll view, to undo when it stops reaching.
+    package var reachBehavior: UIScrollView.ContentInsetAdjustmentBehavior?
+    /// PROTO: the part of its scroll view's `contentInset` the reach pass wrote (its safe area UIKit does not adjust).
     package var reachInset: UIEdgeInsets = .zero
     /// PROTO: how far a leaf that takes its edges is laid out past its box, content and all (bounds origin kept).
     package var take: UIEdgeInsets = .zero
