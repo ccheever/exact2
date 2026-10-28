@@ -37,18 +37,20 @@ require them.
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
 
-The current pickup starts at mobile `250d863`. The iPhone simulator build succeeds
-and Home opens. The connection failure message and successful pairing with the
-real local T3 environment are observed. Home then remains at Loading threads and
-its controls do not navigate. The app console reports that `homeView` exceeds
-the data-source budget. A source profile using the real shell identifies hidden
-Arrange planning as the dominant work. The fix must preserve visible rows and
-Arrange behavior without raising that budget.
+The current pickup starts at mobile `250d863`. The ordinary iPhone simulator
+build pairs with the real local T3 environment. Removing unused per-row Arrange
+planner probes fixes Home navigation on the live catalogue. The app opens a
+project, creates a thread, sends a message, and displays the real provider reply.
+The environment and that conversation remain available after an ordinary restart.
 
-After generating the pinned tables, the connection, thread-submission, and outbox
-tests pass all 92 tests. The full mobile run passes 3,692 tests; its remaining
-workspace test passes all 19 tests once `target/debug/contract` is built. This is
-baseline evidence, not acceptance of the real-environment POC.
+The POC remains blocked by a Hermes heap exhaustion while typing a follow-up.
+Streaming, Stop, sustained editing, and the completed restart flow still need
+acceptance. Diagnose allocation and retention before another production release.
+The Home fix is pushed in PR216 at `122646f95` and independently reviewed.
+
+All six root repository checks pass at the mobile checkpoint. After the Home fix,
+the full mobile suite passes 3,694 tests, strict app TypeScript passes, and the
+native simulator build succeeds. These checks do not override the observed crash.
 
 The app uses Exact Contract, TypeScript/Hermes, and UIKit, with no React Native
 runtime or Metro. Use Bun 1.4.2 and the separate app Cargo workspace. Ordinary
