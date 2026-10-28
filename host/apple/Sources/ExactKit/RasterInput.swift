@@ -101,17 +101,18 @@ final class RasterInput: @unchecked Sendable {
     /// spooled input, or why not, on the download's queue (or at once, for
     /// a response already stored). Many download at a time over the
     /// process's shared connections, as a browser's images do.
-    /// An `urgent` one (a picture that fills the screen) goes first, with the
-    /// longer whole-load bound (`RasterRetry`).
-    static func fetch(_ url: URL, urgent: Bool = false, cancellation: RasterCancellation, done: @escaping (Result<RasterInput, Error>) -> Void) {
+    /// An `urgent` one (a picture that fills the screen, asked as it starts)
+    /// goes first, with the longer whole-load bound (`RasterRetry`).
+    static func fetch(_ url: URL, urgent: (() -> Bool)? = nil, cancellation: RasterCancellation, done: @escaping (Result<RasterInput, Error>) -> Void) {
         do {
-            try RasterDownload(url: url, urgent: urgent).start(cancellation) { result in
+            try RasterDownload(url: url, urgency: urgent).start(cancellation) { result in
                 done(result.map { RasterInput(url: $0.0, encodedBytes: $0.1, temporary: true) })
             }
         } catch { done(.failure(error)) }
     }
     /// Every download of `url` under way now fills the screen: it goes first,
-    /// with the longer whole-load bound from its ask.
+    /// with the longer whole-load bound from its ask (one about to start asks
+    /// its `urgent` as it does).
     static func promote(_ url: URL) { RasterDownloads.shared.promote(url) }
     /// A `data:` URL's bytes: base64 after `;base64`, else percent-decoded;
     /// whitespace and percent escapes in base64 forgiven, as browsers do.
@@ -192,16 +193,22 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
     private let policy: URLRequest.CachePolicy
     /// A picture that fills the screen: its task goes first and its whole
     /// load has the longer bound, from when it was asked for (`promote`).
-    private var urgent: Bool
-    private var asked = Date()
-    private var task: URLSessionDataTask?
+    /// Set before the download is published, then only on the sessions' queue.
+    fileprivate var urgent = false
+    private let urgency: (() -> Bool)?
+    /// When it was asked for, on the monotonic clock; the bound's timer and
+    /// its generation, so a superseded timer's cancel does nothing.
+    fileprivate var asked = DispatchTime.now()
+    fileprivate var task: URLSessionDataTask?
     private var bound: DispatchSourceTimer?
-    init(url: URL, policy: URLRequest.CachePolicy = .useProtocolCachePolicy, urgent: Bool = false) throws {
+    private var armed = 0
+    init(url: URL, policy: URLRequest.CachePolicy = .useProtocolCachePolicy, urgency: (() -> Bool)? = nil) throws {
         self.url = url
         self.policy = policy
-        self.urgent = urgent
+        self.urgency = urgency
         destination = try RasterSpool.file()
-        guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw RasterFailure.decode }
+        // (The spool, which asking again may mend: not a raster refusal.)
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
         file = try FileHandle(forWritingTo: destination)
         super.init()
     }
@@ -235,12 +242,15 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
             return done(.failure(cooling))
         }
         self.done = done; self.cancellation = cancellation
-        urgent = urgent || RasterDownloads.shared.urged(url)
-        let task = RasterDownloads.shared.task(url, policy: policy, urgent: urgent, for: self)
-        self.task = task
+        requested = Date()
+        // Published with its task, its ask and its urgency set (`RasterDownloads.task`).
+        let task = RasterDownloads.shared.task(url, policy: policy, urgent: urgency?() == true, for: self)
         cancellation.install { task.cancel() }
-        requested = Date(); asked = Date()
-        RasterDownloads.shared.queue.addOperation { [self] in arm() }
+        RasterDownloads.shared.queue.addOperation { [self] in
+            // One whose picture came to fill the screen since it was asked.
+            if !urgent, urgency?() == true { urgent = true; task.priority = URLSessionTask.highPriority }
+            arm()
+        }
         task.resume()
     }
     /// The whole load's bound, from when it was asked for: past it the task
@@ -248,12 +258,13 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
     private func arm() {
         bound?.cancel(); bound = nil
         guard done != nil else { return }
+        armed += 1
+        let generation = armed
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        let at = asked.addingTimeInterval(urgent ? RasterRetry.urgentWhole : RasterRetry.whole)
-        timer.schedule(deadline: .now() + max(0, at.timeIntervalSinceNow))
+        timer.schedule(deadline: asked + (urgent ? RasterRetry.urgentWhole : RasterRetry.whole))
         timer.setEventHandler { [weak self] in
             RasterDownloads.shared.queue.addOperation {
-                guard let self, self.done != nil else { return }
+                guard let self, self.done != nil, self.armed == generation else { return }
                 self.failure = self.failure ?? URLError(.timedOut); self.task?.cancel()
             }
         }
@@ -267,8 +278,7 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
     }
     private func finish() {
         cancellation?.clear()
-        bound?.cancel(); bound = nil
-        _ = RasterDownloads.shared.urged(url, ended: true)
+        bound?.cancel(); bound = nil; armed += 1
         try? file.close()
         let answer = done; done = nil
         if let failure {
@@ -368,7 +378,9 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
     private var generated: Date?
     private static let generatedKey = "exact.generated"
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard failure == nil, data.count <= RasterMetadata.encodedLimit - count else {
+        // (Bytes a cancel has not yet stopped keep the failure it had.)
+        guard failure == nil else { return }
+        guard data.count <= RasterMetadata.encodedLimit - count else {
             failure = RasterFailure.encodedLimit; dataTask.cancel(); return
         }
         do { try file.write(contentsOf: data); count += data.count }
@@ -402,23 +414,15 @@ private final class RasterDownloads: NSObject, URLSessionDataDelegate, @unchecke
         let task = session.dataTask(with: url)
         // A hint: URLSession serves the others as well.
         if urgent { task.priority = URLSessionTask.highPriority }
+        download.urgent = urgent; download.task = task; download.asked = .now()
         downloads[ObjectIdentifier(task)] = download
         return task
     }
-    /// Every download of `url` under way now fills the screen (`RasterDownload.promote`),
-    /// and one about to start does too (`urged`), until a download of it ends.
+    /// Every download of `url` under way now fills the screen (`RasterDownload.promote`).
     func promote(_ url: URL) {
-        lock.lock()
-        urgedURLs.insert(url)
-        let matching = downloads.values.filter { $0.url == url }
-        lock.unlock()
+        lock.lock(); let matching = downloads.values.filter { $0.url == url }; lock.unlock()
         queue.addOperation { matching.forEach { $0.promote() } }
     }
-    func urged(_ url: URL, ended: Bool = false) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return ended ? urgedURLs.remove(url) != nil : urgedURLs.contains(url)
-    }
-    private var urgedURLs = Set<URL>()
     func cooling(_ url: URL) -> RasterHTTPStatus? {
         lock.lock(); defer { lock.unlock() }
         guard let entry = coolingURLs[url], entry.until > Date() else { return nil }

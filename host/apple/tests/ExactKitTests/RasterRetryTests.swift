@@ -21,6 +21,7 @@ final class RasterRetryTests: XCTestCase {
         loader.load(node, source: "\(server.origin)/flaky.png", resolver: resolver)
         settle { node.raster != nil }
         XCTAssertEqual(server.times.count, 3, "busy twice, then the picture")
+        XCTAssertEqual(loader.testAnnounced.map(\.failure), [nil], "its load, and no error before it")
         XCTAssertEqual(images(loader).first?["failure"] as? String, "")
         XCTAssertEqual(images(loader).first?["retries"] as? Int, 2)
     }
@@ -81,17 +82,57 @@ final class RasterRetryTests: XCTestCase {
         loader.load(node, source: "\(server.origin)/dead.png", resolver: resolver)
         settle { (images(loader).first?["retries"] as? Int ?? 0) >= 2 }
         let shown = node.frame
-        node.frame = shown.offsetBy(dx: 5000, dy: 0); loader.reconcile()
+        // Laid out off screen, as a layout pass tells the loader.
+        node.frame = shown.offsetBy(dx: 5000, dy: 0); loader.resized(node)
         // (A retry under way lands first, off screen.)
         settle { images(loader).first?["held"] as? Bool == true && images(loader).first?["retries"] as? Int == 0 }
         let asked = server.times.count
         pump(1)
         XCTAssertEqual(server.times.count, asked, "nothing is asked while it is off screen")
         XCTAssertEqual(images(loader).first?["held"] as? Bool, true, "and no error yet")
-        node.frame = shown; loader.reconcile()
+        node.frame = shown; loader.resized(node)
         // (Between retries it is neither held nor failed: a download is under way.)
         settle { images(loader).first?["held"] as? Bool == false && images(loader).first?["failure"] as? String == "HTTP 503" }
         XCTAssertEqual(server.times.count, asked + RasterRetry.steps.count, "a whole ladder after it showed again")
+        XCTAssertEqual(loader.testAnnounced.map(\.failure), ["HTTP 503"], "one error, after the retries, and no load")
+    }
+
+    /// Leaving and coming back while a retry downloads starts the count over too.
+    func testLeavingWhileARetryDownloadsStartsTheCountOver() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        RasterRetry.scale = 0.02
+        let server = try ScriptedRasterHTTP(delay: 0.4) { _, _ in .status(503) }
+        defer { server.stop() }
+        node.loadGeneration = 1
+        loader.load(node, source: "\(server.origin)/slow.png", resolver: resolver)
+        // A retry's request at the server, its answer not yet back.
+        settle {
+            let retries = images(loader).first?["retries"] as? Int ?? 0
+            return images(loader).first?["retrying"] as? Bool == true && retries >= 2 && server.times.count == retries + 1
+        }
+        let asked = server.times.count, shown = node.frame
+        node.frame = shown.offsetBy(dx: 5000, dy: 0); loader.resized(node); pump(0.05)
+        node.frame = shown; loader.resized(node)
+        settle { images(loader).first?["held"] as? Bool == false && images(loader).first?["failure"] as? String == "HTTP 503" }
+        XCTAssertEqual(server.times.count, asked + RasterRetry.steps.count, "the retry under way, then a whole ladder")
+        XCTAssertEqual(loader.testAnnounced.map(\.failure), ["HTTP 503"])
+    }
+
+    /// Two views of one URL: one retry downloads for both, the other joining it.
+    func testViewsOfOneURLShareTheirRetries() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        let second = NodeView(id: 2, kind: "image", presenter: presenter)
+        presenter.views[2] = second; presenter.viewport.addSubview(second); second.frame = node.frame
+        defer { loader.shutdown(); node.raster = nil; second.raster = nil; window.close(); try? FileManager.default.removeItem(at: root) }
+        let server = try ScriptedRasterHTTP { _, n in n < 2 ? .status(502) : .picture }
+        defer { server.stop() }
+        node.loadGeneration = 1; second.loadGeneration = 1
+        let url = "\(server.origin)/shared.png"
+        loader.load(node, source: url, resolver: resolver); loader.load(second, source: url, resolver: resolver)
+        settle { node.raster != nil && second.raster != nil }
+        XCTAssertEqual(server.times.count, 3, "two failures, then the picture, for both")
+        XCTAssertEqual(loader.testAnnounced.filter { $0.failure != nil }.count, 0)
     }
 
     /// A picture that fills the screen has the longer whole-load bound: a
