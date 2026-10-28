@@ -125,6 +125,9 @@ fn raster_tint_preserves_alpha_background_and_border_in_both_painters() {
     if exact_linux::gpu::Gpu::new().is_ok() {
         choices.push(PainterChoice::Gpu);
     }
+    if exact_linux::ink::Ink::new().is_ok() {
+        choices.push(PainterChoice::Ink);
+    }
     let mut failures = Vec::new();
     for choice in choices {
         let (mut p, error) =

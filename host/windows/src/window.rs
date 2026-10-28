@@ -15,7 +15,7 @@ use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
-    platform::windows::EventLoopBuilderExtWindows,
+    platform::windows::{EventLoopBuilderExtWindows, WindowAttributesExtWindows},
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{CursorIcon, Fullscreen, Theme, Window, WindowId},
 };
@@ -43,6 +43,7 @@ struct App<D: DataSource> {
     minimized: bool,
     occluded: bool,
     frames: u64,
+    measured_first_screen: bool,
     paint_ms: f64,
     present_ms: f64,
     previous_frame: Option<Instant>,
@@ -114,6 +115,11 @@ fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) ->
     }
 }
 
+fn direct_device(painter: exact_linux::presenter::PainterChoice, device: Option<&str>) -> bool {
+    painter == exact_linux::presenter::PainterChoice::Ink
+        && matches!(device, Some("d3d11" | "warp"))
+}
+
 pub(super) fn run<D: DataSource + Default + 'static>(
     name: &str,
     opening: crate::Window,
@@ -139,9 +145,6 @@ pub(super) fn run<D: DataSource + Default + 'static>(
                 std::env::set_var("EXACT_ASSETS", root);
             }
         }
-    }
-    if std::env::var_os("EXACT_PAINTER").is_none() {
-        std::env::set_var("EXACT_PAINTER", "cpu");
     }
     if std::env::var_os("EXACT_GPU_RENDER").is_none() {
         std::env::set_var("EXACT_GPU_RENDER", "1");
@@ -230,6 +233,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         minimized: false,
         occluded: false,
         frames: 0,
+        measured_first_screen: false,
         paint_ms: 0.,
         present_ms: 0.,
         previous_frame: None,
@@ -261,9 +265,16 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             eprintln!("exact: {line}");
         }
     }
+    if state.frame_limit.is_some()
+        && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+        && !state.measured_first_screen
+    {
+        eprintln!("exact-windows: the first-screen readiness target was not painted");
+        state.failed = true;
+    }
     if state.frames > 0 {
         eprintln!(
-            "exact-windows: {} frames; mean render/present {:.2} ms; mean CPU upload {:.2} ms",
+            "exact-windows: {} frames; mean paint {:.2} ms; mean present {:.2} ms",
             state.frames,
             state.paint_ms / state.frames as f64,
             state.present_ms / state.frames as f64
@@ -274,7 +285,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             values[((values.len() - 1) as f64 * fraction).round() as usize]
         };
         if !state.samples.is_empty() {
-            eprintln!("exact-windows: recent {} frames p50/p95 ms: interval {:.2}/{:.2}, render/present {:.2}/{:.2}, CPU upload {:.2}/{:.2}",
+            eprintln!("exact-windows: recent {} frames p50/p95 ms: interval {:.2}/{:.2}, paint {:.2}/{:.2}, present {:.2}/{:.2}",
                 state.samples.len(), percentile(|s| s.0, 0.5), percentile(|s| s.0, 0.95),
                 percentile(|s| s.1, 0.5), percentile(|s| s.1, 0.95),
                 percentile(|s| s.2, 0.5), percentile(|s| s.2, 0.95));
@@ -323,7 +334,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
         let frame_started = Instant::now();
-        if self.minimized {
+        if self.minimized || self.occluded {
             return Ok(());
         }
         // A frame task can wake the loop from its own commit. Those wakes
@@ -339,7 +350,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             return Ok(());
         }
         let now = self.now();
-        let (Some(window), Some(surface), Some(p)) =
+        let (Some(window), surface, Some(p)) =
             (&self.window, &mut self.surface, &mut self.presenter)
         else {
             return Ok(());
@@ -394,6 +405,11 @@ impl<D: DataSource + Default + 'static> App<D> {
                     .and_then(|m| m.refresh_rate_millihertz())
             );
         }
+        // Bounded runs measure an unchanged redraw, as the C4 still protocol does.
+        if self.frame_limit.is_some() {
+            p.repaint();
+        }
+        let painting = p.dirty();
         let paint = Instant::now();
         if let Some(previous) = self.caret.take_previous_frame() {
             p.recycle_frame(previous);
@@ -403,14 +419,9 @@ impl<D: DataSource + Default + 'static> App<D> {
         else {
             return Err("not a Windows window".into());
         };
-        // SAFETY: App drops the presenter (and module swapchain) before the HWND.
-        #[allow(unsafe_code)]
-        let mut frame = unsafe {
-            p.window_frame(
-                handle.hwnd.get() as usize,
-                handle.hinstance.map_or(0, |h| h.get() as usize),
-            )
-        }?;
+        let owned = exact_ink::device::d3d11::Window::from_owner(window.clone())
+            .map_err(|e| e.to_string())?;
+        let mut frame = p.window_frame(owned.clone())?;
         let caret_rect = (self.focused && p.last_frame_succeeded())
             .then(|| p.caret_frame())
             .flatten();
@@ -423,16 +434,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         ) {
             p.set_caret_visible(true);
             // A programmatic move while hidden starts a fresh visible phase.
-            // SAFETY: the presenter is still owned by this live window.
-            #[allow(unsafe_code)]
-            {
-                frame = unsafe {
-                    p.window_frame(
-                        handle.hwnd.get() as usize,
-                        handle.hinstance.map_or(0, |h| h.get() as usize),
-                    )
-                }?;
-            }
+            frame = p.window_frame(owned)?;
             self.caret.presented(
                 handle.hwnd.get(),
                 caret_rect,
@@ -444,10 +446,18 @@ impl<D: DataSource + Default + 'static> App<D> {
         // Geometry and accessibility queries below can paint into a discarded
         // frame. Preserve work discovered after this frame's pixels were drawn.
         let repaint_owed = p.dirty();
-        let paint_ms = paint.elapsed().as_secs_f64() * 1000.;
+        let direct_present_ms = if painting && frame.is_none() && p.painter.name == "ink" {
+            p.last_frame_ms().map_or(0., |(_, present)| present)
+        } else {
+            0.
+        };
+        let paint_ms = (paint.elapsed().as_secs_f64() * 1000. - direct_present_ms).max(0.);
         self.paint_ms += paint_ms;
         let present = Instant::now();
         if let Some(frame) = frame {
+            let surface = surface
+                .as_mut()
+                .ok_or("direct painter returned an unpresented frame")?;
             surface.resize(width, height).map_err(|e| e.to_string())?;
             let mut buffer = surface.buffer_mut().map_err(|e| e.to_string())?;
             if buffer.len() != frame.data().len() / 4 {
@@ -482,7 +492,7 @@ impl<D: DataSource + Default + 'static> App<D> {
             window.set_cursor(cursor);
             self.cursor = cursor;
         }
-        let present_ms = present.elapsed().as_secs_f64() * 1000.;
+        let present_ms = present.elapsed().as_secs_f64() * 1000. + direct_present_ms;
         self.present_ms += present_ms;
         if let Some(previous) = self.previous_frame.replace(frame_started) {
             let sample = (
@@ -495,6 +505,54 @@ impl<D: DataSource + Default + 'static> App<D> {
             } else {
                 self.samples[(self.frames as usize - 1) % 4096] = sample;
             }
+        }
+        if self.frames == 0 {
+            eprintln!(
+                "exact-windows: first present returned at {:.3} ms after host start",
+                self.started.elapsed().as_secs_f64() * 1000.
+            );
+        }
+        // A screen's ready marker can exclude background requests that do not
+        // contribute to it. Shelf's library-count appears with its seeded books.
+        let screen_ready = std::env::var("EXACT_AGENT_WINDOW_READY").map_or_else(
+            |_| !p.pending(),
+            |target| p.host().kernel().find_by_test_id(&target).len() == 1,
+        );
+        if self.frame_limit.is_some()
+            && !self.measured_first_screen
+            && p.last_frame_succeeded()
+            && !p.data_activating()
+            && screen_ready
+        {
+            let synchronized = exact_ink::device::compositor_sync_process_ms();
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let displayed = loop {
+                let displayed = p.displayed_process_ms();
+                if displayed.is_ok() || Instant::now() >= deadline {
+                    break displayed;
+                }
+                // The composition statistics can lag a DWM sync. Do not accept
+                // an older present as the complete screen's displayed frame.
+                if exact_ink::device::compositor_sync_process_ms().is_err() {
+                    break displayed;
+                }
+            };
+            match displayed {
+                Ok(Some(ms)) => {
+                    eprintln!("exact-windows: process to displayed first screen {ms:.3} ms (DXGI)")
+                }
+                Err(error) => {
+                    eprintln!("exact-windows: displayed-frame timestamp unavailable: {error}")
+                }
+                Ok(None) => {}
+            }
+            match synchronized {
+                Ok(ms) => eprintln!(
+                    "exact-windows: process to first-screen compositor sync {ms:.3} ms (DWM proxy)"
+                ),
+                Err(error) => eprintln!("exact-windows: compositor sync: {error}"),
+            }
+            self.measured_first_screen = true;
         }
         self.frames += 1;
         p.first_pixel();
@@ -540,23 +598,21 @@ impl<D: DataSource + Default + 'static> App<D> {
         Ok(())
     }
 
-    fn blink(&mut self) -> Result<(), String> {
+    fn blink(&mut self, now: Instant) -> Result<(), String> {
         if self.minimized || self.occluded || !self.focused {
             return Ok(());
         }
-        let (Some(window), Some(surface), Some(p)) =
-            (&self.window, &mut self.surface, &mut self.presenter)
-        else {
+        let (Some(window), Some(p)) = (&self.window, &mut self.presenter) else {
             return Ok(());
         };
         if p.dirty() || p.wants_display_frames() || p.host().motion() {
             return Ok(());
         }
-        if !self.caret.advance(Instant::now()) {
+        if !self.caret.advance(now) {
             return Ok(());
         }
         p.set_caret_visible(self.caret.visible());
-        if !self.caret.can_patch() {
+        if self.surface.is_none() || !self.caret.can_patch() {
             p.repaint();
             window.request_redraw();
             return Ok(());
@@ -569,7 +625,12 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
             self.caret.compare(other);
         }
-        let mut buffer = surface.buffer_mut().map_err(|e| e.to_string())?;
+        let mut buffer = self
+            .surface
+            .as_mut()
+            .expect("patch surface")
+            .buffer_mut()
+            .map_err(|e| e.to_string())?;
         if let Some(damage) = self.caret.paint(&mut buffer, window.inner_size().width) {
             buffer
                 .present_with_damage(&[damage])
@@ -614,6 +675,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         let window = match events.create_window(
             Window::default_attributes()
+                .with_no_redirection_bitmap(direct_device(
+                    self.config.painter(),
+                    std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
+                ))
                 .with_visible(false)
                 .with_title(&self.name)
                 .with_fullscreen(
@@ -657,8 +722,28 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
             }
         }
+        let mut direct = false;
         match app::boot_presenter::<D>(&mut self.config, viewport) {
             Ok((mut p, warning)) => {
+                if let Ok(handle) = window.window_handle() {
+                    if let RawWindowHandle::Win32(_) = handle.as_raw() {
+                        let owned =
+                            match exact_ink::device::d3d11::Window::from_owner(window.clone()) {
+                                Ok(owned) => owned,
+                                Err(e) => {
+                                    self.fail(events, e.to_string());
+                                    return;
+                                }
+                            };
+                        match p.attach_painter_window(owned, [size.width, size.height]) {
+                            Ok(attached) => direct = attached,
+                            Err(e) => {
+                                self.fail(events, e);
+                                return;
+                            }
+                        }
+                    }
+                }
                 p.host_mut().runner_mut().set_row_reuse(true);
                 if let Some(scale) = self.appearance.text_scale() {
                     if let Some(error) = p.set_text_scale(scale) {
@@ -689,18 +774,20 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 return;
             }
         }
-        let context = match softbuffer::Context::new(window.clone()) {
-            Ok(c) => c,
-            Err(e) => {
-                self.fail(events, e);
-                return;
-            }
-        };
-        match softbuffer::Surface::new(&context, window.clone()) {
-            Ok(surface) => self.surface = Some(surface),
-            Err(e) => {
-                self.fail(events, e);
-                return;
+        if !direct {
+            let context = match softbuffer::Context::new(window.clone()) {
+                Ok(c) => c,
+                Err(e) => {
+                    self.fail(events, e);
+                    return;
+                }
+            };
+            match softbuffer::Surface::new(&context, window.clone()) {
+                Ok(surface) => self.surface = Some(surface),
+                Err(e) => {
+                    self.fail(events, e);
+                    return;
+                }
             }
         }
         window.set_visible(true);
@@ -955,7 +1042,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 window.request_redraw();
             }
         }
-        if let Err(error) = self.blink() {
+        if let Err(error) = self.blink(Instant::now()) {
             self.fail(events, error);
             return;
         }
@@ -1000,6 +1087,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         } else {
             events.set_control_flow(ControlFlow::Wait);
         }
+        if let Some(due) = p.painter_retry_deadline() {
+            if Instant::now() >= due {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= due) {
+                events.set_control_flow(ControlFlow::WaitUntil(due));
+            }
+        }
         // Only an app with an input canvas needs controller discovery wakes.
         if pads_active {
             let soon = self.pads.next_poll(Instant::now());
@@ -1029,6 +1126,121 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn default_ink_window_keeps_redirection_for_softbuffer() {
+        use exact_linux::presenter::PainterChoice::*;
+        assert!(!direct_device(Ink, None));
+        assert!(!direct_device(Ink, Some("wgpu")));
+        assert!(direct_device(Ink, Some("d3d11")));
+        assert!(direct_device(Ink, Some("warp")));
+        for painter in [Auto, Cpu, Gpu, Custom] {
+            assert!(!direct_device(painter, Some("d3d11")));
+        }
+    }
+
+    #[test]
+    #[ignore = "native Windows desktop, system caret blink enabled, EXACT_INK_DEVICE=d3d11"]
+    #[allow(deprecated)]
+    fn direct_window_blinks_without_a_softbuffer_surface() {
+        let events = EventLoop::<crate::accessibility::Event>::with_user_event()
+            .with_any_thread(true)
+            .build()
+            .unwrap();
+        let window = Rc::new(
+            events
+                .create_window(
+                    Window::default_attributes()
+                        .with_title("Ink caret regression")
+                        .with_no_redirection_bitmap(true)
+                        .with_inner_size(LogicalSize::new(160., 80.)),
+                )
+                .unwrap(),
+        );
+        let owned = exact_ink::device::d3d11::Window::from_owner(window.clone()).unwrap();
+        let plan = contract::compile("component App\n  view\n    input testId=\"field\" value=\"blink\" width=140 height=40\n").unwrap().encode();
+        let (mut p, warning) = Presenter::boot_with(
+            &plan,
+            (),
+            (160., 80.),
+            1.,
+            Default::default(),
+            exact_linux::presenter::PainterChoice::Ink,
+        )
+        .unwrap();
+        assert!(warning.is_none());
+        assert!(p.attach_painter_window(owned.clone(), [160, 80]).unwrap());
+        let k = p.host().kernel();
+        let field = k.node_by_key(k.find_by_test_id("field")[0]).unwrap().id;
+        p.tap(field).unwrap();
+        assert!(p.window_frame(owned.clone()).unwrap().is_none());
+        let started = Instant::now();
+        let mut caret = crate::caret::Caret::default();
+        caret.presented(owned.hwnd() as isize, p.caret_frame(), 1., None, started);
+        let due = caret.deadline().expect("system caret blink enabled");
+        let mut state = App {
+            proxy: events.create_proxy(),
+            accessibility: None,
+            name: "Ink caret regression".into(),
+            min_size: (1., 1.),
+            config: Config::from_env(&plan, ""),
+            window: Some(window),
+            surface: None,
+            presenter: Some(p),
+            started,
+            pointer: (0., 0.),
+            pointer_inside: false,
+            focused: true,
+            cursor: CursorIcon::Default,
+            buttons: 0,
+            clicks: Default::default(),
+            scale: 1.,
+            refit_after_scale: false,
+            next_frame: started,
+            failed: false,
+            minimized: false,
+            occluded: false,
+            frames: 1,
+            measured_first_screen: false,
+            paint_ms: 0.,
+            present_ms: 0.,
+            previous_frame: None,
+            samples: Vec::new(),
+            frame_limit: None,
+            first_tap: None,
+            pads: Default::default(),
+            pads_active: false,
+            caret,
+            edit_menu: None,
+            ime: Default::default(),
+            appearance: Default::default(),
+            modal: Default::default(),
+            desktop: crate::desktop::Desktop::install("Ink caret regression"),
+        };
+        assert!(!state.presenter.as_ref().unwrap().dirty());
+        state.blink(due).unwrap();
+        assert!(!state.caret.visible());
+        let next = state.caret.deadline().unwrap();
+        assert!(next > due);
+        assert!(state.presenter.as_ref().unwrap().dirty());
+        assert!(state
+            .presenter
+            .as_mut()
+            .unwrap()
+            .window_frame(owned.clone())
+            .unwrap()
+            .is_none());
+        state.blink(due).unwrap();
+        assert_eq!(state.caret.deadline(), Some(next));
+        state.blink(next).unwrap();
+        assert!(state.caret.visible());
+        assert!(state
+            .presenter
+            .as_mut()
+            .unwrap()
+            .window_frame(owned)
+            .unwrap()
+            .is_none());
+    }
     #[test]
     fn text_without_a_physical_key_reaches_the_editor() {
         use winit::keyboard::{KeyCode, NamedKey, NativeKey, NativeKeyCode};

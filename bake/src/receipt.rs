@@ -1403,6 +1403,7 @@ component App
             activate: "next-launch".into(),
             target: "aarch64-apple-ios".into(),
             reach: Value::Null,
+            painter: None,
             embedded: json!({"seq":0,"genesis":true,"entryDigest":null,"plan":{"sha256":head.plan.sha256,"bytes":head.plan.bytes},"assets":assets}),
         };
         (
