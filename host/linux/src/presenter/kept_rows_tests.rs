@@ -1,6 +1,4 @@
-//! A scroller's kept rows (`paint/rows.rs`) under a backend that keeps
-//! them: what it is told of a row recorded again. The one such backend is
-//! the Android recorder, which this host does not compile elsewhere.
+//! What a backend is told when a scroller's kept row changes (`paint/rows.rs`).
 use super::*;
 use crate::image::Bitmap;
 use crate::paint::Shape;
@@ -9,6 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::Transform;
+
+mod measurement;
 
 /// What the backend heard: each row begun, with the row it was said to
 /// have been, and each row freed.
