@@ -156,10 +156,11 @@ function displayReads(udid, gap = 400) {
 }
 
 /** What a drive passes from its own environment to an app that `simctl launch` (which forwards only `SIMCTL_CHILD_`
- *  names) or `devicectl` (only what it is given) starts: `EXACT_STORE`, so `EXACT_STORE=real` gives an iOS drive the
- *  Keychain a normal launch reads, as a macOS drive, whose app inherits the environment, has it (host/apple/src/store.rs). */
+ *  names) or `devicectl` (only what it is given) starts, as a macOS drive's app inherits it: `EXACT_STORE`, so
+ *  `EXACT_STORE=real` gives an iOS drive the Keychain a normal launch reads (host/apple/src/store.rs), and
+ *  `EXACT_AGENT_PADS`, a drive's game pads (LLP 1133.022 §21). */
 export function forwardedEnv(env = process.env) {
-  return env.EXACT_STORE ? { EXACT_STORE: env.EXACT_STORE } : {};
+  return Object.fromEntries(['EXACT_STORE', 'EXACT_AGENT_PADS'].filter((k) => env[k]).map((k) => [k, env[k]]));
 }
 
 /** A page capture (`path`) whose area holds glass or a blur, its pixels then the display's there too: the app names
