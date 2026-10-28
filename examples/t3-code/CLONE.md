@@ -97,8 +97,7 @@ the sent attachment opens from the saved conversation. Inline file-chip taps now
 open that same draft preview and Back retains the attachment. Opening first saves
 observed text, then rechecks the editor and file; a blocked-save regression covers
 rapid typing and route/file changes before navigation. Stale mounts, token ranges,
-draft text and removed files cannot open it. Other rich context actions and
-new-task photo-library import remain incomplete. Sent Markdown attachments now use the
+draft text and removed files cannot open it. Other rich context actions remain incomplete. Sent Markdown attachments now use the
 workspace file code cards: Preview/Source round trips, horizontal code scrolling,
 and the exact 344-character code-body copy pass on iPhone. Preview parsing accepts
 CRLF/CR while Source retains original newlines. Generic Markdown prose,
@@ -132,6 +131,17 @@ New-task dictation now captures the saved text/revision before readiness and rea
 that monotonic revision at completion. Regression tests cover edit/revert during
 readiness and between voice observations, plus an unchanged draft. The two stale
 cases fail against the previous code. Native dictation itself remains unqualified.
+NewTask Photo Library import also survives restart and reaches the real provider
+with `NEW_TASK_PHOTO_OK`. The original admitted message recovers on relaunch with
+one mobile-created thread and one completed run. A later normal build restores
+the environment, conversation, response and sent image. Delivery initially hit
+the JavaScript turn budget. An instrumented drive finds repeated connection
+serialization of about 3.77 million characters. Outbox rendering now computes
+that stamp only for waiting tasks that need it; those tasks retain the complete
+comparison. Its regression fails the previous source, and all 40 outbox tests pass.
+Strict TypeScript, boot and the normal native build pass. A separate oversized
+server-config cache request remains unresolved. No phone parity or new TestFlight
+checkpoint is claimed.
 The inactive native NewTask editor prerequisite reserves eight final-source slots
 and retains teardown receipts until explicit acknowledgment. Its actual UIKit
 fixture passes 86 checks, including text/chip source recovery, repeated reads,

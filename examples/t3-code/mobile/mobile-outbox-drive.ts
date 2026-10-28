@@ -75,7 +75,8 @@ export interface MobileOutboxDriveSnapshot {
 }
 /** Plain render state only. Native journals own retries; this map owns transient backoff. */
 export function mobileOutboxDriveSnapshot(client: T3Client, now: number): MobileOutboxDriveSnapshot {
-  const queue = mobileOutboxSnapshot(client), drive = state(client), stamp = connection(client);
+  const queue = mobileOutboxSnapshot(client), drive = state(client);
+  let stamp: string | undefined;
   const editors = mobilePendingTaskEditorsSnapshot(client);
   let next = '', delay = 0;
   const rows = orderedRows(client);
@@ -87,7 +88,8 @@ export function mobileOutboxDriveSnapshot(client: T3Client, now: number): Mobile
     const threadKey = JSON.stringify([record.origin, record.environmentId, record.threadId]);
     const first = !threads.has(threadKey); threads.add(threadKey);
     const wait = Math.max(1, current.retryAt - (Number.isFinite(now) ? now : 0));
-    const waits = current.result?.status === 'waiting' && current.waitingFor === stamp;
+    const waits = current.result?.status === 'waiting' && current.waitingFor !== ''
+      && current.waitingFor === (stamp ??= connection(client));
     const editing = editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === owner), retiring=retiringDraft(client,record);
     if (first && (!next || wait < delay) && !drive.busy && queue.complete && editors.ready && !editing && !retiring && sameEnvironment && !row.held && row.status === 'confirmed'
       && automatic(current.result) && !waits) {

@@ -176,6 +176,15 @@ const second = (threadId = 'thread-2'): MobileOutboxRecord => ({ ...queued(), th
 async function loaded(f: ReturnType<typeof fixture>) { await read(f.client, f.native); f.calls.length = 0; return snapshot(f.client, now); }
 function gate() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; }
 
+test('queued and empty outbox views do not traverse connection catalogues', async () => {
+  const f = fixture(); await loaded(f);
+  Object.defineProperty(f.client.config, 'unrelatedCatalog', { enumerable: true, get() { throw new Error('Catalogue traversed'); } });
+  expect(snapshot(f.client, now)).toMatchObject({ count: 1, busy: false });
+  expect(snapshot(f.client, now).next).not.toBe('');
+  const empty = new T3Client(); empty.config = f.client.config;
+  expect(snapshot(empty, now)).toMatchObject({ count: 0, next: '' });
+});
+
 test('real delivery removes its row through native receipt cleanup and exposes no second request', async () => {
   const f = fixture(), first = await loaded(f);
   expect(first).toMatchObject({ count: 1, complete: true, busy: false, delay: 1 });
