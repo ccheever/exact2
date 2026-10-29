@@ -3,7 +3,7 @@ import { mobileVoiceSnapshot, mobileVoiceSelection } from './voice-data';
 import type { T3Client } from './shared/client';
 import { mobileDraftRecoveryHydrated, type MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskFlowCurrent, mobileNewTaskFlowOwns, mobileNewTaskRoute } from './new-task-flow';
-import { mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftLookup, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftBranchRevision, mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftLookup, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileNewTaskContextObserve, mobileNewTaskContextAttach, mobileNewTaskContextProject,
   type MobileNewTaskAttachmentCommit, type MobileNewTaskAttachmentProjection, type MobileNewTaskContextGuard } from './mobile-new-task-context';
 import { mobilePickerIntakeRequest, mobilePickerIntakeInvoke, type PickerIntakeRequest,
@@ -122,6 +122,9 @@ function sameStable(a: DraftIdentity, b: DraftIdentity): boolean {
 }
 function registry(client: MobileDraftClient, entry: Entry) {
   const draft = mobileNewTaskDraftLookup(client, entry.draft.key);
+  if (draft && !entry.operation && entry.progress.kind === 'unpublished' && entry.custody === 'native'
+    && entry.state.value === (client.local.drafts[entry.draft.key] ?? '')
+    && mobileNewTaskDraftBranchRevision(client, entry.draft.key, entry.revision) === draft.revision) entry.revision = draft.revision;
   return draft && sameStable(entry.draft, draft) && draft.projectId === entry.draft.projectId ? draft : null;
 }
 function currentRoute(client: MobileDraftClient, route: NewTaskEditorRoute): boolean {
@@ -1015,7 +1018,9 @@ export async function mobileNewTaskEditorAction(client: MobileDraftClient, route
   let entry = activeEntry(client, route);
   if (intent.kind === 'observe') {
     const event = mobileComposerEditorDecodeResume(intent.payload)?.snapshot ?? mobileComposerEditorDecodeEvent(intent.payload);
-    if (event) entry = ledger(client).entries.find(candidate => sameIdentity(mounted(candidate), event)
+    if (event) entry = ledger(client).entries.find(candidate =>
+      (sameIdentity(mounted(candidate), event) || candidate === entry && event.kind === 'ready' && !candidate.state.mountId
+        && sameIdentity({ ...mounted(candidate), mountId: event.mountId }, event))
       && (candidate === entry || candidate.operation?.phase === 'frozen' && candidate.operation.handback !== null || candidate.completed !== null)) ?? null;
   }
   if (intent.kind !== 'observe') {

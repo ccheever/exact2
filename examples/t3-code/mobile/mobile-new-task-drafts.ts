@@ -24,6 +24,7 @@ export interface MobileNewTaskDraftStore {
   version: 1; records: Record<string, MobileNewTaskDraft>; receipts: Record<string, unknown>;
   claims: Record<string, string>; fileReleases: string[];
 }
+const branchRevisions = new WeakMap<T3Client, Map<string, { before: number; after: number }>>();
 const bindings = new WeakMap<T3Client, { key: string; owner: string }>();
 export const mobileNewTaskDraftIsKey = (key: string) => /^new-task:[\w-]{1,128}$/.test(key);
 /** Reserved editor ownership stays reserved even when its saved key is malformed. */
@@ -98,7 +99,16 @@ export function mobileNewTaskDraftNoteBranch(client: T3Client, kind: MobileNewTa
   const next: MobileNewTaskBranchChoice = { ...draftContext(client), kind, ...(origin === undefined ? {} : { startFromOrigin: origin }) };
   if (JSON.stringify(record.branchChoice) !== JSON.stringify(next)) {
     record.branchChoice = next; record.revision++; client.revision++;
+    let revisions = branchRevisions.get(client); if (!revisions) { revisions = new Map(); branchRevisions.set(client, revisions); }
+    const previous = revisions.get(current.key), before = record.revision - 1;
+    revisions.set(current.key, { before: previous?.after === before ? previous.before : before, after: record.revision });
   }
+}
+/** Consecutive branch-only writes can advance an idle editor's source guard.
+ * Any intervening content revision breaks the range; dispatched captures never use it. */
+export function mobileNewTaskDraftBranchRevision(client: T3Client, key: string, from: number): number | null {
+  const edit = branchRevisions.get(client)?.get(key);
+  return edit && from >= edit.before && from < edit.after ? edit.after : null;
 }
 /** Undefined means the branch's origin is unknown. Never guess from its name. */
 export function mobileNewTaskDraftSelectedBranch(draft: { branchChoice?: MobileNewTaskBranchChoice; workspace: DraftContext | null }): string | null | undefined {

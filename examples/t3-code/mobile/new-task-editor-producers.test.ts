@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 import { mobileNewTaskEditorAction as action, mobileNewTaskEditorView as view, mobileNewTaskEditorEffect as effect, mobileNewTaskEditorAllowsWriter } from './new-task-editor';
-import { fixture, picker, config, event } from './new-task-editor-test-support';
+import { fixture, picker, config, event, receipt, mounted } from './new-task-editor-test-support';
 import { obj } from './shared/domain';
-import { mobileNewTaskDraftChoicesUpdate } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftNoteBranch, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 
 for (const destination of ['model', 'branch', 'environment', 'project', 'back'] as const) test(`NewTask ${destination} saves and acknowledges the actual final source before navigation`, async () => {
   const f = await fixture(); picker(f);
@@ -38,4 +38,23 @@ test('preview with a stale native range has no navigation authority', async () =
   const token = JSON.stringify({ ...event(f.identity, '', 0), kind: 'contextPress', richEventId: 'press', payload: { source: 'x', start: 0, end: 1 } });
   expect((await action(f.client, f.route, { kind: 'preview', id: '', token }, f.native, f.storage)).accepted).toBe(false);
   expect(effect(f.client, f.route)).toBeNull(); expect(f.calls.some(call => call.action === 'freeze')).toBe(false);
+});
+
+test('actual automatic branch metadata keeps native source admitted while an unrelated revision still fences it', async () => {
+  const f = await fixture();
+  mobileNewTaskDraftNoteBranch(f.client, 'automatic');
+  expect(view(f.client, f.route).kind).toBe('editing');
+  expect((await action(f.client, f.route, { kind: 'observe', payload: event(f.identity, '🙂 newest', 2, 'text') }, f.native, f.storage)).accepted).toBe(true);
+  expect(obj(f.disk().drafts)[f.key]).toBe('🙂 newest');
+  mobileNewTaskDraftStore(f.client).records[f.key]!.revision++;
+  expect(view(f.client, f.route).kind).toBe('held');
+});
+
+test('ordered ready establishes a fresh native mount without a coalesced text latch', async () => {
+  const f = await fixture(); f.receipts([receipt(f.identity, '', 2)]); f.detach(); await f.reread();
+  const route = await f.resume(), offer = view(f.client, route), identity = { ...mounted(offer), mountId: 'new-native-mount' };
+  expect(offer.kind).toBe('mounting');
+  expect((await action(f.client, route, { kind: 'observe', payload: event(identity, '') }, f.native, f.storage)).accepted).toBe(true);
+  expect(view(f.client, route).kind).toBe('editing');
+  expect((await action(f.client, route, { kind: 'observe', payload: event({ ...identity, mountId: 'foreign' }, '') }, f.native, f.storage)).accepted).toBe(false);
 });
