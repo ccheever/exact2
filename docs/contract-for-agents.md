@@ -2115,7 +2115,10 @@ inline atoms: declare `atom` kinds by their source form, list them in `atoms=`,
 give each source a face with `atomFaces=` and hear `atompress=`
 ([inline atoms](contract-grammar.md#inline-atoms-atom-atoms-atomfaces-atompress)).
 Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
-editor keeps a caret out of an atom and deletes it whole.
+editor keeps a caret out of an atom and deletes it whole. An editor where
+Arabic or Hebrew lines sit beside English ones gives each line its base
+direction with `paragraphDirs`, HTML's `dir` words, one per source line
+([Markdown](contract-grammar.md#markdown-markup-format-select)).
 
 Choose a colour by what it means, not by how it looks. **The accent is for
 what the user can act on**: a link, a plain button's title or symbol, a filled

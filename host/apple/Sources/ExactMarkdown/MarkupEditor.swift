@@ -1,5 +1,5 @@
 // Source-backed TextKit 2 Markdown styling, shared by UIKit and AppKit.
-// @ref LLP 1045 D1, D5 — only attributes change; source and native selection
+// @ref LLP 1045 D1, D5, D11 — only attributes change; source and native selection
 // stay intact. Hosts guard composition before entering this styler. A link's
 // destination is hidden, as the web editor hides it (`MarkupHidden.swift`);
 // other syntax is dimmed at full advance.
@@ -17,7 +17,20 @@ final class MarkupEditor: NSObject, MarkdownEditing {
     var bookmark: NSRange?
     var lastSelectionState: String?
     private(set) var plainAttributes: [NSAttributedString.Key: Any] = [:]
+    /// Each line's base direction as drawn (LLP 1045 D11).
+    private(set) var directions = MarkupDirections()
+    /// The `paragraphDirs` the last restyle placed.
+    var paragraphDirs: String { directions.said }
+    func direction(at location: Int) -> NSWritingDirection { directions.direction(at: location) }
+    /// The words each undo and redo step of the field's undo manager returns
+    /// to, one set a step (LLP 1045 D11), and the set an undo or redo gives
+    /// back to the restyle after it.
+    private var undoWords: [MarkupDirections.Words] = [], redoWords: [MarkupDirections.Words] = []
+    private var wordsBack: MarkupDirections.Words?
+    private weak var watched: UndoManager?
+    private var observers: [NSObjectProtocol] = []
 
+    deinit { forgetHistory() }
 
     struct Look {
         let font: (CGFloat, Int, Int, Bool) -> PlatformFont
@@ -29,6 +42,10 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         let ink: PlatformColor
         /// The node's inline atoms (LLP 1045.000), and the appearance their pills draw for.
         var atoms = MarkdownAtoms()
+        /// The app's base direction for each line, `paragraphDirs` (LLP 1045 D11).
+        var paragraphDirs = ""
+        /// The field's own direction is right to left: a line without a word takes it.
+        var rtl = false
     }
 
     /// The attributes plain typing takes, whatever the caret sits beside.
@@ -38,14 +55,71 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         return [.font: look.font(look.size, look.weight, look.family, look.italic), .foregroundColor: look.ink, .paragraphStyle: paragraph]
     }
 
+    /// The base attributes in the direction of the line `caret` is on, as the
+    /// last restyle drew it: an empty last line has no text of its own, and
+    /// draws its caret and its placeholder by these.
+    func typingAttributes(_ look: Look, caret: Int) -> [NSAttributedString.Key: Any] {
+        var attributes = baseAttributes(look)
+        let paragraph = (attributes[.paragraphStyle] as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
+        paragraph.baseWritingDirection = directions.direction(at: caret)
+        attributes[.paragraphStyle] = paragraph
+        return attributes
+    }
+
     /// Remove all Markdown attributes when the authored row becomes `none`.
     func detach(_ storage: NSTextStorage) {
         styling = true; defer { styling = false }
         storage.setAttributes(plainAttributes, range: NSRange(location: 0, length: storage.length))
+        forgetHistory()
     }
 
-    /// Restyle the source storage for its current selection.
-    func restyle(_ storage: NSTextStorage, selection: NSRange, look: Look) {
+    /// Keep the words beside the field's undo manager, which holds nothing
+    /// of ours: an action of ours in a step ends AppKit's typing coalescing,
+    /// so that each keystroke becomes a step. A step's words are taken as its
+    /// top-level group opens, before its first edit changes the text: the
+    /// event's group of a typed, pasted, cut or dropped edit, of a
+    /// composition's first marked text and, grouping by event, of a command;
+    /// `setRangeText`'s own, which groups alone. An edit coalesced into an
+    /// open step adds none.
+    private func watch(_ manager: UndoManager?) {
+        guard let manager, watched !== manager else { return }
+        forgetHistory()
+        watched = manager
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: .NSUndoManagerDidOpenUndoGroup, object: manager, queue: nil) { [weak self, weak manager] _ in
+                guard let self, let manager, manager.groupingLevel == 1, !manager.isUndoing, !manager.isRedoing, self.directions.hasWords else { return }
+                // The manager's history went (an app's value resets it): so do the steps' words.
+                if !manager.canUndo { self.undoWords = [] }
+                self.undoWords.append(self.directions.memory)
+                self.redoWords = []
+            },
+            center.addObserver(forName: .NSUndoManagerWillUndoChange, object: manager, queue: nil) { [weak self] _ in self?.step(back: true) },
+            center.addObserver(forName: .NSUndoManagerWillRedoChange, object: manager, queue: nil) { [weak self] _ in self?.step(back: false) },
+        ]
+    }
+
+    /// Undo or redo of a step moves one set, as the manager moves one step:
+    /// the words drawn now go to the opposite stack, and the step's come back
+    /// with its source. A stack can hold fewer steps than the manager (the
+    /// app's new words forgot the older ones' words); a step without a set
+    /// carries its words.
+    private func step(back: Bool) {
+        guard directions.hasWords else { return }
+        let words = back ? undoWords.popLast() : redoWords.popLast()
+        if back { redoWords.append(directions.memory) } else { undoWords.append(directions.memory) }
+        wordsBack = words
+    }
+
+    private func forgetHistory() {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        watched = nil; observers = []
+        undoWords = []; redoWords = []; wordsBack = nil
+    }
+
+    /// Restyle the source storage for its current selection; `undo` is the
+    /// field's undo manager, whose steps keep its lines' words.
+    func restyle(_ storage: NSTextStorage, selection: NSRange, look: Look, undo: UndoManager? = nil) {
         guard !styling else { return }
         styling = true; defer { styling = false }
         var text = storage.string
@@ -65,9 +139,22 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         let base = baseAttributes(look)
         plainAttributes = base
         let baseFont = base[.font] as! PlatformFont
-        let paragraph = base[.paragraphStyle] as! NSParagraphStyle
+        // Each line's base direction (LLP 1045 D11): the most common one is
+        // every paragraph's, in the base style; runs that differ follow the rows.
+        watch(undo)
+        let back = wordsBack
+        wordsBack = nil
+        let placed = directions.update(text: text, said: look.paragraphDirs, rtl: look.rtl, atoms: look.atoms, back: back) {
+            MarkupCommands.auto(text, atoms: AtomHandle.of(look.atoms))
+        }
+        // The app's new words forget the steps', whatever else this restyle does.
+        if placed { undoWords = []; redoWords = [] }
+        let paragraph = (base[.paragraphStyle] as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
+        paragraph.baseWritingDirection = directions.base
+        var directed = base
+        directed[.paragraphStyle] = paragraph
         storage.beginEditing()
-        storage.setAttributes(base, range: NSRange(location: 0, length: length))
+        storage.setAttributes(directed, range: NSRange(location: 0, length: length))
         // Paragraphs: headings scale and embolden; code is monospace on a
         // tint; quotes dim; list items and quotes indent.
         for p in object["p"] ?? [] where p.count >= 6 {
@@ -92,6 +179,13 @@ final class MarkupEditor: NSObject, MarkdownEditing {
             if quote > 0 { attributes[.foregroundColor] = look.ink.withAlphaComponent(0.62) }
             attributes[.paragraphStyle] = style
             storage.addAttributes(attributes, range: range)
+        }
+        for (range, direction) in directions.runs where NSMaxRange(range) <= length {
+            storage.enumerateAttribute(.paragraphStyle, in: range) { value, run, _ in
+                let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+                style.baseWritingDirection = direction
+                storage.addAttribute(.paragraphStyle, value: style, range: run)
+            }
         }
         for s in object["s"] ?? [] where s.count >= 4 {
             let range = clamp(s[0], s[1])

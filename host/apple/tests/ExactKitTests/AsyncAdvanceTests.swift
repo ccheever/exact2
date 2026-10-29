@@ -79,12 +79,23 @@ final class AsyncAdvanceTests: XCTestCase {
 
     private func logs(_ session: ExactSession) -> String { session.agent(#"{"op":"logs"}"#) }
 
+    /// A task's timer is Foundation's (#1144): once its first row is due, its
+    /// firing, delivered as the run loop delivers it (`deliverNativeTimer`):
+    /// posted to the owner. The row it fired.
+    @discardableResult private func deliverTask(_ session: ExactSession, beforeDelivery: () -> Void = {}) throws -> NativeTimerWake {
+        let row = try XCTUnwrap(session.taskTimers.rows.first, "the task's native timer")
+        while session.now() < row.due + 1 { Thread.sleep(forTimeInterval: 0.002) }
+        try XCTUnwrap(session.taskTimers.timerForTests(row.index)).fire()
+        beforeDelivery()
+        session.deliverNativeTimer()
+        return row
+    }
+
     /// The `tick` timer's commit, made on the owner and published, not yet
     /// applied: the screen still shows row `a` at the old price.
     private func holdTick(_ session: ExactSession) throws {
         session.presenter.onPress?(try XCTUnwrap(id(session, "arm")))
-        Thread.sleep(forTimeInterval: 0.005) // `after(1, tick)` is due
-        session.sendAdvance(now: session.now())
+        try deliverTask(session) // `after(1, tick)` is due
         XCTAssertTrue(session.advanceInFlight, "posted, not run while main waits")
         Owner.shared.sync {} // the owner has made and published it; main has not landed it
         XCTAssertTrue(session.advanceInFlight)
@@ -146,49 +157,44 @@ final class AsyncAdvanceTests: XCTestCase {
     func testADelayedAdvanceObservesWhenItRunsAndKeepsItsPhase() throws {
         let session = try booted()
         session.presenter.onPress?(try XCTUnwrap(id(session, "beat")))
-        // On a loaded machine the press's batch can land after its first beat is due, and landing posts that beat's
-        // advance itself (landFill's advanceIfDue): each such lands first, so the advance this test posts is the only
-        // one in flight, and its beats count from there.
+        // Anything the press left in flight lands first, so the firing this test delivers is the only one in flight,
+        // and its beats count from there. (The task's own Foundation timer fires only when the run loop runs, which
+        // this test never lets it.)
         for _ in 0..<10 where session.advanceInFlight { session.drainFill() }
         XCTAssertFalse(session.advanceInFlight)
         let before = try XCTUnwrap(slot(session, "beats") as? Double)
-        let due = try XCTUnwrap(session.timerDue)
-        while session.now() < due + 1 { Thread.sleep(forTimeInterval: 0.002) }
         let release = DispatchSemaphore(value: 0)
-        Owner.shared.post { _ = release.wait(timeout: .now() + 5) }
-        let posted = session.now()
-        session.sendAdvance(now: posted) // returns while the owner is busy: main is free
+        var posted = 0.0
+        let due = try deliverTask(session) { // returns while the owner is busy: main is free
+            Owner.shared.post { _ = release.wait(timeout: .now() + 5) }
+            posted = session.now()
+        }.due
         Thread.sleep(forTimeInterval: 0.06)
         release.signal()
-        // What the posted advance did, read through the owner before main lands it: landing it posts the next
-        // beat's advance at once when that beat is due already (on a loaded machine, landFill's advanceIfDue),
-        // whose beat a later read would count too.
+        // What the posted firing did, read through the owner before main lands it.
         XCTAssertEqual(slot(session, "beats") as? Double, before + 1, "missed beats fire once")
         let seen = try XCTUnwrap(slot(session, "seen") as? Double)
         XCTAssertGreaterThanOrEqual(seen, posted + 55, "`now` is when the owner ran it")
         session.drainFill()
         // (the landed advance's next beat: one posted on landing has not landed, and is in flight only if that beat is due)
-        let next = try XCTUnwrap(session.timerDue)
+        let next = try XCTUnwrap(session.taskTimers.nextDue)
         XCTAssert(!session.advanceInFlight || session.now() >= next, "nothing in flight but the next beat's, due already")
         XCTAssertGreaterThan(next, seen)
         XCTAssertLessThanOrEqual(next, seen + 40)
         XCTAssertEqual((next - due).truncatingRemainder(dividingBy: 40), 0, accuracy: 0.001, "on the phase of the beat it was scheduled for")
     }
 
-    /// A batch that lands with only a timer due posts its advance; it does not
-    /// run it while main waits (`advanceIfDue`).
-    func testATimerDueWhenABatchLandsIsPosted() throws {
+    /// A task's native wake is posted to the owner; it does not run while main
+    /// waits (`deliverNativeTimer`, as `advanceIfDue` posts a runtime timer's).
+    func testATasksNativeWakeIsPosted() throws {
         let session = try booted()
         session.presenter.onPress?(try XCTUnwrap(id(session, "beat")))
-        let due = try XCTUnwrap(session.timerDue)
-        while session.now() < due + 1 { Thread.sleep(forTimeInterval: 0.002) }
-        session.advanceIfDue()
+        let due = try deliverTask(session).due
         XCTAssertTrue(session.advanceInFlight, "posted")
         XCTAssertEqual(slot(session, "beats") as? Double, 1, "the owner runs it before a later read")
         session.drainFill()
-        // Landed: its next beat is scheduled past it. Landing posts that beat's advance at once when it is due already
-        // (on a loaded machine, landFill's advanceIfDue), so one in flight now is only that beat's.
-        let next = try XCTUnwrap(session.timerDue)
+        // Landed: its next beat is scheduled past it, and one in flight now is only that beat's.
+        let next = try XCTUnwrap(session.taskTimers.nextDue)
         XCTAssertGreaterThan(next, due, "landed")
         XCTAssert(!session.advanceInFlight || session.now() >= next, "nothing in flight but the next beat's, due already")
     }

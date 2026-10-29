@@ -325,6 +325,47 @@ pub extern "C" fn mde_view(h: u32) -> u32 {
     })
 }
 
+/// Each source line's `auto` direction ([`crate::auto_directions`]: 0 none,
+/// 1 left to right, 2 right to left) into [`mde_out`]; returns the count.
+#[no_mangle]
+pub extern "C" fn mde_auto(h: u32) -> u32 {
+    let dirs = with(h, 0, |e, _| e.auto_directions());
+    ABI.with(|abi| {
+        let out = &mut abi.borrow_mut().out;
+        out.clear();
+        out.extend(dirs.iter().map(|&d| u32::from(d)));
+        out.len() as u32
+    })
+}
+
+/// The host's words for the current state's lines, the first `len` input
+/// units (`paragraphDirs`, LLP 1045 D11): undo steps keep them.
+#[no_mangle]
+pub extern "C" fn mde_set_words(h: u32, len: u32) {
+    with(h, len, |e, words| e.set_words(words))
+}
+
+/// The words an undo or redo gave back, into [`mde_text`]: returns their
+/// length plus one, so a step whose words were forgotten gives back 1; 0
+/// when no undo or redo gave any back.
+#[no_mangle]
+pub extern "C" fn mde_words_back(h: u32) -> u32 {
+    let words = with(h, 0, |e, _| e.words_back().map(<[u16]>::to_vec));
+    ABI.with(|abi| {
+        let out = &mut abi.borrow_mut().text;
+        out.clear();
+        let Some(words) = words else { return 0 };
+        out.extend_from_slice(&words);
+        out.len() as u32 + 1
+    })
+}
+
+/// Forget the words every state was drawn with: the app gave new ones.
+#[no_mangle]
+pub extern "C" fn mde_forget_words(h: u32) {
+    with(h, 0, |e, _| e.forget_words())
+}
+
 /// The last u32 output.
 #[no_mangle]
 pub extern "C" fn mde_out() -> *const u32 {

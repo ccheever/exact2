@@ -235,7 +235,14 @@ References row or app editing rules. Take: the Apple hosts' adoption of the
 crate's other hidden syntax (`QUEUE.md`, "Markdown editor") waits behind
 atoms. Still out: pill padding and radius, a second control inside a pill,
 atoms in the Linux, Windows and Android editors (they show the source), and
-inline math (a child RFC's). **Refined (Charlie, 2026-09-21:
+inline math (a child RFC's). **Expanded (Daehyeon Mun, 2026-10-29, waived;
+LLP 1045 D11):** the app gives each source line of the editor its base
+direction, `paragraphDirs` in HTML's `dir` words, drawn on the web and Apple.
+Unblocks T3 Code's composer, whose original gives each block the direction of
+most of its words. Take: waived (Daehyeon Mun, 2026-10-29): one attribute on
+the lines the editor already draws, no doing-list item in this area. Still
+out: the Linux, Windows and Android editors (they show the source) and the
+reader. **Refined (Charlie, 2026-09-21:
 "move forward with your plan"):** Native editing stays on TextKit 2;
 dependable source editing precedes further marker hiding, with Interview as
 the first consumer. **Refined again (Charlie, 2026-09-22: "let's remove

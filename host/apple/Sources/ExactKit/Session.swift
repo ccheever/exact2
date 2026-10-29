@@ -556,7 +556,7 @@ public final class ExactSession {
             controlTextChanged()
             SystemColor.invalidate()
             reportColors()
-            presenter.views.values.forEach { $0.systemColorsChanged() }
+            presenter.systemColorsChanged()
         }
         #endif
     }
