@@ -2,13 +2,14 @@
 
 @ref LLP 1149 §4; G1.
 
-**G1m remains incomplete: three clean interleaved pairs, not five.** The
-2026-10-28 evening attempts used the corrected quiet rule and an unlocked
-desktop. All three attempts stopped when a benchmark window lost focus;
-one also observed compilation after its first pair. The tables below report
-only the three completed clean pairs as diagnostic samples. They do not meet
-the requested five-round comparison or ten fresh launches per app. Work stopped
-at the lane's three-round limit; no performance verdict is established.
+**G1m remains incomplete: three clean interleaved pairs, not five.** Explicit
+activation and key-window verification now precede each sample and gesture.
+The continuation lost focus to Google Chrome during a fling, and its one
+permitted retake lost focus to Ocho during startup. Neither qualifies. The
+tables retain the three previously completed pairs as diagnostic samples;
+they do not meet the requested five pairs or ten fresh launches per app.
+The diagnostic attempts identified Ocho and Slack taking focus too. After
+three runs of the corrected driver, work stopped at the lane's limit.
 
 ## Arms and provenance
 
@@ -17,7 +18,11 @@ at the lane's three-round limit; no performance verdict is established.
   `EXACT_APP_DIR=$PWD/bench/heavy-list/exact-heavylist`.
 - GPUI app and probe source: `a0f6fe8523` on `lane/gpui-arm`. The report and
   captures do not change either executable. G1m ran the existing instrumented
-  release copies at report commit `11896dd84d`; neither was rebuilt.
+  release copies at report commit `11896dd84d`. The continuation rebuilds only
+  `measure.m` and `probe.m`, replaces the probe in both instrumented copies,
+  and ad-hoc signs them. Neither application's code was rebuilt. The table's
+  retained samples used the earlier probe; the new probe produced no qualifying
+  pair.
 - GPUI: **0.2.2**, pinned with `=0.2.2` and this directory's own `Cargo.lock`.
   The [crates.io registry index](https://index.crates.io/gp/ui/gpui), checked
   2026-10-28, lists no newer non-yanked release. Native Metal, build-compiled
@@ -44,6 +49,19 @@ same conditions during measurement. The desktop must be unlocked so each
 window can become active and remain in front for the whole fling/rest sample;
 waking the display alone does not unlock it. G1m sampled load and compiler
 processes every five seconds, retaining `quiet.jsonl` beside each attempt.
+
+The driver calls `NSRunningApplication.activateWithOptions:` with
+`NSApplicationActivateIgnoringOtherApps` as soon as it launches each process,
+again when its window registers, and before every fling. A signal asks the
+probe to make that window key and return its window number, key-window number,
+active state and `NSWorkspace.sharedWorkspace.frontmostApplication`. The driver
+requires the target PID to be frontmost and its window to be key before posting.
+The probe records focus losses during cold startup, fling and rest through
+application/window notifications, with display-callback and one-second checks
+as well. Each loss records the frontmost application's name, bundle ID and PID.
+A loss discards that process's sample and permits one fresh launch, named
+`-retry`; a second loss stops the series. Activation does not prevent another
+application from taking focus afterward.
 
 `measure.m` launches fresh processes for five interleaved rounds, alternating
 native/GPUI and GPUI/native. Both receive the same four 600-point flings at
@@ -80,11 +98,12 @@ main-thread CPU uses `thread_info(THREAD_BASIC_INFO)` on the main thread's Mach
 port. The process CPU counters are Mach ticks, converted with
 `mach_timebase_info`; see XNU’s [fill_task_rusage](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/bsd_kern.c).
 CPU is cumulative-counter delta divided by elapsed sample time, in ms/s,
-with one-second samples retained as well as each phase’s aggregate. Both windows
-are brought to the front; the driver rejects inactive start/end samples, inactive
-display callbacks during the fling, or differing start/end thermal states.
-Thermals and rest focus are not sampled continuously. A `fair` endpoint is
-recorded, not treated as nominal.
+with one-second samples retained as well as each phase’s aggregate. The retained
+samples reject inactive start/end samples, inactive display callbacks during
+the fling, or differing start/end thermal states; they have no continuous rest
+focus record. The corrected probe also records focus changes at rest. Thermals
+remain endpoint observations; a `fair` endpoint is recorded, not treated as
+nominal.
 Fling footprint is sampled each display callback; rest footprint once per second.
 Lifetime peak and end footprint are retained separately. The display-link sampler
 is paused at rest. Samples include probe overhead and exclude WindowServer's CPU.
@@ -196,13 +215,32 @@ separately so the exclusions can be checked:
 | `series-g1m5/fling` | 20:19:16 | 2 | GPUI round 3 lost focus during rest; its fling had zero inactive callbacks; no compiler observed |
 | `series-g1m6/fling` | 20:23:58 | 0 | Native round 1 was inactive at both endpoints and for 1,002 fling callbacks; no compiler observed |
 
-Every observed load average was below 13.3 across the attempts. The final attempt
+Every observed load average was below 13.3 across those attempts. The final attempt
 held the display awake with `caffeinate -d -i -u -t 600`, released when the driver
 exited; it did not cure lost focus. The desktop was unlocked before the retries;
-cmux was frontmost after the second failure. The cause of focus loss was not
-established. The intended second five-round pass, to bring cold starts to ten
-per app, never began. Finishing requires an uninterrupted desktop interval of
-about eight minutes, with the benchmark windows in front and no compilation.
+cmux was frontmost after the second failure, but those probes did not identify
+the application at the moment focus was lost.
+
+The corrected driver's continuation, `series-g1m7`, began at 20:42:42 PDT on
+2026-10-28 with `caffeinate` holding the display awake. All load averages stayed
+below 10 and no compiler was observed. No sample from this continuation enters
+the tables:
+
+| Sample | Result | Foreground at the loss |
+|---|---|---|
+| `series-g1m7/fling/gpui-4.json` | Discarded during the fling | Google Chrome, `com.google.Chrome`, PID 60411 |
+| `series-g1m7/fling/gpui-4-retry.json` | Discarded during cold startup; the permitted retake | Ocho, `dev.ocho.desktop`, PID 53948 |
+
+The preceding `focus-validation` diagnostic deliberately activated Finder during
+a native cold launch. The driver named Finder, rejected that launch and accepted
+its one fresh retake. GPUI's launch and retake then lost focus to Ocho. A second
+diagnostic, `focus-handoff`, started with GPUI to exclude native-to-GPUI handoff
+as a necessary cause; both launches lost focus to Slack (`com.tinyspeck.slackmacgap`,
+PID 36534). The logs establish the foreground applications, not whether a person
+or automation activated them. No process belonging to another session was stopped.
+The five additional cold pairs have not run. Finishing needs two clean fling/rest
+pairs and five further cold-only pairs, about two uninterrupted minutes with
+the benchmark windows in front and no compilation.
 
 ## Renderer only
 
@@ -225,15 +263,21 @@ The link description ends with an ellipsis after two lines.
 
 ## Checks
 
-For this report update, `git diff --check` and `bun scripts/caps.mjs` passed:
-“All budgets within cap. 10 categories inspected.” No test suite was rerun.
+For the focus fix, both Objective-C files compiled with
+`-O2 -Wall -Wextra -Werror`; the driver now links AppKit. The instrumented copies
+were re-signed and launched. The deliberate Finder interruption verified rejection,
+application identification and one successful fresh retake. Subsequent Ocho,
+Slack and Chrome interruptions verified that a second loss stops the run.
+`git diff --check` and `bun scripts/caps.mjs` passed:
+“All budgets within cap. 10 categories inspected.” No workspace test suite was rerun.
 The six selected launches were checked against their raw JSON and wheel logs:
 800×800-point windows, 2× scale, 120 Hz, ten-second phases, monotonic CPU
 counters and four identical 106-event gestures each.
 
 G1 (`6ffede6aa8`) records the following commands passing on this worktree.
-These are G1's results, not new G1m test runs. G1m changes only this report;
-the executables, workspace source, lockfiles and six checks are unchanged.
+These are G1's results, not new G1m test runs. G1m changes the standalone
+benchmark driver, probe and report; workspace source, lockfiles and the six
+checks are unchanged.
 
 - `cargo build --all-targets --keep-going`
 - `cargo test --tests --no-fail-fast` (full rerun)
@@ -320,7 +364,7 @@ cargo build --release --locked --manifest-path bench/heavy-list/gpui/Cargo.toml 
 EXACT_APP_DIR="$PWD/bench/heavy-list/exact-heavylist" CARGO_TARGET_DIR="$PWD/target" \
   bun host/apple/build.mjs exact-heavylist-apple --release
 xcrun swiftc -O host/apple/wheel.swift -o target/g1/exact-wheel
-xcrun clang -fobjc-arc -O2 -Wall -Wextra -Werror -framework Foundation \
+xcrun clang -fobjc-arc -O2 -Wall -Wextra -Werror -framework AppKit \
   -framework QuartzCore -framework CoreGraphics bench/heavy-list/gpui/measure.m -o target/g1/measure
 xcrun clang -dynamiclib -fobjc-arc -O2 -Wall -Wextra -Werror -Wno-unused-parameter \
   -mmacosx-version-min=14.0 -framework AppKit -framework QuartzCore -framework Metal \
@@ -345,12 +389,19 @@ and logs go to the result directory. Capture parity windows separately with
 the window. Screenshot capture needs Screen Recording access and is excluded
 from the timed series.
 
-The instrumented release copies and helper are already built in this worktree.
-After reserving a quiet machine, the remaining series can be run directly:
+The instrumented release copies, corrected driver/probe and wheel helper are
+already built in this worktree. To continue the retained three pairs, use fresh
+directories for the remaining two fling/rest pairs and five cold-only pairs.
+Each launch checks focus, and each gesture activates and verifies the target
+again. Check and monitor the quiet rule above separately:
 
 ```sh
-target/g1/measure "$PWD/target/g1/series" \
+target/g1/measure "$PWD/target/g1/series-complete/fling" \
   "$PWD/target/g1/Native.app/Contents/MacOS/Heavy list" \
   "$PWD/target/g1/GPUI.app/Contents/MacOS/gpui-heavy-list" \
-  "$PWD/target/g1/exact-wheel"
+  "$PWD/target/g1/exact-wheel" 2 4
+target/g1/measure "$PWD/target/g1/series-complete/cold" \
+  "$PWD/target/g1/Native.app/Contents/MacOS/Heavy list" \
+  "$PWD/target/g1/GPUI.app/Contents/MacOS/gpui-heavy-list" \
+  "$PWD/target/g1/exact-wheel" 5 6 cold-only
 ```

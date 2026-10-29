@@ -103,15 +103,48 @@ static NSData *signature(NSView *view) {
 @property int phase;
 @property double windowAt;
 @property dispatch_source_t signals;
+@property dispatch_source_t focusSignals;
 @property dispatch_source_t memory;
 @property id wheelMonitor;
 @property NSUInteger wheels;
 @property double wheelDelta;
 @property NSMutableArray *wheelPositions;
 @property NSUInteger inactiveTicks;
+@property NSMutableArray *focusLosses;
+@property BOOL hadFocus;
+@property BOOL wasFocused;
+@property pid_t lastFrontmost;
 @end
 
 @implementation G1Probe
+- (NSDictionary *)focusState {
+    NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
+    return @{@"time": @(CACurrentMediaTime()), @"phase": @(self.phase),
+        @"active": @(NSApp.active), @"keyWindow": @(NSApp.keyWindow.windowNumber),
+        @"window": @(self.window.windowNumber), @"frontmostPid": @(front.processIdentifier),
+        @"frontmostName": front.localizedName ?: @"unknown",
+        @"frontmostBundle": front.bundleIdentifier ?: @"unknown"};
+}
+- (void)observeFocus {
+    NSDictionary *state = [self focusState];
+    BOOL focused = NSApp.active && self.window.keyWindow
+        && [state[@"frontmostPid"] intValue] == getpid();
+    if (!focused && self.hadFocus
+        && (self.wasFocused || self.lastFrontmost != [state[@"frontmostPid"] intValue])) {
+        [self.focusLosses addObject:state];
+        writeJSON(@{@"events": self.focusLosses}, [output stringByAppendingString:@".focus-losses"]);
+    }
+    self.hadFocus |= focused;
+    self.wasFocused = focused;
+    self.lastFrontmost = [state[@"frontmostPid"] intValue];
+}
+- (void)confirmFocus {
+    [self.window makeKeyAndOrderFront:nil];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self observeFocus];
+        writeJSON([self focusState], [output stringByAppendingString:@".focus"]);
+    });
+}
 - (void)attach {
     for (NSWindow *window in NSApp.windows) {
         if (window.visible && window.contentView.bounds.size.height > 400) { self.window = window; break; }
@@ -128,6 +161,15 @@ static NSData *signature(NSView *view) {
     self.coldPixels = [NSMutableArray array];
     self.coldTimes = [NSMutableArray array];
     self.result = [NSMutableDictionary dictionary];
+    self.focusLosses = [NSMutableArray array];
+    [self observeFocus];
+    [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceDidActivateApplicationNotification
+        object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { [self observeFocus]; }];
+    for (NSString *name in @[NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
+                            NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification]) {
+        [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue
+            usingBlock:^(NSNotification *note) { [self observeFocus]; }];
+    }
     self.wheelPositions = [NSMutableArray array];
     self.link = [self.window.contentView displayLinkWithTarget:self selector:@selector(tick:)];
     float hz = self.window.screen.maximumFramesPerSecond;
@@ -144,9 +186,15 @@ static NSData *signature(NSView *view) {
     self.signals = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGUSR2, 0, dispatch_get_main_queue());
     dispatch_source_set_event_handler(self.signals, ^{ [self advance]; });
     dispatch_resume(self.signals);
+    signal(SIGUSR1, SIG_IGN);
+    self.focusSignals = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGUSR1, 0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(self.focusSignals, ^{ [self confirmFocus]; });
+    dispatch_resume(self.focusSignals);
+    writeJSON([self focusState], [output stringByAppendingString:@".window"]);
 }
 - (void)tick:(CADisplayLink *)link {
     double now = CACurrentMediaTime();
+    if (!NSApp.active || !self.window.keyWindow || !self.hadFocus) [self observeFocus];
     if (self.phase == 0) {
         if (!gpui) {
             [self.coldPixels addObject:signature(self.window.contentView)];
@@ -208,12 +256,22 @@ static NSData *signature(NSView *view) {
         [output stringByAppendingString:@".ready"]);
 }
 - (void)advance {
+    [self observeFocus];
     if (self.phase == -1) {
+        if (getenv("G1_COLD_ONLY")) {
+            self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
+            self.result[@"activeAtEnd"] = @(NSApp.active && self.window.keyWindow);
+            self.result[@"focusLosses"] = self.focusLosses;
+            self.result[@"coldOnly"] = @YES;
+            writeJSON(self.result, output);
+            exit(0);
+        }
         self.start = usage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue];
         self.samples = [NSMutableArray arrayWithObject:self.start];
         self.memory = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
         dispatch_source_set_timer(self.memory, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_MSEC);
         dispatch_source_set_event_handler(self.memory, ^{
+            [self observeFocus];
             NSDictionary *sample = usage();
             [self.samples addObject:sample];
             self.peak = MAX(self.peak, [sample[@"footprint"] unsignedLongLongValue]);
@@ -241,6 +299,7 @@ static NSData *signature(NSView *view) {
         self.result[@"rest"] = @{ @"start": self.start, @"end": usage(), @"peak": @(self.peak), @"samples": self.samples };
         self.result[@"thermalEnd"] = @(NSProcessInfo.processInfo.thermalState);
         self.result[@"activeAtEnd"] = @(NSApp.active && self.window.keyWindow);
+        self.result[@"focusLosses"] = self.focusLosses;
         writeJSON(self.result, output);
         exit(0);
     }
