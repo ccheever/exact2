@@ -1516,3 +1516,276 @@ commands above, then `shelf_startup_series` and `shelf_handoff_intervals`
 with `INK_SHELF` set. Both series rotate all four arms ten times per size.
 The DPI fixture needs Settings changes 100% → 150% → 100% → 150% → 100%;
 its final resize remains unresolved. No lock/unlock result is claimed.
+
+## S2.4: the composition window with hardware preparation from process entry
+
+**The startup median passes; the no-late-frame condition fails. Ink's Windows
+`EXACT_INK_DEVICE` default remains wgpu.** The hardware composition path is
+selected with `EXACT_INK_DEVICE=d3d11`; `warp` remains an explicit device and
+the recovery transport. D12's Windows default sentence is unchanged.
+
+The complete first screen regresses by 5.200% at 1024×720 and 4.736% at
+1920×1080 against the CPU/softbuffer medians measured in this run, below
+D15's 10% allowance. In the separate probe-free series, however, 7/10 and
+5/10 hardware launches have an interval above 25 ms in the first second.
+Ten breaches are frame 1→2; two are later 110.999 and 116.555 ms gaps.
+The startup number does not discharge that cadence gate. Both baselines also
+exceed the absolute 100 ms budget; this is a relative-startup result, not an
+unconditional D15 pass.
+
+### Implementation and method
+
+`host/windows/src/window.rs` starts the hardware worker before `Config` loads
+the plan and before fonts, creates a `WS_EX_NOREDIRECTIONBITMAP` HWND, and
+joins before the first paint. It creates neither a GDI surface nor a startup
+WARP device for this path. `host/linux/src/app.rs` and
+`presenter/painter.rs` preserve that prepared device through app boot.
+`host/ink/src/device/d3d11.rs` has one preparation path; `setup.rs` records
+`D3D11CreateDevice`, and `device.rs` supplies the process clock without a
+compositor wait. `host/linux/src/surfaces/window.rs` retains WARP only for
+recovery and transfers its composition visual back to hardware with
+completion-based retirement. The fixture in `device/d3d11/composition.rs`
+now tests that recovery. `device/d3d11/tests.rs` separates loading the AMD
+UMD from creating its device.
+
+`device/d3d11/desktop_tests.rs` sizes the HWND with
+[`AdjustWindowRectExForDpi`](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-adjustwindowrectexfordpi)
+using its current style, extended style, menu and DPI. Inferring borders
+from the previous outer/client difference retained stale metrics during
+`WM_DPICHANGED`. Both returns to 100% now assert a 1024×720 client; the
+corresponding `QUEUE.md` item is closed. The startup cadence blocker is recorded
+there instead. No thresholds were changed.
+
+Measured on 2026-10-28 on the NucBox, Windows 11 Pro build 26200, AMD Radeon
+8060S, driver 32.0.23033.1002, a 5120×1440 desktop at 100% and 60 Hz.
+Shelf was built with `bun host/windows/build.mjs shelf` and the Windows SDK
+10.0.26100.0 `fxc` on PATH, using the builder's `gpu-dev` profile.
+Native test executables were built with `--profile host-dev`.
+The gate binary is commit `8acfa3cf24`, SHA-256
+`eed1780bf319eefcfb4197688cd656887bae657681067577c9537e4db12232e4`.
+The subsequent `0040bd3c48` adds only the receiver-wait timing and closes the
+verified DPI queue item; its supplementary launches are reported separately.
+
+Ten rotating rounds interleave CPU/softbuffer, Ink/wgpu DX12/readback,
+Ink/WARP/composition and Ink/hardware/composition at each size: 80 launches
+with synchronization probes, then 80 without them, 120 frames each.
+Every launch has fresh isolated application storage. Builds, the desktop
+journeys and other GPU tests finish before either series. These are fresh
+processes on a warm machine, not first launches after reboot or a cold OS
+file cache; no retained-storage series was run. Ranges retain every sample.
+
+### Startup
+
+Values are milliseconds, median [minimum–maximum]. DWM is the common
+complete-first-screen proxy for all arms, measured from process creation.
+DXGI separately reports when the complete composition frame was displayed.
+
+| Size | Arm | DWM complete first screen, ms |
+|---|---|---:|
+| 1024×720 | CPU / softbuffer | 165.661 [156.354–186.101] |
+| 1024×720 | Ink / wgpu DX12 / readback | 501.144 [481.269–752.400] |
+| 1024×720 | Ink / WARP / composition | 195.953 [186.969–232.653] |
+| 1024×720 | Ink / hardware / composition | 174.274 [164.498–217.705] |
+| 1920×1080 | CPU / softbuffer | 173.471 [166.955–181.100] |
+| 1920×1080 | Ink / wgpu DX12 / readback | 504.423 [492.094–540.891] |
+| 1920×1080 | Ink / WARP / composition | 219.356 [205.305–248.375] |
+| 1920×1080 | Ink / hardware / composition | 181.686 [167.294–374.422] |
+
+The allowed median overhead is 16.566 and 17.347 ms for these baselines,
+not a fixed 10 ms or the older 34 ms estimate. Differences of medians are
+8.614 and 8.215 ms. Paired candidate-minus-CPU overheads are
+9.796 [−21.603–53.735] ms and 6.088 [−4.990–203.523] ms.
+The 374.422 ms hardware maximum is retained: its device was ready at
+62.002 ms, its join took 1.737 ms, and its first paint started at
+308.658 ms after host entry. This places the delay before the first paint,
+not in device creation; its cause is not established. The small-window
+hardware arm also has 214.671 and 217.705 ms launches, so this series does
+not qualify D15's attribution-based tail guard.
+
+Hardware's complete-screen DXGI timestamps are
+186.982 [177.471–230.938] ms and 194.224 [179.324–387.193] ms, available in
+20/20 runs. WARP's are 207.434 [199.447–245.675] ms and
+248.426 [229.020–280.601] ms. DXGI had no timestamp for initial loading
+present 1 before present 2 in any of these 40 composition launches
+(`displayed 0, QPC 0`). Therefore the first submitted frame's display time
+is unavailable; it is not replaced with a CPU timestamp or claimed to have
+been displayed. The complete screen is present 2. DWM's earlier proxy and
+DXGI's displayed timestamp are separate measurements.
+
+### Device creation and overlap
+
+The adapter's installed DX11 UMD is `amdxx64.dll` in the driver store's
+`u0198975.inf_amd64_cab3843582148687/B025836` directory. Twenty fresh test
+processes alternate ordinary creation with an explicit `LoadLibraryExW`
+of that DLL, ten per arm; the fixture asserts it was absent before and
+loaded after device creation. These diagnostics do not run in the startup
+series and do not change product loading.
+
+| Device diagnostic | Median [minimum–maximum], ms |
+|---|---:|
+| Ordinary creation, including adapter lookup | 47.502 [43.130–58.938] |
+| Explicit UMD loading | 1.662 [1.568–1.863] |
+| Creation after loading the UMD | 44.716 [42.883–47.767] |
+| Pipelines, ordinary arm | 2.697 [2.264–2.937] |
+| Pipelines, preloaded arm | 2.655 [2.241–3.356] |
+
+DLL mapping/loading explains only a small part of the approximately 46.5 ms
+phase. Most remains inside the D3D11/driver initialization path after
+preloading; this test does not split driver initialization from kernel work.
+
+In the gate series the hardware worker starts at process medians 12.043 and
+12.453 ms and is ready at 59.110 and 60.252 ms. Its device phase is
+44.197 [42.393–46.046] and 44.960 [42.818–50.641] ms. Receiving the device
+and creating its remaining resources takes 1.840 [1.599–1.925] and
+1.734 [1.300–2.075] ms on the app thread. The supplementary receiver-wait
+measurement below distinguishes that work from waiting for the worker.
+
+Twenty supplementary hardware launches of `0040bd3c48`, ten at each size,
+measure the channel receive before constructing the remaining resources.
+The receive takes 0.005 [0.004–0.006] ms and 0.005 [0.005–0.008] ms;
+the whole join takes 1.777 [0.970–2.183] and 1.637 [1.214–2.061] ms.
+Thus the earlier start hides device creation to within the measured
+4–8 µs receive overhead in every launch; receiving-thread resource setup
+remains. The supplementary binary's SHA-256 is
+`b432ad427aa95f61bfb50a3a344bb21c15c53277ca007d0bd71b0d8fe34d1211`.
+These four-frame, probe-free launches use native file handles for logs and
+are not mixed into the gate series. Preliminary `wait-*.err` captures used
+PowerShell's managed stream redirection and had 11.382–14.875 ms joins;
+their surrounding timings are excluded from this summary. The native-handle
+captures and summary are `ink-s24-receive-*.log` and `receiver.json` in the raw directory.
+
+### Frame intervals without the probe
+
+`EXACT_AGENT_WINDOW_PROBE=off` omits both the complete-screen DWM/DXGI probe
+and the earlier initial-composition query. The 80 logs contain neither
+synchronization timings nor displayed-frame queries. Intervals are between
+frame starts, not scanout timestamps; the first second begins at frame 1,
+and includes intervals starting before that second ends. Late means above
+25 ms, as in S2.2 and S2.3 on this 60 Hz monitor.
+
+| Arm | 1024×720 late intervals / observed | Runs with a late interval | 1920×1080 late intervals / observed | Runs with a late interval |
+|---|---:|---:|---:|---:|
+| CPU / softbuffer | 1/599 | 1/10 | 1/600 | 1/10 |
+| Ink / wgpu DX12 / readback | 11/585 | 10/10 | 10/580 | 10/10 |
+| Ink / WARP / composition | 13/586 | 10/10 | 257/345 | 10/10 |
+| Ink / hardware / composition | 7/600 | 7/10 | 5/589 | 5/10 |
+
+| Hardware interval, ms | 1024×720 | 1920×1080 |
+|---|---:|---:|
+| Frame 1 → 2 | 25.020 [23.431–26.578] | 24.038 [21.409–25.617] |
+| Frame 2 → 3 | 8.618 [7.008–10.002] | 9.698 [8.267–12.244] |
+| All intervals starting in the first second | 16.619 [7.008–26.578] | 16.630 [8.267–116.555] |
+
+The seven small-window late intervals are all frame 1→2. At 1920×1080,
+three are frame 1→2; rounds 1 and 8 also have 110.999 and 116.555 ms
+intervals at frame 44→45. Their preceding paint/present costs are
+0.348/9.181 and 0.501/9.864 ms, which do not account for the whole gap.
+No cause is assigned to the unmeasured remainder. Across the full 119
+intervals per launch, hardware has 9 and 6 late intervals versus CPU's
+3 and 1. Neither the startup median nor the removal of migration makes
+this a no-late-frame result.
+
+### Desktop journeys
+
+Every S2.1 journey requested for S2.4 passes. Resize and minimize/restore
+have zero pixel error against fresh launches. The idle caret makes three
+transitions and changes 20 pixels; its fresh comparison has mean
+0.006794/255 and 0.002713% of pixels over 32. Both 150% captures pass the
+unchanged band: means 0.048842/255 and 0.048858/255, with 0.072021% over 32.
+Each return reports `client=1024x720 dpi=96`; the final fresh comparison
+has mean 0.000071/255 and no pixels over 32. The display is restored to 100%.
+
+The recovery/Mica fixture observes `0xf0f3f4` before and after the visual
+transfer, with no layered style; all five displayed-color samples are
+`0x336699`. Completion-based retirement passes. The samples span
+10.997–176.999 ms, with gaps up to 50 ms; they establish the observed
+picture and Mica, not the absence of a one-refresh flash.
+
+A real `dxcap -forcetdr` removal presents the CPU frame through WARP, then
+returns to hardware after 1,016.330 ms; the recovered capture is identical
+to a fresh launch. Sleep returns after 75,194 ms and passes its fresh
+comparison (mean 0.370988/255, 0.001492% over 32). Windows records
+Kernel-Power events 42 and 107 for application-requested sleep/resume;
+the later Modern Standby exit names `SetThreadExecutionState`, so this is
+not evidence that the wake timer alone restored the display.
+
+| Native desktop filter | Verbatim result |
+|---|---|
+| recovery-mica | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.76s` |
+| shelf_resize | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 6.74s` |
+| shelf_minimize_restore | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 2.27s` |
+| shelf_idle_caret | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 2.97s` |
+| caret-window | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.18s` |
+| dpi | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 10.25s` |
+| shelf_device_loss | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 8.36s` |
+| shelf_sleep_wake | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 80.91s` |
+| startup | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 204.97s` |
+| intervals | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 203.95s` |
+
+The two series tests collect samples and verify launch/painter correctness;
+their passing Rust verdicts do not assert the numerical cadence gate above.
+Lock/unlock remains unrun because no person was available to unlock the
+session. Binding the RichEdit to Shelf's search field, DirectWrite's audit,
+and lock/unlock remain S2's next chunks, alongside the cadence repair needed
+before changing the device default.
+
+### Native and Mac checks
+
+The native pinned suites use CPU, Vello and Ink with `EXACT_REQUIRED=1`;
+Ink is selected by the device column and wgpu uses DX12. The cargo-built
+`host-dev` test executables were run in the signed-in desktop. Results are
+verbatim.
+
+| Device | Suite | Result |
+|---|---|---|
+| d3d11 | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 5.09s` |
+| d3d11 | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 1.18s` |
+| d3d11 | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 101 filtered out; finished in 0.85s` |
+| d3d11 | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 0.75s` |
+| d3d11 | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.87s` |
+| d3d11 | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 1.68s` |
+| d3d11 | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.82s` |
+| d3d11 | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 0.64s` |
+| d3d11 | exact-windows --lib | `test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.08s` |
+| d3d11 | exact-ink --lib | `test result: ok. 26 passed; 0 failed; 14 ignored; 0 measured; 0 filtered out; finished in 1.00s` |
+| wgpu | paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 8.71s` |
+| wgpu | borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 1.83s` |
+| wgpu | tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 101 filtered out; finished in 1.27s` |
+| wgpu | backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 1.23s` |
+| wgpu | gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.30s` |
+| wgpu | visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 2.14s` |
+| wgpu | materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.22s` |
+| wgpu | image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 0.96s` |
+| wgpu | exact-windows --lib | `test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.07s` |
+| wgpu | exact-ink --lib | `test result: ok. 26 passed; 0 failed; 14 ignored; 0 measured; 0 filtered out; finished in 0.77s` |
+
+The UMD diagnostic passes in all twenty fresh processes. All six Mac checks
+pass: root build, root tests, Clippy and format, staged caps, boot, and the
+workspace check. The complete `cargo test -p exact-linux --lib --tests
+--no-fail-fast` also passes; its library reports
+`test result: ok. 1553 passed; 0 failed; 20 ignored; 0 measured; 0 filtered out; finished in 107.87s`.
+The full pinned suite reports
+`test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.96s`.
+Mac `exact-ink --lib` reports
+`test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s`.
+Windows GNU `exact-windows --all-targets` and MSVC `exact-ink --tests`
+cross-checks pass; native builds compile the DXBC with `fxc`.
+
+| Mac filter, Ink/wgpu | Verbatim result |
+|---|---|
+| paint | `test result: ok. 55 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 2.04s` |
+| borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 0.98s` |
+| tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.94s` |
+| backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 1.38s` |
+| gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.93s` |
+| visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 1.50s` |
+| materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.65s` |
+| image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 1.69s` |
+
+Raw stdout/stderr, desktop captures, startup logs, and parsed samples are in
+`target/ink-s24-nucbox/`; `ink-s24-startup/` and `ink-s24-intervals/` keep
+the two series apart. Mac logs are `target/ink-s24-*.log`. Reproduction uses
+S2.2's build commands, then `shelf_startup_series` and
+`shelf_startup_intervals` with `INK_SHELF` set. The DPI fixture needs Settings
+100% → 150% → 100% → 150% → 100%. All five temporary desktop tasks were
+removed after their processes exited.
