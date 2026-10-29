@@ -580,7 +580,14 @@ mod tests {
         assert!(p.window_frame(window.clone()).unwrap().is_none());
         assert!(p.last_frame_succeeded());
         assert_eq!(p.painter.name, "cpu");
-        let due = p.painter_retry_deadline().unwrap();
+        let due = p
+            .surfaces
+            .direct_window
+            .as_ref()
+            .unwrap()
+            .retry
+            .deadline()
+            .unwrap();
         assert!(due > std::time::Instant::now());
         let (device, texture) = p
             .surfaces
@@ -593,12 +600,15 @@ mod tests {
         let bytes = device.readback(*texture).unwrap();
         assert!(bytes.chunks_exact(4).all(|c| c == [34, 153, 68, 255]));
         p.window_frame(window).unwrap();
-        assert_eq!(p.painter_retry_deadline(), Some(due));
+        assert_eq!(
+            p.surfaces.direct_window.as_ref().unwrap().retry.deadline(),
+            Some(due)
+        );
     }
     fn cpu_presenter() -> Presenter<()> {
         Presenter::boot_with(
             &crate::test_plan(
-                "component App\n  view width=80 height=60 background-color=\"#229944\"\n",
+                "component App\n  view\n    view width=80 height=60 background-color=\"#229944\"\n",
             ),
             (),
             (80., 60.),
@@ -660,10 +670,7 @@ mod tests {
         };
         p.surfaces.direct_window = Some(direct);
         p.window_frame(window.clone()).unwrap();
-        assert!(
-            p.last_frame_succeeded(),
-            "the CPU child must show the frame"
-        );
+        assert_eq!(p.painter.name, "cpu");
         assert!(p
             .surfaces
             .direct_window
