@@ -864,9 +864,9 @@ component T3Window
     if what == "step" and wizardStep <= 1 and target > 1 and providerWizard.idError != ""
       wizardAttempted = true
     providerUiRoot(what, value)
-  action providerAdd(driver: string, label: string, id: string, accent: string, fields: string[], commandArgs: string[])
+  action providerAdd(driver: string, label: string, id: string, accent: string, fields: string[], commandArgs: string[], environment: string[])
     wizardAttempted = true
-    providerAddRoot(driver, label, id, accent, fields, commandArgs)
+    providerAddRoot(driver, label, id, accent, fields, commandArgs, environment)
   // The root rewrite: the settings editors' row menu and dialog label (Settings' panels and ProjectDialogs), moved
   // from app.contract. A settings editor's command is the root's restRaw; rest and restInput name its op and scope.
   state restLabel = ""

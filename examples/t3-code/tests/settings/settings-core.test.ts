@@ -687,14 +687,37 @@ describe('thread title instructions field', () => {
   });
 });
 
-// ModelPickerContent onWindowKeyDown: a tab picked by its shortcut is selected, then announced
+// ModelPickerContent onWindowKeyDown: a tab or a model picked by its shortcut is selected, then announced
 // (composer-controls-commands.ts announcePickerShortcut).
 describe('model picker shortcut presses', () => {
-  test('⇧⌘↑/⇧⌘↓ select the tab as a click does, then send the announcement', () => {
+  test('⇧⌘↑/⇧⌘↓ and ⌘1–9 select as a click does, then send the announcement', () => {
     const dispatch = contractComponent('settings-shortcuts.contract', 'ShortcutDispatch');
     const calls: unknown[][] = [];
-    const scope = { selectProvider: (...args: unknown[]) => calls.push(['selectProvider', ...args]), command: (...args: unknown[]) => calls.push(['command', ...args]) };
+    const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
+    const scope = { selectProvider: record('selectProvider'), selectModel: record('selectModel'), command: record('command'), pickerAnnounce: record('pickerAnnounce') };
     dispatch.call('providerByKey', {}, scope, ['favorites']);
-    expect(calls).toEqual([['selectProvider', 'favorites'], ['command', 'cclocal:picker-provider-key', 'favorites', '', 0]]);
+    dispatch.call('modelByKey', {}, scope, ['claude-opus-5', 'claude']);
+    expect(calls).toEqual([['selectProvider', 'favorites'], ['command', 'cclocal:picker-provider-key', 'favorites', '', 0],
+      ['selectModel', 'claude-opus-5', 'claude', false], ['pickerAnnounce', 'cclocal:picker-model-key', 'claude-opus-5', 'claude']]);
+  });
+  test("a model's announcement has a mutation of its own, as its pick sends `changed`", () => {
+    const root = appText('app.contract');
+    expect(root).toContain('  action pickerAnnounce(op: string, id: string, value: string)\n    send localChanged = command(op, id, value, 0)\n');
+    expect(root).toContain('\n  provide\n    interacted\n    pickerAnnounce\n');
+    expect(appText('settings-shortcuts.contract')).toContain('component ShortcutDispatch\n  inject\n    pickerAnnounce: action\n');
+  });
+});
+
+// A stacked provider row's select fills the row (ProviderSettingsSelect `w-full`, `w-56` beside the title).
+describe('select sizes', () => {
+  test('a select of width 0 fills its row; a provider field passes 0 once its row stacks', () => {
+    const select = contractComponent('settings-kit.contract', 'SelectControl');
+    const sized = (width: number) => ({ width, options: [], selectId: 'provider-field-authMethod', KmItem: (args: Obj) => args });
+    expect([0, 224].map(width => select.attribute('box position="relative"', 'width', {}, sized(width)))).toEqual(['100%', 224]);
+    expect([0, 224].map(width => select.attribute('role="combobox" aria-label=label', 'width', {}, sized(width)))).toEqual(['100%', 224]);
+    const field = contractComponent('providers.contract', 'ProviderConfigField');
+    const scope = (wide: boolean) => ({ wide, writable: true, instance: 'antigravity', field: { key: 'authMethod', label: 'Sign-in method', control: 'select', value: '', options: [] }, SelectOption: (args: Obj) => args,
+      pick: () => {} });
+    expect([true, false].map(wide => field.callArguments('SettingsPageSelect(', field.state(), scope(wide)).width)).toEqual([224, 0]);
   });
 });

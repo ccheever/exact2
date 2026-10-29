@@ -484,8 +484,9 @@ component ProviderConfigField
   view
     PvRow(title=field.label, description=field.description, status="", policy="", wide=wide, divided=(not first))
       if field.control == "select"
-        // ProviderSettingsSelect: a size-sm SelectTrigger, w-56 beside the title, its popup starting at the trigger.
-        SettingsPageSelect(selectId=`provider-field-${field.key}`, label=field.label, valueLabel=chosen, empty=false, value="", width=224, disabled=(not writable), options=choices, choose=pick)
+        // ProviderSettingsSelect: a size-sm SelectTrigger, w-56 beside the title and the row's width once it stacks, its
+        // popup starting at the trigger.
+        SettingsPageSelect(selectId=`provider-field-${field.key}`, label=field.label, valueLabel=chosen, empty=false, value="", width=(wide ? 224 : 0), disabled=(not writable), options=choices, choose=pick)
       else if field.control == "password"
         row width=(wide ? "14rem" : "100%") gap="0.5rem" align-items="center"
           input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-field-${field.key}` id=`field-provider-field-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")

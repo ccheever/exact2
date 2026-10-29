@@ -635,12 +635,21 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   }
   if (driver === 'acpRegistry' && config.source === 'local' && !str(config.commandPath)) throw new ClientError('Executable is required.');
   if (driver === 'acpRegistry' && config.source === 'local') config.commandArgs = (Array.isArray(input.commandArgs) ? input.commandArgs : []).filter((arg): arg is string => typeof arg === 'string');
+  // A local command's variables from Add provider (its ProviderEnvironmentSection), each `<1|0><name>=<value>`, 1 for
+  // sensitive: a row with no name is left out, and a name that is not a variable name refuses the add.
+  const environment = driver === 'acpRegistry' && config.source === 'local' ? (Array.isArray(input.environment) ? input.environment : []).flatMap(entry => {
+    const text = str(entry), at = text.indexOf('='), name = (at < 0 ? text.slice(1) : text.slice(1, at)).trim();
+    if (!name) return [];
+    if (!ENV_NAME.test(name)) throw new ClientError('Use letters, digits and underscores for variable names, starting with a letter or underscore.');
+    return [{ name, value: at < 0 ? '' : text.slice(at + 1), sensitive: text.startsWith('1') }];
+  }) : [];
   if (driver === 'acpRegistry' && config.source !== 'local' && !str(config.agentId)) throw new ClientError('Select an ACP or configure one manually.');
   if (driver === 'acpRegistry') config.distribution = 'auto';
   if (driver === 'codex') config.setupMode = 'existing';
   const accent = str(input.accentColor).trim();
   if (accent && !/^#[0-9a-fA-F]{6}$/.test(accent)) throw new ClientError('Choose a six-digit hex color.');
-  const instance = { driver, enabled: true, ...(label ? { displayName: label } : {}), ...(accent ? { accentColor: accent } : {}), ...(Object.keys(config).length ? { config } : {}) };
+  const instance = { driver, enabled: true, ...(label ? { displayName: label } : {}), ...(accent ? { accentColor: accent } : {}), ...(Object.keys(config).length ? { config } : {}),
+    ...(environment.length ? { environment } : {}) };
   await host.rpc(native, 'server.updateSettings', { patch: {}, providerInstanceMutation: { operation: 'create', instanceId, instance } }, true);
   await refreshConfig(host, native);
   // An ACP Registry instance continues to its sign-in step instead (AddProviderInstanceDialog).

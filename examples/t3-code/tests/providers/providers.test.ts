@@ -4,7 +4,7 @@ import { withUpkeep, versionAdvisoryPresentation } from '../../src/providers/pro
 import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, validateInstanceId, providerInstanceInitials } from '../../src/providers/providers-meta';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { appPath } from '../support/app-files';
+import { appPath, appText } from '../support/app-files';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
 
@@ -157,6 +157,34 @@ test('add creates exactly one instance with config and accent; duplicates and ba
   await expect(add('', { driver: 'acpRegistry', label: '', fields: {} })).rejects.toThrow('Select an ACP or configure one manually.');
   expect(await add('', { driver: 'acpRegistry', label: '', fields: { agentId: 'devin', commandPath: '/nonexistent/devin' } })).toBe('');
   expect(obj(server.settings.providerInstances).acpRegistry_custom).toEqual({ driver: 'acpRegistry', enabled: true, config: { agentId: 'devin', commandPath: '/nonexistent/devin', distribution: 'auto' } });
+});
+
+// AcpRegistrySearchStep's "Local ACP command" (upstream 9d029a1df2 #16021): after Enter manually, it opens the ACP Registry
+// configured by hand with the local source, labelled "Local ACP"; its variables go with the instance.
+test('Local ACP command: the entry after Enter manually opens the local configuration, whose variables the instance keeps', async () => {
+  const dialog = contractComponent('providers-wizard.contract', 'AddProviderDialog');
+  const calls: unknown[][] = [];
+  const state: Obj = { f0: '', f1: 'devin', f2: '', f3: 'auto', f4: '', commandArgs: ['--x'], variables: [{ name: 'A', value: 'b', sensitive: true }] };
+  dialog.call('localCommand', state, { ui: (...args: unknown[]) => calls.push(args) }, []);
+  expect([state.f0, state.f1, state.f2, state.f3, state.f4, state.commandArgs, state.variables, calls]).toEqual(['local', '', '', '', '', [], [], [['local', '']]]);
+  const source = appText('providers-wizard.contract');
+  expect(source).toMatch(/testId="acp-enter-manually"[^\n]*\n[^\n]*text "Enter manually"[^\n]*\n[^\n]*\/\/[^\n]*\n\s+button press=localCommand class=PvOutline[^\n]*testId="acp-local-command"[^\n]*\n\s+text "Local ACP command"/);
+  expect(source).toContain('text (localAcp ? "Local ACP command" : "Enter manually")');
+  expect(source).toContain('text (localAcp ? `Run an installed ACP executable on ${wizard.environment}.` : "Enter an official registry ID and any local executable or auth override.")');
+  expect(source).toContain('summary=(shownStep > 0 ? (isAcp ? (localAcp ? "Local ACP command" : wizard.label) : wizard.driverLabel) : "")');
+  // The window's half: configured by hand, labelled "Local ACP" (handleLocalAcpConfiguration).
+  const root = contractComponent('app.contract', 'T3Code');
+  const window: Obj = { modalError: 'x', providerSelected: '', wizardManual: false, wizardLabel: '', wizardLabelSet: false, wizardIdSet: true, providerDialog: 'add' };
+  root.call('providerUi', window, {}, ['local', '']);
+  expect([window.wizardManual, window.wizardLabel, window.wizardLabelSet, window.wizardIdSet]).toEqual([true, 'Local ACP', true, false]);
+  // The add: a blank row is left out, a bad name refuses it.
+  const server = new FakeServer();
+  const add = (input: Obj) => runProviderOp(server, native, 'provider-add', '', JSON.stringify({ driver: 'acpRegistry', label: 'Local ACP', fields: { source: 'local', commandPath: 'dsh' }, commandArgs: ['--acp'], ...input }));
+  await expect(add({ environment: ['1bad name=x'] })).rejects.toThrow('Use letters, digits and underscores for variable names');
+  expect(await add({ environment: ['1API_KEY=secret=1', '0BASE_URL=http://127.0.0.1', '1='] })).toBe('');
+  expect(obj(server.settings.providerInstances).acpRegistry_local_acp).toEqual({ driver: 'acpRegistry', enabled: true, displayName: 'Local ACP',
+    config: { source: 'local', commandPath: 'dsh', commandArgs: ['--acp'], distribution: 'auto' },
+    environment: [{ name: 'API_KEY', value: 'secret=1', sensitive: true }, { name: 'BASE_URL', value: 'http://127.0.0.1', sensitive: false }] });
 });
 
 test('ACP registry search and prepare fill the identity step without installing during search', async () => {

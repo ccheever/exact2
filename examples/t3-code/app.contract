@@ -115,6 +115,7 @@ component T3Code
   members "./src/browser/server-browser-members.contract"
   provide
     interacted
+    pickerAnnounce
     renameHoldsKeys
     renameFocused
     inlineDocumentViewportWidth
@@ -966,6 +967,11 @@ component T3Code
       send changed = command(modelTarget.id == "" ? "model" : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
       modelsOpen = additive and modelTarget.id == "" and catalog.multiple
       focus(additive and modelTarget.id == "" and catalog.multiple ? "model-search" : (modelTarget.id == "" ? "composer" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`))
+  // ModelPickerContent announces a model its ⌘1–9 shortcut picked (composer-controls-commands.ts announcePickerShortcut). The
+  // pick's own command is `changed`'s (selectModel above), so the announcement has a mutation of its own; the shortcut
+  // press calls it after the pick (settings-shortcuts.contract modelByKey).
+  action pickerAnnounce(op: string, id: string, value: string)
+    send localChanged = command(op, id, value, 0)
   state taskModelPick = "" // the open scheduled task editor's picked `instance:model`, until it closes
   action pickModel(row: string, context: string)
     openModels()
