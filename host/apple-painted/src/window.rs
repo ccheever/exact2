@@ -41,6 +41,7 @@ struct App<D: DataSource> {
     agent: Option<super::agent::Agent>,
     started: Instant,
     tick_pending: Arc<AtomicBool>,
+    display_active: Arc<AtomicBool>,
     pointer: (f32, f32),
     buttons: u32,
     scale: f64,
@@ -134,6 +135,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         agent: None,
         started,
         tick_pending: Default::default(),
+        display_active: Default::default(),
         pointer: (0., 0.),
         buttons: 0,
         scale: 1.,
@@ -290,8 +292,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             p.attach_apple_layer(layer.clone())?;
             let proxy = self.proxy.clone();
             let pending = self.tick_pending.clone();
+            let active = self.display_active.clone();
             let display = DisplayLink::new(move || {
-                if !pending.swap(true, Ordering::AcqRel) {
+                if active.load(Ordering::Acquire) && !pending.swap(true, Ordering::AcqRel) {
                     let _ = proxy.send_event(Event::Tick);
                 }
             })
@@ -321,8 +324,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         match event {
             Event::Tick => {
                 self.tick_pending.store(false, Ordering::Release);
-                if let Some(window) = &self.window {
-                    window.request_redraw();
+                if self.display_active.load(Ordering::Acquire) {
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                 }
             }
             Event::Wake => {}
@@ -501,10 +506,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         } else {
             self.started.elapsed().as_secs_f64() * 1000.
         };
-        p.pump(now);
-        p.run_commands(D::default);
-        p.hatch_turn();
-        p.poll_images();
+        service(p, now, !self.config.agent, D::default);
         // Offscreen metadata can finish after the last visible image. Submit a
         // complete scene for the probe even when that completion owes no damage.
         if std::env::var_os("G1_OUTPUT").is_some()
@@ -519,6 +521,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         }
         let active = !self.hidden
             && (p.dirty() || !self.config.agent && (p.wants_display_frames() || p.host().motion()));
+        self.display_active.store(active, Ordering::Release);
         if let Some(display) = &mut self.display {
             if let Err(e) = display.set_running(active) {
                 self.fail(events, e);
@@ -533,5 +536,42 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         events.set_control_flow(wake.map_or(ControlFlow::Wait, |due| {
             ControlFlow::WaitUntil(self.started + Duration::from_secs_f64(due.max(now) / 1000.))
         }));
+    }
+}
+
+fn service<D: DataSource>(p: &mut Presenter<D>, now: f64, live: bool, data: impl FnMut() -> D) {
+    // Timers can expire without a frame. Leaving their deadline in the past
+    // makes WaitUntil wake continuously even though the display link is stopped.
+    if live {
+        p.advance(now);
+    }
+    p.pump(now);
+    p.run_commands(data);
+    p.hatch_turn();
+    p.poll_images();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_linux::presenter::PainterChoice;
+
+    #[test]
+    fn a_timer_that_changes_no_pixels_advances_without_a_display_frame() {
+        let plan = contract::compile("component App\n  state enabled: bool = false\n  state count: number = 0\n  task clock mount\n    every(250, tick)\n  action tick\n    if enabled\n      count = count + 1\n  view\n    text \"Still\"\n").unwrap().encode();
+        let (mut p, error) =
+            Presenter::boot_with(&plan, (), (80., 80.), 1., ".".into(), PainterChoice::Cpu)
+                .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.frame();
+        assert!(!p.dirty());
+        let due = p.wake_due_ms().unwrap();
+        service(&mut p, due + 1., true, || ());
+        assert!(!p.dirty());
+        assert!(!p.host().motion() && !p.wants_display_frames());
+        assert!(p.wake_due_ms().unwrap() > due + 1.);
+        let next = p.wake_due_ms();
+        service(&mut p, due + 1000., false, || ());
+        assert_eq!(p.wake_due_ms(), next, "the agent owns its clock");
     }
 }

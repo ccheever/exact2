@@ -1417,6 +1417,7 @@ dependencies = [
 name = "exact-apple-painted"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-ink",
  "exact-linux",
  "exact-runner",
