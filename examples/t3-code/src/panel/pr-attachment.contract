@@ -231,7 +231,9 @@ component AttachmentBody
       if att.preview == "viewer"
         column flex=1 min-height=0 width="100%"
           column flex=(att.entry.open ? 0 : 1) height=(att.entry.open ? "2.5rem" : "auto") min-height=0 flex-shrink=0 width="100%"
-            ViewerFrame(frame=att.viewer, scheme=scheme, sheet=sheet, message=viewerSaid, posted=viewerPosted, pick=viewerPicked, label=att.name, testId="attachment-viewer")
+            // One frame per file: each file's state counts its own page's boot, so another file mounts a new frame.
+            for frame in [att.viewer] key=frame.id
+              ViewerFrame(frame=frame, scheme=scheme, sheet=sheet, message=viewerSaid, posted=viewerPosted, pick=viewerPicked, label=att.name, testId="attachment-viewer")
           if att.entry.open
             ArchiveEntryBody(entry=att.entry, wrap=att.wrap, testId="attachment-entry")
       if att.preview == "notebook"
