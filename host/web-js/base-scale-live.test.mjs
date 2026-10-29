@@ -47,8 +47,9 @@ test('a live edit of a base name the app sets moves its row and its alias on the
       if (!path) return new Response(`<style>${sheet}</style><link rel="stylesheet" href="/app.css">
         <div id="exact-root"></div><script type="module">import app from '/app.js';app();</script>`,
       { headers: { 'content-type': 'text/html' } });
-      const file = [dir, import.meta.dir, resolve(root, 'host/web')]
-        .map(base => resolve(base, path)).find(existsSync);
+      // A module that re-exports the host's own reaches it through `../web/`.
+      const bases = path.startsWith('web/') ? [resolve(root, 'host')] : [dir, import.meta.dir, resolve(root, 'host/web')];
+      const file = bases.map(base => resolve(base, path)).find(existsSync);
       return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
     browser = await suiteBrowser();
@@ -119,8 +120,9 @@ test('an alias switched between base names goes live; the first base name moves 
       const path = new URL(request.url).pathname.slice(1);
       if (!path) return new Response(`<link rel="stylesheet" href="/app.css"><div id="exact-root"></div><script type="module">import app from '/app.js';app();</script>`,
         { headers: { 'content-type': 'text/html' } });
-      const file = [dir, import.meta.dir, resolve(root, 'host/web')]
-        .map(base => resolve(base, path)).find(existsSync);
+      // A module that re-exports the host's own reaches it through `../web/`.
+      const bases = path.startsWith('web/') ? [resolve(root, 'host')] : [dir, import.meta.dir, resolve(root, 'host/web')];
+      const file = bases.map(base => resolve(base, path)).find(existsSync);
       return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
     } });
     browser = await suiteBrowser();
@@ -165,8 +167,9 @@ test('a bound grid track naming a base name or an alias keeps its length', async
         const path = new URL(request.url).pathname.slice(1);
         if (!path) return new Response(`<link rel="stylesheet" href="/app.css"><div id="exact-root"></div><script type="module">import app from '/app.js';app();</script>`,
           { headers: { 'content-type': 'text/html' } });
-        const file = [dir, import.meta.dir, resolve(root, 'host/web')]
-          .map(base => resolve(base, path)).find(existsSync);
+        // A module that re-exports the host's own reaches it through `../web/`.
+        const bases = path.startsWith('web/') ? [resolve(root, 'host')] : [dir, import.meta.dir, resolve(root, 'host/web')];
+        const file = bases.map(base => resolve(base, path)).find(existsSync);
         return file ? new Response(Bun.file(file)) : new Response('Not found', { status: 404 });
       } });
       const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
