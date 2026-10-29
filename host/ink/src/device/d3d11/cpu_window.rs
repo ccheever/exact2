@@ -122,12 +122,30 @@ mod tests {
         for size in [[80, 60], [40, 30], [80, 60]] {
             let bytes = [34, 153, 68, 255].repeat((size[0] * size[1]) as usize);
             child.present(size, &bytes).unwrap();
-            window.dispatch_pending();
-            unsafe {
-                let dc = GetDC(Some(child.hwnd));
-                let pixel = GetPixel(dc, (size[0] / 2) as i32, (size[1] / 2) as i32);
-                ReleaseDC(Some(child.hwnd), dc);
-                assert_eq!(pixel.0, 34 | (153 << 8) | (68 << 16));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                window.dispatch_pending();
+                crate::device::compositor_sync_process_ms().unwrap();
+                // A composition HWND has no readable window DC. Sample the
+                // desktop after DWM has drawn the child's redirected bitmap.
+                let pixel = unsafe {
+                    let mut at = windows::Win32::Foundation::POINT {
+                        x: (size[0] / 2) as i32,
+                        y: (size[1] / 2) as i32,
+                    };
+                    assert!(ClientToScreen(child.hwnd, &mut at).as_bool());
+                    let dc = GetDC(None);
+                    let pixel = GetPixel(dc, at.x, at.y);
+                    ReleaseDC(None, dc);
+                    pixel.0
+                };
+                if pixel == 34 | (153 << 8) | (68 << 16) {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "desktop pixel {pixel:x}"
+                );
             }
         }
     }
