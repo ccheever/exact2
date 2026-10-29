@@ -515,8 +515,8 @@ function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
   console.log(classification.map(line=>`  ${line}`).join('\n'));
 }
 
-// A ready line waits for the server to listen and its doors to open (a test or an agent connects on it); early, it is.
-let dev = null, announced = false, listening = !!early; const readyLines = [], sayReady = line => { if (listening) console.log(line); else readyLines.push(line); };
+// A ready line waits for the server to listen ([::1] too) and its doors to open: a test or an agent connects on it.
+let dev = null, announced = false, listening = false; const readyLines = [], sayReady = line => { if (listening) console.log(line); else readyLines.push(line); };
 let contractStamp, contractTreeStamp, compiledContract; const readinessContracts = new Set([source]);
 const contractBytes = () => { try { return createHash('sha256').update(readFileSync(source)).digest('hex'); } catch { return null; } };
 const contractInputsStamp = () => createHash('sha256').update([...readinessContracts].sort().map(path => { try { return path + ':' + readFileSync(path); } catch { return path + ':missing'; } }).join('\0')).digest('hex');

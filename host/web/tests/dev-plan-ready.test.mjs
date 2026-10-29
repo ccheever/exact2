@@ -13,14 +13,23 @@ import { createServer } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { spawnOwned, stopAll } from '../../../scripts/test-children.mjs';
 import { checkoutPort, takePort } from '../../../scripts/port-lock.mjs';
 import { listenDelay } from '../serve.mjs';
+import { resolveApp } from '../../../scripts/app.mjs';
+import { canonicalBytes } from '../../../scripts/deploy.mjs';
 
 const ROOT = resolve(import.meta.dir, '../../..');
-// A private dist each, removed after the test even when its bound ends it (no `finally` runs then).
+// A private dist each, removed after the test even when its bound ends it (no `finally` runs then), with
+// the wasm loop's generation cache, which is keyed by the dist (dev.mjs generationCache), so no later run takes it.
 const dists = new Set();
-afterEach(() => { stopAll(); for (const dist of dists) rmSync(dist, { recursive: true, force: true }); dists.clear(); });
+const generationCache = (name, dist) => { const app = resolveApp(name); return resolve(ROOT, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex')); };
+afterEach(() => {
+  stopAll();
+  for (const [name, dist] of dists) for (const dir of [dist, generationCache(name, dist)]) rmSync(dir, { recursive: true, force: true });
+  dists.clear();
+});
 const free = () => new Promise(ok => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => ok(port)); }); });
 
 // The JS loop (Caltrain), the wasm loop's own compiler (theme-fixture, no app.ts) and its TypeScript
@@ -48,19 +57,18 @@ async function fixtureTurn(loop) {
 // The loop on `port`, its output heard as it is said; `onReady` runs in the same turn as the line is read.
 function devLoop(loop, port, onReady = () => {}) {
   const dist = mkdtempSync(join(tmpdir(), 'exact-plan-ready-dist-'));
-  dists.add(dist);
+  dists.add([loop.args[1], dist]);
   const env = { ...process.env, EXACT_WEB_DIST: dist, EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: String(loop.delay) };
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), ...loop.args, '--port', String(port)], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '', ready = false;
-  const exited = new Promise(ok => dev.once('exit', code => ok(code)));
-  // Each stream by its own lines, so another's chunk never splits a ready line.
+  // Once its output has all been read (a child's 'close' comes after its streams end).
+  const exited = new Promise(ok => dev.once('close', code => ok(code)));
+  // Each stream by its own lines, so another's chunk never splits a ready line; a last line unended is one too.
   for (const stream of [dev.stdout, dev.stderr]) {
     let part = '';
-    stream.on('data', d => {
-      said += d; part += d;
-      const lines = part.split('\n'); part = lines.pop();
-      if (!ready && lines.some(line => READY.test(line))) { ready = true; onReady(); }
-    });
+    const hear = lines => { if (!ready && lines.some(line => READY.test(line))) { ready = true; onReady(); } };
+    stream.on('data', d => { said += d; part += d; const lines = part.split('\n'); part = lines.pop(); hear(lines); });
+    stream.on('end', () => hear([part]));
   }
   return { dev, exited, said: () => said, ready: () => ready };
 }
@@ -107,7 +115,7 @@ for (const loop of LOOPS) {
       const refused = run.said().indexOf(`cannot listen on 127.0.0.1:${port}: EADDRINUSE`);
       expect(refused).toBeGreaterThan(-1);
       if (loop.args.includes('--wasm')) expect(atIndex(run.said(), GENERATED), 'a generation captured before the listen failed').toBeWithin(0, refused);
-      expect(run.said()).not.toMatch(READY);
+      expect(run.ready(), 'a ready line').toBe(false);
     } finally { await run.dev.stop(15_000); }
   }, 620_000);
 }
