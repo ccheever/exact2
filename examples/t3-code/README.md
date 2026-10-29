@@ -198,9 +198,12 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
   the context strip's workspace control is the desktop Select. PNG, JPEG and HEIC images over
   2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes. An
-  image uploads as it is attached, three at once, its percentage on its tile while the prompt is typed
-  (`composer-uploads.ts`); other files upload at send. With Markdown formatting on, each line of the prompt reads in
-  the direction of most of its block's words (`composer-text-direction.ts`).
+  image uploads as it is attached, three at once, its percentage on its tile while the prompt is typed, and the
+  uploads go on in other threads (`composer-uploads.ts`). Send and Return wait for them; a send that goes anyway (the
+  Browser's annotate and send) waits for them itself. Their attachments last the session, so a relaunch uploads the
+  draft's images again; other files upload at send. With Markdown formatting on, each line of the prompt reads in the
+  direction of most of its block's words (`composer-text-direction.ts`); with it off, each line by its first strong
+  letter, as Apple's plain fields read.
 - Requests: approvals, single/multiple-choice and free-text questions. While an approval is pending the
   composer stays usable: Send declines the approvals it shows, then steers the turn with the message
   (`declineForRedirect` in `client-ops-composer.ts`), or, for an agent that reads feedback, declines the

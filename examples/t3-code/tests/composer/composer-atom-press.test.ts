@@ -154,11 +154,14 @@ describe('a chip\'s face is its pill', () => {
       .toEqual(['light-dark(#4c2e2f, #fcd8d4)', 'light-dark(#d52c361c, #ff67621c)']);
     expect(paint({kind: 'mention', source: '[plan.xlsx](plan.xlsx)', path: 'plan.xlsx', face: face({label: 'plan.xlsx'})}))
       .toEqual(['light-dark(#2d4032, #d7edd8)', 'light-dark(#199f431c, #5ecc711c)']);
-    // An attached file by its name; one whose bytes were lost draws unresolved, with its kind's paint.
-    const attached = (patch: Env) => ({kind: 'context', source: '[brief.docx](t3-context://v1/file/f1)', label: 'brief.docx',
+    // An attached file by its name. One whose bytes were lost has no record (fileChipContexts), so its face is
+    // unavailable: it draws unresolved, keeping its accent's fill with the field's text (ContextChip's `unresolved`).
+    const attached = (patch: Env) => ({kind: 'context', source: '[brief.docx](t3-context://v1/file/f1)', label: 'brief.docx', contextKind: 'file',
       face: face({kind: 'file', label: 'brief.docx', icon: 'file', ...patch})});
     expect(paint(attached({}))).toEqual(['light-dark(#2b3b4c, #d7e7f9)', 'light-dark(#1a85d41c, #69b1ff1c)']);
-    expect(paint(attached({available: false}))).toEqual(['', '']);
+    expect(paint(attached({kind: 'neutral', available: false, icon: 'circle-dashed'}))).toEqual(['', 'light-dark(#1a85d41c, #69b1ff1c)']);
+    // Another context reference by a document's name is not a file: a thread titled so keeps its kind's paint.
+    expect(paint({...attached({kind: 'thread', icon: 'messages-square'}), contextKind: 'thread'})).toEqual(['', '']);
     // Anything else keeps its kind's paint: a source file, a folder, a video, a skill.
     expect(paint({kind: 'mention', source: '@src/app.ts', path: 'src/app.ts', face: face({})})).toEqual(['', '']);
     expect(paint({kind: 'mention', source: '@docs', path: 'docs', face: face({icon: 'folder'})})).toEqual(['', '']);

@@ -3,33 +3,53 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import { adoptAppFiles } from '../../src/media/save-file';
-import { retryDraftUpload, runDraftUploads, settleUploads, uploadBlock, uploadSource, uploadTable, type UploadEvent } from '../../src/composer/composer-uploads';
+import { awaitDraftUploads, forgetMissingAttachments, forgetUnsentUploads, holdUploads, retryDraftUpload, runDraftUploads, settleUploads, uploadBlock, uploadSource, uploadTable,
+  type UploadEvent } from '../../src/composer/composer-uploads';
+import { questionDraftKey } from '../../src/composer/question-attachments';
+import { beginQueuedEdit, queuedEdit } from '../../src/composer/composer-controls-queue';
 import type { Native } from '../../src/client/protocol';
 import { contractComponent, contractFns } from '../support/contract-action-fixture';
+import { opened } from '../support/composer-controls-fixture';
+import { memoryFiles, png } from '../support/app-files-fixture';
+import { snapshot } from '../../src/client/presentation';
+import { obj, str } from '../../src/client/domain';
+import { T3Client } from '../../src/client/client';
+import { storage } from '../support/client-fixture';
 
 type Obj = Record<string, unknown>;
-const KEY = 'env-1:thread-1';
+type Fake = T3Client & { shown: string; local: { snapshotDrafts: Record<string, Obj[]> }; requests: Array<[string, Obj]> };
+const A = 'env-1:thread-A', B = 'env-1:thread-B';
 const native = {} as Native;
 
-/** A connected client whose server stages uploads, with `count` draft images and a scripted server. */
-function fixture(count: number, supported = true) {
+const images = (count: number, prefix = 'img'): Obj[] => Array.from({ length: count }, (_, index) => ({ id: `${prefix}-${index}`, name: `${prefix}-${index}.png`, mimeType: 'image/png', sizeBytes: 1 }));
+/** Draft files of `size` bytes, as the upload's body reads them (snapshot-upload.ts). */
+const draftFiles = (size: number) => adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(0), writeFile: async () => undefined, mkdir: async () => undefined, stat: async () => ({ size }) } } as never);
+
+/** A connected client on machine env-1, showing draft `shown` of `drafts`, whose server stages uploads and mints their URLs. */
+function fixture(drafts: Record<string, Obj[]>, shown = A, { supported = true, mintLimit = Infinity } = {}): Fake {
   const requests: Array<[string, Obj]> = [];
   let minted = 0;
-  const images: Obj[] = Array.from({ length: count }, (_, index) => ({ id: `img-${index}`, name: `shot-${index}.png`, mimeType: 'image/png', sizeBytes: 1 }));
   const client = {
-    writable: true, environmentId: 'env-1', origin: 'http://127.0.0.1:16555', attachmentUploads: {} as Record<string, Obj>,
+    environmentId: 'env-1', origin: 'http://127.0.0.1:16555', connection: 'connected', generation: 1, shown, requests,
+    scopes: ['orchestration:read', 'orchestration:operate'],
+    get writable() { return this.connection === 'connected' && this.scopes.includes('orchestration:operate'); },
+    get attachmentKey() { return this.shown; },
     config: { environment: { capabilities: { attachmentUploads: supported } } },
-    local: { snapshotDrafts: { [KEY]: images } as Record<string, Obj[]> },
-    get snapshotDrafts() { return this.local.snapshotDrafts[KEY] ?? []; },
+    local: { snapshotDrafts: drafts },
+    get snapshotDrafts() { return this.local.snapshotDrafts[this.attachmentKey] ?? []; },
     request: async (_native: Native, method: string, payload: Obj) => {
       requests.push([method, payload]);
-      if (method === 'attachments.createUploadUrl') { minted += 1; return { attachmentId: `att-${minted}`, relativeUrl: `/api/attachments/upload/att-${minted}?token=t${minted}` }; }
-      return {};
+      if (method !== 'attachments.createUploadUrl') return {};
+      if (Number(payload.sizeBytes) > mintLimit) throw new Error('Attachment exceeds the upload limit.');
+      minted += 1;
+      return { attachmentId: `att-${minted}`, relativeUrl: `/api/attachments/upload/att-${minted}?token=t${minted}` };
     },
-  } as unknown as T3Client & { local: { snapshotDrafts: Record<string, Obj[]> } };
-  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(0), writeFile: async () => undefined, mkdir: async () => undefined, stat: async () => ({ size: 2_000_000 }) } });
-  return { client, images, requests };
+  };
+  draftFiles(2_000_000);
+  return client as unknown as Fake;
 }
+const mints = (client: Fake) => client.requests.filter(([method]) => method === 'attachments.createUploadUrl').length;
+const deleted = (client: Fake) => client.requests.filter(([method]) => method === 'attachments.delete').map(([, payload]) => payload.attachmentId);
 
 /** The fetch an upload resource makes: its URL and init, and its mapper. This file's tests alone see the stand-in. */
 const fetched: Array<{ url: string; init: Obj }> = [];
@@ -37,25 +57,35 @@ const realFetch = globalThis.fetch;
 beforeAll(() => { globalThis.fetch = (async (url: string, init: Obj) => { fetched.push({ url, init }); return new Promise(() => {}); }) as unknown as typeof fetch; });
 afterAll(() => { globalThis.fetch = realFetch; });
 afterEach(() => { fetched.length = 0; });
-const stream = (slot: number, client: T3Client, table = uploadTable(client)) => {
-  const at = [table.u0, table.u1, table.u2][slot]!;
+/** Asks slot `slot`'s resource as the root would, with what the table says it carries. */
+const stream = (slot: number, client: T3Client) => {
+  const table = uploadTable(client), at = [table.u0, table.u1, table.u2][slot]!;
   uploadSource(client, slot, at.id, at.attachmentId);
   const call = fetched.at(-1)!;
   return { ...call, event: (event: UploadEvent) => (call.init.exactStream as (e: UploadEvent) => Obj)(event) };
 };
+/** The root's pump, then each slot's upload landing, `rounds` times. */
+async function pumpAndLand(client: Fake, rounds: number) {
+  for (let round = 0; round < rounds; round++) {
+    await runDraftUploads(client, native);
+    const table = uploadTable(client);
+    [table.u0, table.u1, table.u2].forEach((slot, index) => { if (slot.id) stream(index, client).event({ type: 'load', status: 201 }); });
+  }
+  await runDraftUploads(client, native);
+}
 
 describe('a draft image uploads as it joins the draft', () => {
   test('nothing waits while the server stages no uploads', () => {
-    const { client } = fixture(2, false);
+    const client = fixture({ [A]: images(2) }, A, { supported: false });
     expect(uploadTable(client)).toMatchObject({ supported: false, pending: '', images: [] });
     expect(uploadBlock(client)).toBe('');
   });
 
   test('three at once: each free resource takes the next image, minting its upload URL; the rest wait at 0%', async () => {
-    const { client, requests } = fixture(4);
+    const client = fixture({ [A]: images(4) });
     expect(uploadTable(client).pending).toBe('img-0 img-1 img-2 img-3');
     await runDraftUploads(client, native);
-    expect(requests.map(([method, payload]) => [method, payload.type, payload.mimeType, payload.sizeBytes])).toEqual(Array(3).fill(['attachments.createUploadUrl', 'image', 'image/png', 2_000_000]));
+    expect(client.requests.map(([method, payload]) => [method, payload.type, payload.mimeType, payload.sizeBytes])).toEqual(Array(3).fill(['attachments.createUploadUrl', 'image', 'image/png', 2_000_000]));
     const table = uploadTable(client);
     expect([table.u0, table.u1, table.u2]).toEqual([{ id: 'img-0', attachmentId: 'att-1' }, { id: 'img-1', attachmentId: 'att-2' }, { id: 'img-2', attachmentId: 'att-3' }]);
     // No resource is free, so the root asks for none until one is.
@@ -64,34 +94,36 @@ describe('a draft image uploads as it joins the draft', () => {
     expect(uploadBlock(client)).toBe('Attachments still uploading');
   });
 
-  test('the stream posts the draft file and tells its progress in twentieths; its reply lands the attachment in the draft', async () => {
-    const { client, images } = fixture(2);
+  test('the stream posts the draft file and tells its progress from its first report, then in twentieths; its reply lands the attachment', async () => {
+    const client = fixture({ [A]: images(2) }), [first] = client.local.snapshotDrafts[A]!;
     await runDraftUploads(client, native);
     const upload = stream(0, client);
     expect(upload.url).toBe('http://127.0.0.1:16555/api/attachments/upload/att-1?token=t1');
     expect(upload.init).toMatchObject({ method: 'POST', exactBodyFrom: 'app:/data/snapshots/drafts/img-0.png', exactUploadProgress: true, exactTimeout: 300000,
       headers: { 'Content-Type': 'image/png' } });
-    expect(upload.event({ type: 'progress', loaded: 512_000, total: 2_000_000 })).toMatchObject({ id: 'img-0', status: 'uploading', progress: 0.256 });
+    // The first report shows (the tile reads 1%), as uploadBytes' lastStep starts below every step.
+    expect(upload.event({ type: 'progress', loaded: 20_000, total: 2_000_000 })).toMatchObject({ id: 'img-0', status: 'uploading', progress: 0.01 });
+    expect(upload.event({ type: 'progress', loaded: 512_000, total: 2_000_000 })).toMatchObject({ progress: 0.256 });
     // A step of less than 5% keeps the answer the reference would show.
     expect(upload.event({ type: 'progress', loaded: 540_000, total: 2_000_000 })).toMatchObject({ progress: 0.256 });
     expect(upload.event({ type: 'load', status: 201 })).toMatchObject({ status: 'ready', progress: 1, attachmentId: 'att-1' });
     // Landed, it no longer holds the send, and the root's next run settles its resource.
     expect(uploadBlock(client)).toBe('Attachment still uploading');
     expect(uploadTable(client)).toMatchObject({ u0: { id: 'img-0', attachmentId: 'att-1' }, settle: 1 });
-    expect(images[0]!.uploadId).toBeUndefined();
+    expect(first!.uploadId).toBeUndefined();
     await runDraftUploads(client, native);
-    expect(images[0]!.uploadId).toBe('att-1');
+    expect(first!.uploadId).toBe('att-1');
     expect(uploadTable(client)).toMatchObject({ u0: { id: '', attachmentId: '' }, settle: 0 });
     expect(uploadTable(client).images.map(image => image.id)).toEqual(['img-1']);
   });
 
   test('a failed upload keeps its reason for the tile\'s Retry, its attachment is deleted, and Retry mints another', async () => {
-    const { client, requests } = fixture(1);
+    const client = fixture({ [A]: images(1) });
     await runDraftUploads(client, native);
     expect(stream(0, client).event({ type: 'load', status: 500 })).toMatchObject({ status: 'failed', reason: 'Upload rejected (500)' });
     await runDraftUploads(client, native);
-    expect(requests.filter(([method]) => method === 'attachments.delete')).toEqual([['attachments.delete', { attachmentId: 'att-1' }]]);
-    expect(uploadTable(client)).toMatchObject({ pending: '', images: [{ id: 'img-0', status: 'failed', reason: 'Upload rejected (500)' }] });
+    expect(deleted(client)).toEqual(['att-1']);
+    expect(uploadTable(client)).toMatchObject({ pending: '', operate: true, images: [{ id: 'img-0', status: 'failed', reason: 'Upload rejected (500)' }] });
     // A send retries a failed upload, so it does not wait for one (attachmentUploadBlockReason).
     expect(uploadBlock(client)).toBe('');
     retryDraftUpload(client, 'img-0');
@@ -100,8 +132,26 @@ describe('a draft image uploads as it joins the draft', () => {
     expect(uploadTable(client).u0).toEqual({ id: 'img-0', attachmentId: 'att-2' });
   });
 
+  test('a failure is asked again once the connection is replaced, and Retry does not act on a connection that may not operate', async () => {
+    const client = fixture({ [A]: images(1) });
+    await runDraftUploads(client, native);
+    stream(0, client).event({ type: 'error' });
+    await runDraftUploads(client, native);
+    expect(uploadTable(client).images).toMatchObject([{ status: 'failed', reason: 'Upload failed' }]);
+    client.connection = 'reconnecting';
+    expect(uploadTable(client).images).toMatchObject([{ status: 'failed' }]);
+    // The environment connected again (attachmentUploadQueue's reconnect watch): the upload starts over.
+    Object.assign(client, { connection: 'connected', generation: 2 });
+    expect(uploadTable(client)).toMatchObject({ pending: 'img-0', images: [{ status: 'queued' }] });
+    await runDraftUploads(client, native);
+    expect(uploadTable(client).u0).toEqual({ id: 'img-0', attachmentId: 'att-2' });
+    stream(0, client).event({ type: 'load', status: 503 });
+    client.scopes = ['orchestration:read'];
+    expect(uploadTable(client)).toMatchObject({ operate: false, images: [{ status: 'failed', reason: 'Upload rejected (503)' }] });
+  });
+
   test('a timeout, and an upload cut off with no answer, fail with the reference\'s words', async () => {
-    const { client } = fixture(2);
+    const client = fixture({ [A]: images(2) });
     await runDraftUploads(client, native);
     expect(stream(0, client).event({ type: 'error', kind: 'Timeout' })).toMatchObject({ status: 'failed', reason: 'Upload timed out' });
     await runDraftUploads(client, native, [1]);
@@ -109,26 +159,167 @@ describe('a draft image uploads as it joins the draft', () => {
   });
 
   test('an image removed while it uploads lets its upload go: the resource carries nothing, and its attachment is deleted', async () => {
-    const { client, requests } = fixture(2);
+    const client = fixture({ [A]: images(2) });
     await runDraftUploads(client, native);
-    client.local.snapshotDrafts[KEY] = client.local.snapshotDrafts[KEY]!.filter(image => image.id !== 'img-0');
+    client.local.snapshotDrafts[A] = client.local.snapshotDrafts[A]!.filter(image => image.id !== 'img-0');
     expect(uploadTable(client).settle).toBe(1);
     settleUploads(client);
     expect(uploadTable(client).u0).toEqual({ id: '', attachmentId: '' });
     expect(uploadSource(client, 0, 'img-0', 'att-1')).toMatchObject({ id: '', status: '' });
     await runDraftUploads(client, native);
-    expect(requests.filter(([method]) => method === 'attachments.delete')).toEqual([['attachments.delete', { attachmentId: 'att-1' }]]);
+    expect(deleted(client)).toEqual(['att-1']);
   });
 
-  test('a mint that fails, or a draft file that is gone, fails the image without a resource', async () => {
-    const { client } = fixture(1);
-    (client as unknown as { request: () => Promise<never> }).request = async () => { throw new Error('offline'); };
+  test('an image removed after its upload landed, before the pump settled it, has its attachment deleted (releaseAttachmentUpload)', async () => {
+    const client = fixture({ [A]: images(1) });
     await runDraftUploads(client, native);
-    expect(uploadTable(client).images).toEqual([{ id: 'img-0', attachmentId: '', status: 'failed', progress: 0, reason: 'Upload could not start' }]);
-    const gone = fixture(1);
-    adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(0), writeFile: async () => undefined, mkdir: async () => undefined, stat: async () => { throw new Error('missing'); } } });
-    await runDraftUploads(gone.client, native);
-    expect(uploadTable(gone.client).images[0]).toMatchObject({ status: 'failed', reason: 'Original file is no longer available' });
+    stream(0, client).event({ type: 'load', status: 201 });
+    client.local.snapshotDrafts[A] = [];
+    await runDraftUploads(client, native);
+    expect(deleted(client)).toEqual(['att-1']);
+    expect(uploadTable(client)).toMatchObject({ u0: { id: '' }, settle: 0 });
+  });
+
+  test('a type the provider does not take, a mint the server refuses (an image over its limit), and a draft file that is gone fail the image', async () => {
+    const heic = fixture({ [A]: [{ id: 'img-0', name: 'photo.heic', mimeType: 'image/heic', sizeBytes: 1 }] });
+    await runDraftUploads(heic, native);
+    expect(uploadTable(heic).images).toEqual([{ id: 'img-0', attachmentId: '', status: 'failed', progress: 0, reason: 'Unsupported image type' }]);
+    expect(mints(heic)).toBe(0);
+    const large = fixture({ [A]: images(1) }, A, { mintLimit: 1_000_000 });
+    await runDraftUploads(large, native);
+    expect(uploadTable(large).images[0]).toMatchObject({ status: 'failed', reason: 'Upload could not start' });
+    const gone = fixture({ [A]: images(1) });
+    adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(0), writeFile: async () => undefined, mkdir: async () => undefined, stat: async () => { throw new Error('missing'); } } } as never);
+    await runDraftUploads(gone, native);
+    expect(uploadTable(gone).images[0]).toMatchObject({ status: 'failed', reason: 'Original file is no longer available' });
+    expect(mints(gone)).toBe(0);
+  });
+});
+
+describe('an upload belongs to its draft entry', () => {
+  // adoptPastedChips copies the image into the other draft with its id, and without its attachment.
+  const source = () => ({ id: 'img-x', name: 'x.png', mimeType: 'image/png', sizeBytes: 1, uploadId: 'att-0' });
+  const pasted = () => ({ id: 'img-x', name: 'x.png', mimeType: 'image/png', sizeBytes: 1 });
+
+  test('a chip pasted into another thread uploads once there, and the draft it came from keeps its own attachment', async () => {
+    const from = source(), into: Obj = pasted(), client = fixture({ [A]: [from], [B]: [into] }, B);
+    await pumpAndLand(client, 4);
+    expect(mints(client)).toBe(1);
+    expect([from.uploadId, into.uploadId]).toEqual(['att-0', 'att-1']);
+    expect(uploadTable(client)).toMatchObject({ pending: '', settle: 0, images: [] });
+    expect(uploadBlock(client)).toBe('');
+  });
+
+  test('a chip pasted into a question\'s answer uploads once for that answer', async () => {
+    const answer = questionDraftKey('env-1', 'thread-A', 'request-1', 'question-1');
+    const from = source(), into: Obj = pasted(), client = fixture({ [A]: [from], [answer]: [into] }, answer);
+    await pumpAndLand(client, 4);
+    expect(mints(client)).toBe(1);
+    expect([from.uploadId, into.uploadId]).toEqual(['att-0', 'att-1']);
+    expect(uploadBlock(client)).toBe('');
+  });
+
+  test('the queue goes on while another draft is shown: an image waiting for a slot starts once one is free', async () => {
+    const client = fixture({ [A]: images(4), [B]: [] });
+    await runDraftUploads(client, native);
+    client.shown = B;
+    expect(uploadTable(client)).toMatchObject({ pending: '', images: [] });
+    stream(1, client).event({ type: 'load', status: 201 });
+    expect(uploadTable(client).settle).toBe(1);
+    await runDraftUploads(client, native);
+    expect(client.local.snapshotDrafts[A]![1]!.uploadId).toBe('att-2');
+    expect(uploadTable(client).u1).toEqual({ id: 'img-3', attachmentId: 'att-4' });
+  });
+
+  test('a queued message\'s edit sets the thread\'s images aside, and their uploads go on and land in them', async () => {
+    const stash = images(1), client = fixture({ [A]: stash });
+    await runDraftUploads(client, native);
+    Object.assign(client, { threadId: 'thread-A', draftKey: A, local: { ...client.local, drafts: {} },
+      projection: { runs: [{ id: 'q1', ordinal: 2, status: 'queued', queuePosition: 1, userMessageId: 'm1' }], messages: [{ id: 'm1', text: 'Queued', attachments: [] }] } });
+    // beginEdit: the draft shows the edit's own images; the thread's wait in the edit's stash.
+    beginQueuedEdit(client, 'q1');
+    expect([client.local.snapshotDrafts[A], queuedEdit(client)?.stashImages]).toEqual([[], stash]);
+    expect(uploadTable(client)).toMatchObject({ u0: { id: 'img-0', attachmentId: 'att-1' }, settle: 0 });
+    stream(0, client).event({ type: 'load', status: 201 });
+    await runDraftUploads(client, native);
+    expect([stash[0]!.uploadId, deleted(client)]).toEqual(['att-1', []]);
+  });
+
+  test('an upload of another machine\'s draft lands while that machine is not focused; its next image and its deletions wait for it', async () => {
+    const client = fixture({ [A]: images(4) });
+    await runDraftUploads(client, native);
+    Object.assign(client, { environmentId: 'env-2', shown: 'env-2:thread-C' });
+    client.local.snapshotDrafts['env-2:thread-C'] = [];
+    stream(0, client).event({ type: 'load', status: 201 });
+    client.local.snapshotDrafts[A] = client.local.snapshotDrafts[A]!.filter(image => image.id !== 'img-1');
+    await runDraftUploads(client, native);
+    expect(client.local.snapshotDrafts[A]![0]!.uploadId).toBe('att-1');
+    expect([mints(client), deleted(client), uploadTable(client).settle]).toEqual([3, [], 0]);
+    Object.assign(client, { environmentId: 'env-1', shown: A });
+    expect(uploadTable(client).settle).toBe(1);
+    await runDraftUploads(client, native);
+    expect(deleted(client)).toEqual(['att-2']);
+    expect(uploadTable(client).u0).toEqual({ id: 'img-3', attachmentId: 'att-4' });
+  });
+});
+
+describe('a send and its draft\'s uploads', () => {
+  test('a send waits on its timer for the uploads in flight, then finds their attachments', async () => {
+    const client = fixture({ [A]: images(2) });
+    await runDraftUploads(client, native);
+    let done = false;
+    const waiting = awaitDraftUploads(client, A).then(() => { done = true; });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    stream(0, client).event({ type: 'load', status: 201 });
+    stream(1, client).event({ type: 'load', status: 201 });
+    await waiting;
+    expect(client.local.snapshotDrafts[A]!.map(image => image.uploadId)).toEqual(['att-1', 'att-2']);
+  });
+
+  test('the send uploads the rest itself: no resource takes them meanwhile, and one that fails again keeps its reason', async () => {
+    const client = fixture({ [A]: images(2) });
+    await runDraftUploads(client, native);
+    stream(1, client).event({ type: 'error', kind: 'Timeout' });
+    stream(0, client).event({ type: 'load', status: 201 });
+    client.local.snapshotDrafts[A]!.push(...images(1, 'new'));
+    // Nothing is in flight once the landed one settles, so the send goes on at once.
+    await awaitDraftUploads(client, A);
+    expect(client.local.snapshotDrafts[A]![0]!.uploadId).toBe('att-1');
+    const release = holdUploads(client, A);
+    expect(uploadTable(client).pending).toBe('');
+    expect(uploadTable(client).images.map(image => [image.id, image.status])).toEqual([['img-1', 'queued'], ['new-0', 'queued']]);
+    await runDraftUploads(client, native);
+    expect(mints(client)).toBe(2);
+    release({ id: 'img-1', reason: 'Upload rejected' });
+    expect(uploadTable(client).images.map(image => [image.id, image.status, image.reason])).toEqual([['img-1', 'failed', 'Upload rejected'], ['new-0', 'queued', '']]);
+    expect(uploadTable(client).pending).toBe('new-0');
+  });
+
+  test('a send refused for an attachment the server no longer has clears that image\'s id on this machine, so it uploads again', () => {
+    const client = fixture({ [A]: [{ ...images(1)[0], uploadId: 'att-old' }, { id: 'img-9', name: 'other.png', uploadId: 'att-9' }], 'env-2:t': [{ id: 'img-0', name: 'img-0.png', uploadId: 'att-x' }] });
+    expect(forgetMissingAttachments(client, new Error('offline'))).toBe(false);
+    expect(forgetMissingAttachments(client, new Error("Attachment 'img-0.png' cannot be sent: attachment not found (removed or expired)."))).toBe(true);
+    expect(client.local.snapshotDrafts[A]!.map(image => image.uploadId)).toEqual([undefined, 'att-9']);
+    expect(client.local.snapshotDrafts['env-2:t']![0]!.uploadId).toBe('att-x');
+    expect(uploadTable(client).pending).toBe('img-0');
+  });
+
+  test('a relaunch reads the drafts back without their attachment ids, but those a submission in doubt names', async () => {
+    const uuid = (n: number) => `cccccccc-cccc-4ccc-8ccc-${String(n).padStart(12, '0')}`;
+    const image = (n: number) => ({ id: uuid(n), name: `${n}.png`, mimeType: 'image/png', sizeBytes: 10, uploadId: `att-${n}` });
+    const { files } = storage({ version: 1, snapshotDrafts: { 'env1:t1': [image(1), image(2)] }, pending: { env1: { method: 'orchestration.dispatchCommand',
+      payload: { commandId: 'c1', attachments: [{ type: 'image', id: 'att-2' }] }, description: 'Send', threadId: 't1', text: '' } } });
+    const client = new T3Client();
+    await client.load(files);
+    expect(client.local.snapshotDrafts['env1:t1']!.map(entry => entry.uploadId)).toEqual([undefined, 'att-2']);
+  });
+
+  test('at launch the ids are gone, but those a submission still in doubt names', () => {
+    const local = { snapshotDrafts: { [A]: [{ id: 'img-0', uploadId: 'att-1' }, { id: 'img-1', uploadId: 'att-2' }], [B]: [{ id: 'img-2', uploadId: 'att-3' }] } as Record<string, Obj[]>,
+      pending: { 'env-1': { payload: { attachments: [{ type: 'image', id: 'att-2' }] } } }, launches: { l: { payload: { initialMessage: { attachments: [{ id: 'att-3' }] } } } } };
+    forgetUnsentUploads(local);
+    expect(Object.values(local.snapshotDrafts).flat()).toEqual([{ id: 'img-0' }, { id: 'img-1', uploadId: 'att-2' }, { id: 'img-2', uploadId: 'att-3' }]);
   });
 });
 
@@ -136,13 +327,14 @@ describe('the tile draws its upload, and the root pumps the uploads', () => {
   const fns = contractFns('src/composer/composer-editor.contract', { floor: Math.floor, max: Math.max, min: Math.min }) as Record<string, (...args: unknown[]) => unknown>;
   const image = (patch: Obj) => ({ id: 'img-0', attachmentId: 'att-1', status: 'slot', progress: 0, reason: '', ...patch });
   const live = (patch: Obj) => ({ slot: 0, id: 'img-0', attachmentId: 'att-1', status: 'uploading', progress: 0, reason: '', ...patch });
-  test('the percentage, from 0% while it waits, and the Retry\'s reason once it failed', () => {
+  test('the percentage, from 0% while it waits and 1% at the first report, and the Retry\'s reason once it failed', () => {
+    expect(fns.uploadPercent!(0.01)).toBe('1%');
     expect(fns.uploadPercent!(0.256)).toBe('25%');
     expect(fns.uploadPercent!(1.4)).toBe('100%');
     expect(fns.uploadLabel!(image({ status: 'queued', attachmentId: '' }), [])).toBe('0%');
     // In a resource that has not answered for this attachment yet (its answer is still the last image's).
     expect(fns.uploadLabel!(image({}), [live({ id: 'img-9', attachmentId: 'att-0', status: 'ready' })])).toBe('0%');
-    expect(fns.uploadLabel!(image({}), [live({ progress: 0.456 })])).toBe('45%');
+    expect(fns.uploadLabel!(image({}), [live({ progress: 0.01 })])).toBe('1%');
     expect(fns.uploadLabel!(image({}), [live({ status: 'ready', progress: 1 })])).toBe('');
     expect([fns.uploadLabel!(image({}), [live({ status: 'failed', reason: 'Upload timed out' })]), fns.uploadFailure!(image({}), [live({ status: 'failed', reason: 'Upload timed out' })])])
       .toEqual(['', 'Upload timed out']);
@@ -151,10 +343,110 @@ describe('the tile draws its upload, and the root pumps the uploads', () => {
     expect(fns.uploadShows!([], [])).toBe('');
   });
 
-  test('the pump names the resources that failed with no answer', () => {
+  test('Retry acts only where the connection may operate the thread', () => {
+    const meter = contractComponent('composer-editor.contract', 'UploadMeter');
+    const scope = (operate: boolean) => ({ upload: image({ status: 'failed', attachmentId: '', reason: 'Upload failed' }), live: [], name: 'shot.png', command: () => ({}), operate, ...fns });
+    expect([meter.attribute('retry-upload-', 'disabled', {}, scope(true)), meter.attribute('retry-upload-', 'disabled', {}, scope(false))]).toEqual([false, true]);
+  });
+
+  test('each tile of the strip gets its own image\'s uploads, the resources\' answers and whether Retry acts', () => {
+    const strip = contractComponent('snapshot.contract', 'SnapshotDrafts');
+    const uploads = { supported: true, operate: false, images: [image({ id: 'img-0' }), image({ id: 'img-1', status: 'queued' })] }, answers = [live({})];
+    const scope = { images: [], videos: [], disabled: false, remove: () => ({}), ask: () => ({}), command: () => ({}), uploads, live: answers, i: 1, draftFocusAfter: () => '' };
+    for (const [marker, image] of [['ImageDraftTile(', { id: 'img-1', name: 'b.png', referenced: false }], ['SnapshotTile(', { id: 'img-1', name: 'b.png', snapshot: true }]] as const) {
+      expect(strip.callArguments(marker, {}, { ...scope, image })).toMatchObject({ uploads: [uploads.images[1]], live: answers, operate: false });
+    }
+  });
+
+  test('the pump names the resources that failed with no answer, and the tick hears it start and end', () => {
     const root = contractComponent('app.contract', 'T3Code');
     const sent: unknown[][] = [];
     root.call('composerUploadsNow', {}, { composerUploadsCut: '1', command: (...args: unknown[]) => { sent.push(args); return {}; } }, []);
     expect(sent).toEqual([['cclocal:uploads', '', '1', 0]]);
+  });
+});
+
+describe('with uploads staged, Send and Return wait for the draft\'s uploads and a send waits for them itself', () => {
+  async function staged() {
+    const context = await opened(), { client, native } = context, id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    memoryFiles({ [`app:/data/snapshots/drafts/${id}.png`]: png(4, 3, 20) });
+    client.config = { ...client.config, environment: { ...obj(client.config.environment), capabilities: { ...obj(obj(client.config.environment).capabilities), attachmentUploads: true } } };
+    client.local.snapshotDrafts[client.draftKey] = [{ id, name: 'Capture.png', mimeType: 'image/png', sizeBytes: 53, source: {} }];
+    const later = native.later.bind(native), calls: Obj[] = [], server = { refuse: false, expired: false };
+    native.later = async input => {
+      const request = obj(input); calls.push(request);
+      // AttachmentClaims' refusal of an attachment the server deleted unsent.
+      if (server.expired && obj(request.payload).type === 'message.dispatch') {
+        return { ok: false, generation: native.generation, error: { kind: 'AttachmentClaimError', message: "Attachment 'Capture.png' cannot be sent: attachment not found.", uncertain: false } };
+      }
+      if (request.method === 'attachments.createUploadUrl') return native.ok({ attachmentId: 'att-1', relativeUrl: '/api/attachments/upload/att-1?token=t' });
+      // The send's own upload (client.ts uploadDraftImage) posts the draft file through the module.
+      if (request.op === 'uploadAttachment') return server.refuse ? { ok: false, generation: native.generation, error: { kind: 'HTTP', message: 'Upload rejected', uncertain: false } } : native.ok({});
+      return later(input);
+    };
+    return { ...context, calls, server };
+  }
+
+  test('an image uploading holds Send and Return, not the annotation send; a send waits for it and names its attachment', async () => {
+    const { client, native, command, calls } = await staged();
+    await command('cclocal:uploads');
+    expect(snapshot(client)).toMatchObject({ canSend: true, composer: { uploadBlock: 'Attachment still uploading', uploads: { u0: { attachmentId: 'att-1' } } } });
+    const sending = command('send', '', 'Look at this');
+    for (let turn = 0; turn < 50; turn++) await Promise.resolve();
+    expect(native.committed.filter(entry => entry.type === 'message.dispatch')).toEqual([]);
+    stream(0, client).event({ type: 'load', status: 201 });
+    expect((await sending).message).toBe('');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', attachments: [{ type: 'image', id: 'att-1', name: 'Capture.png' }] });
+    // The send named the upload that landed: it uploaded nothing itself.
+    expect(calls.filter(call => call.op === 'uploadAttachment')).toEqual([]);
+  });
+
+  test('a send uploads an image whose upload failed itself; failing again, it asks to retry or remove it', async () => {
+    const { client, native, command, calls, server } = await staged();
+    await command('cclocal:uploads');
+    stream(0, client).event({ type: 'load', status: 500 });
+    await command('cclocal:uploads');
+    expect(snapshot(client).composer.uploadBlock).toBe('');
+    server.refuse = true;
+    expect((await command('send', '', 'Again')).message).toBe('Retry or remove failed uploads before sending.');
+    expect(snapshot(client).composer.uploads.images).toMatchObject([{ status: 'failed', reason: 'Upload rejected' }]);
+    server.refuse = false;
+    expect((await command('send', '', 'Again')).message).toBe('');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', attachments: [{ type: 'image', id: 'att-1' }] });
+    expect(calls.filter(call => call.op === 'uploadAttachment')).toHaveLength(2);
+  });
+
+  test('a send refused for an attachment the server no longer has leaves the image to upload again', async () => {
+    const { client, command, server } = await staged();
+    const [image] = client.local.snapshotDrafts[client.draftKey]!;
+    image!.uploadId = 'att-old';
+    server.expired = true;
+    expect((await command('send', '', 'Old')).message).toBe("Attachment 'Capture.png' cannot be sent: attachment not found.");
+    expect(image!.uploadId).toBeUndefined();
+    expect(snapshot(client).composer.uploads.pending).toBe(str(image!.id));
+  });
+
+  const root = contractComponent('app.contract', 'T3Code');
+  const data = (uploadBlock: string) => ({ canSend: true, requestMode: '', snapshotOwner: 's', snapshotDrafts: [{ id: 'img-0' }], connected: true,
+    composer: { uploadBlock, compactTokens: '', canResume: false, queueEditing: '', toolbarRight: 0, sendTipWidth: 0 } });
+  test('Return and the Send buttons wait while one uploads (attachmentUploadBlockReason)', () => {
+    for (const block of ['', 'Attachment still uploading']) {
+      const sent: unknown[][] = [];
+      root.call('submit', { commandPending: false, composerTyping: true, draftOwner: '', jumpRequest: 0 }, { editor: { overLimit: false }, data: data(block), composerText: 'hi',
+        command: (...args: unknown[]) => { sent.push(args); return {}; } }, ['']);
+      expect(sent).toEqual(block ? [] : [['send', '', 'hi', 0]]);
+      const scope = { data: data(block), text: '', busy: false, resting: false, viewportWidth: 800, max: Math.max, richComposer: { chips: [] }, composerAtomFace: (chip: unknown) => chip };
+      expect([contractComponent('composer.contract', 'ComposerCard').derives({}, scope).sendable, contractComponent('composer-controls.contract', 'ComposerFooter').derives({}, scope).sendable])
+        .toEqual([!block, !block]);
+    }
+  });
+
+  test('the Browser\'s annotate and send goes while the crop uploads: the send waits for it', () => {
+    const sent: unknown[][] = [];
+    root.call('annotationSendNow', { annotationSendHandled: 0, commandPending: false, composerTyping: true, draftOwner: '', jumpRequest: 0 }, {
+      shell: { panel: { annotationSend: 1, annotationOwner: 'o', annotationSnapshot: 's', annotationGeneration: 3, annotationValue: 'v' } }, data: data('Attachment still uploading'),
+      richComposerOwner: 'o', richComposer: { generation: 3 }, composerText: 'v', composerComposing: false,
+      command: (...args: unknown[]) => { sent.push(args); return {}; }, chatLocal: (...args: unknown[]) => { sent.push(['held', ...args]); } }, []);
+    expect(sent).toEqual([['send-annotation', '1', '', 0]]);
   });
 });

@@ -39,7 +39,11 @@ describe('app.contract', () => {
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);
     expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
     expect(contract).not.toMatch(/every\(16, transportPump\)/);
-    const waiting = new Set([...(/derive transportAnswering = (.*)/.exec(contract)?.[1] ?? '').matchAll(/pending\(([A-Za-z0-9]+)\)/g)].map(match => match[1]!));
+    // An area may tell the tick about its own answers in a task of its own, keyed on their pending
+    // (composer-controls-members.contract composerUploadsAnswered).
+    const own = [...contract.matchAll(/task [A-Za-z0-9]+ key=`((?:\$\{pending\([A-Za-z0-9]+\)\})+)`\n    after\(1, transportPump\)/g)].map(match => match[1]!);
+    expect(own.length).toBeGreaterThan(0);
+    const waiting = new Set([/derive transportAnswering = (.*)/.exec(contract)?.[1] ?? '', ...own].flatMap(key => [...key.matchAll(/pending\(([A-Za-z0-9]+)\)/g)].map(match => match[1]!)));
     const answers = [...declared('resource'), ...declared('mutation')].filter(name => !exempt.has(name) && !/^transport(Connect|Socket|UpdateStep|UpdateSocket)\d$/.test(name));
     expect(answers.filter(name => !waiting.has(name))).toEqual([]);
     expect([...waiting].filter(name => !answers.includes(name))).toEqual([]);

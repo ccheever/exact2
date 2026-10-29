@@ -536,7 +536,7 @@ component ComposerFooter
     sendThread = value ? data.threadId : sendThread
   action sendPress(e: MouseEvent) // as PrimaryActions' sendPress
     send(heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
-  derive sendable = data.canSend and (text != "" or data.snapshotDrafts.length > 0)
+  derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0)
   derive locked = busy or not data.connected
   // The send tooltip shifts left to stay 5pt inside the window (Base UI collision padding):
   // the button's centre is 32pt in from the toolbar's right edge (resting: 4pt).

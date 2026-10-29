@@ -236,9 +236,10 @@ component SnapshotTile
     ask: action
     command: action
     after: string
-    // Its upload, if any, and the upload resources' answers (composer-editor.contract UploadMeter).
+    // Its upload, if any, the upload resources' answers, and whether Retry acts (composer-editor.contract UploadMeter).
     uploads: ComposerUploadImage[]
     live: ComposerUpload[]
+    operate: bool
   state hovering = false
   action setHover(over: bool)
     hovering = over
@@ -271,7 +272,7 @@ component SnapshotTile
                   text (image.contents != "" ? image.contents : image.included ? "Structured accessibility elements were included, but they have no readable names or values." : "The app or capture backend did not provide verified accessibility data.") font-size="0.6875rem" line-height="1rem" font-family=(image.contents != "" ? "monospace" : "system-ui") white-space="pre-wrap" overflow-wrap="anywhere" padding="0.625rem" color=(image.contents != "" ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
           text image.title font-size="0.625rem" line-height="0.875rem" color="#ffffffb3" line-clamp=1
       for upload in uploads key=upload.id
-        UploadMeter(upload=upload, live=live, name=image.name, command=command)
+        UploadMeter(upload=upload, live=live, name=image.name, command=command, operate=operate)
       row position="absolute" top="0.25rem" right="0.25rem" opacity=(hovering ? 1 : 0)
         // As ImageDraftTile's: a focused Remove that asks first names where the focus goes after the confirmed removal.
         if image.referenced
@@ -310,9 +311,9 @@ component SnapshotDrafts
       row width="100%" gap="0.5rem" flex-wrap=(snapshots ? "nowrap" : "wrap") overflow-x=(snapshots ? "scroll" : "visible") padding-bottom=(snapshots ? "0.25rem" : "0px") box-sizing="border-box" testId="snapshot-drafts"
         for image, i in images key=image.id
           if image.snapshot
-            SnapshotTile(image=image, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i), uploads=uploads.images.filter((upload) => upload.id == image.id), live=live)
+            SnapshotTile(image=image, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i), uploads=uploads.images.filter((upload) => upload.id == image.id), live=live, operate=uploads.operate)
           else
-            ImageDraftTile(id=image.id, name=image.name, referenced=image.referenced, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i), uploads=uploads.images.filter((upload) => upload.id == image.id), live=live)
+            ImageDraftTile(id=image.id, name=image.name, referenced=image.referenced, disabled=disabled, remove=remove, ask=ask, command=command, after=draftFocusAfter(images, videos, i), uploads=uploads.images.filter((upload) => upload.id == image.id), live=live, operate=uploads.operate)
         for image in preparing key=image.id
           PreparingImageTile(id=image.id, name=image.name, source=image.source, command=command, uploading=uploads.supported)
         for video, i in videos key=video.id

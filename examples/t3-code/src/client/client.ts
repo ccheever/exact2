@@ -72,10 +72,9 @@ import { detachDraftLaunch, isDraftLaunch, launchId, restoreDetachedLaunch } fro
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { windowAppearanceMode } from '../appearance/settings-appearance-look'; // the window draws in the resolved mode
 import { heldImageIds } from '../composer/composer-copied-chips'; // the latest composer copy's images keep their bytes
-import { holdUpload, settleUploads, uploadRunning } from '../composer/composer-uploads'; // a draft image's upload at attach
+import { awaitDraftUploads, forgetMissingAttachments, forgetUnsentUploads, holdUploads, uploadsSupported } from '../composer/composer-uploads'; // a draft image's upload at attach
 
 type Selection = { projectId: string; threadId: string };
-export type AttachmentUpload = { status: 'uploading' | 'ready' | 'failed'; progress: number; reason: string; attachmentId: string };
 export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean;
   /** A draft's launch a new-thread flow left while it was in flight, with the sent images the composer gave up (draft-launch.ts). */
   detached?: { images: Obj[] } };
@@ -148,11 +147,6 @@ export class T3Client {
    * thread survives opening another thread or a new draft, until its request is no longer pending (requests.ts).
    */
   answerDrafts: Record<string, Record<string, RequestDraft>> = {};
-  /**
-   * Each draft image's upload by its id (attachmentUploadState.ts AttachmentUploadState): uploading with its progress
-   * (0 to 1), ready, or failed with the reason. Kept in memory, as the reference's upload store is.
-   */
-  attachmentUploads: Record<string, AttachmentUpload> = {};
   /** The uploads running, by image id (attachmentUploadQueue.ts jobsByImageId): a second ask joins the first. */
   private uploadsRunning = new Map<string, DraftUpload>();
   get answers(): Record<string, RequestDraft> { return this.answerDrafts[`${this.environmentId}\u0000${this.threadId}`] ??= {}; }
@@ -320,6 +314,7 @@ export class T3Client {
           detached: { images: arr(obj(entry.detached).images).filter(image => /^[a-f0-9-]{36}$/i.test(str(image.id))) },
         };
       }
+      forgetUnsentUploads(next); // an attachment id lasts the session (composer-uploads.ts)
       this.local = next;
     }
     this.loaded = true; this.changed(); // sources gated on the read preferences (the first-run gate) ask again
@@ -830,6 +825,7 @@ export class T3Client {
       ({ id, value } = out); // a group may have rewritten them (setting-snapshot's setup)
       if (error instanceof ClientError && error.kind === 'superseded') return { revision: this.revision, message: '', relaunch: out.relaunch === true, routeReorder };
       resultMessage = message(error);
+      forgetMissingAttachments(this, error); // a send refused for an attachment the server no longer has: it uploads again
       // These commands return their error to the owning form. Do not copy it
       // into the unrelated transcript banner or a later form.
       const formCommand = ['settings-core', 'snapshot-shortcut-save', 'snapshot-shortcut-record', 'setting-snapshot', 'rename-project', 'remove-project', 'rename-group', 'remove-group', 'remove-group-member', 'setting-permissions', 'setting-model', 'setting-storage', 'setting-scoped', 'task-save', 'task-toggle', 'task-delete', 'task-run', 'keybinding-save', 'keybinding-remove', 'unarchive-thread', 'delete-archived-thread', 'provider-create', 'provider-name', 'provider-enabled', 'provider-remove'].includes(op) || PROVIDER_OPS.includes(op) || CONNECTION_OPS.includes(op) || op.startsWith('rest:') || op.startsWith('restlocal:') || op.startsWith('sb:');
@@ -1075,24 +1071,37 @@ export class T3Client {
     const draftKey = this.draftKey, generation = this.generation, owner = this.snapshotOwner;
     const current = () => { assertOwner?.(); return draftKey === this.draftKey && generation === this.generation && owner === this.snapshotOwner; };
     const attachments: Obj[] = [];
-    settleUploads(this); // an upload that landed since the root's last pump names its attachment
-    for (const image of this.local.snapshotDrafts[key] || []) {
-      if (!current()) throw new ClientError('The draft changed before upload.');
-      if (!str(image.uploadId) && uploadRunning(this, str(image.id))) throw new ClientError('Attachment still uploading');
-      const attachmentId = str(image.uploadId) || await this.uploadDraftImage(native, storage, image, current);
-      attachments.push({ type: 'image', id: attachmentId, name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes, source: image.source });
-    }
+    // The uploads that started as each image was attached land first: the send waits for those in flight
+    // (composer-uploads.ts) and uploads the rest itself, as upstream's send retries a failed one.
+    await awaitDraftUploads(this, key, current);
+    const release = holdUploads(this, key);
+    let failed: { id: string; reason: string } | undefined;
+    try {
+      for (const image of this.local.snapshotDrafts[key] || []) {
+        if (!current()) throw new ClientError('The draft changed before upload.');
+        let attachmentId = str(image.uploadId);
+        if (!attachmentId) {
+          try { attachmentId = await this.uploadDraftImage(native, storage, image, current); }
+          catch (error) {
+            if (!uploadsSupported(this) || !(error instanceof ClientError) || ['superseded', 'stale'].includes(error.kind)) throw error;
+            failed = { id: str(image.id), reason: error.message };
+            throw new ClientError('Retry or remove failed uploads before sending.');
+          }
+        }
+        attachments.push({ type: 'image', id: attachmentId, name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes, source: image.source });
+      }
+    } finally { release(failed); }
     if (!current()) throw new ClientError('The draft changed before sending its attachments.');
     return attachments;
   }
   /**
-   * The send's upload of a draft image whose upload at attach did not land (composer-uploads.ts): one that failed, which
-   * the reference's send retries, or one attached while the server staged no uploads. It returns the attachment id, one
-   * already uploaded its id. It is awaited, so it tells no progress, and no upload resource takes the image meanwhile.
+   * The send's own upload of a draft image whose upload at attach did not land (composer-uploads.ts), or of every image
+   * where the server stages no uploads: it returns the attachment id, one already uploaded its id. It is awaited, so it
+   * tells no progress.
    */
   async uploadDraftImage(native: Native, storage: Files, image: Obj, current: () => boolean = () => true): Promise<string> {
     const id = str(image.id), uploaded = str(image.uploadId);
-    if (uploaded) { this.attachmentUploads[id] = { status: 'ready', progress: 1, reason: '', attachmentId: uploaded }; return uploaded; }
+    if (uploaded) return uploaded;
     const running = this.uploadsRunning.get(id);
     if (running?.environmentId === this.environmentId) return running.upload;
     // An image that moved to another environment uploads again there; the old upload stops and the attachment it
@@ -1100,11 +1109,10 @@ export class T3Client {
     let dropped: Promise<void> = Promise.resolve();
     if (running) { running.cancelled = true; dropped = this.dropDraftUpload(native, running); }
     const job: DraftUpload = { environmentId: this.environmentId, upload: Promise.resolve(''), cancelled: false, attachmentId: '', dropped: false };
-    const release = holdUpload(this, id);
     job.upload = this.runDraftUpload(native, storage, image, () => !job.cancelled && job.environmentId === this.environmentId && current(), job);
     this.uploadsRunning.set(id, job);
     try { return await job.upload; }
-    finally { release(); if (this.uploadsRunning.get(id) === job) this.uploadsRunning.delete(id); await dropped; }
+    finally { if (this.uploadsRunning.get(id) === job) this.uploadsRunning.delete(id); await dropped; }
   }
   /** Deletes the attachment `job` minted, once, on the environment it was minted on. */
   private async dropDraftUpload(native: Native, job: DraftUpload): Promise<void> {
@@ -1114,7 +1122,6 @@ export class T3Client {
   }
   private async runDraftUpload(native: Native, storage: Files, image: Obj, current: () => boolean, job: DraftUpload): Promise<string> {
     const id = str(image.id);
-    this.attachmentUploads[id] = { status: 'uploading', progress: 0, reason: '', attachmentId: '' };
     let attachmentId = '';
     try {
       const png = str(image.mimeType, 'image/png') === 'image/png';
@@ -1136,10 +1143,8 @@ export class T3Client {
       await this.dropDraftUpload(native, job);
       if (job.cancelled) throw new ClientError('The image moved to another environment.', 'superseded');
       delete image.uploadId;
-      this.attachmentUploads[id] = { status: 'failed', progress: 0, reason: message(error), attachmentId: '' };
       throw error;
     }
-    this.attachmentUploads[id] = { status: 'ready', progress: 1, reason: '', attachmentId };
     return attachmentId;
   }
   /** The platform's own availability probe for a recorded candidate (no keybinding list: checked in TS). */

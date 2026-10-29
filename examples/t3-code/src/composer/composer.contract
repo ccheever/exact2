@@ -118,7 +118,7 @@ component ComposerCard
     // Signed URLs for the queued edit's kept images.
     urls: AttachmentUrl[]
   derive faces = richComposer.chips.map((c) => composerAtomFace(c))
-  derive sendable = data.canSend and (text != "" or data.snapshotDrafts.length > 0)
+  derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0)
   derive restingChip = data.composer.compactTokens != "" and not (data.composer.canResume and not sendable) and data.composer.queueEditing == ""
   // The field's value and selection as its events last reported them, where a held paste goes. Focused but not yet
   // edited or moved in, the field reports none: its caret is at the end of its value.

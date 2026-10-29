@@ -112,12 +112,13 @@ shape ComposerUploadImage
   reason: string
 // The draft's uploads (composer-uploads.ts uploadTable): what each resource carries, the images waiting while one is
 // free (the root then starts them), the slots and attachments to settle, and each image's upload; `supported`: the
-// server stages uploads.
+// server stages uploads; `operate`: this connection may operate threads, so a failed upload's Retry acts.
 shape ComposerUploads
   u0: ComposerUploadSlot
   u1: ComposerUploadSlot
   u2: ComposerUploadSlot
   supported: bool
+  operate: bool
   pending: string
   settle: number
   images: ComposerUploadImage[]
@@ -241,8 +242,10 @@ shape ComposerView
   endSummary: string
   // The draft's images still being prepared: the strip shows their tiles at once, disabled.
   preparingImages: PreparingImage[]
-  // Its images' uploads, which start as each joins the draft (attachmentUploadQueue.ts).
+  // Its images' uploads, which start as each joins the draft (attachmentUploadQueue.ts), and why Send and Return wait for
+  // them ("Attachment still uploading"; "" when they need not).
   uploads: ComposerUploads
+  uploadBlock: string
   contextShow: bool
   contextAria: string
   contextPercent: string

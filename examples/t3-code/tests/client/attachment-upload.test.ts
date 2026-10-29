@@ -1,6 +1,6 @@
-// One draft image's upload, which the reference starts when the image is attached (T3 Code 7c3b3b3605ef, MIT, see
-// LICENSE-T3: apps/web/src/lib/attachmentUploadQueue.ts, attachmentUploadState.ts): `attachmentUploads` says how it
-// goes, and Send reuses the attachment it made. The host reports no upload progress, so it is 0 until the reply.
+// A draft image's upload at send (client.ts uploadDraftImage), for a server that stages no uploads, so none started as
+// the image was attached (T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3: apps/web/src/lib/attachmentUploadQueue.ts): a
+// later send reuses the attachment it made. A staging server's uploads are composer-uploads.test.ts's.
 import { expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { initialShell, obj, str, type Obj } from '../../src/client/domain';
@@ -16,37 +16,30 @@ function fixture(refuseUpload = false) {
   Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't', connection: 'connected', scopes: ['orchestration:read', 'orchestration:operate'] });
   memoryFiles({ [draft]: png(4, 3, 20) });
   const calls: Obj[] = [];
-  const seen: string[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
-    if (request.op === 'uploadAttachment') {
-      seen.push(client.attachmentUploads[id]?.status ?? '');
-      if (refuseUpload) return { ok: false, generation: 1, error: { kind: 'HTTP', message: 'Upload rejected', uncertain: false } };
-    }
+    if (request.op === 'uploadAttachment' && refuseUpload) return { ok: false, generation: 1, error: { kind: 'HTTP', message: 'Upload rejected', uncertain: false } };
     const value = request.method === 'attachments.createUploadUrl' ? { attachmentId: 'att-1', relativeUrl: '/api/attachments/upload/att-1.signed', expiresAt: 999999 } : {};
     return { ok: true, generation: 1, value };
   } };
   const files: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
   const image: Obj = { id, name: 'Capture.png', mimeType: 'image/png', sizeBytes: 53, source: {} };
   client.local.snapshotDrafts[client.draftKey] = [image];
-  return { client, native, files, image, calls, seen };
+  return { client, native, files, image, calls };
 }
 
-test('an image uploads at once, reading uploading then ready, and Send reuses its attachment', async () => {
+test('an image uploads, and Send reuses its attachment', async () => {
   const f = fixture();
   expect(await f.client.uploadDraftImage(f.native, f.files, f.image)).toBe('att-1');
-  expect(f.seen).toEqual(['uploading']);
-  expect(f.client.attachmentUploads[id]).toEqual({ status: 'ready', progress: 1, reason: '', attachmentId: 'att-1' });
   expect(f.image.uploadId).toBe('att-1');
   const before = f.calls.length;
   expect(await f.client.uploadSnapshots(f.native, f.files)).toMatchObject([{ type: 'image', id: 'att-1' }]);
   expect(f.calls.slice(before).filter(call => call.op === 'uploadAttachment')).toEqual([]);
 });
 
-test('a refused upload reads failed with its reason, and its attachment is deleted', async () => {
+test('a refused upload fails with its reason, and its attachment is deleted', async () => {
   const f = fixture(true);
   await expect(f.client.uploadDraftImage(f.native, f.files, f.image)).rejects.toThrow('Upload rejected');
-  expect(f.client.attachmentUploads[id]).toEqual({ status: 'failed', progress: 0, reason: 'Upload rejected', attachmentId: '' });
   expect(f.calls.at(-1)).toMatchObject({ op: 'request', method: 'attachments.delete', payload: { attachmentId: 'att-1' } });
   expect(f.image.uploadId).toBeUndefined();
 });
@@ -85,7 +78,6 @@ test('an image that moves to another environment uploads there; the old upload s
     expect(await moving).toMatchObject({ kind: 'superseded' });
     // Deleted once, through the old environment's own connection; the image keeps the new upload.
     expect(f.calls.filter(call => call.method === 'attachments.delete').map(call => [obj(call.payload).attachmentId, call.fleet ?? 'focused'])).toEqual([['att-1', 'old']]);
-    expect(f.client.attachmentUploads[id]).toMatchObject({ status: 'ready', attachmentId: 'att-2' });
     expect(f.image.uploadId).toBe('att-2');
   } finally { fleet.entries.delete('old'); }
 });

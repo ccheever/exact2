@@ -328,9 +328,10 @@ component ImageDraftTile
     command: action
     // Where the focus goes when its focused Remove removes it (snapshot.contract draftFocusAfter).
     after: string
-    // Its upload, if any (composer-uploads.ts), and the upload resources' answers.
+    // Its upload, if any (composer-uploads.ts), the upload resources' answers, and whether Retry acts.
     uploads: ComposerUploadImage[]
     live: ComposerUpload[]
+    operate: bool
   state removeFocused = false
   action removeFocus(on: bool)
     removeFocused = on
@@ -342,7 +343,7 @@ component ImageDraftTile
     column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff10)" background-color="light-dark(#fcfcfc, #000000)" testId=`image-draft-${id}`
       ImagePreviewButton(id=id, name=name, command=command)
       for upload in uploads key=upload.id
-        UploadMeter(upload=upload, live=live, name=name, command=command)
+        UploadMeter(upload=upload, live=live, name=name, command=command, operate=operate)
       row position="absolute" top="0.25rem" right="0.25rem"
         // Asking first, a focused Remove names where the focus goes after the confirmed removal; the confirm moves the
         // focus there on Confirm, or back to this Remove on Cancel, before it closes (app.contract confirmUi).
@@ -380,7 +381,8 @@ component PreparingImageTile
 
 // The upload of a draft image's tile (ComposerAttachmentStrip): its percentage along the tile's foot while it uploads
 // (formatAttachmentUploadProgress), from 0% while it waits for a resource, and a Retry at the lower left once it failed,
-// whose tip is the reason (retryAttachmentUpload). A resource's answer counts for the attachment it carries now.
+// whose tip is the reason (retryAttachmentUpload), disabled where the connection may not operate threads. A resource's
+// answer counts for the attachment it carries now.
 fn uploadPercent(progress: number): string = `${floor(max(0, min(1, progress)) * 100)}%`
 fn uploadLive(upload: ComposerUploadImage, live: ComposerUpload[]): ComposerUpload[] = live.filter((each) => upload.status == "slot" and each.attachmentId == upload.attachmentId and each.id == upload.id)
 fn uploadLabel(upload: ComposerUploadImage, live: ComposerUpload[]): string = upload.status == "queued" ? "0%" : upload.status != "slot" ? "" : uploadLive(upload, live).length == 0 ? "0%" : uploadLive(upload, live).filter((each) => each.status == "uploading").map((each) => uploadPercent(each.progress)).join("")
@@ -394,11 +396,12 @@ component UploadMeter
     live: ComposerUpload[]
     name: string
     command: action
+    operate: bool
   view
     if uploadLabel(upload, live) != ""
       UploadLine(id=upload.id, label=uploadLabel(upload, live))
     if uploadFailure(upload, live) != ""
-      button press=command("cclocal:upload-retry", upload.id, "", 0) aria-label=`Retry upload for ${name}` title=uploadFailure(upload, live) testId=`retry-upload-${upload.id}` position="absolute" left="0.25rem" bottom="0.25rem" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#000000b3" display="flex" align-items="center" justify-content="center"
+      button press=command("cclocal:upload-retry", upload.id, "", 0) disabled=(not operate) aria-label=`Retry upload for ${name}` title=uploadFailure(upload, live) testId=`retry-upload-${upload.id}` position="absolute" left="0.25rem" bottom="0.25rem" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#000000b3" display="flex" align-items="center" justify-content="center"
         StashGlyph(name="refresh-cw", size=14, color="#ffffffa6")
 
 // The upload's percentage along a tile's foot: bg-background/85, 10/14 text.

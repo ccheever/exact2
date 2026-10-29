@@ -86,6 +86,10 @@ function editStore(client: T3Client): EditStore {
 export function queuedEdit(client: T3Client): QueuedEditing | undefined {
   return client.threadId ? editStore(client).edits.get(client.draftKey) : undefined;
 }
+/** The images a queued message's edit holds aside for the draft `draftKey` until it ends (their uploads go on). */
+export function editStashImages(client: T3Client, draftKey: string): Obj[] {
+  return editStore(client).edits.get(draftKey)?.stashImages ?? [];
+}
 
 // makeQueuedRunsAtom's deleted thread, which reads as having no runs. The server reports an archive on the active shell
 // as it reports a deletion (`thread.removed`), and a fresh snapshot leaves both out, so a thread missing from the active

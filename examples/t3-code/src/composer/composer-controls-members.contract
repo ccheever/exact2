@@ -234,6 +234,10 @@ members T3Code
     after(1, composerUploadsNow)
   action composerUploadsNow
     send uploadsChanged = command("cclocal:uploads", "", composerUploadsCut, 0)
+  // The pump's requests (an upload URL, an attachment let go) wait on a server reply, so the tick publishes the
+  // transport's table as it starts and ends, as transportAnswered does for the answers it names.
+  task composerUploadsAnswered key=`${pending(uploadsChanged)}`
+    after(1, transportPump)
   action command(op: string, id: string, value: string, n: number)
     if op == "sidebar:undo" and id != ""
       undoHeldKey = id // the undo chord's key (keyboard-dispatch.ts chordKey), whose repeats modifierKey cancels

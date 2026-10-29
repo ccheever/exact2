@@ -3,6 +3,7 @@ import { composerMarkdown } from '../../src/composer/composer-markdown';
 import { composerChips } from '../../src/composer/composer-source-chips';
 import { composerRichProjection } from '../../src/composer/composer-rich-projection';
 import { composerParagraphDirs, composerTextDirections } from '../../src/composer/composer-text-direction';
+import { contractComponent } from '../support/contract-action-fixture';
 
 /** One direction per source line, over the rich composer's blocks and chips. */
 const directions = (value: string) => composerTextDirections(value, composerMarkdown(value).blocks, composerChips(value));
@@ -73,5 +74,10 @@ describe('the rich field\'s paragraphDirs', () => {
   test('the plain and literal fields take none', () => {
     expect(project('مرحبا', false).dirs).toBe('');
     expect(project('مرحبا', true, true).dirs).toBe('');
+  });
+  test('the composer\'s Markdown editor takes them', () => {
+    const data = { canSend: true, snapshotDrafts: [], composer: { uploadBlock: '', compactTokens: '', canResume: false, queueEditing: '' } };
+    const scope = { data, text: 'Hello\nمرحبا', richComposer: { mode: 'rich', chips: [], dirs: 'ltr rtl' }, composerAtomFace: (chip: unknown) => chip };
+    expect(contractComponent('composer.contract', 'ComposerCard').attribute('markup="markdown"', 'paragraphDirs', {}, scope)).toBe('ltr rtl');
   });
 });
