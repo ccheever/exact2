@@ -1,5 +1,6 @@
 #if os(iOS)
 import UIKit
+import QuartzCore
 import XCTest
 @testable import ExactKit
 
@@ -102,7 +103,7 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(overlay.handle.bounds.height, 44)
         XCTAssertGreaterThanOrEqual(overlay.close.bounds.width, 44)
         XCTAssertTrue(overlay.values.adjustsFontForContentSizeCategory)
-        XCTAssertTrue(overlay.values.text?.contains("Callbacks: Idle") == true)
+        XCTAssertTrue(overlay.values.text?.contains("FPS avg: Idle") == true)
 
         let action = try XCTUnwrap(overlay.handle.accessibilityCustomActions?.first { $0.name == "Move down" })
         let old = overlay.card.frame.origin
@@ -157,6 +158,87 @@ final class FrameHealthIOSTests: XCTestCase {
         overlay.setVisible(true)
         XCTAssertFalse(disabled.enabled, "showing the UI cannot override collection policy")
         XCTAssertTrue(overlay.values.text?.contains("disabled") == true)
+    }
+
+    func testChartRendersLiveHistoryWithoutStartingAFrameSource() {
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let made = FrameClock.shared.linksMade
+        let start = CACurrentMediaTime() - 6
+        for bucket in 0..<10 {
+            for index in 0..<60 {
+                let hitch = bucket > 5 || bucket == 5 && index == 59 ? 0.060 : 0
+                let time = start + Double(bucket) * 0.5 + Double(index) / 120 + hitch
+                health.record(arrival: time, target: time + 1 / 120, period: 1 / 120, finished: time + 0.001)
+            }
+            _ = health.window.reply(health, now: start + Double(bucket) * 0.5 + 0.6)
+        }
+        let overlay = FrameHealthOverlay(health: health)
+        overlay.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        overlay.setVisible(true)
+        overlay.layoutIfNeeded()
+        XCTAssertEqual(FrameClock.shared.linksMade, made)
+        XCTAssertTrue(overlay.chart.points.contains { ($0.slowest ?? 120) < 20 })
+        XCTAssertTrue(overlay.chart.accessibilityValue?.contains("120 hertz") == true)
+        XCTAssertTrue(overlay.values.text?.contains("FPS avg:") == true)
+        let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: overlay.card.bounds).image { context in
+            overlay.card.layer.render(in: context.cgContext)
+        })
+        attachment.name = "Frame health — callback chart with a hitch"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testScrollingKeepsTheAppChartLiveAndPublishesInTrackingMode() {
+        let health = FrameHealth(enabled: true)
+        let scroll = FrameHealth(enabled: true, source: "native-scroll-ui-update")
+        health.nativeHealth = scroll
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        overlay.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        overlay.setVisible(true)
+        health.nativeScrollActive = true
+        var published = false
+        health.changed = {
+            overlay.refresh()
+            published = overlay.chart.points.last?.average != nil
+        }
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), CFRunLoopMode(rawValue: RunLoop.Mode.tracking.rawValue as CFString))
+        let ticks = Timer(timeInterval: 1 / 120, repeats: true) { _ in
+            let time = CACurrentMediaTime()
+            health.record(arrival: time, target: time + 1 / 120, period: 1 / 120, finished: time + 0.001)
+            scroll.record(arrival: time, target: time + 0.01, period: 0, finished: time + 0.001)
+        }
+        RunLoop.main.add(ticks, forMode: .tracking)
+        defer { ticks.invalidate() }
+        let end = Date().addingTimeInterval(5)
+        while !published, Date() < end { RunLoop.main.run(mode: .tracking, before: end) }
+        XCTAssertTrue(published, "the app chart refreshes before tracking ends, even with an active unknown-cadence scroll observer")
+        XCTAssertFalse(overlay.values.text?.contains("Unknown") == true)
+    }
+
+    func testInspectorHeaderFitsNarrowAndAccessibilityWidths() {
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let controller = FrameHealthInspectorController(health: health)
+        controller.loadViewIfNeeded()
+        for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
+            controller.traitOverrides.preferredContentSizeCategory = category
+            for width: CGFloat in [240, 320, 393, 852] {
+                controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
+                controller.view.setNeedsLayout()
+                controller.view.layoutIfNeeded()
+                controller.viewDidLayoutSubviews()
+                controller.tableView.tableHeaderView?.layoutIfNeeded()
+                let source = controller.source.convert(controller.source.bounds, to: controller.view)
+                XCTAssertGreaterThan(source.width, 0)
+                XCTAssertGreaterThanOrEqual(source.minX, 0)
+                XCTAssertLessThanOrEqual(source.maxX, width)
+                XCTAssertGreaterThanOrEqual(source.height, 44)
+                XCTAssertLessThanOrEqual(controller.chart.frame.maxY, controller.tableView.tableHeaderView?.bounds.height ?? 0)
+                XCTAssertFalse(controller.source.hasAmbiguousLayout)
+            }
+        }
     }
 
     func testMenuUsesNativeRowsAndBuildDetailsHaveTheirOwnScreen() throws {

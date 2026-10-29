@@ -14,7 +14,7 @@
 **Date:** 2026-10-13
 **Implementer:** none yet. No stage starts until it has an implementer and a date (`rules/RULES.md` §Scope); each follows the Tamber stage it needs (§4).
 **Related:**
-- [LLP 1079.000: Frame health as a key performance metric](1079.000-frame-health-v1.plan.md), which specifies the planned read-only performance panel and in-app indicator.
+- [LLP 1079.000: Frame health as a key performance metric](1079.000-frame-health-v1.plan.md), which defines frame-health metrics, native readouts and the planned design-tool panel.
 - LLP 1121 (Tamber): D7 the token index, D8 state parts, D13 the protocol and the live table, D14 clients and importers, D15 component params, §5 staging.
 - LLP 1007 §6 and LLP 1008 (the dev loops' reload, which carries state), LLP 1020 (`iframe`), LLP 1012 (the agent API), LLP 1035.002 (`layout` explaining one node), LLP 1095 D7.
 - `rules/DEFERRED.md` §Tooling, §Agent API, and the 2026-09-10 source-map admission.
@@ -22,15 +22,17 @@
 
 ## Summary
 
-**Frame health readout (planned, 2026-10-28).** The tool gains a read-only frame-health
-panel from [LLP 1079.000 §7](1079.000-frame-health-v1.plan.md#7-human-and-agent-readouts).
-People and agents read the same snapshots: target and observed cadence, late updates,
-latency, and the source and coverage of each measurement. It uses the existing
-`perf frames` operation and bounded cursor reads. It adds no subscription transport or
-production inspection endpoint. The companion draggable app indicator opens from the
-four-finger dev menu; it does not edit the app or turn on detailed tracing. The Apple
-callback readout and iOS card are implemented under LLP 1079.000; this inspector
-panel, its common protocol and bounded cursor reads remain planned.
+**Frame health panel (planned, 2026-10-28).**
+[LLP 1079.000 §7](1079.000-frame-health-v1.plan.md#7-human-and-agent-readouts)
+defines a read-only panel for the design tool. People and agents read the same
+scoped measurements: requested and observed cadence, late updates, available
+latency metrics, source and coverage. It uses `perf frames` and bounded cursor
+reads, without subscriptions or a production inspection endpoint.
+
+Apple already exposes these cursor reads and hitch reports through native cards
+and detail inspectors. Showing the app card enables bounded hitch capture without
+editing the app or enabling full tracing. The design-tool integration and common
+cross-host protocol remain planned.
 
 The design tool is how a designer, or an agent, shapes an exact2 app's look. **Its canvas
 is the app itself, running**: the app's web development build live inside the tool, and

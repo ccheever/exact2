@@ -676,11 +676,11 @@ function renderPerf(r) {
  * trace carries, then `locate`'s, which the live driver tries. The map that
  * answered is the result's `joinedMap` (not enumerable: `--json` leaves it out). */
 export async function readTrace(file, locate = () => [], plan = null) {
-  if (file.endsWith('.frame-health.json') && statSync(file).size > 4000) throw new Error('frame-health report exceeds 4 KB; re-export a bounded report from Exact');
+  if (file.endsWith('.frame-health.json') && statSync(file).size > 4000) throw new Error('Frame health report exceeds the 4 KB limit. Export it again from Exact.');
   const bytes = readFileSync(file, 'utf8');
   const t = JSON.parse(bytes);
   if (['exact.frame-health/1', 'exact.frame-health.metrics/1'].includes(t.format)) {
-    if (Buffer.byteLength(bytes, 'utf8') > 4000) throw new Error('frame-health report exceeds 4 KB; re-export a bounded report from Exact');
+    if (Buffer.byteLength(bytes, 'utf8') > 4000) throw new Error('Frame health report exceeds the 4 KB limit. Export it again from Exact.');
     if (t.format === 'exact.frame-health/1') renderFrameHealthReport(t);
     else renderFrameHealthMetrics(t);
     return t;
@@ -843,7 +843,7 @@ export function renderTrace(t) {
 /** Quantiles are bounds from finalized populations; callback rates never certify presentation. */
 export function renderFrameHealthMetrics(report) {
   if (report.error) return `frame health unavailable: ${report.error} · ${report.reason ?? 'read a fresh baseline'}`;
-  if (Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000) throw new Error('frame-health metrics exceed 4 KB; use a matching Exact reader');
+  if (Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000) throw new Error('Frame health metrics exceed the 4 KB limit. Request a fresh snapshot with a matching Exact reader.');
   const callbacks = report.callbacks ?? {}, apply = report.apply ?? {}, window = report.window ?? {};
   const bounds = value => Array.isArray(value) && value.length === 2 ? `${(Number(value[0]) / 1e6).toFixed(2)}–${value[1] == null ? '∞' : (Number(value[1]) / 1e6).toFixed(2)} ms` : 'unknown';
   return [`frame health · ${report.source ?? 'unknown source'} · ${report.status ?? 'unknown'} · ${report.qualification ?? 'unqualified'}`,
@@ -853,7 +853,7 @@ export function renderFrameHealthMetrics(report) {
     `applies ${apply.count ?? '?'} · targeted ${apply.withTarget ?? '?'} · late ${apply.targetOverruns ?? '?'} · callback target overruns ${callbacks.synchronousTargetOverruns ?? '?'}`,
     `apply p50 ${bounds(apply.p50BoundsNs)} · p95 ${bounds(apply.p95BoundsNs)} · p99 ${bounds(apply.p99BoundsNs)}`,
     `coverage ${JSON.stringify(report.coverage ?? {})}`,
-    'Quantiles are half-open bounds. Presentation, input latency and GPU execution remain unobserved.'].join('\n');
+    'Percentile bounds include the lower value and exclude the upper value. Presentation, input latency and GPU execution remain unmeasured.'].join('\n');
 }
 
 /** Read measured boundaries before suggesting causes. Null is missing evidence, never zero cost. */
@@ -862,13 +862,13 @@ export function renderFrameHealthReport(report) {
   const { columns, hitches } = report;
   if (!Array.isArray(columns) || columns.length !== 23 || !Array.isArray(hitches) || hitches.length > 16 ||
       Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000 || new Set(columns).size !== columns.length) {
-    throw new Error('invalid frame-health report shape or size; re-export it from Exact');
+    throw new Error('Frame health report has an invalid structure or exceeds 4 KB. Export it again from Exact.');
   }
   const expected = ['sequence', 'capture', 'generation', 'age_ns', 'flags', 'target_offset_ns', 'period_ns', 'requested_period_ns', 'gap_ns', 'callback_ns',
     'before_gap_ns', 'before_callback_ns', 'after_offset_ns', 'after_gap_ns', 'after_callback_ns',
     'owner_queued_offset_ns', 'owner_began_offset_ns', 'owner_finished_offset_ns', 'main_landed_offset_ns',
     'apply_began_offset_ns', 'apply_finished_offset_ns', 'work_target_offset_ns', 'operations'];
-  if (expected.some((name, index) => name !== columns[index])) throw new Error('frame-health report has unknown timing columns; use a matching Exact version');
+  if (expected.some((name, index) => name !== columns[index])) throw new Error('Frame health report has unknown timing columns. Use a reader from the same Exact version.');
   const out = [`frame health · ${report.identity?.app ?? 'app'} · callback/apply proxies · ${report.qualification ?? 'unqualified'}`,
     `retained ${hitches.length} · overwritten ${report.retention?.overwrittenSinceClear ?? '?'} · expired ${report.retention?.expiredAtRead ?? '?'} · omitted for budget ${report.retention?.omittedForBudget ?? '?'} · capture ${report.scope?.armed ? 'armed' : 'paused'}`];
   if (!report.available) out.push(`unavailable: ${report.unavailableReason ?? 'unknown coverage'}`);
@@ -880,7 +880,7 @@ export function renderFrameHealthReport(report) {
   for (const row of hitches) {
     if (!Array.isArray(row) || row.length !== columns.length || row.slice(0, 3).some(value => typeof value !== 'string' || !/^\d{1,20}$/.test(value)) ||
         row.slice(3).some(value => value !== null && !Number.isSafeInteger(value))) {
-      throw new Error('frame-health report contains invalid or inexact timing values; re-export it from Exact');
+      throw new Error('Frame health report contains invalid timing values or integers that JSON cannot represent exactly. Export it again from Exact.');
     }
     const event = Object.fromEntries(columns.map((name, index) => [name, row[index]]));
     const elapsed = (end, start) => event[end] == null || event[start] == null ? null : event[end] - event[start];

@@ -8,7 +8,7 @@ final class FrameHealthDragHandle: UIButton {
     override func accessibilityActivate() -> Bool { resetPosition?(); return true }
 }
 
-/// Host apparatus outside the app's node tree, below controller presentations.
+/// Host UI outside the app's node tree, below sheets and alerts.
 final class FrameHealthOverlay: UIView {
     fileprivate weak var health: FrameHealth?
     let card = UIView()
@@ -16,6 +16,8 @@ final class FrameHealthOverlay: UIView {
     let close = UIButton(type: .system)
     let details = UIButton(type: .system)
     let values = UILabel()
+    let chart = FrameHealthChart()
+    private let legend = UILabel()
     private let coverage = UILabel()
     private var origin = CGPoint.zero
     private var placed = false
@@ -87,12 +89,18 @@ final class FrameHealthOverlay: UIView {
         minimumValuesHeight = values.heightAnchor.constraint(greaterThanOrEqualToConstant: ceil(values.font.lineHeight * 4))
         minimumValuesHeight.isActive = true
         values.textColor = .label
-        coverage.text = "Callback and apply proxies. Native-scroll deadlines are experimental. Presentation is unobserved."
+        coverage.text = "Measures callback and apply timing. Native-scroll deadlines are experimental. Presentation is unmeasured."
         coverage.font = .preferredFont(forTextStyle: .caption2)
         coverage.adjustsFontForContentSizeCategory = true
         coverage.textColor = .secondaryLabel
         coverage.numberOfLines = 0
-        let content = UIStackView(arrangedSubviews: [heading, values, coverage])
+        chart.heightAnchor.constraint(equalToConstant: 72).isActive = true
+        legend.text = "30 s · blue average · orange slowest gap bound"
+        legend.font = .preferredFont(forTextStyle: .caption2)
+        legend.adjustsFontForContentSizeCategory = true
+        legend.textColor = .secondaryLabel
+        legend.numberOfLines = 0
+        let content = UIStackView(arrangedSubviews: [heading, values, chart, legend, coverage])
         content.axis = .vertical
         content.spacing = 6
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -102,7 +110,7 @@ final class FrameHealthOverlay: UIView {
             content.trailingAnchor.constraint(equalTo: card.layoutMarginsGuide.trailingAnchor),
             content.topAnchor.constraint(equalTo: card.layoutMarginsGuide.topAnchor),
             content.bottomAnchor.constraint(equalTo: card.layoutMarginsGuide.bottomAnchor)])
-        accessibilityElements = [handle, details, close, values, coverage]
+        accessibilityElements = [handle, details, close, values, chart, legend, coverage]
         health.ended = { [weak self] in self?.detach() }
         let center = NotificationCenter.default
         for name in [UIApplication.didEnterBackgroundNotification, UIApplication.willEnterForegroundNotification] {
@@ -146,8 +154,9 @@ final class FrameHealthOverlay: UIView {
 
     func refresh() {
         guard desiredVisible, !dragging, let health else { return }
-        let source = health.nativeHealth.flatMap { $0.snapshot().running != 0 ? $0 : nil } ?? health
+        let source = health
         values.text = FrameHealthReadout.compact(source)
+        chart.update(source)
         values.accessibilityLabel = values.text
         handle.accessibilityValue = [values.text, coverage.text].compactMap { $0 }.joined(separator: ". ")
         setNeedsLayout()
@@ -163,6 +172,8 @@ final class FrameHealthOverlay: UIView {
             ? max(0, available.width) : min(320, max(0, available.width))
         availableFrame = available
         coverage.isHidden = false
+        chart.isHidden = false
+        legend.isHidden = false
         values.isHidden = false
         minimumValuesHeight.isActive = true
         values.numberOfLines = 4
@@ -170,6 +181,8 @@ final class FrameHealthOverlay: UIView {
         var size = card.systemLayoutSizeFitting(CGSize(width: width, height: 0),
             withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
         if size.height > available.height {
+            chart.isHidden = true
+            legend.isHidden = true
             coverage.isHidden = true
             values.numberOfLines = 1
             minimumValuesHeight.constant = values.font.lineHeight

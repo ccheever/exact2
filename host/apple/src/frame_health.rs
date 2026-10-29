@@ -29,7 +29,7 @@ pub struct Snapshot {
     pub last_arrival_ns: u64,
     /// Whether an existing app frame clock is running.
     pub running: u64,
-    /// Outermost applies and those with a frame target, since reset.
+    /// Completed outermost applies since reset.
     pub applies: u64,
     /// Applies with an applicable frame target.
     pub target_applies: u64,
@@ -43,11 +43,11 @@ pub struct Snapshot {
     pub histogram_overflows: u64,
 }
 
-/// Fixed absolute-time bins: 48 half-millisecond bins, 15 doubling tails, overflow.
+/// Fixed duration bins: 48 half-millisecond bins, 15 doubling tails, and overflow.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Distribution {
-    /// Saturating counts in half-open absolute-time bins.
+    /// Saturating counts in half-open duration bins.
     pub bins: [u32; 64],
 }
 
@@ -230,7 +230,7 @@ pub fn snapshot(id: u32) -> Snapshot {
     with(id, |c| c.snapshot)
 }
 
-/// Break the baseline when the app clock stops, so idle time cannot become a hitch.
+/// Break the interval baseline when the source stops, excluding idle time from gaps.
 pub fn stop(id: u32) {
     with(id, Collector::stop);
 }

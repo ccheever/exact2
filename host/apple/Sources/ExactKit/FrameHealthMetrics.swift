@@ -2,7 +2,7 @@ import Foundation
 import QuartzCore
 import CExact
 
-/// Reader-side arithmetic. Hooks only increment fixed counters and absolute-time bins.
+/// Compute deltas and percentiles in the reader; hooks update counters and duration histograms.
 enum FrameHealthMetrics {
     static let format = "exact.frame-health.metrics/1"
     static let histogramVersion = "64x500us-tail/1"
@@ -122,11 +122,12 @@ enum FrameHealthMetrics {
     }
 }
 
-/// Eleven reader snapshots bound a roughly five-second view; no timer supplies them.
+/// Retain at most eleven snapshots for a roughly five-second view, without a polling timer.
 final class FrameHealthWindow {
     private var samples: [FrameHealthMetrics.Sample] = []
     private var cached: FrameHealthMetrics.Sample?
-    func invalidate() { cached = nil }
+    let trend = FrameHealthTrend()
+    func invalidate() { cached = nil; trend.breakBaseline() }
     func reply(_ health: FrameHealth, now: Double = CACurrentMediaTime()) -> [String: Any] {
         let instant = FrameHealth.nanoseconds(now)
         let current: FrameHealthMetrics.Sample
@@ -135,6 +136,7 @@ final class FrameHealthWindow {
         if samples.last?.snapshot.generation != current.snapshot.generation { samples.removeAll(keepingCapacity: true) }
         let baseline = samples.first
         if samples.last.map({ current.read >= $0.read && current.read - $0.read >= 500_000_000 }) ?? true {
+            trend.record(current)
             samples.append(current)
             if samples.count > 11 { samples.removeFirst() }
             while samples.count > 1, current.read - samples[1].read > 5_000_000_000 { samples.removeFirst() }
