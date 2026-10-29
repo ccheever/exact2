@@ -12,9 +12,10 @@ import { webCompiler } from './module.mjs';
 // resource shows the bytes sent as they rise, is pending (and in
 // `state.pending`) while they do, and `clock settle` waits for the reply,
 // which ends it as `load`. A second upload sends a `Uint8Array` as its body,
-// whose bytes the stand-in sums. A third fails: the stand-in answers 503, on
-// which its mapper throws. An upload is asked once for its arguments: a
-// refresh sends neither the finished one nor the failed one again.
+// whose bytes the stand-in sums. A third, with no body and so no progress,
+// fails: the stand-in answers 503, on which its mapper throws. An upload is
+// asked once for its arguments: a refresh sends neither the finished one nor
+// the failed one again.
 const SIZE = 8 << 20;
 test('an upload shows its bytes sent as they rise, and every clock waits for its reply', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -29,7 +30,8 @@ test('an upload shows its bytes sent as they rise, and every clock waits for its
     if (path === '/fail') { asked.fail++; await req.arrayBuffer(); return new Response('busy', { status: 503, headers: cors }); }
     asked.upload++;
     let took = 0, sum = 0;
-    for await (const chunk of req.body) { took += chunk.length; for (const b of chunk) sum += b; await Bun.sleep(4); }
+    // About 2 s for the large body, whatever the size of the chunks Bun hands over.
+    for await (const chunk of req.body) { took += chunk.length; for (const b of chunk) sum += b; await Bun.sleep(Math.ceil(chunk.length / 4096)); }
     return new Response(JSON.stringify({ took, sum }), { status: 201, headers: { ...cors, 'content-type': 'application/json' } });
   } });
   const origin = `http://127.0.0.1:${peer.port}`;
@@ -69,7 +71,7 @@ export function answer(name: string, args: any[]): any {
     exactStream: (e: any) => e.type === 'load' ? 'load ' + e.status + ' ' + e.data : e.type,
   } as RequestInit);
   if (name === 'broken' && args[0]) return fetch(${JSON.stringify(origin)} + '/fail', {
-    method: 'POST', body: 'x', exactUploadProgress: true,
+    method: 'POST', exactUploadProgress: true,
     exactStream: (e: any) => { if (e.type === 'load' && e.status >= 500) throw new Error('the upload failed'); return e.type; },
   } as RequestInit);
   return name === 'upload' || name === 'bytes' || name === 'broken' ? 'idle' : '';
