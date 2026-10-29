@@ -243,7 +243,7 @@ test('Add provider: past the ACP Registry, Next waits for an agent, a hand-enter
   const dialog = contractComponent('providers-wizard.contract', 'AddProviderDialog');
   const sent: unknown[][] = [];
   const go = (draft: Obj, manual: boolean, prepared: Obj[], value: string, step = 0) =>
-    dialog.call('go', { ...draft }, { wizard: { driver: 'acpRegistry', prepared }, manual, step, ui: (...args: unknown[]) => sent.push(args) }, ['step', value]);
+    dialog.call('go', { ...draft }, { wizard: { driver: 'acpRegistry', prepared, created: '' }, manual, step, busy: false, ui: (...args: unknown[]) => sent.push(args) }, ['step', value]);
   const local = { f0: 'local', f1: '', f2: '', f3: '', f4: '' }, byHand = { f0: '', f1: 'devin', f2: '', f3: '', f4: '' };
   go(local, false, [], 'next'); // the search with nothing added
   go(local, false, [], '1'); // the step header
@@ -281,7 +281,7 @@ test("Add provider's Sign in header saves an agent from the registry, as Continu
   const run = (step: number, prepared: Obj[], idError = '', manual = false, f0 = '') => {
     const calls: unknown[][] = [];
     dialog.call('go', { f0, f1: manual ? 'devin' : '', f2: 'dsh', f3: '', f4: '', commandArgs: [], accent: '', published: [], variables: [] },
-      { wizard: { driver: 'acpRegistry', prepared, idError, label: 'Devin', instanceId: 'acpRegistry_devin' }, manual, step, labelSet: false, label: '', idSet: false, id: '',
+      { wizard: { driver: 'acpRegistry', prepared, idError, label: 'Devin', instanceId: 'acpRegistry_devin', created: '' }, manual, step, busy: false, labelSet: false, label: '', idSet: false, id: '',
         ui: (...args: unknown[]) => calls.push(['ui', ...args]), add: (...args: unknown[]) => calls.push(['add', ...args]) }, ['step', '2']);
     return calls;
   };
@@ -291,6 +291,62 @@ test("Add provider's Sign in header saves an agent from the registry, as Continu
   expect(run(1, devin, 'An instance named \'acpRegistry_devin\' already exists.')).toEqual([['ui', 'step', '2']]);
   expect(run(0, [])).toEqual([['ui', 'blocked', '']]);
   expect(run(1, [], '', true, 'local')).toEqual([['ui', 'step', '2']]); // the local command: two steps, no Sign in
+});
+
+// Button variant="ghost-destructive" (ui/button.tsx): text-muted-foreground at rest; hovered or pressed, bg-accent and
+// text-destructive (index.css: --destructive is --error). Each ghost-destructive button in Providers and Add provider (the
+// removes of arguments and variables, the clears, Delete instance) is this one, in the size upstream gives it.
+test('a remove button is muted at rest and destructive while hovered or pressed, as ghost-destructive is', () => {
+  const remove = contractComponent('providers-kit.contract', 'PvRemoveButton');
+  const scope = { label: 'Remove argument 1', buttonId: 'new-provider-argument-remove-0', icon: 'x', size: 'micro', disabled: false, stop: 'enabled', press: () => {} };
+  const at = (attr: string, over: boolean, extra: Obj = {}) => remove.attribute('button press=press hover=hover', attr, { over }, { ...scope, ...extra });
+  const paint = (over: boolean, disabled = false) => ['color', 'background-color'].map(attr => at(attr, over, { disabled }));
+  const muted = 'light-dark(#71717b, #a1a1a1)', destructive = 'light-dark(#fb2c36, #fb414a)', accent = 'light-dark(#f4f4f5, #ffffff0a)';
+  expect([paint(false), paint(true), paint(true, true)]).toEqual([[muted, '#00000000'], [destructive, accent], [muted, '#00000000']]);
+  const state: Obj = { over: false };
+  remove.call('hover', state, scope, [true]);
+  expect(state.over).toBe(true);
+  // icon-micro is 20 pt with the icon at 12; icon-xs 24 pt and icon-sm 28 pt, the icon at 14.
+  const geometry = (size: string) => [at('width', false, { size }), at('border-radius', false, { size }), remove.callArguments('PvIcon(', { over: false }, { ...scope, size, icon: 'trash' })];
+  expect(geometry('micro')).toEqual(['1.25rem', '0.375rem', { name: 'trash', size: 12, color: 'currentColor' }]);
+  expect(geometry('xs')).toEqual(['1.5rem', '0.5rem', { name: 'trash', size: 14, color: 'currentColor' }]);
+  expect(geometry('sm')).toEqual(['1.75rem', '0.5rem', { name: 'trash', size: 14, color: 'currentColor' }]);
+  expect(appText('providers-kit.contract')).toContain(`      :active\n        background-color="${accent}"\n        color="${destructive}"\n      PvIcon(name=icon,`);
+  const wizard = appText('providers-wizard.contract'), providers = appText('providers.contract');
+  expect(wizard.match(/PvRemoveButton\(label=[^\n]*, icon="x", size="micro", disabled=false, stop="enabled",/g)).toHaveLength(2);
+  for (const call of [
+    'PvRemoveButton(label=`Remove argument ${arg.index + 1}`, buttonId=`provider-argument-remove-${arg.index}`, icon="x", size="micro", disabled=(not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Remove environment variable ${variable.label}`, buttonId=`provider-variable-remove-${variable.index}`, icon="x", size="micro", disabled=(not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-field-${field.key}`, icon="x", size="sm", disabled=(not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-env-${field.key}`, icon="x", size="sm", disabled=(not writable), stop="enabled page",',
+    'PvRemoveButton(label=`Delete instance ${editor.id}`, buttonId="delete-provider-instance", icon="trash", size="xs", disabled=(busy or not writable), stop="enabled page",',
+  ]) expect(providers).toContain(call);
+  expect(wizard + providers).not.toMatch(/PvIcon\(name="x", size=1[24], color="light-dark\(#e7000b/);
+});
+
+// applyWizardNavigation returns once the instance exists (createdInstanceId): after Continue to sign-in, Back and the Sign
+// in header add nothing more, though the derived ID has moved on to a free one and reports no error.
+test('Add provider adds a registry agent once: once it exists, the Sign in header adds nothing', async () => {
+  const server = new FakeServer();
+  const wizard = () => providerWizard(server, true, 11, 'acpRegistry', false, '', false, '', 'add', '', 0);
+  wizard();
+  await runProviderOp(server, native, 'acp-prepare', '', JSON.stringify({ key: 'devin', value: 'Devin' }));
+  const before = wizard();
+  expect([before.instanceId, before.label, before.created]).toEqual(['acpRegistry_devin', 'Devin', '']);
+  expect(await runProviderOp(server, native, 'provider-add', before.instanceId, JSON.stringify({ driver: 'acpRegistry', label: before.label, fields: {}, commandArgs: [], environment: [] }))).toBe('');
+  const after = wizard();
+  expect([after.created, after.instanceId, after.idError]).toEqual(['acpRegistry_devin', 'acpRegistry_devin_2', '']);
+  const dialog = contractComponent('providers-wizard.contract', 'AddProviderDialog');
+  const calls: unknown[][] = [];
+  const go = (created: string, busy: boolean, step = 1, value = '2') => dialog.call('go', { f0: '', f1: '', f2: '', f3: '', f4: '', commandArgs: [], accent: '', published: [], variables: [] },
+    { wizard: { ...after, created }, manual: false, step, busy, labelSet: false, label: '', idSet: false, id: '',
+      ui: (...args: unknown[]) => calls.push(['ui', ...args]), add: (...args: unknown[]) => calls.push(['add', ...args]) }, ['step', value]);
+  go('acpRegistry_devin', false, 2, 'back'); // Back from Sign in
+  go('acpRegistry_devin', false); // then the Sign in header
+  go('', true); // the header while the add still runs
+  expect(calls).toEqual([]);
+  go('', false); // without the guard this would be a second add
+  expect(calls).toEqual([['add', 'acpRegistry', 'Devin', 'acpRegistry_devin_2', '', ['', '', '', '', ''], [], []]]);
 });
 
 // The add's press: an agent added from the search brings its own config (handleAcpPrepared), so only a configuration by
@@ -361,7 +417,7 @@ test("Add provider's variables publish as ProviderEnvironmentSection's do", () =
   expect(source).toContain('fn envNameValid(name: string): bool = name != "" and not "0123456789".includes(name.slice(0, 1)) and name.split("").filter((c) => not "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".includes(c)).length == 0');
   expect(source).toContain('Tip(label=(variable.sensitive ? "Sensitive, stored separately" : "Plain text"), side="top", align="center", offset=24)');
   expect(source).toContain('aria-pressed=variable.sensitive aria-label=(variable.name != "" ? `Mark environment variable ${variable.name} as sensitive` : `Mark environment variable ${index + 1} as sensitive`)');
-  expect(source).toContain('aria-label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`)');
+  expect(source).toContain('PvRemoveButton(label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`)');
   expect(source.match(/blur=commitVariables submit=commitVariables/g)).toHaveLength(2);
   // The note sits with the rows, so it shows only when there are rows (ProviderInstanceCard.tsx).
   const lines = source.split('\n'), noteAt = lines.findIndex(entry => entry.includes('text "Sensitive values are stored separately and never returned to the app."'));
@@ -408,7 +464,9 @@ test("Add provider's Arguments and Variables are rows whose add button is their 
   expect(source).toMatch(block('Arguments', 'addArgument', 'commandArgs'));
   expect(source).toMatch(block('Variables', 'addVariable', 'variables'));
   // An argument row: its mono field and the ghost-destructive remove.
-  expect(source).toMatch(/input value=arg input=editArgument\(index\)[^\n]*font-family="ui-monospace"[^\n]*\n\s+button press=removeArgument\(index\) class=PvMicro[^\n]*\n\s+PvIcon\(name="x", size=12, color="light-dark\(#e7000b, #ff6467\)"\)/);
+  expect(source).toMatch(/input value=arg input=editArgument\(index\)[^\n]*font-family="ui-monospace"[^\n]*\n\s+PvRemoveButton\(label=`Remove argument \$\{index \+ 1\}`, buttonId=`new-provider-argument-remove-\$\{index\}`, icon="x", size="micro", disabled=false, stop="enabled", press=removeArgument\(index\)\)/);
+  // An instance's argument row is the same row (ProviderSettingsForm), centred.
+  expect(appText('providers.contract')).toMatch(/\n {4}row width="100%" min-width=0 gap="0\.375rem" align-items="center"\n {6}input value=value input=edit blur=op\("provider-argument-value"[^\n]*font-family="ui-monospace" font-size="0\.8125rem"[^\n]*\n {6}PvRemoveButton\(label=`Remove argument \$\{arg\.index \+ 1\}`/);
 });
 
 // The Identity card links Docs to the agent's website and Source to its repository, each only when the registry gives

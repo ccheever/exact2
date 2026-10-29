@@ -8,6 +8,7 @@ use PvGhost from "../settings/providers-kit.contract"
 use PvPrimary from "../settings/providers-kit.contract"
 use PvIconButton from "../settings/providers-kit.contract"
 use PvMicro from "../settings/providers-kit.contract"
+use PvRemoveButton from "../settings/providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use DriverMark from "./provider-icons-kit.contract"
 use AcpRegistryAgentIcon from "./provider-icons-kit.contract"
@@ -256,14 +257,17 @@ component AddProviderDialog
   // resolveWizardNavigation: a step past an unmet prerequisite is blocked, stays on the Provider step and marks the
   // attempt, which shows the error (providerUi "blocked"). An agent from the registry has no Sign in step before its
   // instance exists: going there saves it, as applyWizardNavigation does; an invalid ID stops on Identity (the root).
+  // Like applyWizardNavigation, nothing moves while a save or prepare runs or once the instance exists: its derived ID
+  // has moved on to a free one by then, so the ID's error would not stop a second add.
   action go(what: string, value: string)
     let target = value == "back" ? step - 1 : (value == "next" ? step + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
-    if what == "step" and step == 0 and target > 0 and selectionError != ""
-      ui("blocked", "")
-    else if what == "step" and isAcp and not localAcp and target == 2 and wizard.idError == ""
-      save()
-    else
-      ui(what, value)
+    if wizard.created == "" and not busy
+      if what == "step" and step == 0 and target > 0 and selectionError != ""
+        ui("blocked", "")
+      else if what == "step" and isAcp and not localAcp and target == 2 and wizard.idError == ""
+        save()
+      else
+        ui(what, value)
   // handleSave: an agent added from the search brings its own config (handleAcpPrepared), so only a configuration by
   // hand sends the fields; a local command sends its published variables.
   action save
@@ -392,8 +396,7 @@ component AddProviderDialog
                             for arg, index in commandArgs key=index
                               row width="100%" min-width=0 gap="0.375rem" align-items="center"
                                 input value=arg input=editArgument(index) aria-label=`Argument ${index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" testId=`new-provider-argument-${index}` id=`field-new-provider-argument-${index}` data-editable="yes" data-focus-stop="enabled"
-                                button press=removeArgument(index) class=PvMicro aria-label=`Remove argument ${index + 1}` testId=`new-provider-argument-remove-${index}` title="" id=`new-provider-argument-remove-${index}` data-focus-stop="enabled"
-                                  PvIcon(name="x", size=12, color="light-dark(#e7000b, #ff6467)")
+                                PvRemoveButton(label=`Remove argument ${index + 1}`, buttonId=`new-provider-argument-remove-${index}`, icon="x", size="micro", disabled=false, stop="enabled", press=removeArgument(index))
                       // ProviderEnvironmentSection for the local command: rows of name, value (hidden while sensitive, the default)
                       // and the lock; a row whose name is blank is left out when the instance is added.
                       column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" testId="new-provider-variables"
@@ -414,8 +417,7 @@ component AddProviderDialog
                                 Tip(label=(variable.sensitive ? "Sensitive, stored separately" : "Plain text"), side="top", align="center", offset=24)
                                   button press=toggleVariableSensitive(index) class=PvMicro aria-pressed=variable.sensitive aria-label=(variable.name != "" ? `Mark environment variable ${variable.name} as sensitive` : `Mark environment variable ${index + 1} as sensitive`) testId=`new-provider-variable-sensitive-${index}` title="" id=`new-provider-variable-sensitive-${index}` data-focus-stop="enabled"
                                     MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #a1a1a1)", weight=2, still=false)
-                                button press=removeVariable(index) class=PvMicro aria-label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`) testId=`new-provider-variable-remove-${index}` title="" id=`new-provider-variable-remove-${index}` data-focus-stop="enabled"
-                                  PvIcon(name="x", size=12, color="light-dark(#e7000b, #ff6467)")
+                                PvRemoveButton(label=(variable.name != "" ? `Remove environment variable ${variable.name}` : `Remove environment variable ${index + 1}`), buttonId=`new-provider-variable-remove-${index}`, icon="x", size="micro", disabled=false, stop="enabled", press=removeVariable(index))
                             text "Sensitive values are stored separately and never returned to the app." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                     if attempted and selectionError != ""
                       text selectionError font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" testId="acp-selection-error"
