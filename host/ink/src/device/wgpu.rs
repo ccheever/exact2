@@ -536,8 +536,6 @@ impl Wgpu {
             },
             extent([width, height]),
         );
-        let submitted = self.submit(encoder.finish())?;
-        self.textures.get_mut(&id).unwrap().last = submitted;
         #[derive(Default)]
         struct Mapped {
             result: Option<std::result::Result<(), ::wgpu::BufferAsyncError>>,
@@ -545,18 +543,20 @@ impl Wgpu {
         }
         let state = Arc::new(Mutex::new(Mapped::default()));
         let callback = state.clone();
-        buffer
-            .slice(..)
-            .map_async(::wgpu::MapMode::Read, move |result| {
-                let waker = {
-                    let mut s = callback.lock().unwrap();
-                    s.result = Some(result);
-                    s.waker.take()
-                };
-                if let Some(waker) = waker {
-                    waker.wake();
-                }
-            });
+        // The worker may not have submitted this copy when the main thread
+        // returns. Mapping belongs to that submission, after its copy.
+        encoder.map_buffer_on_submit(&buffer, ::wgpu::MapMode::Read, .., move |result| {
+            let waker = {
+                let mut s = callback.lock().unwrap();
+                s.result = Some(result);
+                s.waker.take()
+            };
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        });
+        let submitted = self.submit(encoder.finish())?;
+        self.textures.get_mut(&id).unwrap().last = submitted;
         #[cfg(not(target_arch = "wasm32"))]
         self.wait(submitted)?;
         #[cfg(target_arch = "wasm32")]
