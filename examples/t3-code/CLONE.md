@@ -378,6 +378,21 @@ picker, imports and previews the real Markdown file, then removes it and returns
 to an empty usable composer. The native NewTask view remains inactive pending
 its producer integration. This checkpoint is outside the TestFlight build.
 
+The frozen NewTask owner now continues Photos and Files intake through file
+holds, one attachment batch, confirmed saved bytes and immutable finish or cancel.
+Historical and accepted files remain held for Undo; rejected issued files release
+only after terminal confirmation. Retries preserve the original operation and
+never repeat a committed batch. Superseded save and acknowledgment failures no
+longer disable another editor. Native dictionary property order does not change
+inventory identity. All 3,988 mobile tests, strict TypeScript, boot and the normal
+iPhone build pass. Independent review passes all 114 owner cases and finds no
+additional blocker. The normal app receives `CONTINUATION_CHECKPOINT_OK` from the
+real provider and restores that reply, environment and empty composer after
+restart. Native intake is mocked in the owner tests. Explicit resume, history
+handback and actual native NewTask acceptance remain open. An uncertain finish
+whose saved record changes also needs positive reconciliation before activation.
+The textarea remains active. This checkpoint is outside the TestFlight build.
+
 Two normal NewTask Files drives return to Choose project after selection or
 Cancel. The typed draft survives in Unsent, but the selected file is not retained.
 An instrumented Cancel drive returns correctly with the authored route and native

@@ -1,7 +1,20 @@
 import { mobileDraftRecoveryHydrated, type MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskFlowCurrent, mobileNewTaskFlowOwns, mobileNewTaskRoute } from './new-task-flow';
-import { mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftLookup } from './mobile-new-task-drafts';
-import { mobileNewTaskContextWrite, type MobileNewTaskContextGuard } from './mobile-new-task-context';
+import { mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftLookup, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileNewTaskContextWrite, mobileNewTaskContextAttach, mobileNewTaskContextProject,
+  type MobileNewTaskAttachmentCommit, type MobileNewTaskAttachmentProjection, type MobileNewTaskContextGuard } from './mobile-new-task-context';
+import { mobilePickerIntakeRequest, mobilePickerIntakeInvoke, type PickerIntakeRequest,
+  type PickerIntakeFile, type PickerIntakePick, type PickerIntakeFinish } from './composer-picker-intake-io';
+import { mobileFileHoldsCreate, mobileFileHoldReserve, mobileFileHoldAcquire, mobileFileHoldHeld,
+  mobileFileHoldRelease, mobileFileHoldReleaseNeeded, mobileFileHoldsRetire, type FileHoldLedger } from './composer-file-holds-io';
+import { mobileComposerCountAttachmentsAfterSelection } from './composer-context-insertion';
+import { mobileComposerPickerFileLimit } from './composer-picker';
+import type { OrdinaryInventoryAttachment } from './composer-attachment-publication';
+import { localId } from './shared/composer-editor';
+import { obj, str } from './shared/domain';
+import { draftFiles, fileContextRecords } from './shared/composer-editor-files';
+import { contextReferences } from './shared/composer-editor-menu';
+import { mobileDraftAttachmentIds } from './draft-attachment-order';
 import { mobileComposerTarget, type MobileComposerTarget } from './composer-target';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { fleet } from './shared/settings-b-fleet';
@@ -33,8 +46,20 @@ interface PickCapture {
 }
 type PickWork =
   | { phase: 'allocating'; capture: PickCapture; revision: number; attempt: number }
-  | { phase: 'freezing'; capture: PickCapture; operation: OperationIdentity }
-  | { phase: 'frozen'; capture: PickCapture; operation: OperationIdentity; receipt: FrozenReceipt };
+  | { phase: 'freezing'; capture: PickCapture; operation: OperationIdentity; attempt: number }
+  | { phase: 'frozen'; capture: PickCapture; operation: OperationIdentity; receipt: FrozenReceipt;
+      source: MobileNewTaskAttachmentProjection | null; continuation: Continuation; attempt: number };
+type FrozenPick = Extract<PickWork, { phase: 'frozen' }>;
+type Continuation =
+  | { kind: 'ready' }
+  | { kind: 'intake'; request: PickerIntakePick; dispatched: boolean }
+  | { kind: 'staged'; request: PickerIntakePick; files: readonly PickerIntakeFile[] }
+  | { kind: 'published'; request: PickerIntakePick; files: readonly PickerIntakeFile[]; commit: MobileNewTaskAttachmentCommit }
+  | { kind: 'finishing'; request: PickerIntakeFinish; files: readonly PickerIntakeFile[]; commit: MobileNewTaskAttachmentCommit }
+  | { kind: 'cancelling'; request: PickerIntakeRequest; files: readonly PickerIntakeFile[] | null }
+  | { kind: 'terminal'; outcome: 'finished'; request: PickerIntakeFinish;
+      files: readonly PickerIntakeFile[]; commit: MobileNewTaskAttachmentCommit }
+  | { kind: 'terminal'; outcome: 'cancelled' | 'absent'; files: readonly PickerIntakeFile[] | null };
 interface Publication { receipt: Receipt; revision: number; slotReleased: boolean }
 interface FinalizationSnapshot { receipts: Receipt[]; reserved: ComposerMountedIdentity[] }
 interface ReleaseCandidate { entry: Entry; publication: Publication; operation: PickWork | null; attempt: number }
@@ -47,7 +72,7 @@ type Progress =
 interface Entry {
   draft: DraftIdentity; route: NewTaskEditorRoute; state: ComposerEditorState; revision: number;
   custody: 'native' | 'recovery' | 'frozen'; progress: Progress; dirty: boolean;
-  attempt: number; problem: string; operation: PickWork | null; operationRevision: number;
+  attempt: number; problem: string; notice: string; operation: PickWork | null; operationRevision: number; holds: FileHoldLedger | null;
 }
 interface Ledger {
   entries: Entry[]; serial: number; acceptedRead: number; problem: string; wakeUsed: boolean;
@@ -131,7 +156,7 @@ export function mobileNewTaskEditorView(client: MobileDraftClient, route: NewTas
   let entry = activeEntry(client, route);
   if (entry?.operation?.phase === 'frozen' && !entry.operation.receipt.retired
     && !(entry.progress.kind === 'saved' && entry.progress.publication.slotReleased))
-    return presentation(entry, false, 'frozen', entry.problem || owner.problem || 'The editor source is held for the attachment operation.');
+    return presentation(entry, false, 'frozen', entry.problem || entry.notice || owner.problem || 'The editor source is held for the attachment operation.');
   if (entry?.operation && entry.operation.phase !== 'frozen' && entry.custody === 'native'
     && entry.progress.kind === 'unpublished' && !entry.problem)
     return presentation(entry, true, 'editing', owner.problem);
@@ -150,7 +175,7 @@ export function mobileNewTaskEditorView(client: MobileDraftClient, route: NewTas
     entry = { draft: capture.draft, route: { ...route }, revision: capture.revision, custody: 'native',
       state: mobileComposerEditorAdmit(null, { owner: capture.owner, editorId: route.editorId, routeVisit: route.visit, renderEpoch },
         { value: text, selection: { start: text.length, end: text.length } }),
-      progress: { kind: 'unpublished' }, dirty: false, attempt: 0, problem: '', operation: null, operationRevision: 0 };
+      progress: { kind: 'unpublished' }, dirty: false, attempt: 0, problem: '', notice: '', operation: null, operationRevision: 0, holds: null };
     owner.entries.push(entry);
   }
   if (latch) observe(client, entry, latch);
@@ -236,7 +261,7 @@ function publish(client: MobileDraftClient, entry: Entry, receipt: Receipt): boo
       || work.operation.revision !== receipt.operation.revision || !sameIdentity(work.capture.identity, receipt.identity)) {
       entry.custody = 'frozen'; entry.problem = 'The editor source belongs to an unfinished operation.'; return false;
     }
-    entry.operation = { ...work, phase: 'frozen', receipt }; entry.custody = 'frozen';
+    entry.operation = { ...work, phase: 'frozen', receipt, source: null, continuation: { kind: 'ready' }, attempt: 0 }; entry.custody = 'frozen';
   } else if (entry.custody === 'frozen' || !receipt.retired) {
     entry.custody = 'frozen'; entry.problem = 'The editor source belongs to an unfinished operation.'; return false;
   }
@@ -250,11 +275,13 @@ function publish(client: MobileDraftClient, entry: Entry, receipt: Receipt): boo
   const accepted = mobileComposerEditorAccept(entry.state, receipt.event);
   if (accepted.accepted) entry.state = accepted.state;
   entry.progress = { kind: 'published', publication: { receipt, revision: entry.revision, slotReleased: false } };
+  if (entry.operation?.phase === 'frozen') entry.operation.source = projection(client, entry);
   return true;
 }
 function releaseSlot(owner: Ledger, entry: Entry, publication: Publication): void {
   if (publication.slotReleased) return;
   publication.slotReleased = true;
+  if (entry.holds) mobileFileHoldsRetire(entry.holds);
   // A refused factory has no native handle. Only a new keyed seed can retry it.
   owner.entries = owner.entries.filter(candidate => candidate === entry || candidate.state.mountId
     || candidate.operation || candidate.progress.kind !== 'unpublished');
@@ -287,9 +314,9 @@ function reconcileSnapshot(client: MobileDraftClient, owner: Ledger, serial: num
       releaseSlot(owner, entry, publication);
   }
 }
-function validCompletion(client: MobileDraftClient, owner: Ledger, entry: Entry, attempt: number, publication: Publication): boolean {
+function validCompletion(client: MobileDraftClient, owner: Ledger, entry: Entry, attempt: number, publication: Publication, serial: number): boolean {
   const draft = registry(client, entry);
-  return mobileDraftRecoveryHydrated(client) && owner.entries.includes(entry) && entry.attempt === attempt && !entry.problem && !!draft
+  return serial === owner.acceptedRead && mobileDraftRecoveryHydrated(client) && owner.entries.includes(entry) && entry.attempt === attempt && !entry.problem && !!draft
     && draft.revision >= publication.revision && (entry.progress.kind === 'published' || entry.progress.kind === 'durable')
     && entry.progress.publication === publication;
 }
@@ -297,21 +324,30 @@ async function settle(client: MobileDraftClient, owner: Ledger, entry: Entry, na
   const progress = entry.progress;
   if (progress.kind !== 'published' && progress.kind !== 'durable') return;
   const publication = progress.publication, attempt = ++entry.attempt;
-  if (!validCompletion(client, owner, entry, attempt, publication)) return;
-  if (progress.kind === 'published') {
-    await client.persist(storage);
-    if (!validCompletion(client, owner, entry, attempt, publication)) return;
-    entry.progress = { kind: 'durable', publication, ackRead: null };
+  if (!validCompletion(client, owner, entry, attempt, publication, serial)) return;
+  try {
+    if (progress.kind === 'published') {
+      await client.persist(storage);
+      if (!validCompletion(client, owner, entry, attempt, publication, serial)) return;
+      entry.progress = { kind: 'durable', publication, ackRead: null };
+    }
+    if (!validCompletion(client, owner, entry, attempt, publication, serial) || entry.progress.kind !== 'durable') return;
+    entry.progress.ackRead = serial;
+    const generation = client.generation;
+    const response = await bridgeReply(native, { op: 'composerEditorFinalizations', generation, action: 'acknowledge', receiptId: publication.receipt.id });
+    if (!validCompletion(client, owner, entry, attempt, publication, serial)) return;
+    if (!response.ok || response.generation !== generation || !record(response.value) || typeof response.value.acknowledged !== 'boolean')
+      throw new ClientError('The final editor source acknowledgment could not be confirmed.');
+    if (response.value.acknowledged) acknowledge(owner, entry, publication);
+    else await wake(owner, native, client.generation);
+    if (owner.entries.includes(entry) && entry.attempt === attempt && serial === owner.acceptedRead) entry.notice = '';
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (validCompletion(client, owner, entry, attempt, publication, serial)) {
+      entry.notice = 'The final editor source is retained until it can be saved and acknowledged.';
+      await wake(owner, native, client.generation);
+    }
   }
-  if (!validCompletion(client, owner, entry, attempt, publication) || entry.progress.kind !== 'durable') return;
-  entry.progress.ackRead = serial;
-  const generation = client.generation;
-  const response = await bridgeReply(native, { op: 'composerEditorFinalizations', generation, action: 'acknowledge', receiptId: publication.receipt.id });
-  if (!validCompletion(client, owner, entry, attempt, publication)) return;
-  if (!response.ok || response.generation !== generation || !record(response.value) || typeof response.value.acknowledged !== 'boolean')
-    throw new ClientError('The final editor source acknowledgment could not be confirmed.');
-  if (response.value.acknowledged) acknowledge(owner, entry, publication);
-  else await wake(owner, native, client.generation);
 }
 async function wake(owner: Ledger, native: Native, generation: number): Promise<void> {
   if (owner.wakeUsed) return;
@@ -330,44 +366,283 @@ function pickCurrent(client: MobileDraftClient, entry: Entry, capture: PickCaptu
 }
 async function freeze(client: MobileDraftClient, owner: Ledger, entry: Entry,
   work: Extract<PickWork, { phase: 'freezing' }>, native: Native, storage: Files): Promise<void> {
-  const generation = work.capture.target.generation;
-  const response = await bridgeReply(native, { op: 'composerEditorHandoff', generation, identity: work.capture.identity,
-    action: 'freeze', operationId: work.operation.id, operationRevision: work.operation.revision, retireUndo: false }).catch(error => {
-    if (letGo(error) || owner.entries.includes(entry) && entry.operation === work) throw error;
-    return null;
-  });
-  if (!response || !owner.entries.includes(entry) || entry.operation !== work) return;
-  if (!response.ok || response.generation !== generation || !record(response.value))
-    throw new ClientError('The editor handoff is retained until its frozen source can be confirmed.');
-  const receipt = decodeReceipt(response.value.receipt);
-  if (!receipt || receipt.kind !== 'frozen' || !sameIdentity(receipt.identity, work.capture.identity)
-    || receipt.operation.id !== work.operation.id || receipt.operation.revision !== work.operation.revision)
-    throw new ClientError('The frozen editor source does not match the attachment operation.');
-  if (publish(client, entry, receipt)) await settle(client, owner, entry, native, storage, owner.acceptedRead);
+  const generation = work.capture.target.generation, attempt = ++work.attempt, serial = owner.acceptedRead;
+  const current = () => owner.entries.includes(entry) && entry.operation === work && work.attempt === attempt
+    && serial === owner.acceptedRead && mobileDraftRecoveryHydrated(client);
+  try {
+    const response = await bridgeReply(native, { op: 'composerEditorHandoff', generation, identity: work.capture.identity,
+      action: 'freeze', operationId: work.operation.id, operationRevision: work.operation.revision, retireUndo: false });
+    if (!current()) return;
+    if (!response.ok || response.generation !== generation || !record(response.value))
+      throw new ClientError('The editor handoff is retained until its frozen source can be confirmed.');
+    const receipt = decodeReceipt(response.value.receipt);
+    if (!receipt || receipt.kind !== 'frozen' || !sameIdentity(receipt.identity, work.capture.identity)
+      || receipt.operation.id !== work.operation.id || receipt.operation.revision !== work.operation.revision)
+      throw new ClientError('The frozen editor source does not match the attachment operation.');
+    if (publish(client, entry, receipt)) {
+      const sourceAttempt = entry.attempt + 1;
+      await settle(client, owner, entry, native, storage, serial);
+      if (entry.attempt === sourceAttempt && serial === owner.acceptedRead) await continuePick(client, owner, entry, native, storage);
+    }
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (current()) {
+      entry.notice = error instanceof Error ? error.message : 'The editor handoff is retained.';
+      await wake(owner, native, client.generation);
+    }
+  }
 }
 async function continuePick(client: MobileDraftClient, owner: Ledger, entry: Entry, native: Native, storage: Files): Promise<void> {
   const work = entry.operation;
-  if (!work || work.phase === 'frozen' || entry.progress.kind !== 'unpublished' || entry.problem) return;
+  if (!work || entry.problem) return;
+  if (work.phase === 'frozen') { await advanceFrozen(client, owner, entry, work, native, storage); return; }
+  if (entry.progress.kind !== 'unpublished') return;
   if (!pickCurrent(client, entry, work.capture)) {
     if (work.phase === 'allocating') entry.operation = null;
     return;
   }
   if (work.phase === 'freezing') { await freeze(client, owner, entry, work, native, storage); return; }
-  const attempt = ++work.attempt, ids = await client.ids(native, 1).catch(error => {
-    if (letGo(error) || owner.entries.includes(entry) && entry.operation === work && work.attempt === attempt
-      && pickCurrent(client, entry, work.capture)) throw error;
+  const attempt = ++work.attempt, serial = owner.acceptedRead;
+  const current = () => owner.entries.includes(entry) && entry.operation === work && work.attempt === attempt
+    && serial === owner.acceptedRead;
+  const ids = await client.ids(native, 1).catch(error => {
+    if (letGo(error)) throw error;
+    if (current() && pickCurrent(client, entry, work.capture))
+      entry.notice = error instanceof Error ? error.message : 'The attachment identifier could not be allocated.';
     return null;
   });
-  if (!owner.entries.includes(entry) || entry.operation !== work || work.attempt !== attempt) return;
+  if (!current()) return;
   if (!pickCurrent(client, entry, work.capture)) { entry.operation = null; return; }
   if (!ids) return;
   const id = ids[0];
-  if (!uuid(id)) throw new ClientError('The attachment operation identifier is invalid.');
+  if (!uuid(id)) { entry.notice = 'The attachment operation identifier is invalid.'; return; }
   const identified: Extract<PickWork, { phase: 'freezing' }> = {
-    phase: 'freezing', capture: work.capture, operation: { id: id.toLowerCase(), revision: work.revision },
+    phase: 'freezing', capture: work.capture, operation: { id: id.toLowerCase(), revision: work.revision }, attempt: 0,
   };
   entry.operation = identified;
   await freeze(client, owner, entry, identified, native, storage);
+}
+function equal(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a)) return Array.isArray(b) && a.length === b.length && a.every((value, index) => equal(value, b[index]));
+  if (!record(a) || !record(b)) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && equal(a[key], b[key]));
+}
+function intakeBase(work: FrozenPick, action: 'status' | 'cancel' | 'finish') {
+  return { op: 'composerPickerIntake', action, generation: work.capture.target.generation,
+    identity: work.capture.identity, operationId: work.operation.id };
+}
+function projection(client: MobileDraftClient, entry: Entry): MobileNewTaskAttachmentProjection | null {
+  const work = entry.operation;
+  if (work?.phase !== 'frozen') return null;
+  try {
+    const draft = mobileNewTaskDraftStore(client).records[entry.draft.key];
+    if (!draft || !sameStable(draft, entry.draft) || draft.projectId !== entry.draft.projectId) return null;
+    const ids = mobileDraftAttachmentIds(client, draft.key);
+    const request = mobilePickerIntakeRequest({ ...intakeBase(work, 'finish'), publication: {
+      after: { record: draft, text: client.local.drafts[draft.key] ?? '', images: client.local.snapshotDrafts[draft.key] ?? [],
+        files: draftFiles(client.local).filter(file => file.draftKey === draft.key), attachmentIds: ids,
+        attachmentOrder: ids.length ? ids : null }, acceptedIds: [], discardedIds: [],
+    } });
+    return request.action === 'finish' && 'record' in request.publication.after ? request.publication.after : null;
+  } catch { return null; }
+}
+function ownsProjection(current: MobileNewTaskAttachmentProjection | null, expected: MobileNewTaskAttachmentProjection): boolean {
+  return !!current && sameStable(current.record, expected.record) && current.record.projectId === expected.record.projectId
+    && current.record.revision >= expected.record.revision && current.text === expected.text
+    && Object.hasOwn(current.record, 'context') === Object.hasOwn(expected.record, 'context')
+    && equal(current.record.context, expected.record.context) && equal(current.images, expected.images)
+    && equal(current.files, expected.files) && equal(current.attachmentIds, expected.attachmentIds)
+    && equal(current.attachmentOrder, expected.attachmentOrder);
+}
+function liveIntake(client: MobileDraftClient, entry: Entry, work: FrozenPick): boolean {
+  const c = work.capture, target = mobileComposerTarget(client);
+  return !!work.source && entry.progress.kind === 'saved' && !entry.progress.publication.slotReleased
+    && !work.receipt.retired && currentRoute(client, c.route) && matchingRoute(entry, c.route)
+    && sameIdentity(mounted(entry), c.identity) && target.owner === c.target.owner
+    && client.generation === c.target.generation && client.threadEpoch === c.threadEpoch
+    && mobileCacheCatalogIdentity(fleet.saved, c.target.environmentId) === c.catalog
+    && ownsProjection(projection(client, entry), work.source);
+}
+function issuedAttachments(entry: Entry, files: readonly PickerIntakeFile[]): OrdinaryInventoryAttachment[] {
+  return files.map(row => row.kind === 'image' ? { type: 'image', id: row.id,
+    image: { id: row.id, name: row.name, mimeType: row.mimeType, sizeBytes: row.sizeBytes } } : {
+    type: 'file', id: row.id, file: { id: row.id, contextId: row.id, draftKey: entry.draft.key,
+      environmentId: entry.draft.environmentId, name: row.name, mimeType: row.mimeType, sizeBytes: row.sizeBytes,
+      source: 'attached', attachmentId: '', status: 'staged',
+      ...(row.videoWidth === undefined ? {} : { videoWidth: row.videoWidth }),
+      ...(row.videoHeight === undefined ? {} : { videoHeight: row.videoHeight }) },
+  });
+}
+function cancellation(work: FrozenPick, files: readonly PickerIntakeFile[] | null): Continuation {
+  return { kind: 'cancelling', request: mobilePickerIntakeRequest(intakeBase(work, 'cancel')), files };
+}
+function terminal(entry: Entry, work: FrozenPick, next: Extract<Continuation, { kind: 'terminal' }>): void {
+  work.continuation = next;
+  const accepted = next.outcome === 'finished' ? next.request.publication.acceptedIds : [];
+  entry.notice = '';
+  if (entry.holds) for (const hold of Object.values(entry.holds.entries)) {
+    if (hold.intake && !accepted.includes(hold.request.file.id)) mobileFileHoldReleaseNeeded(entry.holds, hold.request.requestId);
+  }
+}
+async function savePublication(client: MobileDraftClient, entry: Entry, work: FrozenPick,
+  phase: Extract<Continuation, { kind: 'published' }>, storage: Files, current: () => boolean): Promise<PickerIntakeFinish | null> {
+  let confirmed: PickerIntakeFinish | null = null;
+  const unchanged = () => current() && ownsProjection(projection(client, entry), phase.commit.after);
+  if (!unchanged()) throw new ClientError('The attachment draft changed. Its saved publication remains retained.');
+  await client.persist({ fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
+    if (!unchanged()) throw new ClientError('The attachment draft changed before saving.');
+    if (path !== 'app:/data/t3-code.json') throw new ClientError('The attachment draft save destination changed.');
+    const document: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!record(document) || !record(document.mobileNewTaskDrafts) || !record(document.mobileNewTaskDrafts.records)
+      || !record(document.drafts) || !record(document.snapshotDrafts) || !Array.isArray(document.composerFiles)
+      || !record(document.mobileAttachmentOrder)) throw new ClientError('The saved attachment document is invalid.');
+    const key = entry.draft.key, order = document.mobileAttachmentOrder[key] ?? null;
+    const candidate = mobilePickerIntakeRequest({ ...intakeBase(work, 'finish'), publication: {
+      after: { record: document.mobileNewTaskDrafts.records[key], text: document.drafts[key] ?? '',
+        images: document.snapshotDrafts[key] ?? [], files: document.composerFiles.filter(file => record(file) && file.draftKey === key),
+        attachmentIds: order ?? [], attachmentOrder: order },
+      acceptedIds: phase.commit.acceptedIds, discardedIds: phase.commit.discardedIds,
+    } });
+    if (candidate.action !== 'finish' || !('record' in candidate.publication.after)
+      || !ownsProjection(candidate.publication.after, phase.commit.after)) throw new ClientError('The saved attachment content changed.');
+    const { after, acceptedIds, discardedIds } = candidate.publication;
+    if (!equal(phase.files.filter(file => after.attachmentIds.includes(file.id)).map(file => file.id), acceptedIds)
+      || !equal(phase.files.filter(file => !after.attachmentIds.includes(file.id)).map(file => file.id), discardedIds))
+      throw new ClientError('The saved picker partition changed.');
+    for (const file of phase.files.filter(file => acceptedIds.includes(file.id))) {
+      const row = file.kind === 'image' ? after.images.find(row => row.id === file.id) : after.files.find(row => row.id === file.id);
+      if (!row || ['name', 'mimeType', 'sizeBytes', ...(file.kind === 'file' ? ['videoWidth', 'videoHeight'] : [])]
+        .some(key => obj(row)[key] !== obj(file)[key])) throw new ClientError('The saved picker bytes changed lane or metadata.');
+    }
+    await storage.fs.atomicWriteFile(path, bytes);
+    if (unchanged()) confirmed = candidate;
+  } } });
+  return confirmed;
+}
+async function advanceFrozen(client: MobileDraftClient, owner: Ledger, entry: Entry, work: FrozenPick,
+  native: Native, storage: Files): Promise<void> {
+  if (entry.progress.kind !== 'saved' || entry.problem || !work.source) return;
+  const attempt = ++work.attempt, serial = owner.acceptedRead;
+  let phase = work.continuation;
+  const current = () => owner.entries.includes(entry) && entry.operation === work && work.continuation === phase
+    && work.attempt === attempt && owner.acceptedRead === serial && mobileDraftRecoveryHydrated(client);
+  const transition = (next: Continuation) => { work.continuation = next; phase = next; };
+  try {
+    if (phase.kind === 'ready') {
+      if (!liveIntake(client, entry, work)) { terminal(entry, work, { kind: 'terminal', outcome: 'cancelled', files: null }); return; }
+      const source = work.source, context = mobileNewTaskContextProject(source.text, source.record.context);
+      if (!context.ok) throw new ClientError(context.error);
+      const attachments: OrdinaryInventoryAttachment[] = [
+        ...source.images.map(image => ({ type: 'image' as const, id: str(image.id), image })),
+        ...source.files.map(file => ({ type: 'file' as const, id: file.id, file }))];
+      const references = new Set(contextReferences(source.text).filter(ref => ref.kind === 'file').map(ref => ref.id));
+      const records = new Map(fileContextRecords(source.files.filter(file => references.has(file.contextId))
+        .map(file => ({ ...file, attachmentId: file.id }))).map(row => [str(row.contextId), row]));
+      for (const row of context.context?.records ?? []) records.set(str(row.contextId), row);
+      const remaining = Math.max(0, 100 - mobileComposerCountAttachmentsAfterSelection({ text: source.text,
+        context: { version: 1, records: [...records.values()] }, attachments }, { text: source.text, ...work.receipt.event.selection }));
+      const fileLimit = mobileComposerPickerFileLimit(client, work.capture.source);
+      const capabilities = obj(obj(client.config.environment).capabilities);
+      if (!remaining || work.capture.source === 'files' && !fileLimit
+        || work.capture.source === 'photos' && capabilities.attachmentUploads !== true) {
+        entry.notice = 'This draft cannot accept these attachments.'; return;
+      }
+      const request = mobilePickerIntakeRequest({ ...intakeBase(work, 'status'), action: 'pick',
+        target: { kind: 'new-task', origin: entry.draft.origin, environmentId: entry.draft.environmentId,
+          projectId: entry.draft.projectId, draftKey: entry.draft.key, createdAt: entry.draft.createdAt },
+        document: { incarnation: entry.draft.createdAt, revision: source.record.revision },
+        source: work.capture.source, remaining, fileLimit });
+      if (request.action !== 'pick') return;
+      transition({ kind: 'intake', request, dispatched: false });
+    }
+    if (phase.kind === 'intake') {
+      const intake = phase, live = liveIntake(client, entry, work);
+      if (!intake.dispatched && !live) { terminal(entry, work, { kind: 'terminal', outcome: 'cancelled', files: null }); return; }
+      const request = intake.dispatched ? mobilePickerIntakeRequest(intakeBase(work, 'status')) : intake.request;
+      intake.dispatched = true;
+      let answer = await mobilePickerIntakeInvoke(request, native, current);
+      if (!current()) return;
+      if (answer.value?.status === 'absent') {
+        if (entry.progress.kind === 'saved' && entry.progress.publication.slotReleased) {
+          terminal(entry, work, { kind: 'terminal', outcome: 'absent', files: null }); return;
+        }
+        if (!liveIntake(client, entry, work)) throw new ClientError('The original picker outcome is still unresolved.');
+        answer = await mobilePickerIntakeInvoke(intake.request, native, current);
+        if (!current()) return;
+      }
+      const value = answer.value;
+      if (!value) throw new ClientError(answer.message || 'The picker outcome is still unresolved.');
+      if (value.files.length > intake.request.remaining) throw new ClientError('The picker inventory exceeds its captured capacity.');
+      if (value.status === 'cancelled') { terminal(entry, work, { kind: 'terminal', outcome: 'cancelled', files: value.files }); return; }
+      if (value.status === 'staged') transition({ kind: 'staged', request: intake.request, files: value.files });
+      else if (value.status === 'picking' && !liveIntake(client, entry, work)) transition(cancellation(work, null));
+      else throw new ClientError(value.error || 'The picker is still pending.');
+    }
+    if (phase.kind === 'staged') {
+      const staged = phase;
+      if (!liveIntake(client, entry, work) || !staged.files.length) transition(cancellation(work, staged.files));
+      else {
+        const incoming = issuedAttachments(entry, staged.files);
+        entry.holds ??= mobileFileHoldsCreate(staged.request.identity, staged.request.generation, staged.request.target);
+        const holds = entry.holds;
+        const files = [...work.source.files.filter(file => file.source === 'attached').map(file => ({ file, intake: false })),
+          ...incoming.flatMap(row => row.type === 'file' ? [{ file: row.file, intake: true }] : [])];
+        for (const candidate of files) {
+          if (!current()) return;
+          if (!liveIntake(client, entry, work)) break;
+          const previous = Object.values(holds.entries).find(hold => equal(hold.request.file, candidate.file)
+            && (hold.intake?.operationId ?? '') === (candidate.intake ? work.operation.id : ''));
+          const request = previous?.request ?? mobileFileHoldReserve(holds, candidate.file, localId(),
+            candidate.intake ? { operationId: work.operation.id } : undefined);
+          if (!mobileFileHoldHeld(holds, request.requestId)) await mobileFileHoldAcquire(holds, request.requestId, native);
+          if (!current()) return;
+          if (!liveIntake(client, entry, work)) break;
+          if (!mobileFileHoldHeld(holds, request.requestId)) throw new ClientError('The attachment bytes are retained until their holds are confirmed.');
+        }
+        if (!liveIntake(client, entry, work)) transition(cancellation(work, staged.files));
+        else {
+          const draft = registry(client, entry);
+          if (!draft) return;
+          const result = mobileNewTaskContextAttach(client, { guard: { key: draft.key, createdAt: draft.createdAt, revision: draft.revision },
+            destination: entry.draft, insertion: { text: work.receipt.event.value, ...work.receipt.event.selection }, incoming });
+          if (result.kind === 'refused') { transition(cancellation(work, staged.files)); }
+          else if (!result.commit.acceptedIds.length) transition(cancellation(work, staged.files));
+          else { entry.revision = result.commit.after.record.revision;
+            transition({ kind: 'published', request: staged.request, files: staged.files, commit: result.commit }); }
+        }
+      }
+    }
+    if (phase.kind === 'published') {
+      const published = phase, request = await savePublication(client, entry, work, published, storage, current);
+      if (!current()) return;
+      if (!request) throw new ClientError('The attachment draft has no confirmed saved publication.');
+      transition({ kind: 'finishing', request, files: published.files, commit: published.commit });
+    }
+    if (phase.kind === 'finishing' || phase.kind === 'cancelling') {
+      const settling = phase, answer = await mobilePickerIntakeInvoke(settling.request, native, current);
+      if (!current()) return;
+      if (!answer.value || settling.files && !equal(answer.value.files, settling.files))
+        throw new ClientError(answer.message || 'The issued picker inventory could not be confirmed.');
+      if (settling.kind === 'finishing' && answer.value.status === 'finished')
+        terminal(entry, work, { ...settling, kind: 'terminal', outcome: 'finished' });
+      else if (settling.kind === 'cancelling' && answer.value.status === 'cancelled')
+        terminal(entry, work, { kind: 'terminal', outcome: 'cancelled', files: answer.value.files });
+      else throw new ClientError('The attachment terminal outcome is still unresolved.');
+      phase = work.continuation;
+    }
+    if (phase.kind === 'terminal' && entry.holds && !entry.holds.retired) {
+      for (const hold of Object.values(entry.holds.entries)) {
+        if (hold.desired !== 'release' || hold.phase === 'released') continue;
+        await mobileFileHoldRelease(entry.holds, hold.request.requestId, native);
+        if (!current()) return;
+      }
+    }
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (current()) entry.notice = error instanceof Error ? error.message : 'The attachment operation is retained.';
+  }
 }
 async function recover(client: MobileDraftClient, native: Native, storage: Files): Promise<void> {
   const owner = ledger(client), serial = ++owner.serial, generation = client.generation;
@@ -397,7 +672,7 @@ async function recover(client: MobileDraftClient, native: Native, storage: Files
       catch (error) {
         if (letGo(error)) throw error;
         if (serial === owner.acceptedRead) {
-          owner.problem = 'The editor handoff is retained until it can be confirmed.';
+          entry.notice = 'The editor handoff is retained until it can be confirmed.';
           await wake(owner, native, client.generation);
         }
       }
@@ -444,10 +719,10 @@ export async function mobileNewTaskEditorAction(client: MobileDraftClient, route
     try { await continuePick(client, owner, entry, native, storage); }
     catch (error) {
       if (letGo(error)) throw error;
-      owner.problem = error instanceof Error ? error.message : 'The editor handoff is retained.';
+      entry.notice = error instanceof Error ? error.message : 'The editor handoff is retained.';
       await wake(owner, native, client.generation);
     }
-    return { accepted: true, message: entry.problem || owner.problem || 'The editor source is held for the attachment operation.' };
+    return { accepted: true, message: entry.problem || entry.notice || owner.problem || 'The editor source is held for the attachment operation.' };
   }
   if (!entry || !observe(client, entry, intent.payload)) return { accepted: false, message: 'The editor observation is no longer current.' };
   if (entry.dirty) {

@@ -10,6 +10,10 @@ import { EnvironmentFleet } from './shared/settings-b-fleet';
 import { noteNow } from './shared/composer-controls';
 import { obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';
+import { draftFiles, setDraftFiles } from './shared/composer-editor-files';
+import { mobileDraftAttachmentIds } from './draft-attachment-order';
+import { contextLink } from './shared/composer-editor-menu';
+import type { PickerIntakeFile } from './composer-picker-intake-io';
 
 const origin = 'https://new-task-editor.test', now = 1791420000000;
 const receiptId = '11111111-1111-4111-8111-111111111111';
@@ -46,6 +50,8 @@ async function fixture() {
   let ackHook: (() => Promise<unknown>) | null = null;
   let idsHook: (() => Promise<string[]>) | null = null;
   let handoffHook: ((request: Obj) => Promise<unknown>) | null = null;
+  let intakeHook: ((request: Obj) => Promise<unknown>) | null = null;
+  let holdHook: ((request: Obj) => Promise<unknown>) | null = null;
   const storage: Files = { fs: {
     async mkdir() {}, async readFile() { order.push('load'); return new TextEncoder().encode(disk).buffer; },
     async atomicWriteFile(_path, bytes) {
@@ -59,6 +65,9 @@ async function fixture() {
     const generation = client.generation;
     if (request.op === 'ids' && idsHook) return { ok: true, generation, value: await idsHook() };
     if (request.op === 'composerEditorHandoff' && handoffHook) return handoffHook(request);
+    if ((request.op === 'composerFileHold' || request.op === 'composerPickerIntake' && request.action === 'hold') && holdHook)
+      return holdHook(request);
+    if (request.op === 'composerPickerIntake' && intakeHook) return intakeHook(request);
     if (request.op === 'composerEditorFinalizations') {
       if (request.action === 'read') return readHook ? readHook() : { ok: true, generation, value: { receipts, reserved } };
       if (ackHook) return ackHook();
@@ -134,7 +143,8 @@ async function fixture() {
     }, reserved: (next: ComposerMountedIdentity[]) => { reserved = next; },
     writeHook: (next: typeof writeHook) => { writeHook = next; }, readHook: (next: typeof readHook) => { readHook = next; },
     ackHook: (next: typeof ackHook) => { ackHook = next; }, idsHook: (next: typeof idsHook) => { idsHook = next; },
-    handoffHook: (next: typeof handoffHook) => { handoffHook = next; } };
+    handoffHook: (next: typeof handoffHook) => { handoffHook = next; },
+    intakeHook: (next: typeof intakeHook) => { intakeHook = next; }, holdHook: (next: typeof holdHook) => { holdHook = next; } };
 }
 
 test('Root watches before exactly one real refresh, then saves detached source across transport generations', async () => {
@@ -727,4 +737,407 @@ test('released snapshot supersedes an in-flight ACK without reopening or replayi
   expect(f.writes).toHaveLength(1);
   expect(f.calls.filter(call => call.action === 'acknowledge')).toHaveLength(1);
   expect(f.calls.filter(call => call.op === 'composerEditorHandoff')).toHaveLength(1);
+});
+
+const pickedId = '33333333-3333-4333-8333-333333333333';
+const oldId = '44444444-4444-4444-8444-444444444444';
+const pickedFile: PickerIntakeFile = { kind: 'file', id: pickedId, name: 'note.md', mimeType: 'text/markdown', sizeBytes: 123 };
+const pickedImage: PickerIntakeFile = { kind: 'image', id: pickedId, name: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 234 };
+function intakeReply(request: Obj, status: string, files: readonly PickerIntakeFile[] = []) {
+  return { ok: true, generation: request.generation, value: { operationId: request.operationId,
+    identity: request.identity, status, files, error: '' } };
+}
+function heldReply(input: Obj) {
+  const request = input.op === 'composerPickerIntake' ? obj(input.request) : input;
+  return { ok: true, generation: request.generation, value: request.action === 'release'
+    ? { status: 'released', requestId: request.requestId } : { status: 'held', receipt: {
+      identity: request.identity, requestId: request.requestId, holdId: '55555555-5555-4555-8555-555555555555',
+      fileIdentity: '66666666-6666-4666-8666-666666666666', id: obj(request.file).id, sizeBytes: obj(request.file).sizeBytes,
+    } } };
+}
+function continuation(f: Fixture, files: readonly PickerIntakeFile[] = [pickedFile], source?: string, selection?: { start: number; end: number }) {
+  picker(f);
+  f.client.config = { ...f.client.config, environment: { capabilities: {
+    attachmentUploads: true, fileAttachments: { maxUploadBytes: 50 * 1024 * 1024 },
+  } } };
+  if (source !== undefined) f.handoffHook(async request => {
+    const frozen = frozenSource(f, request, source);
+    frozen.event.selection = selection ?? { start: source.length, end: source.length };
+    f.receipts([frozen]); return { ok: true, generation: request.generation, value: { receipt: frozen } };
+  });
+  f.intakeHook(async request => intakeReply(request, request.action === 'finish' ? 'finished'
+    : request.action === 'cancel' ? 'cancelled' : 'staged', files));
+  f.holdHook(async request => heldReply(request));
+  return (kind: 'photos' | 'files' = 'files') => action(f.client, f.route, { kind: 'pick', source: kind }, f.native, f.storage);
+}
+const intakeCalls = (f: Fixture, action: string) => f.calls.filter(call => call.op === 'composerPickerIntake' && call.action === action);
+const savedRecord = (f: Fixture) => obj(obj(obj(f.disk().mobileNewTaskDrafts).records)[f.key]);
+
+for (const kind of ['files', 'photos'] as const) test(`${kind} publishes once from the final frozen UTF16 caret and finishes from actual saved bytes`, async () => {
+  const f = await fixture(), pick = continuation(f, [kind === 'files' ? pickedFile : pickedImage]);
+  await pick(kind);
+  expect(intakeCalls(f, 'pick')).toHaveLength(1);
+  const request = intakeCalls(f, 'pick')[0];
+  expect(request).toMatchObject({ generation: 3, operationId, identity: f.identity,
+    document: { incarnation: mobileNewTaskDraftLookup(f.client, f.key)?.createdAt, revision: 1 }, source: kind, remaining: 100 });
+  const finish = intakeCalls(f, 'finish')[0], after = obj(obj(finish.publication).after);
+  expect(after.record).toEqual(savedRecord(f)); expect(after.text).toBe(obj(f.disk().drafts)[f.key]);
+  expect(String(after.text).startsWith('🙂 ')).toBe(true); expect(String(after.text).endsWith('here')).toBe(true);
+  expect(after.images).toEqual(obj(f.disk().snapshotDrafts)[f.key]);
+  expect(after.files).toEqual(f.disk().composerFiles);
+  expect(after.attachmentOrder).toEqual([pickedId]);
+  expect(obj(finish.publication)).toMatchObject({ acceptedIds: [pickedId], discardedIds: [] });
+  expect(mobileNewTaskDraftLookup(f.client, f.key)?.revision).toBe(2);
+  expect(f.order.indexOf('composerEditorFinalizations:acknowledge')).toBeLessThan(f.order.indexOf('composerPickerIntake:pick'));
+  expect(f.order.lastIndexOf('save')).toBeLessThan(f.order.indexOf('composerPickerIntake:finish'));
+  const holds = intakeCalls(f, 'hold'); expect(holds).toHaveLength(kind === 'files' ? 1 : 0);
+  if (kind === 'files') expect(holds[0]).toMatchObject({ operationId, generation: 3, request: { target: { kind: 'new-task', draftKey: f.key } } });
+  const writes = f.writes.length; await f.reread(); await f.reread();
+  expect(f.writes).toHaveLength(writes); expect(intakeCalls(f, 'finish')).toHaveLength(1);
+  expect(view(f.client, f.route).kind).toBe('frozen');
+  expect(f.calls.some(call => call.action === 'resume' || call.action === 'release')).toBe(false);
+});
+
+test('a shelf-only image keeps empty source and saves the batch context presence exactly', async () => {
+  const f = await fixture(), pick = continuation(f, [pickedImage], ''); await pick('photos');
+  const finish = intakeCalls(f, 'finish')[0], after = obj(obj(finish.publication).after);
+  expect(after.text).toBe(''); expect(obj(after.record).context).toEqual({ version: 1, records: [] });
+  expect(after.images).toEqual([{ id: pickedId, name: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 234 }]);
+  expect(after.record).toEqual(savedRecord(f)); expect(f.calls.some(call => call.action === 'hold')).toBe(false);
+});
+
+test('selection replacement holds the old attached bytes before publication and retains them for native Undo', async () => {
+  const f = await fixture(), oldText = contextLink('file', oldId, 'old');
+  setDraftFiles(f.client.local, [{ id: oldId, contextId: oldId, draftKey: f.key, environmentId: 'env', name: 'old.txt',
+    mimeType: 'text/plain', sizeBytes: 17, source: 'attached', status: 'staged', attachmentId: '' }]);
+  const pick = continuation(f, [pickedFile], oldText, { start: 0, end: oldText.length }); await pick();
+  expect(f.calls.filter(call => call.op === 'composerFileHold' && call.action === 'acquire')).toHaveLength(1);
+  expect(f.order.indexOf('composerFileHold:acquire')).toBeLessThan(f.order.indexOf('composerPickerIntake:hold'));
+  expect(draftFiles(f.client.local).map(file => file.id)).toEqual([pickedId]);
+  expect(mobileNewTaskDraftStore(f.client).fileReleases).toContain(oldId);
+  expect(f.calls.some(call => call.action === 'release')).toBe(false);
+  expect(intakeCalls(f, 'finish')).toHaveLength(1);
+});
+
+test('the confirmed final serialization preserves latest choices, branch and raw extensions', async () => {
+  const f = await fixture(), pick = continuation(f), choices = { providerId: 'codex', modelId: 'latest', modelOptions: [] };
+  f.holdHook(async request => {
+    expect(mobileNewTaskDraftChoicesUpdate(f.client, f.key, choices)).toBe(true);
+    const draft = mobileNewTaskDraftStore(f.client).records[f.key];
+    Object.assign(draft, { branchChoice: { kind: 'explicit', envMode: 'local', branch: 'current-branch', worktreePath: '' }, futureRecord: { keep: ['exact', 9] } });
+    draft.revision++;
+    return heldReply(request);
+  });
+  await pick();
+  const after = obj(obj(intakeCalls(f, 'finish')[0].publication).after);
+  expect(after.record).toEqual(savedRecord(f));
+  expect(after.record).toMatchObject({ choices, branchChoice: { kind: 'explicit', envMode: 'local', branch: 'current-branch', worktreePath: '' }, futureRecord: { keep: ['exact', 9] } });
+});
+
+test('failed publication save retries fresh IO without applying the batch again', async () => {
+  const f = await fixture(), pick = continuation(f); let writes = 0;
+  f.writeHook(async () => { if (++writes === 2) throw Error('publication disk failure'); });
+  await pick(); expect(intakeCalls(f, 'finish')).toHaveLength(0);
+  const text = f.client.local.drafts[f.key], revision = mobileNewTaskDraftLookup(f.client, f.key)?.revision;
+  expect(text).not.toBe(obj(f.disk().drafts)[f.key]);
+  const choices = { providerId: 'codex', modelId: 'after-failure', modelOptions: [] };
+  mobileNewTaskDraftChoicesUpdate(f.client, f.key, choices); f.writeHook(null);
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  expect(f.client.local.drafts[f.key]).toBe(text); expect(mobileNewTaskDraftLookup(f.client, f.key)?.revision).toBe(revision);
+  expect(intakeCalls(f, 'pick')).toHaveLength(1); expect(intakeCalls(f, 'hold')).toHaveLength(1);
+  expect(intakeCalls(f, 'finish')).toHaveLength(1); expect(savedRecord(f).choices).toEqual(choices);
+});
+
+test('an uncertain pick reconciles status with the same original generation after departure', async () => {
+  const f = await fixture(), pick = continuation(f);
+  f.intakeHook(async request => { if (request.action === 'pick') throw Error('lost pick'); return intakeReply(request, request.action === 'cancel' ? 'cancelled' : 'staged', [pickedFile]); });
+  await pick(); f.detach(); await f.reread();
+  expect(intakeCalls(f, 'pick')).toHaveLength(1);
+  expect(intakeCalls(f, 'status')[0]).toMatchObject({ generation: 3, operationId, identity: f.identity });
+  expect(intakeCalls(f, 'cancel')[0]).toMatchObject({ generation: 3, operationId, identity: f.identity });
+  expect(intakeCalls(f, 'hold')).toHaveLength(0); expect(intakeCalls(f, 'finish')).toHaveLength(0);
+  expect(f.client.local.drafts[f.key]).toBe('🙂 picked here');
+  expect(f.client.local.drafts['other:other-thread']).toBe('unrelated');
+});
+
+test('lost pick dispatch replays the immutable request only while its original editor remains live', async () => {
+  const f = await fixture(), pick = continuation(f); let picks = 0;
+  f.intakeHook(async request => {
+    if (request.action === 'pick' && ++picks === 1) throw Error('not delivered');
+    return intakeReply(request, request.action === 'status' ? 'absent' : request.action === 'finish' ? 'finished' : 'staged',
+      request.action === 'status' ? [] : [pickedFile]);
+  });
+  await pick(); await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  const requests = intakeCalls(f, 'pick'); expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0]);
+  expect(intakeCalls(f, 'finish')).toHaveLength(1); expect(mobileNewTaskDraftLookup(f.client, f.key)?.revision).toBe(2);
+});
+
+test('absent status requires independently released source custody before ending unpublished work', async () => {
+  const f = await fixture(), pick = continuation(f);
+  f.intakeHook(async request => { if (request.action === 'pick') throw Error('unknown'); return intakeReply(request, 'absent'); });
+  await pick(); f.detach(); await f.reread();
+  expect(intakeCalls(f, 'status')).toHaveLength(1); expect(intakeCalls(f, 'cancel')).toHaveLength(0);
+  f.reserved([]); await f.reread(); const count = intakeCalls(f, 'status').length; await f.reread();
+  expect(intakeCalls(f, 'status')).toHaveLength(count); expect(count).toBe(2);
+  expect(view(f.client, await f.resume('absent-terminal')).kind).toBe('held');
+});
+
+for (const departure of ['route', 'generation', 'source', 'inventory', 'epoch'] as const)
+  test(`${departure} departure during issued hold prevents publication and cancels the original operation`, async () => {
+    const f = await fixture(), pick = continuation(f);
+    f.holdHook(async request => {
+      if (request.action === 'hold') {
+        if (departure === 'route') f.detach();
+        else if (departure === 'generation') f.client.generation++;
+        else if (departure === 'epoch') f.client.threadEpoch++;
+        else if (departure === 'source') f.writeText('newer source');
+        else f.client.local.snapshotDrafts[f.key] = [{ id: oldId, name: 'new.jpg', mimeType: 'image/jpeg', sizeBytes: 1 }];
+      }
+      return heldReply(request);
+    });
+    await pick();
+    expect(intakeCalls(f, 'finish')).toHaveLength(0); expect(intakeCalls(f, 'cancel')).toHaveLength(1);
+    expect(intakeCalls(f, 'cancel')[0]).toMatchObject({ generation: 3, identity: f.identity, operationId });
+    expect(draftFiles(f.client.local)).toHaveLength(0);
+    expect(f.client.local.drafts[f.key]).toBe(departure === 'source' ? 'newer source' : '🙂 picked here');
+    expect(f.calls.filter(call => call.action === 'release')).toHaveLength(1);
+  });
+
+test('published adoption saves and finishes its original stable destination after route and generation departure', async () => {
+  const f = await fixture(), pick = continuation(f); let saves = 0;
+  f.writeHook(async () => { if (++saves === 2) f.detach(); }); await pick();
+  const finishes = intakeCalls(f, 'finish'); expect(finishes).toHaveLength(1);
+  expect(finishes[0]).toMatchObject({ generation: 3, operationId, identity: f.identity });
+  expect(obj(obj(finishes[0].publication).after).record).toEqual(savedRecord(f));
+  expect(f.client.local.drafts['other:other-thread']).toBe('unrelated');
+  expect(intakeCalls(f, 'cancel')).toHaveLength(0);
+});
+
+test('uncertain finish retains its exact request across current settings changes and reconnect', async () => {
+  const f = await fixture(), pick = continuation(f); let finishes = 0;
+  f.intakeHook(async request => {
+    if (request.action === 'finish' && ++finishes === 1) throw Error('finish reply lost');
+    return intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile]);
+  });
+  await pick(); const before = intakeCalls(f, 'finish')[0], writes = f.writes.length;
+  const choices = { providerId: 'codex', modelId: 'newer-disk', modelOptions: [] };
+  mobileNewTaskDraftChoicesUpdate(f.client, f.key, choices); await f.client.persist(f.storage);
+  f.detach(); await f.reread();
+  expect(intakeCalls(f, 'finish')).toEqual([before, before]);
+  expect(f.writes).toHaveLength(writes + 1); expect(savedRecord(f).choices).toEqual(choices);
+  expect(intakeCalls(f, 'cancel')).toHaveLength(0); expect(intakeCalls(f, 'status')).toHaveLength(0);
+});
+
+test('a native saved-disk conflict retains immutable finish without rewriting newer settings', async () => {
+  const f = await fixture(), pick = continuation(f);
+  f.intakeHook(async request => { if (request.action === 'finish') throw Error('saved publication mismatch'); return intakeReply(request, 'staged', [pickedFile]); });
+  await pick(); const before = intakeCalls(f, 'finish')[0], writes = f.writes.length;
+  const choices = { providerId: 'codex', modelId: 'keep-latest', modelOptions: [] };
+  mobileNewTaskDraftChoicesUpdate(f.client, f.key, choices); await f.client.persist(f.storage);
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  expect(intakeCalls(f, 'finish')).toEqual([before, before]); expect(f.writes).toHaveLength(writes + 1);
+  expect(savedRecord(f).choices).toEqual(choices); expect(view(f.client, f.route).kind).toBe('frozen');
+});
+
+for (const outcome of ['empty', 'all-rejected'] as const) test(`${outcome} intake legitimately cancels without inventing a saved record`, async () => {
+  const f = await fixture(), text = outcome === 'empty' ? '' : 'x'.repeat(1_000_000);
+  const pick = continuation(f, outcome === 'empty' ? [] : [pickedFile], text); await pick();
+  expect(intakeCalls(f, 'finish')).toHaveLength(0); expect(intakeCalls(f, 'cancel')).toHaveLength(1);
+  expect(mobileNewTaskDraftLookup(f.client, f.key)?.revision).toBe(1); expect(f.writes).toHaveLength(1);
+  if (outcome === 'empty') expect(obj(obj(f.disk().mobileNewTaskDrafts).records)[f.key]).toBeUndefined();
+  expect(f.client.local.drafts[f.key]).toBe(text); expect(draftFiles(f.client.local)).toHaveLength(0);
+});
+
+for (const malformed of ['duplicate', 'foreign-owner', 'changed-finish', 'wrong-lane'] as const)
+  test(`${malformed} native inventory cannot invent an accepted terminal`, async () => {
+    const f = await fixture(), pick = continuation(f);
+    f.intakeHook(async request => {
+      const reply = intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile]);
+      if (malformed === 'duplicate') reply.value.files = [pickedFile, pickedFile];
+      if (malformed === 'foreign-owner') reply.value.identity = { ...f.identity, mountId: 'foreign' };
+      if (request.action === 'finish' && malformed === 'changed-finish') reply.value.files = [{ ...pickedFile, name: 'different.md' }];
+      if (request.action === 'finish' && malformed === 'wrong-lane') reply.value.files = [pickedImage];
+      return reply;
+    });
+    await pick(); await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+    expect(view(f.client, f.route).kind).toBe('frozen'); expect(f.calls.some(call => call.action === 'resume')).toBe(false);
+    if (malformed === 'duplicate' || malformed === 'foreign-owner') expect(intakeCalls(f, 'finish')).toHaveLength(0);
+    else expect(intakeCalls(f, 'finish')).toHaveLength(2);
+  });
+
+for (const phase of ['source-save', 'source-ack', 'pick', 'finish'] as const)
+  test(`superseded ${phase} rejection cannot disable an unrelated editor after newer recovery succeeds`, async () => {
+    const f = await fixture(), pick = continuation(f), pending = deferred<never>(), entered = deferred<void>();
+    if (phase === 'source-save') f.writeHook(async () => { entered.resolve(); await pending.promise; });
+    if (phase === 'source-ack') f.ackHook(async () => { entered.resolve(); return pending.promise; });
+    if (phase === 'pick' || phase === 'finish') f.intakeHook(async request => {
+      if (request.action === phase) { entered.resolve(); return pending.promise; }
+      return intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile]);
+    });
+    const older = pick(); await entered.promise;
+    f.writeHook(null); f.ackHook(null);
+    f.intakeHook(async request => intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile]));
+    await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+    const route = await f.open(`new-${phase}`), seed = view(f.client, route), identity = { ...mounted(seed), mountId: `new-${phase}` };
+    expect(view(f.client, route, event(identity, '')).kind).toBe('editing');
+    const writes = f.writes.length, finishes = intakeCalls(f, 'finish').length;
+    pending.reject(Error('superseded failure')); await older;
+    expect(view(f.client, route).kind).toBe('editing'); expect(f.writes).toHaveLength(writes);
+    expect(intakeCalls(f, 'finish')).toHaveLength(finishes);
+  });
+
+for (const stage of ['pick', 'hold', 'save', 'finish'] as const) test(`let-go ${stage} retains plain work for fresh invocation recovery`, async () => {
+  const f = await fixture(), pick = continuation(f), gone = new ClientError('answer ended', 'superseded');
+  if (stage === 'pick' || stage === 'finish') f.intakeHook(async request => {
+    if (request.action === stage) throw gone;
+    return intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile]);
+  });
+  if (stage === 'hold') f.holdHook(async () => { throw gone; });
+  if (stage === 'save') { let writes = 0; f.writeHook(async () => { if (++writes === 2) throw gone; }); }
+  await expect(pick()).rejects.toBe(gone);
+  f.writeHook(null); f.holdHook(async request => heldReply(request));
+  f.intakeHook(async request => intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile]));
+  const calls: Obj[] = [], native: Native = { available: true, watch() {}, async later(input) { calls.push(obj(input)); return f.native.later(input); } };
+  await action(f.client, f.route, { kind: 'retry' }, native, f.storage);
+  expect(calls.some(call => call.action === 'finish')).toBe(true);
+  expect(mobileNewTaskDraftLookup(f.client, f.key)?.revision).toBe(2);
+  expect(mobileDraftAttachmentIds(f.client, f.key)).toEqual([pickedId]);
+  expect(intakeCalls(f, 'pick')).toHaveLength(1); expect(f.calls.some(call => call.action === 'resume')).toBe(false);
+});
+
+test('file hold retry reuses the original issued request and cannot acquire through saved-file authority', async () => {
+  const f = await fixture(), pick = continuation(f); let tries = 0;
+  f.holdHook(async request => { if (++tries === 1) throw Error('hold reply lost'); return heldReply(request); });
+  await pick(); expect(intakeCalls(f, 'finish')).toHaveLength(0);
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  expect(intakeCalls(f, 'hold')).toHaveLength(2); expect(intakeCalls(f, 'hold')[1]).toEqual(intakeCalls(f, 'hold')[0]);
+  expect(f.calls.some(call => call.op === 'composerFileHold' && call.action === 'acquire')).toBe(false);
+  expect(intakeCalls(f, 'finish')).toHaveLength(1);
+});
+
+test('Photos uses image upload capability without requiring server file upload support', async () => {
+  const f = await fixture(), pick = continuation(f, [pickedImage]);
+  f.client.config = { environment: { capabilities: { attachmentUploads: true } } }; await pick('photos');
+  expect(intakeCalls(f, 'pick')[0].fileLimit).toBe(0); expect(intakeCalls(f, 'finish')).toHaveLength(1);
+});
+
+test('partial acceptance preserves historical images and releases only rejected issued file holds after terminal', async () => {
+  const f = await fixture();
+  f.client.local.snapshotDrafts[f.key] = [{ id: oldId, name: 'old.jpg', mimeType: 'image/jpeg', sizeBytes: 30 }];
+  const second: PickerIntakeFile = { ...pickedFile, id: '77777777-7777-4777-8777-777777777777', name: 'second.md' };
+  const text = 'x'.repeat(999900), pick = continuation(f, [pickedFile, second], text);
+  f.intakeHook(async request => {
+    if (request.action === 'finish') expect(f.calls.filter(call => call.action === 'release')).toHaveLength(0);
+    return intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile, second]);
+  });
+  await pick();
+  const finish = intakeCalls(f, 'finish')[0];
+  expect(finish).toBeDefined(); expect(obj(finish.publication)).toMatchObject({ acceptedIds: [pickedId], discardedIds: [second.id] });
+  expect(f.client.local.snapshotDrafts[f.key].map(row => row.id)).toEqual([oldId]);
+  expect(f.client.local.snapshotReleases).toEqual([]);
+  const releases = f.calls.filter(call => call.action === 'release'); expect(releases).toHaveLength(1);
+  const rejectedHold = intakeCalls(f, 'hold').find(call => obj(obj(call.request).file).id === second.id);
+  expect(releases[0].requestId).toBe(obj(rejectedHold?.request).requestId);
+  expect(f.order.indexOf('composerPickerIntake:finish')).toBeLessThan(f.order.indexOf('composerFileHold:release'));
+});
+
+test('positive retirement delegates claims while published intake still requires exact native finish', async () => {
+  const f = await fixture(), pick = continuation(f); let attempts = 0;
+  f.intakeHook(async request => {
+    if (request.action === 'finish' && ++attempts === 1) throw Error('uncertain finish');
+    return intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile]);
+  });
+  await pick(); const finish = intakeCalls(f, 'finish')[0]; f.reserved([]); f.detach(); await f.reread();
+  expect(intakeCalls(f, 'finish')).toEqual([finish, finish]); expect(f.calls.some(call => call.action === 'release')).toBe(false);
+  expect(view(f.client, await f.resume('terminal-retirement')).kind).toBe('held');
+});
+
+test('post-publication absent is not cancellation authority', async () => {
+  const f = await fixture(), pick = continuation(f);
+  f.intakeHook(async request => intakeReply(request, request.action === 'finish' ? 'absent' : 'staged', request.action === 'finish' ? [] : [pickedFile]));
+  await pick(); f.reserved([]); f.detach(); await f.reread();
+  expect(intakeCalls(f, 'finish')).toHaveLength(2); expect(intakeCalls(f, 'cancel')).toHaveLength(0);
+  expect(intakeCalls(f, 'status')).toHaveLength(0); expect(mobileDraftAttachmentIds(f.client, f.key)).toEqual([pickedId]);
+});
+
+test('final serialized proof does not reread mutable settings after the successful write await', async () => {
+  const f = await fixture(), pick = continuation(f); let saves = 0;
+  const latest = { providerId: 'codex', modelId: 'after-bytes', modelOptions: [] };
+  f.writeHook(async () => { if (++saves === 2) mobileNewTaskDraftChoicesUpdate(f.client, f.key, latest); });
+  await pick();
+  const after = obj(obj(intakeCalls(f, 'finish')[0].publication).after);
+  expect(after.record).toEqual(savedRecord(f)); expect(obj(after.record).choices).toBeNull();
+  expect(mobileNewTaskDraftLookup(f.client, f.key)?.choices).toEqual(latest);
+});
+
+for (const change of ['source', 'context-presence', 'inventory', 'incarnation', 'project', 'order'] as const)
+  test(`a ${change} conflict after publication prevents save retry and blind cancellation`, async () => {
+    const f = await fixture(), pick = continuation(f); let writes = 0;
+    f.writeHook(async () => { if (++writes === 2) throw Error('not saved'); }); await pick();
+    f.writeHook(null);
+    const draft = mobileNewTaskDraftStore(f.client).records[f.key];
+    if (change === 'source') f.client.local.drafts[f.key] = 'new content';
+    else if (change === 'context-presence') delete draft.context;
+    else if (change === 'inventory') setDraftFiles(f.client.local, []);
+    else if (change === 'incarnation') draft.createdAt = '2026-10-15T00:00:00Z';
+    else if (change === 'project') draft.projectId = 'replacement';
+    else {
+      f.client.local.snapshotDrafts[f.key] = [{ id: oldId, name: 'new.jpg', mimeType: 'image/jpeg', sizeBytes: 10 }];
+      Object.assign(f.client.local, { mobileAttachmentOrder: { [f.key]: [oldId, pickedId] } });
+    }
+    const before = f.writes.length; await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+    expect(f.writes).toHaveLength(before); expect(intakeCalls(f, 'finish')).toHaveLength(0); expect(intakeCalls(f, 'cancel')).toHaveLength(0);
+  });
+
+for (const stage of ['pick', 'finish'] as const) test(`late ${stage} success cannot reapply a terminal batch or change another editor`, async () => {
+  const f = await fixture(), pick = continuation(f), pending = deferred<unknown>(), entered = deferred<void>(); let blocked: Obj = {};
+  f.intakeHook(async request => {
+    if (request.action === stage) { blocked = request; entered.resolve(); return pending.promise; }
+    return intakeReply(request, 'staged', [pickedFile]);
+  });
+  const old = pick(); await entered.promise;
+  f.intakeHook(async request => intakeReply(request, request.action === 'finish' ? 'finished' : 'staged', [pickedFile]));
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  const route = await f.open(`success-${stage}`), seed = view(f.client, route), identity = { ...mounted(seed), mountId: `success-${stage}` };
+  expect(view(f.client, route, event(identity, '')).kind).toBe('editing');
+  const writes = f.writes.length, finishes = intakeCalls(f, 'finish').length;
+  pending.resolve(intakeReply(blocked, stage === 'pick' ? 'staged' : 'finished', [pickedFile])); await old;
+  expect(view(f.client, route).kind).toBe('editing'); expect(f.writes).toHaveLength(writes); expect(intakeCalls(f, 'finish')).toHaveLength(finishes);
+});
+
+test('a selected legacy file frees picker capacity while every historical image remains attached', async () => {
+  const f = await fixture(), source = contextLink('file', oldId, 'old');
+  f.client.local.snapshotDrafts[f.key] = Array.from({ length: 99 }, (_, i) => ({ id: `old-image-${i}`, name: `old-${i}.jpg`, mimeType: 'image/jpeg', sizeBytes: 10 }));
+  setDraftFiles(f.client.local, [{ id: oldId, contextId: oldId, draftKey: f.key, environmentId: 'env', name: 'old.txt',
+    mimeType: 'text/plain', sizeBytes: 10, source: 'attached', status: 'staged', attachmentId: '' }]);
+  const pick = continuation(f, [pickedFile], source, { start: 0, end: source.length }); await pick();
+  expect(intakeCalls(f, 'pick')[0].remaining).toBe(1); expect(intakeCalls(f, 'finish')).toHaveLength(1);
+  expect(f.client.local.snapshotDrafts[f.key]).toHaveLength(99); expect(draftFiles(f.client.local).map(row => row.id)).toEqual([pickedId]);
+  expect(f.client.local.snapshotReleases).toEqual([]); expect(f.calls.some(call => call.action === 'release')).toBe(false);
+});
+
+test('lost cancellation retains rejected holds until exact replay confirms the terminal outcome', async () => {
+  const f = await fixture(), pick = continuation(f, [pickedFile], 'x'.repeat(1_000_000)); let cancels = 0, releases = 0;
+  f.intakeHook(async request => {
+    if (request.action === 'cancel' && ++cancels === 1) throw Error('cancel reply lost');
+    return intakeReply(request, request.action === 'cancel' ? 'cancelled' : 'staged', [pickedFile]);
+  });
+  f.holdHook(async request => { if (request.action === 'release' && ++releases === 1) throw Error('release reply lost'); return heldReply(request); });
+  await pick(); expect(f.calls.some(call => call.action === 'release')).toBe(false);
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  expect(intakeCalls(f, 'cancel')).toHaveLength(2); expect(intakeCalls(f, 'cancel')[1]).toEqual(intakeCalls(f, 'cancel')[0]);
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  const release = f.calls.filter(call => call.action === 'release'); expect(release).toHaveLength(2); expect(release[1]).toEqual(release[0]);
+  expect(intakeCalls(f, 'cancel')).toHaveLength(2); expect(intakeCalls(f, 'finish')).toHaveLength(0);
+});
+
+test('native dictionary property order does not change the issued picker inventory', async () => {
+  const f = await fixture(), pick = continuation(f);
+  f.intakeHook(async request => intakeReply(request, request.action === 'finish' ? 'finished' : 'staged',
+    request.action === 'finish' ? [{ sizeBytes: pickedFile.sizeBytes, mimeType: pickedFile.mimeType,
+      name: pickedFile.name, id: pickedFile.id, kind: pickedFile.kind }] : [pickedFile]));
+  await pick();
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  expect(intakeCalls(f, 'finish')).toHaveLength(1);
+  expect(mobileDraftAttachmentIds(f.client, f.key)).toEqual([pickedId]);
 });
