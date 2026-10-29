@@ -42,8 +42,8 @@ component LinkMenuPopover
             text row.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
 
 // A file link's menu that its press opens where it was clicked (LLP 1021 D2), as MarkdownFileLink with no primary action
-// shows it at the click's clientX, clientY: `left` and `top` are that point, `auto` after a key's press, which hangs
-// the menu from the link (the reference's bounds.left, bounds.bottom).
+// shows it at the click's clientX, clientY: `left` and `top` are that point. A key's press is at 0, 0, the window's
+// corner, where Electron's Menu.popup({x: 0, y: 0}) puts it too (ElectronMenu.ts normalizePosition).
 component LinkMenuPopoverAt
   props
     menuId: string
@@ -62,8 +62,8 @@ component LinkMenuPopoverAt
 // (`surface-file-link`), its right-click, Control-click or ContextMenu key the file link's menu with the chip's own
 // rows (`menu`), which the window's `fileLinkMenu` holds for the `fileLinkPopover` popover. Where a file link has no
 // press of its own (MarkdownFileLink with no primary action: the pull request page, which has no Files panel), its
-// press opens the menu instead, at the click: `<fileLinkPopover>-press`, a LinkMenuPopoverAt, whose point the press
-// hands its owner as `file-link-at` (`fileLinkPressMenu`).
+// press opens the menu instead, at the click: the press hands its owner the point as `file-link-at`, and the owner
+// sets the insets of `<fileLinkPopover>-press`, a LinkMenuPopoverAt, and shows it (`fileLinkPressMenu`).
 component FileLinkButton
   inject
     fileLinkMenu: action
@@ -83,5 +83,5 @@ component FileLinkButton
     else
       local("surface-file-link", tip, target)
   view
-    button press=press contextmenu=fileLinkMenu(tip, target, menu) contextPopover=fileLinkPopover popovertarget=(fileLinkPressMenu ? `${fileLinkPopover}-press` : "") aria-label=tip padding=0 border-width=0 background-color="#00000000" testId=testId title=""
+    button press=press contextmenu=fileLinkMenu(tip, target, menu) contextPopover=fileLinkPopover aria-label=tip padding=0 border-width=0 background-color="#00000000" testId=testId title=""
       children

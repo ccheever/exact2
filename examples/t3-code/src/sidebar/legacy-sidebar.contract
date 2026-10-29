@@ -109,15 +109,14 @@ component LegacySidebar
     menuThread = id
   action projectMenu(key: string)
     menuProject = key
-  // New thread's choice of members (LegacyMembersMenu): its project, and the click's point, which a key's press (0, 0)
-  // leaves unset so the menu hangs from the button.
+  // New thread's choice of members (LegacyMembersMenu): its project, and the click's point. A key's press is at 0, 0,
+  // the window's corner, where Electron's Menu.popup({x: 0, y: 0}) puts the reference's (ElectronMenu.ts
+  // normalizePosition).
   state membersProject = ""
-  state membersPointed = false
   state membersX = 0
   state membersY = 0
   action membersMenu(key: string, x: number, y: number)
     membersProject = key
-    membersPointed = x != 0 or y != 0
     membersX = x
     membersY = y
   // The open row scrolls into view (block nearest) on each route change and once for each mount (useActiveRowReveal):
@@ -145,7 +144,7 @@ component LegacySidebar
     column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="legacy-sidebar" id="legacy-sidebar" focusin=focusWithin(true) focusout=focusWithin(false) data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
       LegacyThreadMenu(projects=legacy.projects, owner=menuThread, run=run)
       LegacyProjectMenu(projects=legacy.projects, owner=menuProject, run=run)
-      LegacyMembersMenu(projects=legacy.projects, owner=membersProject, pointed=membersPointed, x=membersX, y=membersY, run=run)
+      LegacyMembersMenu(projects=legacy.projects, owner=membersProject, x=membersX, y=membersY, run=run)
       if revealTarget != "" and revealRowNext == ""
         for target in [revealTarget] key=target
           box position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" aria-hidden=true resize=revealDue(target) testId="legacy-reveal"
@@ -363,7 +362,7 @@ component LegacyProject
     focus(`legacy-project-toggle-${p.key}`)
     menu(p.key)
   // handleCreateThreadClick: a project of one member creates at once; several show their menu where the button was
-  // clicked (api.contextMenu.show at the event's clientX, clientY), and a key's press shows it from the button.
+  // clicked (api.contextMenu.show at the event's clientX, clientY).
   action newThreadPress(e: MouseEvent)
     if p.members.length > 0
       members(p.key, e.clientX, e.clientY)
@@ -672,18 +671,17 @@ component LegacyProjectMenu
 
 // handleCreateThreadClick's choice of members (LegacySidebar.tsx:1960-2010), one row per member, at the click (LLP 1021
 // D2): macOS pops it up as an NSMenu at that point, as Electron's Menu.popup({x, y}) does; the web and the agent paint it
-// there. Opened from a key, it hangs from the New thread button.
+// there, as wide as its longest member's path, as a native menu is (no SidebarMenuCard cap).
 component LegacyMembersMenu
   props
     projects: LegacyProjectRow[]
     owner: string
-    pointed: bool
     x: number
     y: number
     run: action
   view
     box position="absolute" left=0 top=0 width=0 height=0
-      column id="legacy-members-menu" popover="auto" role="menu" class=SidebarMenuCard margin=0 left=(pointed ? `${x}px` : "auto") top=(pointed ? `${y}px` : "auto") testId="legacy-members-menu"
+      column id="legacy-members-menu" popover="auto" role="menu" class=SidebarMenuCard margin=0 left=`${x}px` top=`${y}px` max-width="none" testId="legacy-members-menu"
         for p in projects key=p.key
           if p.key == owner
             for e in p.members key=e.id

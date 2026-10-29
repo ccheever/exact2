@@ -145,7 +145,7 @@ describe('header and panels', () => {
   });
 });
 
-/** @exact/notifications, faked: what the window posted, closed, badged and asked, at the permission state `state`. */
+/** @exact/notifications, faked: what the window posted, closed, badged and asked; a request answers `state`. */
 function notifier(state = 'granted') {
   const calls: Obj[] = [];
   const fake: NotificationCalls = {
@@ -153,7 +153,6 @@ function notifier(state = 'granted') {
     closeNotification: async options => { calls.push({ call: 'close', ...options }); },
     setAppBadge: async options => { calls.push({ call: 'badge', ...options }); },
     clearAppBadge: async () => { calls.push({ call: 'clear' }); },
-    notificationStatus: async () => ({ available: true, state, badge: true, apple: { authorizationStatus: state === 'granted' ? 'authorized' : state === 'denied' ? 'denied' : 'notDetermined' } }),
     requestNotificationPermission: async () => { calls.push({ call: 'request' }); return { available: true, state, badge: true }; },
   };
   useNotificationCalls(fake);
@@ -182,7 +181,7 @@ describe('thread notifications', () => {
     const notified = notifier();
     const client = fakeClient({ threadId: 'open', shell: { threads: [thread('a'), thread('open')], projects: [] } });
     client.local.clientSettings = prefs({ notificationMode: 'notifications-and-sound', inAppNotificationsEnabled: true }) as never;
-    const none = new EnvironmentFleet(), focused = { active: true, authorization: 'authorized', opened: '', openedThread: '' };
+    const none = new EnvironmentFleet(), focused = { active: true, authorization: 'granted', opened: '', openedThread: '' };
     await threadNotifications(client, focused, none);
     client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'user_input' } }), thread('open', { pendingRuntimeRequest: { kind: 'user_input' } })];
     await threadNotifications(client, focused, none);
@@ -207,7 +206,7 @@ describe('thread notifications', () => {
     const notified = notifier('prompt');
     const client = fakeClient({ shell: { threads: [thread('a')], projects: [] } });
     client.local.clientSettings = prefs({ notificationMode: 'notifications' }) as never;
-    const away = { active: false, authorization: 'notDetermined', opened: '', openedThread: '' };
+    const away = { active: false, authorization: 'prompt', opened: '', openedThread: '' };
     await threadNotifications(client, away, new EnvironmentFleet());
     client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'approval' } })];
     await threadNotifications(client, away, new EnvironmentFleet());
@@ -224,7 +223,7 @@ describe('thread notifications', () => {
   // ThreadNotificationCoordinator mounts EnvironmentNotifications for every
   // environment, so a turn that ends in a background environment notifies while another one is focused.
   describe('every connected environment (ThreadNotificationCoordinator)', () => {
-    const active = { active: true, authorization: 'authorized', opened: '', openedThread: '' };
+    const active = { active: true, authorization: 'granted', opened: '', openedThread: '' };
     const done = (id: string, at: string, extra: Obj = {}) => thread(id, { status: 'completed', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: at, ...extra });
     function setup(clientExtra: Obj = {}) {
       const notified = notifier();
@@ -350,15 +349,17 @@ describe('thread notifications', () => {
     const requests: Obj[] = [];
     const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
     const client = fakeClient(), previous = { active: true, authorization: 'unknown', opened: '', openedThread: '' };
-    // The package's permission state, and the page's hasFocus; a clicked notification's destination (its `navigate`
+    // The root's live permission state, and the page's hasFocus; a clicked notification's destination (its `navigate`
     // route's `notification-open`) is the shell's open request.
-    notifier('granted');
     expect(await notificationOps.call(client, 'notification-open', 'fleet:env:a', '', 0, native, {} as Files, {} as never)).toBe(true);
-    expect(await notifyStatus(client, previous, false)).toEqual({ active: false, authorization: 'authorized', opened: '1:fleet:env:a', openedThread: 'fleet:env:a' });
+    expect(notifyStatus(client, previous, false, 'granted')).toEqual({ active: false, authorization: 'granted', opened: '1:fleet:env:a', openedThread: 'fleet:env:a' });
     expect(await notificationOps.call(client, 'select-thread', 'a', '', 0, native, {} as Files, {} as never)).toBe(false);
-    // Without the package (a host with none): the state it last read stays.
-    useNotificationCalls(null);
-    expect(await notifyStatus(client, { ...previous, authorization: 'denied' }, true)).toMatchObject({ active: true, authorization: 'denied' });
+    // Only a target the window's own posts name opens: a thread on an environment, or a review guide.
+    const guide = `guide:${encodeURIComponent(JSON.stringify({ projectId: 'p', repository: 'o/r', number: 7, environmentId: 'env' }))}`;
+    for (const target of ['a', 'fleet:env', '/etc/passwd', 'guide:%7B%7D', guide]) await notificationOps.call(client, 'notification-open', target, '', 0, native, {} as Files, {} as never);
+    expect(notifyStatus(client, previous, false, 'granted')).toMatchObject({ opened: `2:${guide}`, openedThread: guide });
+    // Before the root's first read: the state it last had stays.
+    expect(notifyStatus(client, { ...previous, authorization: 'denied' }, true, '')).toMatchObject({ active: true, authorization: 'denied' });
     const owner = {};
     await reportWindowFacts(owner, native, true, true);
     await reportWindowFacts(owner, native, true, true);

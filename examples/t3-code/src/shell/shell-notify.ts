@@ -2,9 +2,10 @@
 // ThreadNotificationCoordinator.tsx and ThreadNotificationCoordinator.logic.ts at 7c3b3b3605ef, threadNotifications.ts).
 // Provider updates raise no toast at launch: the sidebar's pill and Settings ›
 // Providers offer them. The window's focus is the page's
-// (`exactPage().hasFocus`, document.hasFocus(): exact2 #219). The system's side is
-// @exact/notifications (LLP 1133.004): the silent post, its click, the Dock badge, the
-// permission fact and its request. A post names its destination as a `navigate`
+// (`exactPage().hasFocus`, document.hasFocus(): exact2 #219), and so is the permission
+// (app.contract `notificationPermission`, read again when the app comes to the front). The
+// system's side is @exact/notifications (LLP 1133.004): the silent post, its click, the Dock
+// badge and the permission's request. A post names its destination as a `navigate`
 // location the window opens (app.contract notificationOpen); the sounds are the window's
 // (`notificationSound`, app.contract notifyCompletionSound).
 // The bake binds the package from its exact.json; Bun's tests read the exact.json itself, so they hand in their own.
@@ -15,16 +16,16 @@ import { pushToast } from './toast';
 import { obj, str, type Shell } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import { sidebarStatus, latestRun } from '../sidebar/sidebar-model';
-import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { fleet, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { letGo } from '../client/let-go';
+import { decodeGuideOpenTarget } from '../pull-requests/guide-target';
 
-export type NotificationStatus = { available: boolean; state: string; badge: boolean; apple?: { authorizationStatus: string } };
+export type NotificationStatus = { available: boolean; state: string; badge: boolean };
 export type NotificationCalls = {
   showNotification(options: { title: string; body?: string; tag?: string; silent?: boolean; navigate?: string }): Promise<void>;
   closeNotification(options: { tag: string }): Promise<void>;
   setAppBadge(options: { contents?: number }): Promise<void>;
   clearAppBadge(options: object): Promise<void>;
-  notificationStatus(options: object): Promise<NotificationStatus>;
   requestNotificationPermission(options: object): Promise<NotificationStatus>;
 };
 let notifications = notificationsPackage as unknown as NotificationCalls;
@@ -36,7 +37,7 @@ async function quietly<T>(call: () => Promise<T>): Promise<T | undefined> {
 }
 
 /**
- * `active` is the page's focus; `authorization` the package's permission state, with Apple's own word when it gives one;
+ * `active` is the page's focus; `authorization` the permission state (`granted`, `prompt`, `denied` or `unknown`);
  * `opened` / `openedThread` the latest notification click (`notification-open`), which desktop-activation.ts opens.
  */
 export type NotifyStatus = { active: boolean; authorization: string; opened: string; openedThread: string };
@@ -72,22 +73,26 @@ export const hasDesktopNotifications = (mode: string) => mode === 'notifications
 
 /** Each client's latest notification click, which its `navigate` route handed in (app.contract notificationOpen). */
 const clicks = new WeakMap<object, { serial: number; target: string }>();
-/** `notification-open`: a clicked notification's destination, a thread (`fleet:<environment>:<thread>`) or a guide's target. */
+/**
+ * `notification-open`: a clicked notification's destination, which is one of the window's own posts' targets: a thread
+ * (`fleet:<environment>:<thread>`) or a review guide (guide-target.ts). Anything else opens nothing.
+ */
 export async function notificationOps(this: T3Client, op: string, id: string): Promise<boolean> {
   if (op !== 'notification-open') return false;
-  if (id) clicks.set(this, { serial: (clicks.get(this)?.serial ?? 0) + 1, target: id });
+  if (parseFleetThreadId(id) || decodeGuideOpenTarget(id)) clicks.set(this, { serial: (clicks.get(this)?.serial ?? 0) + 1, target: id });
   return true;
 }
 /** Where a click opens (app.contract `notification` route): `/notification?t=<target>`. */
 export const notificationLocation = (target: string) => `/notification?t=${encodeURIComponent(target)}`;
 
 /**
- * The permission state and the latest click; `active` is the page's own focus fact (`exactPage().hasFocus`,
- * ThreadNotificationCoordinator's document.hasFocus()).
+ * The window's facts and the latest click: `active` is the page's own focus (`exactPage().hasFocus`,
+ * ThreadNotificationCoordinator's document.hasFocus()), `permission` the root's live read of the package's state
+ * ('' keeps the previous one).
  */
-export async function notifyStatus(client: object, previous: NotifyStatus, focused: boolean): Promise<NotifyStatus> {
-  const click = clicks.get(client), status = await quietly(() => notifications.notificationStatus({}));
-  return { active: focused, authorization: status ? status.apple?.authorizationStatus ?? status.state : previous.authorization,
+export function notifyStatus(client: object, previous: NotifyStatus, focused: boolean, permission: string): NotifyStatus {
+  const click = clicks.get(client);
+  return { active: focused, authorization: permission || previous.authorization,
     opened: click ? `${click.serial}:${click.target}` : '', openedThread: click?.target ?? '' };
 }
 
@@ -102,8 +107,8 @@ function pending(client: object): Set<string> {
  * `new Notification(title, {body, tag, silent: true})` while permission is granted, as the coordinator posts one
  * only then; its click opens `target`. The badge then counts what is pending (trackNotification).
  */
-export async function postNotification(client: object, title: string, body: string, tag: string, target: string): Promise<void> {
-  if ((await quietly(() => notifications.notificationStatus({})))?.state !== 'granted') return;
+export async function postNotification(client: object, status: NotifyStatus, title: string, body: string, tag: string, target: string): Promise<void> {
+  if (status.authorization !== 'granted') return;
   if ((await quietly(() => notifications.showNotification({ title, body, tag, silent: true, navigate: notificationLocation(target) }).then(() => true))) !== true) return;
   const tags = pending(client);
   tags.add(tag);
@@ -290,7 +295,7 @@ async function notifyTransition(client: T3Client, status: NotifyStatus, environm
     return;
   }
   if (!hasDesktopNotifications(mode) || status.active) return;
-  await postNotification(client, transition.title, body, `${environment.environmentId}:${transition.threadId}`, target);
+  await postNotification(client, status, transition.title, body, `${environment.environmentId}:${transition.threadId}`, target);
 }
 
 // --- NotificationSettings permission gate ------------------------------------

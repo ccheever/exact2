@@ -3,10 +3,10 @@
 // clipboard as a PNG through @exact/clipboard's `write` (LLP 1133.006), which re-encodes its pixels as Chrome's
 // clipboard does. readMediaPng's steps: the media's bytes as readMediaBlob reads them (a failed fetch, an HTTP error
 // and a web page refused with its sentences); a PNG as it is; anything else drawn at its own size into a PNG
-// (storage.fs.transformImage), refused over 64,000,000 pixels. The bytes stay in files under app:/tmp/copy-image:
-// `fetch` writes the reply's body there, and an inline `data:` image, which `fetch` does not take, is decoded here.
-// The image codec reads no SVG yet (LLP 1133.006 §9, item 5), so an SVG goes to `svg`, the module's
-// (T3MediaActions.swift `mediaCopyImage`; clone/issues/native-copy-image.md).
+// (storage.fs.transformImage), refused over 64,000,000 pixels. The bytes stay in files under app:/tmp/copy-image
+// until the copy ends: `fetch` writes the reply's body there, and an inline `data:` image, which `fetch` does not
+// take, is decoded here. The image codec reads no SVG yet (LLP 1133.006 §9, item 5), so an SVG goes to `svg`, which
+// draws it in the module (T3MediaActions.swift `mediaCopyImage`) until the codec can.
 // The bake binds the package from its exact.json; Bun's tests read the exact.json itself, so they hand in their own.
 import * as clipboardPackage from '@exact/clipboard';
 import { appFiles } from './save-file';
@@ -41,6 +41,7 @@ export async function writePng(path: string): Promise<void> {
 type ImageFiles = {
   mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>;
   writeFile(path: string, bytes: Uint8Array): Promise<unknown>;
+  rm(path: string): Promise<unknown>;
   transformImage(from: string, to: string, options: { type: 'image/png' }): Promise<{ path: string; width: number; height: number }>;
 };
 const mimeOf = (value: string | null | undefined) => (value ?? '').split(';', 1)[0]!.trim().toLowerCase();
@@ -67,26 +68,48 @@ export function dataUrlBytes(url: string): { type: string; bytes: Uint8Array } {
 }
 
 let copies = 0;
-/** readMediaPng, then the clipboard: the media at `url` as a PNG. `svg` copies an SVG the codec cannot draw. */
-export async function copyMediaImage(url: string, svg: () => Promise<void>): Promise<void> {
-  const fs = appFiles().fs as unknown as ImageFiles, directory = `${COPY_IMAGE_DIR}/${++copies}`, source = `${directory}/source`;
-  await fs.mkdir(directory, { recursive: true });
-  let type: string;
-  if (url.startsWith('data:')) {
-    const inline = dataUrlBytes(url);
-    await fs.writeFile(source, inline.bytes);
-    type = inline.type;
-  } else type = await fetchTo(url, source);
-  if (type === 'text/html') throw new Error(WEB_PAGE);
-  if (type === 'image/svg+xml' || (!type.startsWith('image/') && /\.svg(?:[?#]|$)/i.test(url))) return svg();
-  if (type === 'image/png') return writePng(source);
+/** One copy's files under app:/tmp/copy-image, removed when the copy ends (`done`). */
+async function copyFiles() {
+  const fs = appFiles().fs as unknown as ImageFiles, n = ++copies;
+  await fs.mkdir(COPY_IMAGE_DIR, { recursive: true });
+  const source = `${COPY_IMAGE_DIR}/${n}-source`, png = `${COPY_IMAGE_DIR}/${n}.png`;
+  return { fs, source, png, done: async (...more: string[]) => { for (const path of [source, png, ...more]) await fs.rm(path).catch(() => undefined); } };
+}
+/** The image at `source` drawn into a PNG at `to` at its own size, or the reference's refusal. */
+async function drawPng(fs: ImageFiles, source: string, to: string): Promise<string> {
   let drawn: { path: string; width: number; height: number };
-  try { drawn = await fs.transformImage(source, `${directory}/image.png`, { type: 'image/png' }); }
+  try { drawn = await fs.transformImage(source, to, { type: 'image/png' }); }
   catch (error) {
     if (letGo(error)) throw error;
     const code = (error as { code?: string }).code;
     throw new Error(code === 'too-large' ? TOO_LARGE : code === 'undecodable' ? UNDECODABLE : NOT_PNG);
   }
   if (!(drawn.width > 0 && drawn.height > 0) || drawn.width * drawn.height > MAX_PIXELS) throw new Error(TOO_LARGE);
-  await writePng(drawn.path || `${directory}/image.png`);
+  return drawn.path || to;
+}
+
+/** readMediaPng, then the clipboard: the media at `url` as a PNG. `svg` copies an SVG the codec cannot draw. */
+export async function copyMediaImage(url: string, svg: () => Promise<void>): Promise<void> {
+  const { fs, source, png, done } = await copyFiles();
+  try {
+    let type: string;
+    if (url.startsWith('data:')) {
+      const inline = dataUrlBytes(url);
+      await fs.writeFile(source, inline.bytes);
+      type = inline.type;
+    } else type = await fetchTo(url, source);
+    if (type === 'text/html') throw new Error(WEB_PAGE);
+    if (type === 'image/svg+xml' || (!type.startsWith('image/') && /\.svg(?:[?#]|$)/i.test(url))) return await svg();
+    await writePng(type === 'image/png' ? source : await drawPng(fs, source, png));
+  } finally { await done(); }
+}
+
+/**
+ * copyArtifactToClipboard (Manager.ts): an image file's pixels as a PNG on the clipboard (nativeImage.createFromPath,
+ * toPNG). `staged` is a copy under app:/tmp/copy-image, which this removes.
+ */
+export async function copyImageFile(staged: string): Promise<void> {
+  const { fs, png, done } = await copyFiles();
+  try { await writePng(await drawPng(fs, staged, png)); }
+  finally { await done(staged); }
 }

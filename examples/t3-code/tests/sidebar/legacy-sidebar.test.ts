@@ -369,12 +369,19 @@ describe('legacy gestures (LegacySidebar.tsx handlers)', () => {
     expect([asked, shown, ran]).toEqual([[['github.com/acme/app', 70, 38]], [['legacy-members-menu', { source: 'legacy-new-thread-github.com/acme/app' }]], []]);
     row.call('newThreadPress', {}, scope({ ...project, members: [] }), [{ clientX: 70, clientY: 38 }]);
     expect(ran).toEqual([['legacy-new-thread', 'github.com/acme/app', '']]);
-    // A key's press is at 0, 0: the menu keeps no point and hangs from the button.
-    const sidebar = contractComponent('src/sidebar/legacy-sidebar.contract', 'LegacySidebar'), menu = { membersProject: '', membersPointed: false, membersX: 0, membersY: 0 };
+    // The menu stands at the click: its insets are the point. A key's press is at 0, 0, the window's corner, where
+    // the reference's Menu.popup({x: 0, y: 0}) puts it.
+    const sidebar = contractComponent('src/sidebar/legacy-sidebar.contract', 'LegacySidebar'), menu = { membersProject: '', membersX: 0, membersY: 0 };
     sidebar.call('membersMenu', menu, {}, ['github.com/acme/app', 70, 38]);
-    expect(menu).toEqual({ membersProject: 'github.com/acme/app', membersPointed: true, membersX: 70, membersY: 38 });
-    sidebar.call('membersMenu', menu, {}, ['github.com/acme/app', 0, 0]);
-    expect(menu.membersPointed).toBe(false);
+    expect(menu).toEqual({ membersProject: 'github.com/acme/app', membersX: 70, membersY: 38 });
+    expect(sidebar.callArguments('LegacyMembersMenu(', menu, { data: { legacy: { projects: [], revealPending: '', revealRow: '' } }, mountRevealed: true, run: 'run' }))
+      .toMatchObject({ owner: 'github.com/acme/app', x: 70, y: 38 });
+    const popover = contractComponent('src/sidebar/legacy-sidebar.contract', 'LegacyMembersMenu'), inset = (x: number, y: number) =>
+      ['left', 'top', 'margin'].map(attr => popover.attribute('id="legacy-members-menu"', attr, {}, { x, y }));
+    expect(inset(70, 38)).toEqual(['70px', '38px', 0]);
+    expect(inset(0, 0)).toEqual(['0px', '0px', 0]);
+    // A member's row is its workspace path: the painted menu widens to it, as the native one does.
+    expect(popover.attribute('id="legacy-members-menu"', 'max-width', {}, { x: 0, y: 0 })).toBe('none');
     // A row of the menu creates on its member.
     expect(await sidebarCommand(client, native, files, 'legacy-new-thread', 'github.com/acme/app', 'env:/beta')).toBe('sidebar:new-thread');
     expect(await sidebarCommand(client, native, files, 'legacy-new-thread', 'github.com/acme/app', '')).toBe('');

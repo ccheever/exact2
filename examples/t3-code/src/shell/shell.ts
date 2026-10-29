@@ -273,7 +273,7 @@ async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise
  * `page` is the window's `exactPage()` focus and visibility (exact2 #219).
  */
 export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false,
-  page: { focused: boolean; visible: boolean } = { focused: true, visible: true }, chatShown = true) {
+  page: { focused: boolean; visible: boolean; notifications?: string } = { focused: true, visible: true }, chatShown = true) {
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
@@ -281,7 +281,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   if (native?.available) {
     if (client.writable) void migrateModelPreferences(client, native).catch(() => {});
     native.watch('t3.notify');
-    state.status = await notifyStatus(client, state.status, page.focused);
+    state.status = notifyStatus(client, state.status, page.focused, page.notifications ?? '');
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     reportBrowserProfiles(client, native); // browser-profile-report.ts: server browsers keep this client's profiles and frame rate

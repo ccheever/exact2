@@ -65,7 +65,7 @@ const activity = (v) => {
 const threadComment = (id, login, body, createdAt) => ({ id, author: { __typename: "User", login, avatarUrl: "https://avatars.githubusercontent.com/u/1" }, body, createdAt, lastEditedAt: null, url: `${url}#discussion_${id}`, reactionGroups: [] });
 const reviewThreads = (v) => ({ viewer: { login: pr.author }, repository: ours(v) ? { pullRequest: {
   reviewThreads: { totalCount: 1 + live.reviewThreads.length, ...page([{ id: "PRRT_1", isResolved: false, isOutdated: false, path: "README.md", line: 3, diffSide: "RIGHT", comments: { totalCount: 2, ...page([
-    threadComment("PRRC_1", "lane-reviewer", "Should this line link to notes/plan.md?", "2026-10-02T10:00:00Z"),
+    threadComment("PRRC_1", "lane-reviewer", "Should this line link to [notes/plan.md](notes/plan.md)?", "2026-10-02T10:00:00Z"),
     threadComment("PRRC_2", pr.author, "Yes, it links to it now.", "2026-10-02T10:20:00Z")]) } }, ...live.reviewThreads]) },
   viewerCanUpdate: true, viewerDidAuthor: false, author: { __typename: "User", login: pr.author, avatarUrl: "https://avatars.githubusercontent.com/u/1" }, reactionGroups: [],
   comments: { nodes: [{ id: "IC_1", lastEditedAt: null, author: { __typename: "User", login: "lane-reviewer", avatarUrl: "https://avatars.githubusercontent.com/u/1" }, reactionGroups: [] },

@@ -124,9 +124,15 @@ export async function receiveCallback(context: CodexContext, url: string): Promi
     codexCallbackUrl(callbackUrl, request.redirectUri, request.state);
   } catch (error) { if (letGo(error)) throw error; return fail(); }
   if (flow.receiving !== url) return 'gone';
+  // The receiver stays named until the flow is complete: the window's resource keeps this answer while
+  // provider.auth.complete is in flight, and the effects leave the flow alone meanwhile.
   const flowId = flow.receivingFlow;
-  flow.receiving = '';
-  if (flowId) await run(flow, () => call(context, 'provider.auth.complete', { flowId, callbackUrl }));
+  flow.completing = url;
+  try { if (flowId) await run(flow, () => call(context, 'provider.auth.complete', { flowId, callbackUrl })); }
+  finally {
+    flow.completing = '';
+    if (flow.receiving === url) flow.receiving = '';
+  }
   return 'received';
 }
 
@@ -280,11 +286,15 @@ async function codexEffects(context: CodexContext, flow: CodexFlow, now: number)
   }
   // The receiver belongs to one authorization URL: a new one (or none) lets it go, which the reference's waiting
   // receive answers with its rejection (cancelProviderAuthCallback), and so does its five minutes' bound (`now`, the
-  // snapshot's clock; 0 has none).
-  if (flow.receiving && flow.receiving !== status.url) { flow.receiving = ''; flow.error = RECEIVE_FAILED; }
-  if (flow.receiving && now > 0) {
-    if (!flow.receivingSince) flow.receivingSince = now;
-    else if (now - flow.receivingSince >= RECEIVE_MS) { flow.receiving = ''; flow.error = RECEIVE_FAILED; }
+  // snapshot's clock; 0 has none). A reconnect is no new URL: its streams start empty (`status.auth` null) until the
+  // server's state arrives, and the receiver keeps listening, as the reference's effect does while its URL stands. Nor
+  // is a completion in flight, whose flow the server moves on before the command answers.
+  if (flow.receiving && !flow.completing) {
+    if (status.auth !== null && flow.receiving !== status.url) { flow.receiving = ''; flow.error = RECEIVE_FAILED; }
+    else if (now > 0) {
+      if (!flow.receivingSince) flow.receivingSince = now;
+      else if (now - flow.receivingSince >= RECEIVE_MS) { flow.receiving = ''; flow.error = RECEIVE_FAILED; }
+    }
   }
   status = statusOf(context);
   if (flow.openRequested && status.phase === 'waiting' && status.flowId && status.url && flow.openedFlow !== status.flowId) {

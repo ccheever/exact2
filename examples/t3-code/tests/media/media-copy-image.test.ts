@@ -2,7 +2,7 @@
 // the bytes `fetch` writes to a file, a PNG written as it is, anything else drawn into a PNG, the reference's sentences,
 // and @exact/clipboard's `write`, here a fake.
 import { afterEach, describe, expect, test } from 'bun:test';
-import { copyMediaImage, dataUrlBytes, FETCH_FAILED, NOT_PNG, TOO_LARGE, UNDECODABLE, useClipboardCalls, WEB_PAGE } from '../../src/media/media-copy-image';
+import { copyImageFile, copyMediaImage, dataUrlBytes, FETCH_FAILED, NOT_PNG, TOO_LARGE, UNDECODABLE, useClipboardCalls, WEB_PAGE } from '../../src/media/media-copy-image';
 import { adoptAppFiles } from '../../src/media/save-file';
 import type { Obj } from '../../src/client/domain';
 
@@ -11,7 +11,7 @@ const original = globalThis.fetch;
 afterEach(() => { globalThis.fetch = original; useClipboardCalls(null); });
 
 function copying(replies: Record<string, Reply>, options: { write?: () => Promise<void>; drawn?: { width: number; height: number } | { code: string } } = {}) {
-  const fetched: Obj[] = [], written: Obj[][] = [], drawn: Obj[] = [], files = new Map<string, Uint8Array>();
+  const fetched: Obj[] = [], written: Obj[][] = [], drawn: Obj[] = [], files = new Map<string, Uint8Array>(), removed: string[] = [];
   globalThis.fetch = (async (url: string, init: Obj) => {
     fetched.push({ url: String(url), to: init.exactBodyTo });
     const reply = replies[String(url)];
@@ -21,6 +21,7 @@ function copying(replies: Record<string, Reply>, options: { write?: () => Promis
   adoptAppFiles({ fs: {
     readFile: async () => new ArrayBuffer(0), mkdir: async () => {},
     writeFile: async (path: string, bytes: Uint8Array) => { files.set(path, bytes); },
+    rm: async (path: string) => { removed.push(path); },
     transformImage: async (from: string, to: string, transform: Obj) => {
       drawn.push({ from, to, ...transform });
       const result = options.drawn ?? { width: 40, height: 24 };
@@ -29,7 +30,7 @@ function copying(replies: Record<string, Reply>, options: { write?: () => Promis
     },
   } });
   useClipboardCalls({ write: async items => { await options.write?.(); written.push(items as Obj[]); }, ClipboardItem: class { constructor(items: Obj) { Object.assign(this, items); } } });
-  return { fetched, written, drawn, files };
+  return { fetched, written, drawn, files, removed };
 }
 const refused = async (run: Promise<void>) => { try { await run; return 'copied'; } catch (error) { return (error as Error).message; } };
 const svgNever = async () => { throw new Error('not an SVG'); };
@@ -40,9 +41,21 @@ describe('copyMediaImage', () => {
     await copyMediaImage('https://cdn.example/a.png', svgNever);
     await copyMediaImage('https://cdn.example/b.jpg', svgNever);
     const [png, jpeg] = copy.fetched;
-    expect(String(png!.to)).toMatch(/^app:\/tmp\/copy-image\/\d+\/source$/);
-    expect(copy.drawn).toEqual([{ from: jpeg!.to, to: String(jpeg!.to).replace(/source$/, 'image.png'), type: 'image/png' }]);
-    expect(copy.written).toEqual([[{ 'image/png': png!.to }], [{ 'image/png': String(jpeg!.to).replace(/source$/, 'image.png') }]]);
+    expect(String(png!.to)).toMatch(/^app:\/tmp\/copy-image\/\d+-source$/);
+    const jpegPng = String(jpeg!.to).replace(/-source$/, '.png');
+    expect(copy.drawn).toEqual([{ from: jpeg!.to, to: jpegPng, type: 'image/png' }]);
+    expect(copy.written).toEqual([[{ 'image/png': png!.to }], [{ 'image/png': jpegPng }]]);
+    // Each copy's files go once it is written, so the folder does not grow over a session.
+    expect(copy.removed).toEqual(expect.arrayContaining([png!.to, jpeg!.to, jpegPng]));
+  });
+
+  test('an image file by its path (a Browser artifact the module staged) is drawn into a PNG, written and removed', async () => {
+    const copy = copying({});
+    await copyImageFile('app:/tmp/copy-image/artifact-1.png');
+    const [drawn] = copy.drawn;
+    expect(drawn).toMatchObject({ from: 'app:/tmp/copy-image/artifact-1.png', type: 'image/png' });
+    expect(copy.written).toEqual([[{ 'image/png': drawn!.to }]]);
+    expect(copy.removed).toEqual(expect.arrayContaining(['app:/tmp/copy-image/artifact-1.png', drawn!.to]));
   });
 
   test('the reference\'s refusals: a web page, an HTTP error, no connection, no image, and too many pixels', async () => {

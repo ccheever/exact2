@@ -22,7 +22,7 @@ type Call = Record<string, unknown>;
 function copying(type = 'image/png', write: () => Promise<void> = async () => {}) {
   const fetched: string[] = [], written: unknown[] = [], original = globalThis.fetch;
   globalThis.fetch = (async (url: string) => { fetched.push(String(url)); return new Response('', { headers: { 'content-type': type } }); }) as unknown as typeof fetch;
-  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(0), writeFile: async () => {}, mkdir: async () => {} } });
+  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(0), writeFile: async () => {}, mkdir: async () => {}, rm: async () => {} } });
   useClipboardCalls({ write: async items => { await write(); written.push(items); }, ClipboardItem: class { constructor(items: Call) { Object.assign(this, items); } } });
   return { fetched, written, restore: () => { globalThis.fetch = original; useClipboardCalls(null); } };
 }

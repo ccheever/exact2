@@ -375,7 +375,8 @@ row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row
 xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The media menu
 stays the module's (`T3ContextMenu.swift` says why). The legacy sidebar's New thread shows a project's members,
 and a file link on the pull request page its menu, where the press was (LLP 1021 D2: the press's `clientX` and
-`clientY` as the popover's `left` and `top`; a key's press hangs it from the button). A global hotkey of another
+`clientY` as the popover's `left` and `top`; a key's press is at 0, 0, the window's corner, as the reference's
+`Menu.popup` puts it). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
@@ -489,6 +490,14 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
   transcript through it.
+- A ChatGPT sign-in's browser page, once the callback is in, reads "Return to T3 Code (Exact)" and "You can close
+  this tab." (the host's page, LLP 1133.005 D9), where the reference's adds "Your sign-in response has been received.
+  T3 Code is finishing the connection."
+- Two ChatGPT sign-ins cannot wait at once: a window holds one auth session (LLP 1069.006 D3), so the second waits
+  for the first to end, where the reference receives both, each on its port. A callback with the sign-in's `state`
+  but no `code` or `error` ends the receiver (Exact's listener accepts on `state` alone), where the reference answers
+  it 400 and keeps listening; the sign-in then has to start again.
+- The notification sounds are WAV copies of the reference's two MP3s, since `playSound` reads WAV.
 
 Main has closed records the clone was written around. The clone now uses these: a process
 relaunch for the Local environment switch, Network access and Tailscale HTTPS (`relaunch()`,
@@ -532,13 +541,18 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   source, LLP 1020.002 D8, waits on B10), the agent's cursor drawn on the page's view and the separate preview window's
   snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
   files, where a capture moves in and Reveal in Finder acts, which has no framework call; a saved recording's bytes
-  go to the environment from there, since the data module reads only the app's files. Copy image writes the copy of
-  the capture the data module keeps, through `@exact/clipboard` (`browser-capture.ts`).
+  go to the environment from there, since the data module reads only the app's files. Copy image has the module copy
+  the artifact into the app's files (`stage`) and writes it through `@exact/clipboard` (`browser-capture.ts`).
 - `T3MediaActions.swift`: the media menu, Save, and Copy image of an SVG. Save opens in Downloads first and then
   in the session's last folder, as Electron's download dialog does, where `saveFile` names no
   folder; the menu's Menu-key form opens at the media's bottom-left corner, where a `contextPopover` opens
   at the focused node's centre. Copy image of any other image is `@exact/clipboard`'s `write`
   (`media-copy-image.ts`, LLP 1133.006); the data module's image codec draws no SVG yet.
+- `T3ShellMenu.swift`'s Copy Image, in the window's own context menu over any image: it copies the bitmap ExactKit
+  decoded, which data code never sees, and the package's `write` is data code's alone (LLP 1133.006 §11 Q3).
+- `T3Module+Sidebar.swift`'s `sidebarNotify`: the sidebar's undo notice, provider pill, search results and Update
+  everything ask for the snapshot again after the answer that started them returned. A data module's timer ends with
+  its answer (LLP 1027.000 D1), and data code has no other way to ask Exact to read a resource again.
 - `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; the client's
   opens are Contract's `openURL`, with the editors' schemes in `app.json` `open_url`),
   `T3InstalledFonts.swift` (no `queryLocalFonts`), `T3WindowChrome.swift` (the traffic lights at the

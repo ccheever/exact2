@@ -100,7 +100,7 @@ test('shell watch suppresses the shown guide, settles once, and preserves the or
   const { notificationSounds, useNotificationCalls } = await import('../../src/shell/shell-notify');
   const posts: Record<string, unknown>[] = [];
   useNotificationCalls({ showNotification: async options => { posts.push(options); }, closeNotification: async () => {}, setAppBadge: async () => {}, clearAppBadge: async () => {},
-    notificationStatus: async () => ({ available: true, state: 'granted', badge: true }), requestNotificationPermission: async () => ({ available: true, state: 'granted', badge: true }) });
+    requestNotificationPermission: async () => ({ available: true, state: 'granted', badge: true }) });
   const { client, native } = await connected();
   client.config.settings = { reviewGuidesEnabled: true };
   client.local.clientSettings = { notificationMode: 'notifications-and-sound', inAppNotificationsEnabled: true };

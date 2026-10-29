@@ -77,8 +77,8 @@ component T3Code
   action promptLinkAct(which: string)
     send fragmentChanged = command("shelllocal:prompt-link-action", which, "", 0)
   // A notification's click (its `navigate`, warm or at launch) names its thread or review guide, which the shell opens
-  // as ThreadNotificationCoordinator's click navigates there (shell-notify.ts `notification-open`).
-  task notificationOpened when top(promptLinks).name == "notification" and promptLinksReady and not welcome.show and not commandPending
+  // as ThreadNotificationCoordinator's click navigates there at once (shell-notify.ts `notification-open`).
+  task notificationOpened when top(promptLinks).name == "notification"
     after(1, notificationOpen)
   action notificationOpen
     let target = searchParam(top(promptLinks), "t")
@@ -106,8 +106,10 @@ component T3Code
   // receiveCodexAuthCallback: while a ChatGPT sign-in waits on its loopback callback, this answer holds openAuthSession's
   // receiver on the redirect's port (codex-setup-ops.ts receiveCallback); another URL, or none, lets it go.
   resource codexLoopback = codexReceive(data.codexReceiving) as shape CodexReceive
-  // Data code posts the notifications (shell-notify.ts). Only a name Contract reads puts the package's rows in the plan,
-  // and under the agent a call without them is refused (LLP 1133.004, "As built"); this read is that name.
+  // The notification permission, read again when the app comes to the front: the shell posts while it is `granted`
+  // (shell-notify.ts). Data code makes the posts, and a package enters the plan only by a name Contract reads, so this
+  // read is also what lets the agent answer data code's calls, which it refuses for a package not in the plan
+  // (LLP 1133.004, "As built").
   resource notificationPermission = notificationStatus() as shape NotificationStatus
   state reconnectGraceKey = ""
   state disconnectDelayKey = ""

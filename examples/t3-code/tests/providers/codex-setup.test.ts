@@ -11,6 +11,8 @@ import { providerSetupEvent, watchProviderSetup } from '../../src/providers/prov
 import { codexFlow, codexSetupView, readCodexSetupMode } from '../../src/providers/codex-setup';
 import { codexSetupOp, codexSetupPrepare, receiveCallback, RECEIVE_FAILED, RECEIVE_MS, type CodexContext } from '../../src/providers/codex-setup-ops';
 import { codexHandoffEvent } from '../../src/providers/codex-handoff-events';
+import { codexReceiving } from '../../src/providers/codex-setup-host';
+import type { T3Client } from '../../src/client/client';
 import { appPath, appText } from '../support/app-files';
 import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
@@ -210,6 +212,38 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     answerSession = async () => `http://127.0.0.1:${port}/auth/callback?state=${state}`;
     expect(await stray.receive()).toBe('failed');
     expect(stray.methods('provider.auth.complete')).toEqual([]);
+  });
+
+  test('the callback completes the flow before the receiver lets go, through the server moving the flow on', async () => {
+    const fake = await rendered(auth(), installed());
+    await fake.press('setup:codex-setup'); fake.emit('auth', waiting()); await fake.prepare();
+    // The server reports the flow verifying before the command answers, and a snapshot's effects run meanwhile: the
+    // window's resource must still name this receiver, or its answer, with the command in it, is let go.
+    const during: unknown[] = [];
+    fake.handlers['provider.auth.complete'] = async () => {
+      fake.emit('auth', auth({ phase: 'verifying', flowId: 'flow-1' })); await fake.prepare();
+      during.push(fake.receiving(), fake.setup().error);
+      return {};
+    };
+    expect(await fake.receive()).toBe('received');
+    expect(during).toEqual([authorizationUrl, '']);
+    expect(fake.methods('provider.auth.complete')).toHaveLength(1);
+    expect([fake.receiving(), fake.setup().error]).toEqual(['', '']);
+  });
+
+  test('a reconnect keeps the receiver listening (CodexSetupSection\'s receive depends on its URL alone)', async () => {
+    const fake = await rendered(auth(), installed());
+    await fake.press('setup:codex-setup'); fake.emit('auth', waiting()); await fake.prepare();
+    // The connection's streams start empty after a reconnect, until the server's state arrives again.
+    fake.generation++;
+    await fake.prepare();
+    expect([fake.receiving(), fake.setup().error]).toEqual([authorizationUrl, '']);
+    await fake.show(); fake.emit('auth', waiting()); await fake.prepare();
+    expect(fake.receiving()).toBe(authorizationUrl);
+    // While the focused connection is down, the window's resource still names the URL, so its receiver is not let go.
+    const client = { connection: 'reconnecting', environmentId: 'env-lane', origin: fake.origin, generation: 2 } as unknown as T3Client, module = { available: true } as unknown as Native;
+    codexFlow(client, instanceId).receiving = authorizationUrl;
+    expect(codexReceiving(client, module)).toBe(authorizationUrl);
   });
 
   test('a sign-in the browser has not called back in five minutes expires (receiveCodexAuthCallback)', async () => {

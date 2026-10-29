@@ -151,7 +151,8 @@ final class BrowserCaptureTests: XCTestCase {
         XCTAssertNotEqual(T3BrowserPages.oldStoreIdentifier(environment: "env", profile: "default"), T3BrowserPages.oldStoreIdentifier(environment: "env", profile: "work"))
     }
 
-    /// Reveal and Copy path (Copy image is the data module's, through @exact/clipboard: browser-capture.ts).
+    /// Reveal, Copy path and the copy Copy image reads (`stage`; the clipboard write is the data module's, through
+    /// @exact/clipboard: browser-capture.ts).
     func testArtifactActionsOnlyTouchFilesInsideTheArtifactDirectory() throws {
         let inside = artifacts.appendingPathComponent("browser-screenshot-test.png")
         try Data("png".utf8).write(to: inside)
@@ -161,10 +162,16 @@ final class BrowserCaptureTests: XCTestCase {
         XCTAssertNotEqual(pasteboard.name, NSPasteboard.general.name, "an agent run never writes the person's clipboard")
         XCTAssertEqual(value(op(["op": "browserArtifact", "action": "copy-path", "path": inside.path]))["copied"] as? Bool, true)
         XCTAssertEqual(pasteboard.string(forType: .string), inside.resolvingSymlinksInPath().path)
+        let staged = value(op(["op": "browserArtifact", "action": "stage", "path": inside.path]))["path"] as? String ?? ""
+        XCTAssertTrue(staged.hasPrefix("app:/tmp/copy-image/artifact-") && staged.hasSuffix(".png"), staged)
+        let copy = temporary.appendingPathComponent(String(staged.dropFirst("app:/tmp/".count)))
+        XCTAssertEqual(try Data(contentsOf: copy), Data("png".utf8), "the artifact's bytes, under the app's files")
         for outside in ["/tmp/t3/dev/settings.json", artifacts.appendingPathComponent("../escape.png").path, "relative.png"] {
-            let refused = op(["op": "browserArtifact", "action": "reveal", "path": outside])
-            XCTAssertEqual(refused["ok"] as? Bool, false, outside)
-            XCTAssertEqual((refused["error"] as? [String: Any])?["kind"] as? String, "ArtifactPath")
+            for action in ["reveal", "stage"] {
+                let refused = op(["op": "browserArtifact", "action": action, "path": outside])
+                XCTAssertEqual(refused["ok"] as? Bool, false, "\(action) \(outside)")
+                XCTAssertEqual((refused["error"] as? [String: Any])?["kind"] as? String, "ArtifactPath")
+            }
         }
     }
 

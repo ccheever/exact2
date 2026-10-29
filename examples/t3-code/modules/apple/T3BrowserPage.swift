@@ -248,8 +248,9 @@ final class T3BrowserPages {
     /// `adopt` moves a capture the frame wrote under `app:/tmp/browser-shots` into the artifact directory as
     /// `browser-screenshot-<site>-<millis36>-<8 hex>.png` (the first eight characters of a v4 UUID, so two captures in one
     /// millisecond never share a file), and an agent's finished download under `app:/tmp/browser-downloads` as
-    /// `browser-download-<millis36>-<8 hex>-<its name>`. `reveal` and `copy-path` act on a file inside the directory only
-    /// (Copy image writes the capture's copy the data module kept, browser-capture.ts).
+    /// `browser-download-<millis36>-<8 hex>-<its name>`. `reveal`, `stage` and `copy-path` act on a file inside the
+    /// directory only. `stage` copies one under `app:/tmp/copy-image`, where the data module reads it for Copy image
+    /// (copyArtifactToClipboard, browser-capture.ts): the directory is the local server's, outside the module's files.
     private func artifact(_ request: [String: Any], answer: ([String: Any]) -> Void, refuse: (String, String) -> Void) {
         if request["action"] as? String == "adopt" {
             let raw = request["path"] as? String ?? "", root = temporaryRoot?.standardizedFileURL.path ?? "/nonexistent"
@@ -274,6 +275,15 @@ final class T3BrowserPages {
         }
         let pasteboard = T3BrowserArtifacts.pasteboard(agent: agent)
         switch request["action"] as? String {
+        case "stage":
+            guard let temporary = temporaryRoot else { return refuse("ArtifactPath", "The app's files are not ready.") }
+            let directory = temporary.appendingPathComponent("copy-image", isDirectory: true)
+            let name = "artifact-\(UUID().uuidString.lowercased())" + (target.pathExtension.isEmpty ? "" : ".\(target.pathExtension)")
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: target, to: directory.appendingPathComponent(name))
+            } catch { return refuse("ArtifactPath", "The artifact could not be read: \(error.localizedDescription)") }
+            answer(["path": "app:/tmp/copy-image/\(name)"])
         case "reveal":
             note("artifact reveal \(target.lastPathComponent)")
             if !agent { NSWorkspace.shared.activateFileViewerSelecting([target]) } // an agent run records it and opens no Finder window
