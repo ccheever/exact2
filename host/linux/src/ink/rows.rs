@@ -6,6 +6,9 @@ use std::{collections::HashMap, rc::Rc};
 #[cfg(test)]
 mod tests;
 
+// Markers are replayed at every row paint, a hot path: kept inline rather than
+// boxing the large variants (a heap hop each); they are not moved during replay.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub(super) enum Marker {
     Clip(Shape, Transform),
