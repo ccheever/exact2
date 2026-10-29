@@ -14,9 +14,11 @@
 //!   at a time over several calls, and a streaming block appends to its document, so only the line it continues and
 //!   its new lines are lexed again.
 //!
-//! The lexers share the crate's one worker thread with the chat Markdown, so a call spends about [`BUDGET`] on them.
-//! Every call into the module carries fuel and every store a memory limit: a lexer that loops or grows without end
-//! traps, which drops its instance, and its text paints plain.
+//! The lexers share the crate's one worker thread with the chat Markdown, so a call spends about [`BUDGET`] on them:
+//! staging a document's text counts, and is done whole lines at a time too, and a call's first line or text is held
+//! to the budget like the rest (a line that does not fit is lexed a slice at a time; a whole text that cannot fit a
+//! call of its own is a document instead). Every call into the module carries fuel and every store a memory limit: a
+//! lexer that loops or grows without end traps, which drops its instance, and its text paints plain.
 
 use exact_plan::Value;
 use std::cell::RefCell;
@@ -36,22 +38,32 @@ pub const BUDGET: u64 = 16_000_000;
 /// A text of up to this many UTF-8 bytes is lexed whole in one call, which takes at most about a budget; a longer one
 /// is a document (highlights.ts sends it as one).
 pub const WHOLE_BYTES: usize = 32 * 1024;
-/// The fuel a byte is planned to take when a call decides what fits its budget (TypeScript takes 340 to 410).
-const PLANNED_PER_BYTE: u64 = 450;
-/// A call into the module may spend this, and this much for each byte it is handed, before it traps: about five
-/// times what the slowest text measured takes (860 a byte), so only a lexer that loops runs out.
+/// The fuel lexing is planned to take when a call decides what fits its budget: about 410 a byte and 4,000 a line
+/// (measured: a TypeScript line of 80 bytes took 37,000, a blank line 3,900).
+const PLANNED_PER_BYTE: u64 = 410;
+const PLANNED_PER_LINE: u64 = 4_000;
+/// A call into the module may spend this, and this much for each byte and line it is handed, before it traps: about
+/// five times what the slowest texts measured take (860 a byte, 3,900 a blank line), so only a lexer that loops runs
+/// out.
 const FUEL_BASE: u64 = 4_000_000;
 const FUEL_PER_BYTE: u64 = 4_000;
-/// Staging a document's text (its line table) takes up to about 210 fuel a byte, for a text of blank lines; an append
-/// stages the line it continues again. Its calls may spend five times that.
+const FUEL_PER_LINE: u64 = 20_000;
+/// Staging a document's text (its line table) takes up to about 290 fuel a byte, for a text of blank lines; an append
+/// stages the line it continues again. Its calls may spend more than three times that.
 const STAGE_PER_BYTE: u64 = 1_000;
+/// The fuel staging is planned to take: about 12 a byte and 400 a line (measured: TypeScript took 990 a line of 80
+/// bytes, blank lines 210 to 290 each).
+const STAGE_PLANNED_PER_BYTE: u64 = 12;
+const STAGE_PLANNED_PER_LINE: u64 = 400;
 /// A store's memory: a document of a 1 MB text takes about 4 MiB.
 const MEMORY_BYTES: usize = 64 << 20;
 /// dist/highlighter.js assertShared: past this many pages the shared instance is made again for a text of one page.
 const RECYCLE_PAGES: usize = 128;
-/// A line of more bytes than this is lexed in slices (`liveRun`'s work, about 6 KB of a line each).
+/// A line of more bytes than this, or one that does not fit what is left of a call's budget, is lexed in slices:
+/// `liveRun`'s work as dist/live.js #workSlice passes it, a slice taking up to about 1.7 million fuel (measured).
 const LONG_LINE: usize = 16 * 1024;
-const WORK: u32 = 16 * 1024;
+const WORK: u32 = 4_096;
+const SLICE_PLANNED: u64 = 1_800_000;
 /// The documents kept, and the pages (4 MiB, a document of about 1 MB) past which a finished one is dropped: its next
 /// edit starts it again.
 const DOCUMENTS: usize = 8;
@@ -124,6 +136,11 @@ fn is_id_continue(c: char) -> bool {
 
 fn failed(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+/// How many lines `text` has: its line breaks and one.
+fn lines_of(text: &str) -> u64 {
+    text.bytes().filter(|&byte| byte == b'\n').count() as u64 + 1
 }
 
 #[cfg(test)]
@@ -241,7 +258,7 @@ impl Lexers {
         self.write(0, &[language, LINE_RECORDS])?;
         self.write(2, &(bytes.len() as u32).to_le_bytes())?;
         let highlight = self.export::<(), ()>("highlight")?;
-        let fuel = FUEL_BASE + FUEL_PER_BYTE * bytes.len() as u64;
+        let fuel = FUEL_BASE + FUEL_PER_BYTE * bytes.len() as u64 + FUEL_PER_LINE * lines_of(text);
         let ((), used) = self.call(&highlight, (), fuel)?;
         let (start, length) = (self.word(6)? as usize, self.word(10)? as usize);
         let output = self
@@ -278,8 +295,10 @@ struct Document {
     language: u8,
     lexers: Lexers,
     live: Live,
-    /// The text's length in UTF-16 units, where an append goes.
+    /// The text's length in UTF-16 units, where an append goes: what the module holds and `unstaged`.
     length: usize,
+    /// The end of the text, not yet handed to the module (`stage`).
+    unstaged: String,
     /// The lines whose records an answer has given as final: all but the last line of the text it answered.
     delivered: u32,
     used: u64,
@@ -314,18 +333,16 @@ impl Document {
             tokens: lexers.export("liveLineTokCount")?,
             records: lexers.export("liveLineTokPtr")?,
         };
-        let bytes = text.as_bytes();
-        let fuel = FUEL_BASE + STAGE_PER_BYTE * bytes.len() as u64;
-        let (ptr, staged) = lexers.call(&live.stage, bytes.len() as u32, fuel)?;
-        lexers.write(ptr as usize, bytes)?;
-        let ((), split) =
-            lexers.call(&live.init, (ptr, bytes.len() as u32, language as u32), fuel)?;
+        // An empty document, which `stage` hands the text a budget at a time.
+        let (ptr, staged) = lexers.call(&live.stage, 0, FUEL_BASE)?;
+        let ((), split) = lexers.call(&live.init, (ptr, 0, language as u32), FUEL_BASE)?;
         let document = Document {
             id,
             language,
             lexers,
             live,
             length: text.encode_utf16().count(),
+            unstaged: text.to_string(),
             delivered: 0,
             used: 0,
         };
@@ -346,6 +363,31 @@ impl Document {
         Ok(self.lexers.call(&count, (), READ_FUEL)?.0)
     }
 
+    /// Hands the module the start of `unstaged`, whole lines while they are planned to fit `allowance`, and with `first`
+    /// at least one: an append stages the line it continues again, so a line is staged whole, not in parts. The fuel
+    /// it took.
+    fn stage(&mut self, allowance: u64, first: bool) -> Result<u64, String> {
+        if self.unstaged.is_empty() {
+            return Ok(0);
+        }
+        let last = self.line_count()? - 1;
+        let mut planned = STAGE_PLANNED_PER_BYTE * self.read(|live| &live.bytes, last)? as u64;
+        let mut cut = 0;
+        for line in self.unstaged.split_inclusive('\n') {
+            let cost = STAGE_PLANNED_PER_BYTE * line.len() as u64 + STAGE_PLANNED_PER_LINE;
+            if planned + cost > allowance && !(first && cut == 0) {
+                break;
+            }
+            planned += cost;
+            cut += line.len();
+        }
+        if cut == 0 {
+            return Ok(0);
+        }
+        let lines: String = self.unstaged.drain(..cut).collect();
+        self.append(&lines)
+    }
+
     /// Appends `text` at the end, as one edit at the last line's end (dist/live.js #stageEdits); the fuel it took.
     fn append(&mut self, text: &str) -> Result<u64, String> {
         let last = self.line_count()? - 1;
@@ -364,20 +406,17 @@ impl Document {
         self.lexers.write(ptr as usize + 28, bytes)?;
         let edit = self.live.edit;
         let ((), split) = self.lexers.call(&edit, (ptr, 0), fuel)?;
-        self.length += text.encode_utf16().count();
         Ok(used + split)
     }
 
-    /// Lexes the lines an edit left waiting until about `budget` of fuel is spent: as many whole lines as are planned
-    /// to fit, or one slice of a long line. The fuel spent, and whether the document is done.
-    fn run(&mut self, budget: u64) -> Result<(u64, bool), String> {
+    /// Lexes the lines an edit left waiting while they are planned to fit `budget`: whole lines, or a slice of a line
+    /// too long or too big for what is left, and with `first` at least one step, so a call that starts here always
+    /// gets on. The fuel spent, and whether the document is done.
+    fn run(&mut self, budget: u64, mut first: bool) -> Result<(u64, bool), String> {
         let mut spent = 0;
         loop {
             if self.read(|live| &live.stats, WAITING)? == 0 {
                 return Ok((spent, true));
-            }
-            if spent >= budget {
-                return Ok((spent, false));
             }
             let (next, count) = (
                 self.read(|live| &live.stats, NEXT_LINE)?,
@@ -386,20 +425,22 @@ impl Document {
             if next >= count {
                 return Err("a document waits past its last line".into());
             }
-            let (mut end, mut planned) = (next, 0);
+            let (mut end, mut planned, mut handed) = (next, 0, 0);
             while end < count {
                 let bytes = self.read(|live| &live.bytes, end)? as u64 + 1;
-                if bytes > LONG_LINE as u64
-                    || end > next && spent + planned + bytes * PLANNED_PER_BYTE > budget
-                {
+                let cost = PLANNED_PER_BYTE * bytes + PLANNED_PER_LINE;
+                if bytes > LONG_LINE as u64 || spent + planned + cost > budget {
                     break;
                 }
-                planned += bytes * PLANNED_PER_BYTE;
-                end += 1;
+                (planned, handed, end) = (planned + cost, handed + bytes, end + 1);
             }
+            if end == next && !first && spent + SLICE_PLANNED > budget {
+                return Ok((spent, false));
+            }
+            first = false;
             let run = self.live.run;
             let used = if end > next {
-                let fuel = FUEL_BASE + FUEL_PER_BYTE * (planned / PLANNED_PER_BYTE);
+                let fuel = FUEL_BASE + FUEL_PER_BYTE * handed + FUEL_PER_LINE * (end - next) as u64;
                 self.lexers.call(&run, (end - next, end, 0), fuel)?.1
             } else {
                 let fuel = FUEL_BASE + FUEL_PER_BYTE * WORK as u64;
@@ -512,7 +553,8 @@ impl Here {
     }
 
     /// Each request's outcome, `None` for one past the budget, and the fuel spent. The requests come in order; a
-    /// document takes at most half the budget at first, and what is left goes to the documents still lexing.
+    /// document takes at most half the budget at first, staging included, so one long text leaves the other half to
+    /// the requests after it, and what is left goes to the documents still lexing.
     fn answer(&mut self, requests: &[Request<'_>]) -> (Vec<Option<Outcome>>, u64) {
         let (budget, mut spent) = (budget(), 0);
         let mut outcomes: Vec<Option<Outcome>> = Vec::with_capacity(requests.len());
@@ -531,7 +573,7 @@ impl Here {
                     .iter()
                     .position(|document| document.id == request.doc);
                 *outcome = Some(match at {
-                    Some(at) => self.lex(at, budget - spent, &mut spent),
+                    Some(at) => self.lex(at, budget - spent, &mut spent, false),
                     None => Outcome::Again,
                 });
             }
@@ -546,9 +588,15 @@ impl Here {
         if request.text.len() > WHOLE_BYTES {
             return Some(Outcome::Again);
         }
-        let planned = request.text.len() as u64 * PLANNED_PER_BYTE;
-        if *spent > 0 && *spent + planned > budget {
-            return None;
+        let planned = PLANNED_PER_BYTE * request.text.len() as u64
+            + PLANNED_PER_LINE * lines_of(request.text);
+        if *spent + planned > budget {
+            // Left for the next call, or, past what a call of its own may plan, lexed as a document.
+            return if *spent > 0 {
+                None
+            } else {
+                Some(Outcome::Again)
+            };
         }
         if self
             .shared
@@ -578,9 +626,10 @@ impl Here {
         }
     }
 
-    /// A document's request: start it (`from` 0) or append to it, then lex it within `share`.
+    /// A document's request: start it (`from` 0) or append to it, then stage and lex it within `share`.
     fn document(&mut self, request: &Request<'_>, share: u64, spent: &mut u64) -> Outcome {
         self.uses += 1;
+        let start = *spent;
         let at = if request.from == 0 {
             self.documents.retain(|document| document.id != request.doc);
             let Some(language) = lexer(request.language) else {
@@ -613,27 +662,25 @@ impl Here {
             let Some(at) = at else {
                 return Outcome::Again;
             };
-            if !request.text.is_empty() {
-                match self.documents[at].append(request.text) {
-                    Ok(used) => *spent += used,
-                    Err(_) => {
-                        self.documents.remove(at);
-                        return Outcome::Failed;
-                    }
-                }
-            }
+            let document = &mut self.documents[at];
+            document.unstaged.push_str(request.text);
+            document.length += request.text.encode_utf16().count();
             at
         };
         self.documents[at].used = self.uses;
-        self.lex(at, share, spent)
+        let share = share.saturating_sub(*spent - start);
+        self.lex(at, share, spent, start == 0)
     }
 
-    /// Lexes document `at` within `share`: its records from the first line not yet final when it is done.
-    fn lex(&mut self, at: usize, share: u64, spent: &mut u64) -> Outcome {
+    /// Stages and lexes document `at` within `share`, with `first` at least one step of each when nothing else of the
+    /// call has run: its records from the first line not yet final when it is done.
+    fn lex(&mut self, at: usize, share: u64, spent: &mut u64, first: bool) -> Outcome {
         let document = &mut self.documents[at];
-        let result = document.run(share).and_then(|(used, done)| {
+        let result = document.stage(share, first).and_then(|staged| {
+            *spent += staged;
+            let (used, done) = document.run(share.saturating_sub(staged), first && staged == 0)?;
             *spent += used;
-            if !done {
+            if !done || !document.unstaged.is_empty() {
                 return Ok(None);
             }
             let from = document.delivered;
@@ -773,18 +820,92 @@ mod tests {
         })
     }
 
-    /// Each line's records with offsets from its start, as dist/tokens.js reads them.
-    fn lines(records: &[u32]) -> Vec<Vec<(u32, u32)>> {
-        let (mut lines, mut start) = (vec![Vec::new()], 0);
-        for pair in records.chunks_exact(2) {
-            if pair[1] == u32::MAX {
-                lines.push(Vec::new());
-                start = pair[0];
-            } else {
-                lines.last_mut().unwrap().push((pair[0] - start, pair[1]));
+    /// What highlights.ts highlightStore paints from a document's answers, in records over the whole text: the lines
+    /// already final, then the answer's records moved to where its first line starts. Every line but the last is final
+    /// after each answer.
+    #[derive(Default)]
+    struct Painted {
+        lines: u32,
+        final_chars: u32,
+        final_records: Vec<u32>,
+    }
+
+    impl Painted {
+        fn answer(&mut self, line: u32, records: &[u32]) -> Vec<u32> {
+            assert_eq!(line, self.lines, "the answer's first line");
+            let moved: Vec<u32> = records
+                .chunks_exact(2)
+                .flat_map(|pair| [pair[0] + self.final_chars, pair[1]])
+                .collect();
+            let shown = [self.final_records.as_slice(), &moved].concat();
+            if let Some(last) = records
+                .chunks_exact(2)
+                .rposition(|pair| pair[1] == u32::MAX)
+            {
+                self.final_records
+                    .extend_from_slice(&moved[..(last + 1) * 2]);
+                self.final_chars += records[last * 2];
+                self.lines += records
+                    .chunks_exact(2)
+                    .filter(|pair| pair[1] == u32::MAX)
+                    .count() as u32;
             }
+            shown
         }
-        lines
+    }
+
+    /// Streams `versions`, each the last and more, into document `doc` as highlights.ts sends them (the first from 0,
+    /// the rest appended) and returns the first whose painted records are not the whole text's, with both.
+    fn stream(doc: u32, language: u8, versions: &[String]) -> Option<String> {
+        let (mut painted, mut held) = (Painted::default(), String::new());
+        for (n, version) in versions.iter().enumerate() {
+            let at = held.encode_utf16().count();
+            let request = |from: usize, text: &str| {
+                let request = Request {
+                    id: 1.0,
+                    language: language as f64,
+                    doc,
+                    from,
+                    text,
+                };
+                here(|here| here.answer(&[request])).0.remove(0).unwrap()
+            };
+            let mut outcome = request(at, &version[held.len()..]);
+            let length = version.encode_utf16().count();
+            while outcome == Outcome::More {
+                outcome = request(length, "");
+            }
+            let Outcome::Records(line, records) = outcome else {
+                return Some(format!("version {n}: {outcome:?}"));
+            };
+            let (shown, expected) = (
+                painted.answer(line, &records),
+                records_of(language, version),
+            );
+            if shown != expected {
+                return Some(format!(
+                    "version {n} {version:?}: painted {shown:?}, whole {expected:?}"
+                ));
+            }
+            held = version.clone();
+        }
+        None
+    }
+
+    /// The whole text's records under `language`, on lexers of their own.
+    fn records_of(language: u8, text: &str) -> Vec<u32> {
+        here(|here| {
+            let mut lexers = Lexers::new(&here.engine, &here.module).unwrap();
+            lexers.whole(language, text).unwrap().0
+        })
+    }
+
+    /// `code` cut after every `step` characters: each version the last and more.
+    fn prefixes(code: &str, step: usize) -> Vec<String> {
+        let chars: Vec<char> = code.chars().collect();
+        (1..=chars.len().div_ceil(step))
+            .map(|n| chars[..(n * step).min(chars.len())].iter().collect())
+            .collect()
     }
 
     fn typescript(lines: usize) -> String {
@@ -899,11 +1020,14 @@ mod tests {
         assert_eq!(answered[1 + fit..7], vec![false; 6 - fit][..]);
         assert!(answered[0] && answered[7]);
         assert!(spent <= SMALL, "{spent} fuel");
-        // A text past WHOLE_BYTES is a document.
+        // A text past WHOLE_BYTES is a document, and so is one planned past what a call of its own may spend.
         assert_eq!(
             ask(&[&"x".repeat(WHOLE_BYTES + 1)]).0,
             [Some(Outcome::Again)]
         );
+        let past = typescript(40);
+        assert!(past.len() as u64 * PLANNED_PER_BYTE > SMALL);
+        assert_eq!(ask(&[&past]).0, [Some(Outcome::Again)]);
     }
 
     #[test]
@@ -994,7 +1118,7 @@ mod tests {
     #[test]
     fn a_streaming_block_lexes_only_the_line_it_continues_and_its_new_lines() {
         let text = typescript(60);
-        let (mut shown, mut spent, mut at, mut versions) = (Vec::new(), 0, 0, 0);
+        let (mut painted, mut spent, mut at) = (Painted::default(), 0, 0);
         // A reply's code block, 37 bytes at a time: each version is the last one and more.
         while at < text.len() {
             let end = (at + 37).min(text.len());
@@ -1002,12 +1126,11 @@ mod tests {
             let Outcome::Records(line, records) = outcome else {
                 panic!("{outcome:?}");
             };
-            shown.truncate(line as usize);
-            shown.extend(lines(&records));
-            versions += 1;
-            if versions % 16 == 0 || end == text.len() {
-                assert_eq!(shown, lines(&whole(&text[..end]).0), "after {end} bytes");
-            }
+            assert_eq!(
+                painted.answer(line, &records),
+                whole(&text[..end]).0,
+                "after {end} bytes"
+            );
             (spent, at) = (spent + used, end);
         }
         // Lexed again whole, each of the 130 versions would cost half the text on average: 65 texts' worth.
@@ -1016,6 +1139,126 @@ mod tests {
             spent < 4 * fuel,
             "{spent} fuel streamed, {fuel} for the whole text"
         );
+    }
+
+    #[test]
+    fn every_prefix_of_upstream_s_samples_paints_what_the_whole_text_does() {
+        // incrementalHighlighting.test.ts's samples, each streamed a character at a time and in steps of 3 and 7
+        // (dist/languages.js ids). One with a CR is never appended to (highlights.ts starts its document again).
+        let samples: [(&str, u8, &str); 12] = [
+            (
+                "typescript",
+                72,
+                "/* multi\nline comment */\nconst x = `template\n${1 + 2}`;\nconst re = /abc/;\n",
+            ),
+            (
+                "python",
+                59,
+                "#!/usr/bin/python\nx = \"\"\"multi\nline\"\"\"\nprint(x)\n",
+            ),
+            ("bash", 4, "#!/bin/bash\ncat <<EOF\nhello\nEOF\necho hi\n"),
+            (
+                "html",
+                33,
+                "<script>\nconst x = 1;\n</script>\n<style>\np {color:red;}\n</style>\n",
+            ),
+            (
+                "markdown",
+                47,
+                "# heading\n\n```ts\nconst a = 1;\n```\n\ntext\n",
+            ),
+            ("rust", 62, "fn main() {\n let x = r#\"multi\nline\"#;\n}\n"),
+            (
+                "tsx",
+                74,
+                "const element = <div\n className=\"x\">\n{value}\n</div>;\n",
+            ),
+            ("json", 36, "{\n \"value\": [1,\n 2, 3]\n}\n"),
+            ("yaml", 79, "key: |\n  multiline\n  value\nnext: true\n"),
+            (
+                "css",
+                12,
+                "/* comment\n continued */\np::before {\n content: \"text\";\n}\n",
+            ),
+            ("sql", 67, "SELECT 'multi\nline'\nFROM table_name;\n"),
+            (
+                "markdown setext",
+                47,
+                "Title\n=====\n\nSub\n---\n\n- item\n  more\n",
+            ),
+        ];
+        let mut doc = 200;
+        for (name, language, code) in samples {
+            for step in [1, 3, 7] {
+                doc += 1;
+                assert_eq!(
+                    stream(doc, language, &prefixes(code, step)),
+                    None,
+                    "{name}, {step} at a time"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_long_document_leaves_half_a_call_to_the_requests_after_it() {
+        testing(SMALL, u64::MAX);
+        let (long, block) = (typescript(100), typescript(3));
+        let request = |id: f64, doc: u32, text| Request {
+            id,
+            language: TS as f64,
+            doc,
+            from: 0,
+            text,
+        };
+        let (outcomes, spent) =
+            here(|here| here.answer(&[request(1.0, 30, &long), request(2.0, 31, &block)]));
+        assert_eq!(outcomes[0], Some(Outcome::More));
+        assert_eq!(outcomes[1], Some(Outcome::Records(0, whole(&block).0)));
+        assert!(spent <= SMALL + SMALL / 4, "{spent} fuel");
+    }
+
+    #[test]
+    fn staging_a_long_text_is_held_to_the_budget_too() {
+        testing(SMALL, u64::MAX);
+        // Staged in one call, its 30,000 lines would take about six budgets.
+        let text = "\n".repeat(30_000);
+        let (mut outcome, mut spent) = edit(32, 0, &text);
+        let mut calls = 1;
+        while outcome == Outcome::More {
+            assert!(spent <= SMALL + SMALL / 4, "call {calls}: {spent} fuel");
+            (outcome, spent) = edit(32, text.len(), "");
+            calls += 1;
+        }
+        assert!(calls > 5, "{calls} calls");
+        assert_eq!(outcome, Outcome::Records(0, whole(&text).0));
+    }
+
+    #[test]
+    fn a_line_too_big_for_what_is_left_of_a_call_is_lexed_a_slice_at_a_time() {
+        let budget = 2 * SMALL;
+        testing(budget, u64::MAX);
+        let line = format!(
+            "const values = [{}];",
+            (0..2_500)
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        // Shorter than LONG_LINE, and planned at twice the budget: lexed whole, it would take one call past it.
+        assert!(line.len() < LONG_LINE && line.len() as u64 * PLANNED_PER_BYTE > 2 * budget);
+        let (mut outcome, mut spent) = edit(33, 0, &line);
+        let mut calls = 1;
+        while outcome == Outcome::More {
+            assert!(
+                spent <= budget + SLICE_PLANNED,
+                "call {calls}: {spent} fuel"
+            );
+            (outcome, spent) = edit(33, line.len(), "");
+            calls += 1;
+        }
+        assert!(calls > 2, "{calls} calls");
+        assert_eq!(outcome, Outcome::Records(0, whole(&line).0));
     }
 
     #[test]

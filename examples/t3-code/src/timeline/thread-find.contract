@@ -17,6 +17,10 @@ shape FindPart
   id: string
   text: string
   find: number
+  // Where the part starts in its run's or block's text, in UTF-16 units, counted once by its producer (markdown_find.rs
+  // find_parts). Summed here per part, as markdown.contract CodeToken `at` was, FindToken's condition summed twice:
+  // about 10 list steps a part, past the runner's 65,536 an evaluation at about 6,550 parts, which poisoned the runner.
+  at: number
 // A line drawn outside the Markdown (a workflow opening's title, description, a phase title) in highlight parts.
 shape FindLine
   id: string
@@ -28,7 +32,6 @@ component FindParts
   view
     for part in parts key=part.id
       text part.text background-color=findPaint(part.find) id=(part.find == 3 ? "thread-find-active" : "") color=(part.find >= 2 ? "#171717" : "inherit")
-fn findPartAt(parts: FindPart[], id: string): number = parts.slice(0, max(0, parts.map((part) => part.id).indexOf(id))).map((part) => part.text).join("").length
 component FindToken
   props
     value: string
@@ -36,8 +39,8 @@ component FindToken
     parts: FindPart[]
   view
     for part in parts key=part.id
-      if findPartAt(parts, part.id) < at + value.length and findPartAt(parts, part.id) + part.text.length > at
-        text value.slice(max(0, findPartAt(parts, part.id) - at), min(value.length, findPartAt(parts, part.id) + part.text.length - at)) id=(part.find == 3 and at <= findPartAt(parts, part.id) and at + value.length > findPartAt(parts, part.id) ? "thread-find-active" : "") background-color=findPaint(part.find) color=(part.find >= 2 ? "#171717" : "inherit")
+      if part.at < at + value.length and part.at + part.text.length > at
+        text value.slice(max(0, part.at - at), min(value.length, part.at + part.text.length - at)) id=(part.find == 3 and at <= part.at and at + value.length > part.at ? "thread-find-active" : "") background-color=findPaint(part.find) color=(part.find >= 2 ? "#171717" : "inherit")
 component ThreadFindBar
   props
     find: ThreadFindView

@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { contractComponent } from '../support/contract-action-fixture';
 import { highlightAsk, highlightPending, highlightStore, highlightTokens, highlightView, resetHighlights, tokensOf } from '../../src/highlight/highlights';
-import { highlightCode, highlightRound, lexed, lineRecords, settleHighlights } from '../support/highlights-fixture';
+import { highlightCode, highlightRound, lexed, lineRecords, resetLexers, settleHighlights } from '../support/highlights-fixture';
 
 type Answer = { name: string; highlightPending: boolean };
 
@@ -105,17 +105,17 @@ describe('an answer that painted a text without its tokens reports it', () => {
 });
 
 describe('what the views paint settles, and nothing starves', () => {
-  afterEach(() => resetHighlights());
+  afterEach(() => { resetHighlights(); resetLexers(); });
   /** A view's answer painting these texts, and whether it painted each with its tokens. */
   const paint = (view: string, texts: readonly string[], language = 'ts') => highlightView(view, () => ({ colored: texts.map(text => highlightTokens(text, language)?.some(token => token.cls) === true) }));
 
   test('a diff of more than 400 texts settles: none of them is dropped while the view paints them', async () => {
-    // Both sides of 300 hunks, lexed a few thousand characters a round.
+    // Both sides of 300 hunks, about 90 of them a round.
     const texts = Array.from({ length: 600 }, (_, i) => `export const value${i} = compute(${i}, "side ${i % 2}");`);
     let answer = await paint('data', texts), rounds = 0;
     while (answer.highlightPending) {
       if (++rounds > 50) throw new Error('the diff never settled');
-      if (highlightRound(4_000).finished) answer = await paint('data', texts); // the pump refreshes the view
+      if (highlightRound(2_000_000).finished) answer = await paint('data', texts); // the pump refreshes the view
     }
     expect(rounds).toBeGreaterThan(5);
     expect(answer.colored.every(Boolean)).toBe(true);
@@ -134,26 +134,29 @@ describe('what the views paint settles, and nothing starves', () => {
   });
 
   test('a long text in Files gets its tokens while a reply streams a block, which keeps getting its own', async () => {
+    // Several calls' worth: each call gives the file, which waited first, half its budget (highlights.rs answer;
+    // its own test holds the Rust to that), and the block the rest.
     const file = 'export function step(index: number): number { return index * 2 + offset; } // a long file\n'.repeat(3_500);
     expect(file.length).toBeGreaterThan(256 * 1024);
     const reply = Array.from({ length: 200 }, (_, i) => `const line${i} = ${i};`).join('\n');
-    let shell = await paint('shell', [file]), streamed = 0, round = 0;
+    let shell = await paint('shell', [file]), streamed = 0, rounds = 0, behind = 0;
     while (shell.highlightPending) {
-      if (++round > 40) throw new Error(`the file waited ${round} rounds`);
+      if (++rounds > 40) throw new Error(`the file waited ${rounds} rounds`);
       streamed = Math.min(reply.length, streamed + 120); // the reply grows every round
       const block = reply.slice(0, streamed);
       await paint('data', [block]);
       if (highlightRound().finished) shell = await paint('shell', [file]);
+      // The version the round took has its tokens, while the file still waits for its own.
+      if ((await paint('data', [block])).highlightPending) behind++;
     }
+    expect(rounds).toBeGreaterThan(5);
+    expect(behind).toBe(0);
     expect(shell.colored).toEqual([true]);
-    // The block's latest version has its tokens a round later.
-    highlightRound();
-    expect((await paint('data', [reply.slice(0, streamed)])).colored).toEqual([true]);
   });
 
   test('a streaming block lexes the line it continues and its new lines, and paints what the whole text would', () => {
     const reply = Array.from({ length: 400 }, (_, i) => `const line${i} = compute(${i}); // ${'x'.repeat(i % 40)}`).join('\n');
-    lexed.chars = 0;
+    lexed.bytes = 0;
     for (let end = 50; end <= reply.length; end += 50) {
       highlightTokens(reply.slice(0, end), 'ts');
       settleHighlights();
@@ -162,7 +165,7 @@ describe('what the views paint settles, and nothing starves', () => {
     const whole = reply.slice(0, reply.length - reply.length % 50);
     expect(tokens).toEqual(tokensOf(whole, lineRecords(72, whole)));
     // Lexed again whole, each of its 400 versions would cost half the block on average: 200 blocks.
-    expect(lexed.chars).toBeLessThan(3 * reply.length);
+    expect(lexed.bytes).toBeLessThan(3 * reply.length);
   });
 
   test('a document whose answer was lost starts again from its first line', () => {

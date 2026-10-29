@@ -38,7 +38,9 @@ export function messageCodeBlocks(markdownText: string): Highlighted[] {
     return known.blocks;
   }
   const blocks: Highlighted[] = [], painted: [string, string][] = [], deferrals = highlightDeferrals;
-  const fence = /^( {0,3})(`{3,}|~{3,})([^\n`]*)\n([\s\S]*?)\n? {0,3}\2[`~]*[ \t]*(?:\n|$)/gm;
+  // A fence still open runs to the end of the text, as CommonMark has it and the parser draws it (markdown-parse
+  // code_block): a reply streaming a block colours it as it grows, as the reference's ChatMarkdown does (isStreaming).
+  const fence = /^( {0,3})(`{3,}|~{3,})([^\n`]*)\n([\s\S]*?)(?:\n? {0,3}\2[`~]*[ \t]*(?:\n|$)|(?![\s\S]))/gm;
   for (const match of markdownText.matchAll(fence)) {
     const indent = match[1]!.length, language = match[3]!.trim().split(/\s+/)[0] ?? '';
     const code = (indent ? match[4]!.split('\n').map(line => line.replace(new RegExp(`^ {0,${indent}}`), '')).join('\n') : match[4]!).replace(/\n+$/, '');

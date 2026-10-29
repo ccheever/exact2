@@ -9,7 +9,8 @@
 // A call to the lexers has a budget, so a long text is a document they keep and lex over several rounds, and a
 // streaming block is a document each new version appends to (the reference's incrementalHighlighting.ts): only the
 // line it continues and its new lines are lexed again. The texts each view's latest answer paints stay cached however
-// many there are; the others are kept up to KEPT.
+// many there are; the others are kept up to KEPT and KEPT_CHARS. A view's answer pins, and reports waiting, only the
+// texts it painted itself, read through the runtime's answer context (answering).
 
 import { FILE_TYPES } from './file-languages';
 import { LEXER_IDS, TYPE_CLASSES } from './highlights-tables';
@@ -31,6 +32,8 @@ const STALE_ASKS = 60;
 const KEPT = 400, KEPT_CHARS = 4_000_000;
 /** The recent lexed texts of a language a longer text may extend, and the documents kept (highlights.rs DOCUMENTS). */
 const EXTENDABLE = 24, DOCUMENTS = 8;
+/** streamOf's answer for a text that needs a new document while every document kept has work in flight. */
+const FULL = 'full';
 /** highlightCode's `line` for a document with lines left, one to start again, and lexers that trapped. */
 const MORE = -1, AGAIN = -2, FAILED = -3;
 
@@ -68,6 +71,8 @@ interface Slot {
   asked: number; since: number; used: number;
   stream: Stream | null;
 }
+/** A view's answer (highlightView): the texts it has painted so far, and whether one of them waited for its tokens. */
+interface Answer { painted: Set<Slot>; deferred: boolean }
 /** A document the lexers keep: a long text, or a streaming block's versions. */
 interface Stream {
   doc: number; family: string;
@@ -87,8 +92,11 @@ const asked = new Map<number, Slot>();
 /** The recent lexed texts of each family, newest last, for a text that extends one. */
 const recent = new Map<string, Slot[]>();
 let streams: Stream[] = [];
-/** The texts each view's latest answer painted, and those the answers in flight have painted so far. */
-const shown = new Map<string, Set<Slot>>(), painting = new Map<string, Set<Slot>>();
+/** The texts each view's latest answer painted, and the answer each view has in flight (its newest). */
+const shown = new Map<string, Set<Slot>>(), painting = new Map<string, Answer>();
+/** The answers in flight by the runtime's answer each runs under, and the one whose highlightView runs synchronously. */
+const byCall = new Map<unknown, Answer>();
+let running: Answer | null = null;
 let nextId = 1, nextDoc = 1, asks = 0, uses = 0;
 /** How many times highlightTokens answered "not yet": a cache of highlight results checks it. */
 export let highlightDeferrals = 0;
@@ -110,9 +118,11 @@ export function highlightTokens(text: string, nameOrPath: string, maxLineLength 
     else waiting.add(slot);
   }
   slot.used = ++uses; slot.asked = asks;
-  for (const painted of painting.values()) painted.add(slot);
+  const answer = answering();
+  answer?.painted.add(slot);
   if (slot.tokens) return slot.tokens;
   highlightDeferrals++;
+  if (answer) answer.deferred = true;
   const base = extendedSlot(family, text);
   return base?.tokens ? [...base.tokens, { text: text.slice(base.text.length), cls: '' }] : null;
 }
@@ -122,7 +132,21 @@ export function highlightShown(text: string, nameOrPath: string, maxLineLength =
   const slot = families.get(`${lexerOf(nameOrPath)}\u0000${maxLineLength}`)?.get(text);
   if (!slot) return;
   slot.used = ++uses;
-  for (const painted of painting.values()) painted.add(slot);
+  answering()?.painted.add(slot);
+}
+
+/** The runtime's current answer (js/src/prelude.js `__exact_async_context`), null in a realm with none (a test). The
+ *  bundle resumes each step of an async function under the answer it began under (LLP 1133.002 D14), so a text a
+ *  view's answer paints after an await is still its own. */
+function currentCall(): unknown {
+  return (globalThis as { __exact_async_context?: { current(): unknown } }).__exact_async_context?.current() ?? null;
+}
+
+/** The view answer painting now: the one in flight under the runtime's current answer, else the one whose
+ *  highlightView is running synchronously. */
+function answering(): Answer | null {
+  const call = currentCall();
+  return (call === null ? undefined : byCall.get(call)) ?? running;
 }
 
 /** The longest recent lexed text of the family that `text` extends. */
@@ -139,22 +163,28 @@ export const highlightPending = (): boolean => waiting.size > 0 || asked.size > 
 
 /** One view's answer (app.ts): it reports whether it painted a text that waits for its tokens, and the texts it paints
  *  stay cached until its next answer, so the cache never drops a text on screen. A newer answer of the view replaces
- *  one still in flight. */
+ *  one still in flight. Another view's texts, painted while this one is in flight, are neither pinned nor reported. */
 export async function highlightView<T extends object>(view: string, answer: () => T | Promise<T>): Promise<T & { highlightPending: boolean }> {
-  const painted = new Set<Slot>(), deferrals = highlightDeferrals;
-  painting.set(view, painted);
+  const mine: Answer = { painted: new Set(), deferred: false }, before = running, call = currentCall();
+  painting.set(view, mine);
+  if (call !== null) byCall.set(call, mine);
   try {
-    const value = await answer();
-    if (painting.get(view) === painted) shown.set(view, painted);
-    return { ...value, highlightPending: highlightDeferrals !== deferrals };
+    let value: T | Promise<T>;
+    running = mine;
+    try { value = answer(); } finally { running = before; }
+    const result = await value;
+    if (painting.get(view) === mine) shown.set(view, mine.painted);
+    return { ...result, highlightPending: mine.deferred };
   } finally {
-    if (painting.get(view) === painted) painting.delete(view);
+    if (painting.get(view) === mine) painting.delete(view);
+    if (call !== null && byCall.get(call) === mine) byCall.delete(call);
   }
 }
 
 function pinned(): Set<Slot> {
   const slots = new Set<Slot>();
-  for (const views of [shown, painting]) for (const painted of views.values()) for (const slot of painted) slots.add(slot);
+  for (const painted of shown.values()) for (const slot of painted) slots.add(slot);
+  for (const answer of painting.values()) for (const slot of answer.painted) slots.add(slot);
   return slots;
 }
 
@@ -171,18 +201,46 @@ function long(text: string): boolean {
 }
 
 /** The document a text goes to: the one of its family it extends, else a new one for a long text or the next version
- *  of a text lexed whole (a streaming block grows); null for a text lexed whole. */
-function streamOf(slot: Slot): Stream | null {
+ *  of a text lexed whole (a streaming block grows); null for a text lexed whole. A text with a CR is a document only
+ *  when long, and its versions start it again rather than append (highlightAsk), as the reference's
+ *  incrementalHighlighting.ts lexes such a text whole: an append that splits a CRLF, or a version that ends in a CR,
+ *  lexes its lines otherwise than the whole text does. FULL when a new document would drop one with work in flight. */
+function streamOf(slot: Slot): Stream | null | typeof FULL {
+  if (!slot.long && slot.text.includes('\r')) return null;
   let best: Stream | null = null;
   for (const stream of streams) {
     if (stream.family === slot.family && stream.text && slot.text.startsWith(stream.text) && (!best || stream.text.length > best.text.length)) best = stream;
   }
   if (best) return best;
   if (!slot.long && !extendedSlot(slot.family, slot.text)) return null;
+  if (streams.length >= DOCUMENTS) {
+    // highlights.rs drops its least recently used document to start another, the first here. While that one has
+    // work in flight the new text waits: two texts dropping each other's documents would each start again every round.
+    if (working(streams[0]!)) return FULL;
+    streams.shift();
+  }
   const stream: Stream = { doc: nextDoc++, family: slot.family, text: '', lines: 0, final: [], finalChars: 0, restart: false, busy: false };
   streams.push(stream);
-  if (streams.length > DOCUMENTS) streams = streams.slice(-DOCUMENTS);
   return stream;
+}
+
+/** Whether a text waiting or asked for continues the document. */
+function working(stream: Stream): boolean {
+  const continues = (slot: Slot) => slot.family === stream.family && slot.text.startsWith(stream.text);
+  for (const slot of waiting) if (continues(slot)) return true;
+  for (const slot of asked.values()) if (continues(slot)) return true;
+  return false;
+}
+
+/** The waiting texts no view paints that another waiting text of their family extends. In sorted order a text's
+ *  extensions follow it, the first of them next. */
+function superseded(painted: Set<Slot>): Slot[] {
+  const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  const sorted = [...waiting].sort((a, b) => order(a.family, b.family) || order(a.text, b.text));
+  return sorted.filter((slot, at) => {
+    const next = sorted[at + 1];
+    return !painted.has(slot) && next?.family === slot.family && next.text.startsWith(slot.text);
+  });
 }
 
 function drop(slot: Slot): void {
@@ -193,7 +251,9 @@ function drop(slot: Slot): void {
 /** The pump's ask (app.contract highlightStep): the waiting texts, the longest-waiting first (a long text lexed over
  *  several rounds, or one behind newer texts, keeps its place), whole texts up to ASK_CHARS and one request a document,
  *  each with an id for its answer; `pending` when more wait. A text that has waited STALE_ASKS asks with no view
- *  painting it is dropped, and one a round asked for that never stored (its call failed) waits again. */
+ *  painting it is dropped, as is one no view paints that a newer waiting text extends (a streaming block's older
+ *  version: its document takes the newest, not each in turn a round apart), and one a round asked for that never
+ *  stored (its call failed) waits again. */
 export function highlightAsk(): { requests: { id: number; language: number; doc: number; from: number; text: string }[]; pending: boolean } {
   asks++;
   for (const slot of asked.values()) {
@@ -203,14 +263,16 @@ export function highlightAsk(): { requests: { id: number; language: number; doc:
   asked.clear();
   for (const stream of streams) stream.busy = false;
   const painted = pinned(), requests: { id: number; language: number; doc: number; from: number; text: string }[] = [];
+  for (const slot of superseded(painted)) drop(slot);
   let chars = 0;
   for (const slot of [...waiting].sort((a, b) => a.since - b.since)) {
     if (asks - slot.asked > STALE_ASKS && !painted.has(slot)) { drop(slot); continue; }
     const stream = streamOf(slot);
+    if (stream === FULL) continue;
     let doc = 0, from = 0, text = slot.text;
     if (stream) {
       if (stream.busy) continue;
-      if (stream.restart || !stream.text) Object.assign(stream, { lines: 0, final: [], finalChars: 0, restart: false });
+      if (stream.restart || !stream.text || (slot.text !== stream.text && slot.text.includes('\r'))) Object.assign(stream, { lines: 0, final: [], finalChars: 0, restart: false });
       else { from = stream.text.length; text = slot.text.slice(from); }
       Object.assign(stream, { text: slot.text, busy: true });
       streams = [...streams.filter(entry => entry !== stream), stream];
@@ -321,6 +383,6 @@ export function tokensOf(text: string, records: readonly number[], max = 0): Tok
 
 /** Tests: no lexed, waiting or asked texts, documents or views. */
 export function resetHighlights(): void {
-  families.clear(); waiting.clear(); asked.clear(); recent.clear(); shown.clear(); painting.clear();
-  streams = []; asks = 0;
+  families.clear(); waiting.clear(); asked.clear(); recent.clear(); shown.clear(); painting.clear(); byCall.clear();
+  streams = []; asks = 0; running = null;
 }

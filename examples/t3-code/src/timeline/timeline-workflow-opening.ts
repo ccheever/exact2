@@ -100,8 +100,8 @@ export function workflowOpeningRows(opening: WorkflowOpening, context: SubagentC
 export function findLine(id: string, text: string, query: string) {
   const ranges = literalFindRanges(text, query), cuts = [...new Set([0, text.length, ...ranges.flatMap(range => [range.start, range.end])])].sort((a, b) => a - b);
   const parts = cuts.slice(1).map((end, index) => ({ start: cuts[index]!, end })).filter(part => part.end > part.start)
-    .map((part, index) => ({ id: String(index), text: text.slice(part.start, part.end), find: ranges.some(range => part.start >= range.start && part.end <= range.end) ? 1 : 0 }));
-  return { id, parts: parts.length ? parts : [{ id: '0', text, find: 0 }] };
+    .map((part, index) => ({ id: String(index), text: text.slice(part.start, part.end), find: ranges.some(range => part.start >= range.start && part.end <= range.end) ? 1 : 0, at: part.start }));
+  return { id, parts: parts.length ? parts : [{ id: '0', text, find: 0, at: 0 }] };
 }
 
 /**

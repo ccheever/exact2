@@ -119,6 +119,8 @@ fn find_parts(text: &str, at: usize, ranges: &[(usize, usize)], active: Option<u
                     } else {
                         0.0
                     }),
+                    // Where the part starts in `text` (thread-find.contract FindToken places a code token's parts by it).
+                    Value::Number((cut[0] - at) as f64),
                 ])
             })
             .collect(),
@@ -370,11 +372,70 @@ mod find_tests {
         }
     }
     #[test]
+    fn each_part_says_where_it_starts_in_its_run_or_block() {
+        let parts = |value: &Value| -> Vec<(String, f64, f64)> {
+            let Value::List(parts) = value else { panic!() };
+            parts
+                .iter()
+                .map(|part| match part {
+                    Value::Record(fields) => (
+                        fields[1].as_str().unwrap().to_string(),
+                        fields[2].as_number().unwrap(),
+                        fields[3].as_number().unwrap(),
+                    ),
+                    _ => panic!(),
+                })
+                .collect()
+        };
+        let blocks = |source: &str| {
+            let doc = find_document(
+                document(Value::str("entry"), source),
+                "needle",
+                Some(1),
+                "",
+                false,
+                &[],
+            );
+            let Value::Record(doc) = doc else { panic!() };
+            let Value::List(blocks) = &doc[1] else {
+                panic!()
+            };
+            blocks.clone()
+        };
+        // A code block's parts count from its code's start.
+        let Value::Record(code) = &blocks("```ts\nneedle = needle;\n```")[0] else {
+            panic!()
+        };
+        assert_eq!(
+            parts(&code[20]),
+            [
+                ("needle".into(), 1.0, 0.0),
+                (" = ".into(), 0.0, 6.0),
+                ("needle".into(), 3.0, 9.0),
+                (";".into(), 0.0, 15.0),
+            ]
+        );
+        // A run's count from the run's start, not the block's.
+        let Value::Record(prose) = &blocks("**bold** needle")[0] else {
+            panic!()
+        };
+        let Value::List(runs) = &prose[7] else {
+            panic!()
+        };
+        let Value::Record(second) = &runs[1] else {
+            panic!()
+        };
+        assert_eq!(
+            parts(&second[11]),
+            [(" ".into(), 0.0, 0.0), ("needle".into(), 1.0, 1.0)]
+        );
+    }
+    #[test]
     fn code_and_table_keep_complete_text_and_a_single_active_anchor() {
         fn anchors(value: &Value) -> usize {
             match value {
                 Value::Record(fields)
-                    if fields.len() == 3 && matches!(fields[2], Value::Number(3.0)) =>
+                    if fields.len() == 4 && matches!(fields[2], Value::Number(3.0)) =>
                 {
                     1
                 }
@@ -504,7 +565,7 @@ mod find_tests {
     fn marked_parts(value: &Value) -> Vec<(String, u8)> {
         match value {
             Value::Record(fields)
-                if fields.len() == 3
+                if fields.len() == 4
                     && fields[1].as_str().is_some()
                     && matches!(fields[2], Value::Number(_)) =>
             {

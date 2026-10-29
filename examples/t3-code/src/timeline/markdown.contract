@@ -95,9 +95,10 @@ shape CodeToken
   id: string
   text: string
   cls: string
-  // Where the token starts in its block's code, in UTF-16 units (find and citation marks). It is counted once in
-  // TypeScript: summed here per token, it took N + 2k list steps for the k-th of N tokens, past the runner's 65,536
-  // an evaluation (runner/src/vm.rs MAX_LIST_STEPS) in a block of about 20,000 tokens, which poisoned the runner.
+  // Where the token starts in its block's code, in UTF-16 units (find and citation marks), counted once in TypeScript
+  // (timeline-highlight.ts codeTokens). Summed here per token, the last of N tokens took about 5N list steps (map,
+  // indexOf, slice, map and join each walk the list), past the runner's 65,536 an evaluation (runner/src/vm.rs
+  // MAX_LIST_STEPS) at about 13,100 tokens, and the trap poisoned the runner.
   at: number
 shape CodeHighlight
   id: string
