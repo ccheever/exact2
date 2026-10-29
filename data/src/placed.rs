@@ -55,11 +55,25 @@ type Retirement = (Vec<(Target, String, Vec<Vec<u8>>)>, Vec<(String, Vec<u8>)>);
 struct OwnerQueue {
     sender: Sender<Job>,
     pending: Option<Arc<Mutex<Option<Retirement>>>>,
-    /// Turns dispatched whose job the host has not handed over yet, by token.
-    /// A retirement that lets one's call go takes it out, and its job is then
-    /// never sent: it would begin after the marker that let it go, and park
-    /// for good.
-    unqueued: HashSet<u64>,
+    /// Turns dispatched whose job the host has not handed over yet, by
+    /// token, with their call's key (none for an untargeted call, which the
+    /// instance never lets go). A retirement whose view leaves the key out
+    /// takes it out, as the instance lets a parked call go, and its job is
+    /// then never sent: it would begin after the marker that let it go, and
+    /// park for good.
+    unqueued: HashMap<u64, Option<(Target, String, Vec<Vec<u8>>)>>,
+}
+
+/// A dispatched turn's entry in [`OwnerQueue::unqueued`], removed when its
+/// closure is dropped (run or abandoned).
+struct Unqueued(Arc<Mutex<OwnerQueue>>, u64);
+
+impl Drop for Unqueued {
+    fn drop(&mut self) {
+        if let Ok(mut queue) = self.0.lock() {
+            queue.unqueued.remove(&self.1);
+        }
+    }
 }
 
 impl OwnerQueue {
@@ -449,7 +463,7 @@ impl<D: DataSource + 'static> Placed<D> {
         self.owner = Some(Arc::new(Mutex::new(OwnerQueue {
             sender: jobs,
             pending: None,
-            unqueued: HashSet::new(),
+            unqueued: HashMap::new(),
         })));
         Ok(())
     }
@@ -808,7 +822,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             }
         }
         if let Some(owner) = &self.owner {
-            let view = in_flight
+            let view: Vec<(Target, String, Vec<Vec<u8>>)> = in_flight
                 .iter()
                 .filter(|f| {
                     !matches!(
@@ -820,10 +834,13 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                 .collect();
             let snapshot = envelope::snapshot(store, &self.grants);
             let mut queue = owner.lock().unwrap();
-            // A dispatched turn not yet handed over whose call is let go now
-            // is never sent: under the same lock as the marker, so it is
-            // either queued before the marker or not at all.
-            queue.unqueued.retain(|token| tokens.contains(token));
+            // A dispatched turn not yet handed over whose call this view lets
+            // go is never sent: under the same lock as the marker, so it is
+            // either queued before the marker or not at all. By key, as the
+            // instance lets parked calls go (a wrapper may not pass tokens).
+            queue
+                .unqueued
+                .retain(|_, key| key.as_ref().is_none_or(|key| view.contains(key)));
             queue.forgotten((view, snapshot));
         } else if let Some(inner) = self.inner.as_mut() {
             inner.forgotten(store, in_flight);
@@ -857,8 +874,12 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             } => (target, source, encode_args(&args), Some(outcome)),
         };
         let clock = store.clock_ms();
-        owner.lock().unwrap().unqueued.insert(token);
+        let key = target.map(|target| (target, source.clone(), args.clone()));
+        owner.lock().unwrap().unqueued.insert(token, key);
+        // An abandoned closure (the host drops it unrun) leaves no entry.
+        let guard = Unqueued(owner.clone(), token);
         Dispatch::Run(Work::Later(Box::new(move |reply| {
+            let _guard = guard;
             let job = match outcome {
                 None => Job::Answer {
                     target,
@@ -881,7 +902,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             // A closed channel drops the reply, which reports `Aborted`; so
             // does a call let go before its job was handed over.
             let mut queue = owner.lock().unwrap();
-            if queue.unqueued.remove(&token) {
+            if queue.unqueued.remove(&token).is_some() {
                 queue.turn(job);
             }
         })))
@@ -1424,6 +1445,73 @@ mod tests {
         );
     }
 
+    /// A turn dispatched and not yet handed over survives a retirement that
+    /// keeps its call: an untargeted one (a tool handler's, which the
+    /// instance never lets go), and a targeted one whose key is in flight
+    /// with no token (a wrapper that does not pass the token on). An
+    /// abandoned one leaves no entry.
+    #[test]
+    fn a_turn_not_yet_handed_over_survives_a_retirement_that_keeps_its_call() {
+        let (started_tx, started_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        let answered = Arc::new(Mutex::new(Vec::new()));
+        let mut placed = Placed::new(
+            Hears {
+                started: started_tx,
+                release: release_rx,
+                views: Default::default(),
+                answered: answered.clone(),
+            },
+            Placement::Worker,
+        );
+        placed.activate().unwrap();
+        let mut store = Store::new("", []);
+        let args = [Value::Number(1.0)];
+        let later = |answer: Result<Answer, DataError>| match answer.unwrap() {
+            Answer::Later(request) => request.continuation.unwrap(),
+            _ => panic!("a worker answer"),
+        };
+        let empty = Store::new("", []);
+        let slow = later(placed.answer(&mut store, "slow", &args));
+        let first = send(placed.dispatch(slow, &empty));
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let handler = later(placed.answer(&mut store, "handler", &args));
+        let read = later(placed.answer_for(Target::Resource(0), &mut store, "read", &args));
+        let abandoned = later(placed.answer_for(Target::Resource(1), &mut store, "gone", &args));
+        let turn = |dispatch| match dispatch {
+            Dispatch::Run(Work::Later(turn)) => turn,
+            _ => panic!("an owner turn"),
+        };
+        let handler_turn = turn(placed.dispatch(handler, &empty));
+        let read_turn = turn(placed.dispatch(read, &empty));
+        drop(turn(placed.dispatch(abandoned, &empty)));
+        let in_flight = [InFlight {
+            target: Target::Resource(0),
+            source: "read",
+            args: &args,
+            continuation: None,
+        }];
+        placed.forgotten(&empty, &in_flight);
+        let mut replies = Vec::new();
+        for turn in [handler_turn, read_turn] {
+            let (tx, rx) = channel();
+            turn(Reply::new(move |outcome| tx.send(outcome).unwrap()));
+            replies.push(rx);
+        }
+        release_tx.send(()).unwrap();
+        first.recv_timeout(Duration::from_secs(5)).unwrap();
+        for reply in replies {
+            let outcome = reply.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(!matches!(outcome, Outcome::Failed { .. }), "{outcome:?}");
+        }
+        assert_eq!(*answered.lock().unwrap(), ["slow", "handler", "read"]);
+        let queue = placed.owner.as_ref().unwrap().lock().unwrap();
+        assert!(
+            queue.unqueued.is_empty(),
+            "an abandoned turn's entry stayed"
+        );
+    }
+
     /// The coalescing's claim, checked: random retirements and turns, the
     /// owner draining now and then, let go of exactly the calls processing
     /// every retirement on its own, in order, does.
@@ -1484,12 +1572,12 @@ mod tests {
             let mut coalesced = OwnerQueue {
                 sender: coalesce_tx,
                 pending: None,
-                unqueued: HashSet::new(),
+                unqueued: HashMap::new(),
             };
             let mut ordered = OwnerQueue {
                 sender: order_tx,
                 pending: None,
-                unqueued: HashSet::new(),
+                unqueued: HashMap::new(),
             };
             let (mut parked_c, mut gone_c, mut ids_c) = (Vec::new(), Vec::new(), 0);
             let (mut parked_o, mut gone_o, mut ids_o) = (Vec::new(), Vec::new(), 0);
