@@ -328,6 +328,11 @@ fn in_package(dir: &std::path::Path, file: &std::path::Path) -> Result<Option<St
         .then(|| "node_modules".to_string()))
 }
 
+/// Whether one of the app's package designs defines the token `name`.
+pub(crate) fn defines_package_token(app: &AppParams, name: &str) -> bool {
+    owner(app, name, false).is_some()
+}
+
 /// The package design that defines the token `name`, and its line for it;
 /// with `icons`, an icon of that name too (stage 13): what a row says of
 /// it, where a write's ops take tokens alone (no op writes an icon).

@@ -6,6 +6,7 @@
 //! against. Planned against the app's design as it is, so an unchanged
 //! source proposes nothing.
 
+use exact_tamber::import::brand::Brand;
 use exact_tamber::import::{astryx, dtcg, shadcn, tailwind, Import};
 use exact_tamber::Op;
 use serde_json::{json, Value};
@@ -43,7 +44,12 @@ pub fn plan_alone(args: &[String]) -> ExitCode {
     let reply = match serde_json::from_str::<Value>(&input) {
         Ok(v) => {
             let kept = crate::tamber_export::kept(Path::new(design));
-            match plan(&v["request"], v["design"].as_str(), &kept) {
+            match plan(
+                &v["request"],
+                v["design"].as_str(),
+                &kept,
+                Path::new(design).parent(),
+            ) {
                 Ok(ok) => json!({ "ok": ok }),
                 Err(error) => json!({ "error": error }),
             }
@@ -142,7 +148,14 @@ pub fn run(args: &[String]) -> ExitCode {
     };
     match imported {
         Ok(import) => {
-            println!("{}", import_json(&kind, &import));
+            let pairs = brand_pairs(app.as_deref().map(Path::new));
+            let brands = exact_tamber::import::brand::brands(
+                &import,
+                &design,
+                &contract_lower::tamber_vocab(),
+                &pairs,
+            );
+            println!("{}", import_json(&kind, &import, &brands));
             ExitCode::SUCCESS
         }
         Err(all) => {
@@ -220,7 +233,12 @@ fn import_with(
 /// `name` is the file's (a Figma export's `<Collection>.<Mode>.json` names
 /// its modes). Astryx is not taken here: resolving its package needs a Bun
 /// install, which its CLI does.
-pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Value, Value> {
+pub fn plan(
+    request: &Value,
+    design: Option<&str>,
+    kept: &[String],
+    app_dir: Option<&Path>,
+) -> Result<Value, Value> {
     // The design it planned on, by digest (none with no design file yet), so
     // the wire holds the proposal on that same text or plans again.
     let digest = design.map(|t| crate::tamber_serve::digest(t.as_bytes()));
@@ -346,7 +364,13 @@ pub fn plan(request: &Value, design: Option<&str>, kept: &[String]) -> Result<Va
             json!({"message": "the source is refused", "diagnostics": all.iter().map(|d| if files.len() == 1 { json!({"file": files[0].0, "line": d.line, "col": d.col, "id": d.id, "message": d.message}) } else { json!({"id": d.id, "message": d.message}) }).collect::<Vec<_>>()}),
         ),
         Some(Ok(import)) => {
-            let mut out = import_json(&kind, &import);
+            let brands = exact_tamber::import::brand::brands(
+                &import,
+                &design,
+                &contract_lower::tamber_vocab(),
+                &brand_pairs(app_dir),
+            );
+            let mut out = import_json(&kind, &import, &brands);
             out["digest"] = json!(digest);
             Ok(out)
         }
@@ -395,7 +419,35 @@ fn read_source(path: &Path) -> std::io::Result<Vec<(String, String)>> {
     Ok(out)
 }
 
-fn import_json(kind: &str, import: &Import) -> Value {
+/// The packages' brand fills, each with its ink's token (theme2's brand-fill
+/// ruling, 2026-10-29): a filled control the platform's accent doesn't
+/// reach, so an import's accent is offered for it.
+const BRAND_PAIRS: [(&str, &str); 2] = [
+    ("actions.follow-fill", "actions.follow-ink"),
+    ("cards.empty-button", "cards.empty-button-ink"),
+];
+
+/// The brand pairs the app's packages declare, fill and ink both; none
+/// without an app.
+fn brand_pairs(app_dir: Option<&Path>) -> Vec<(String, String)> {
+    let Some(contract) = app_dir
+        .map(|d| d.join("app.contract"))
+        .filter(|c| c.is_file())
+    else {
+        return Vec::new();
+    };
+    let app = contract::tamber_params::params_of(&contract);
+    BRAND_PAIRS
+        .iter()
+        .filter(|(fill, ink)| {
+            crate::tamber_packages::defines_package_token(&app, fill)
+                && crate::tamber_packages::defines_package_token(&app, ink)
+        })
+        .map(|(fill, ink)| (fill.to_string(), ink.to_string()))
+        .collect()
+}
+
+fn import_json(kind: &str, import: &Import, brands: &[Brand]) -> Value {
     let mut out = json!({
         "importer": kind,
         "ops": import.ops.iter().map(op_json).collect::<Vec<_>>(),
@@ -417,6 +469,15 @@ fn import_json(kind: &str, import: &Import) -> Value {
             "mapped": import.counted.mapped,
             "reported": import.counted.reported,
         },
+        // An accent offered as the packages' brand fills (*1.18*): told apart
+        // from a role override by `sets`, a package token, never a role.
+        "brands": brands.iter().map(|b| json!({
+            "sets": b.sets,
+            "token": b.token,
+            "ops": b.ops.iter().map(op_json).collect::<Vec<_>>(),
+            "note": b.note,
+            "contrast": {"light": b.contrast[0], "dark": b.contrast[1]},
+        })).collect::<Vec<_>>(),
         // A re-import's dial changes and marked pins (LLP 1121 D14, stage 10b).
         "dials": dials_json(&import.dials),
         "pins": pins_json(&import.pins),
@@ -537,7 +598,7 @@ mod tests {
         let export = exact_tamber::export::dtcg(&small, &vocab).unwrap();
         let request =
             json!({"kind": "dtcg", "name": "s.json", "source": export, "baseline": export});
-        let refused = plan(&request, Some(&design), &[]).unwrap_err();
+        let refused = plan(&request, Some(&design), &[], None).unwrap_err();
         assert_eq!(refused["message"], "the source is refused", "{refused}");
         assert!(refused.to_string().contains("expands past"), "{refused}");
     }

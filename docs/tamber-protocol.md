@@ -1082,7 +1082,7 @@ held`), and announces it.
 **`accept`** `{proposal, client, items?}` applies the proposal against the digests it was planned
 with.
 - **With no `items`,** or with every index, it applies **every** operation, an import's role
-  offers included. To leave offers off, a client names the indices it keeps.
+  offers (and brand offers, *1.18*) included. To leave offers off, a client names the indices it keeps.
 - **Applied,** the reply is a transaction's. The write is attributed to the proposer (`client`),
   and its `changed` event carries `acceptedBy` and `proposal`.
 - **A file moved since, or `items` naming only some operations,** puts the kept operations up again
@@ -1257,11 +1257,20 @@ list is unchanged: it keeps its own.
 - **Astryx is refused here** and keeps its CLI (`bun exact.mjs tamber import astryx …`), since
   resolving its package needs a Bun install.
 - **The import is held as a proposal** whose `review` is `{importer, counted, unmapped, offers,
-  tokens, notes?, dials?, pins?}` (`notes` *1.17*, what decided a choice the source didn't say; the
-  last two a re-import's, below):
+  brands?, tokens, notes?, dials?, pins?}` (`brands` *1.18*, below; `notes` *1.17*, what decided a choice the source
+  didn't say; the last two a re-import's, below):
   - `counted` is `{source, mapped, reported}`;
   - `unmapped` is `[{block, name, value, why, token}]`;
   - `offers` is `[{role, token, items, note}]`;
+  - `brands` (*1.18*), when there are any, is `[{sets, token, items, note?, contrast}]`: the import's accent (the
+    token its `AccentColor` offer names) offered as a package's brand fill, a filled control the platform's accent
+    doesn't reach (`actions.follow-fill`, `cards.empty-button`), where the app's packages declare it and its ink.
+    A brand offer is told apart from a role override by `sets`, the package token it sets for the app; it has no
+    `role`, and sits in a list of its own, so a client that reads only `offers` never shows one and, naming the
+    items it keeps, never takes one. Its `items` are the fill set to the accent and its ink's token set to white or
+    black for each scheme, whichever reaches 4.5:1 on that scheme's fill (`light-dark(…)` when they differ);
+    `contrast` is `{light, dark}`, the ratio the ink reaches, cut to two places as the checker's are, or null on a
+    fill that isn't opaque, where `note` says so. Like a role override, it is off until ticked;
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).

@@ -19,8 +19,15 @@ export function importReview(imported) {
     ops.push(...o.ops);
     return { role: o.role, token: o.token, items, note: o.note };
   });
+  // The accent as the packages' brand fills (*1.18*), after the role overrides: a list of its own, so a tool that
+  // reads only `offers` never shows one, and its accept, naming the items it keeps, leaves them off.
+  const brands = (imported.brands ?? []).map(b => {
+    const items = b.ops.map((op, k) => ops.length + k);
+    ops.push(...b.ops);
+    return { sets: b.sets, token: b.token, items, ...(b.note ? { note: b.note } : {}), contrast: b.contrast };
+  });
   // (a choice the source didn't say, and what decided it: a Pencil number's kind, *1.17*)
-  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length, ...(imported.notes?.length ? { notes: imported.notes } : {}), ...marked(ops, imported.dials, imported.pins) } };
+  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, ...(brands.length ? { brands } : {}), tokens: imported.ops.length, ...(imported.notes?.length ? { notes: imported.notes } : {}), ...marked(ops, imported.dials, imported.pins) } };
 }
 
 /** A re-import's dial changes and marked pins (stage 10b), when it has any,
@@ -67,8 +74,9 @@ export async function importTheme(argv) {
     for (const u of review.unmapped) console.log(`  unmapped ${u.block} ${u.name}: ${u.value || '(empty)'} (${u.why}${u.token ? `; would be ${u.token}` : ''})`);
     for (const note of review.notes ?? []) console.log(`  note ${note}`);
     for (const o of review.offers) console.log(`  offer ${o.role} → ${o.token}${o.items.length ? `: items ${o.items.join(', ')}` : `: ${o.note}`}`);
+    for (const b of review.brands ?? []) console.log(`  brand ${b.sets} → ${b.token}: items ${b.items.join(', ')} (its label ${b.contrast.light ?? 'no one ratio'}:1 light, ${b.contrast.dark ?? 'no one ratio'}:1 dark)${b.note ? `: ${b.note}` : ''}`);
   };
-  const told = (proposal, ops, review) => console.log(`proposal ${proposal}: ${ops.length} operations (${review.tokens} tokens and axes, ${review.offers.flatMap(o => o.items).length} offered), held for review`);
+  const told = (proposal, ops, review) => console.log(`proposal ${proposal}: ${ops.length} operations (${review.tokens} tokens and axes, ${[...review.offers, ...(review.brands ?? [])].flatMap(o => o.items).length} offered), held for review`);
   let sources;
   try { sources = sourcesOf(resolve(source)); } catch (e) { console.error(`tamber import: ${e.message}`); return 1; }
   if (kind !== 'astryx') {
