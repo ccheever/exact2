@@ -19,8 +19,8 @@ static NSString *output;
 static BOOL painted;
 static NSString *arm;
 static double tickSeconds;
-static size_t topItem;
-static float topOffset;
+static atomic_size_t topItem;
+static _Atomic(float) topOffset;
 
 void g1_ready(int complete, size_t item, float offset) {
     atomic_store(&completeScene, complete != 0);
