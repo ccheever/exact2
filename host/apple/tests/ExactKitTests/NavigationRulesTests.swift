@@ -925,7 +925,8 @@ final class MacShortcutTests: XCTestCase {
 
     /// LLP 1115.000 D7.8: a release build has no Develop menu, and so takes
     /// none of its chords (Reload ⌘R, Open Project… ⌘O, App Info… ⌘D, Save
-    /// Trace ⌥⌘T); a development build's bar is as it was.
+    /// Trace ⌥⌘T); a development build's bar is as it was, with the
+    /// frame-health commands, which take none.
     func testOnlyADevelopmentBuildsBarHasDevelopAndItsChords() {
         let presenter = Presenter()
         let window = window(presenter)
@@ -943,9 +944,10 @@ final class MacShortcutTests: XCTestCase {
         let development = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: true)
         XCTAssertEqual(titles(development), ["File", "Edit", "View", "Go", "Window", "Develop", "Help"])
         let develop = development.items.first { $0.submenu?.title == "Develop" }!.submenu!
-        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Save Trace"])
-        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "t"])
-        XCTAssertEqual(develop.items.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
+        // The frame-health commands (#1141) take no chord.
+        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Show Frame Health", "Frame Health Details…", "Share Frame Health…", "Save Trace"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "", "", "", "t"])
+        XCTAssertEqual(develop.items.filter { !$0.keyEquivalent.isEmpty }.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
         // Which build is which: production trust, or `build.mjs`'s stamp of a
         // production or distributed build (`exact release`); an unstamped
         // host, as this test's, is a development one. The environment

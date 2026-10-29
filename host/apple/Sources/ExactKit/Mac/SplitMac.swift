@@ -233,6 +233,9 @@ final class SplitHost {
         // With no batch to run them, the passes that read what the window shows.
         presenter.afterBatch { [weak presenter] in presenter?.toolbar.sync(); presenter?.shortcuts.sync() }
     }
+    private var paneState: [UInt32] {
+        held.keys.sorted() + [placeholder?.id ?? 0, controller?.view.window == nil ? 0 : 1, active ? 1 : 0]
+    }
     /// The node children `home` holds with the pane's routes back in their
     /// authored places among them: the page's Tab order goes through the
     /// detail where its route was written, after the list. A route in a
@@ -327,8 +330,14 @@ final class SplitHost {
     /// and laid out at its size, and the list's selected row.
     private func present() {
         queued = false
+        // The pane's routes, its placeholder and whether it splits: what the window's bar reads of it
+        // (its beside header's buttons, the divider's separator). A change is presented with no batch.
+        let before = paneState
         // A painted popover goes where its invoker now is: the pane or the page.
-        defer { presenter.menus.layout() }
+        defer {
+            presenter.menus.layout()
+            if paneState != before { presenter.toolbar.sync() }
+        }
         for (id, entry) in held where presenter.views[id] !== entry.route && !presenter.isLeaving(entry.route) {
             held[id] = nil
             presenter.blocks.release(entry.route)

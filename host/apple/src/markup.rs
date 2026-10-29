@@ -408,6 +408,28 @@ pub fn plain(
     )
 }
 
+/// Each source line's direction under a Markdown editor's `paragraphDirs`
+/// `auto` (LLP 1045 D11), as the web editor decides it
+/// (`exact_markdown_editor::auto_directions`): one ASCII digit per line, `0`
+/// none, `1` left to right, `2` right to left. Writes the text's address and
+/// length; returns a handle to free. Zero for invalid input.
+pub fn auto(
+    text: *const u8,
+    len: usize,
+    atoms: u64,
+    out: *mut *const u8,
+    count: *mut usize,
+) -> u64 {
+    let Some(source) = text_input(text, len, out, count) else {
+        return 0;
+    };
+    let digits = exact_markdown_editor::auto_directions(source, &atoms_of(atoms))
+        .into_iter()
+        .map(|d| char::from(b'0' + d))
+        .collect();
+    hold_json(digits, out, count)
+}
+
 /// Release one expansion or styling. Zero, stale, and repeated frees are no-ops.
 pub fn free(handle: u64) {
     // A handle freed from a thread's own destructors at its exit (the
@@ -509,6 +531,17 @@ macro_rules! markup_exports {
         ) -> u64 {
             $crate::markup::plain(text, len, atoms, start, end, out, count)
         }
+        /// Each source line's `paragraphDirs` `auto` direction, one digit a line.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_auto(
+            text: *const u8,
+            len: usize,
+            atoms: u64,
+            out: *mut *const u8,
+            count: *mut usize,
+        ) -> u64 {
+            $crate::markup::auto(text, len, atoms, out, count)
+        }
         /// Release one expansion or styling.
         #[no_mangle]
         pub extern "C" fn exact_markup_free(handle: u64) {
@@ -546,6 +579,18 @@ mod tests {
         assert_eq!((flat[1].hang, flat[1].indent), (0, 40.0));
         free(handle);
         assert_eq!(pieces(b"\xff".as_ptr(), 1, 0, &mut out, &mut count), 0);
+        assert_eq!(count, 0);
+    }
+
+    /// LLP 1045 D11: `auto` crosses as one digit a line.
+    #[test]
+    fn auto_directions_cross_as_one_digit_a_line() {
+        let source = "Hello\n[^n] مرحبا\n- مرحبا\n42";
+        let (mut out, mut count) = (std::ptr::null(), 0usize);
+        let handle = auto(source.as_ptr(), source.len(), 0, &mut out, &mut count);
+        assert_eq!(unsafe { std::slice::from_raw_parts(out, count) }, b"1120");
+        free(handle);
+        assert_eq!(auto(b"\xff".as_ptr(), 1, 0, &mut out, &mut count), 0);
         assert_eq!(count, 0);
     }
 

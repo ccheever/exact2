@@ -422,6 +422,9 @@ public final class ExactView: NSView {
         super.viewDidChangeEffectiveAppearance()
         session.controlTextChanged()
         session.scheme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+        // The window's bar resolved its inks, tints and painted faces by the old appearance, and a
+        // `light-dark()` pair puts no op on the wire when the scheme turns.
+        session.presenter.toolbar.sync()
         // The app's `setScheme` arrives here, as the system's does; iOS's, through `tellPreferences` (LLP 1122 D4).
         session.app.scheduleStatus()
     }

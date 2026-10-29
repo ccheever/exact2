@@ -436,6 +436,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // lowerer's `bind_atoms` and `bind_atom_faces` read them first).
         "atoms" => AttrTarget::Prop(PropId::Atoms),
         "atomFaces" => AttrTarget::Prop(PropId::AtomFaces),
+        // LLP 1045 D11: a Markdown editor's base direction per line.
+        "paragraphDirs" => AttrTarget::Prop(PropId::ParagraphDirs),
         "alertPart" => AttrTarget::Prop(PropId::AlertPart),
         "defaultSurface" => AttrTarget::Prop(PropId::DefaultSurface),
         "seekbackward" => AttrTarget::Handler("seekbackward"),

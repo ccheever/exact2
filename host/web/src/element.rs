@@ -941,6 +941,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Atoms => "data-atoms",
             PropId::AtomStyles => "data-atom-styles",
             PropId::AtomFaces => "data-atom-faces",
+            // LLP 1045 D11: the editor's line directions, read by markup-editor.js.
+            PropId::ParagraphDirs => "data-paragraph-dirs",
             PropId::TestId => "data-testid",
             // An image's label is its `alt`: the replaced element's text
             // alternative, shown when it does not load.

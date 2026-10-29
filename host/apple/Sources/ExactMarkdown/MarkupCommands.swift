@@ -68,6 +68,16 @@ enum MarkupCommands {
         return data.flatMap { String(data: $0, encoding: .utf8) }
     }
 
+    /// Each source line's direction under `paragraphDirs`' `auto` (LLP 1045
+    /// D11), as the web editor decides it: 0 none, 1 left to right, 2 right to left.
+    static func auto(_ source: String, atoms: UInt64 = 0) -> [UInt8] {
+        var text = source
+        let data = text.withUTF8 { text in read { out, count in
+            exact_markup_auto(text.baseAddress, text.count, atoms, out, count)
+        } }
+        return data.map { $0.map { $0 &- 48 } } ?? []
+    }
+
     static func selection(_ source: String, range: NSRange, atoms: UInt64 = 0) -> String? {
         var text = source
         let data = text.withUTF8 { text in read { out, count in
