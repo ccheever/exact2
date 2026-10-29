@@ -50,7 +50,11 @@ enum Job {
     Forgotten(Arc<Mutex<Option<Retirement>>>),
 }
 
-type Retirement = (Vec<(Target, String, Vec<Vec<u8>>)>, Vec<(String, Vec<u8>)>);
+/// A call still in flight as the owner hears it: its target, source and
+/// encoded arguments, without a token.
+type Flight = (Target, String, Vec<Vec<u8>>);
+
+type Retirement = (Vec<Flight>, Vec<(String, Vec<u8>)>);
 
 struct OwnerQueue {
     sender: Sender<Job>,
@@ -61,7 +65,7 @@ struct OwnerQueue {
     /// takes it out, as the instance lets a parked call go, and its job is
     /// then never sent: it would begin after the marker that let it go, and
     /// park for good.
-    unqueued: HashMap<u64, Option<(Target, String, Vec<Vec<u8>>)>>,
+    unqueued: HashMap<u64, Option<Flight>>,
 }
 
 /// A dispatched turn's entry in [`OwnerQueue::unqueued`], removed when its
@@ -822,7 +826,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             }
         }
         if let Some(owner) = &self.owner {
-            let view: Vec<(Target, String, Vec<Vec<u8>>)> = in_flight
+            let view: Vec<Flight> = in_flight
                 .iter()
                 .filter(|f| {
                     !matches!(
@@ -904,6 +908,10 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             let mut queue = owner.lock().unwrap();
             if queue.unqueued.remove(&token).is_some() {
                 queue.turn(job);
+            } else {
+                // Its reply reports to the host: not under the queue's lock.
+                drop(queue);
+                drop(job);
             }
         })))
     }
@@ -927,6 +935,9 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                 }
             }
             None => {
+                if let Some(owner) = &self.owner {
+                    owner.lock().unwrap().unqueued.remove(&token);
+                }
                 if let Some(inner) = self.inner.as_mut() {
                     inner.discard(token);
                 }
