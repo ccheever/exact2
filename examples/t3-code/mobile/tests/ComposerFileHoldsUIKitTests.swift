@@ -2,6 +2,7 @@
 // Actual editor registration, coordinator lock, canonical bytes and durable release queue.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#composer-command-foundation
 import UIKit
+import CryptoKit
 
 @MainActor final class ComposerFileHoldsUIKitTests {
     private let host: UIView
@@ -16,16 +17,23 @@ import UIKit
     private final class Disk: @unchecked Sendable {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("file-holds-" + UUID().uuidString)
         var failBefore = false, failAfter = false, failPreferences = false, saves = 0
+        var failPreferencesAfter = false, preferenceWrites = 0, failQueueAt: Int?
         var pickerAnnouncements = 0, pickerAnnouncementsOnMain = true
         var sourceAnnouncements = 0
         let entered = DispatchSemaphore(value: 0), resume = DispatchSemaphore(value: 0), leftPause = DispatchSemaphore(value: 0)
         var pause = false
         func replace(_ bytes: Data, _ url: URL) throws {
-            if failPreferences && url.lastPathComponent == "t3-code.json" { throw CocoaError(.fileWriteUnknown) }
+            if url.lastPathComponent == "t3-code.json" {
+                preferenceWrites += 1
+                if failPreferences { throw CocoaError(.fileWriteUnknown) }
+                try T3MobileQueuedEdit.durableReplace(bytes, url)
+                if failPreferencesAfter { throw CocoaError(.fileWriteUnknown) }
+                return
+            }
             if url.lastPathComponent == "mobile-queued-edit.json" {
                 saves += 1
                 if pause { pause = false; entered.signal(); _ = resume.wait(timeout: .now() + 5); leftPause.signal() }
-                if failBefore { throw CocoaError(.fileWriteUnknown) }
+                if failBefore || failQueueAt == saves { throw CocoaError(.fileWriteUnknown) }
                 try T3MobileQueuedEdit.durableReplace(bytes, url)
                 if failAfter { throw CocoaError(.fileWriteUnknown) }
             } else { try T3MobileQueuedEdit.durableReplace(bytes, url) }
@@ -274,6 +282,401 @@ import UIKit
         check(FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("snapshots/drafts").appendingPathComponent(image["id"] as! String).path), "\(newTask) cold cleanup retains adopted image")
         check(!FileManager.default.fileExists(atPath: f.disk.root.appendingPathComponent("composer-files").appendingPathComponent(discard["id"] as! String).path), "\(newTask) cold cleanup removes discarded file")
         f.coordinator.endFileHoldOwner(claim)
+    }
+    private struct NewTaskPick {
+        let f: Fixture
+        let op: T3PickerOperation
+        let claim: T3ComposerFileClaim
+        let saved: T3PickerObject
+        let after: T3PickerObject
+        let accepted: [String]
+        let discarded: [String]
+        var key: String { op.destination.draftKey }
+        func request(_ action: String, after: T3PickerObject? = nil) throws -> T3PickerRequest {
+            var raw: T3PickerObject = ["op": "composerPickerIntake", "action": action, "operationId": op.request.operationId,
+                "generation": 1, "identity": op.request.identity.json]
+            if action == "finish" { raw["publication"] = ["after": after ?? self.after, "acceptedIds": accepted, "discardedIds": discarded] }
+            return try T3PickerRequest(raw)
+        }
+        func url(_ row: T3PickerObject) -> URL {
+            f.disk.root.appendingPathComponent(row["kind"] as? String == "image" ? "snapshots/drafts" : "composer-files").appendingPathComponent(row["id"] as! String)
+        }
+    }
+    private func record(_ saved: T3PickerObject, key: String) -> T3PickerObject {
+        ((saved["mobileNewTaskDrafts"] as! T3PickerObject)["records"] as! [String: T3PickerObject])[key]!
+    }
+    private func settingRecord(_ raw: T3PickerObject, in saved: T3PickerObject, key: String) -> T3PickerObject {
+        var saved = saved, store = saved["mobileNewTaskDrafts"] as! T3PickerObject
+        var records = store["records"] as! [String: T3PickerObject]
+        records[key] = raw; store["records"] = records; saved["mobileNewTaskDrafts"] = store
+        return saved
+    }
+    private func choices(_ name: String) -> T3PickerObject {
+        ["providerId": name, "modelId": name, "modelOptions": [["id": "effort", "value": name], ["id": "fast", "value": true]],
+         "runtimeMode": name, "interactionMode": name]
+    }
+    private func newTaskPick() throws -> NewTaskPick {
+        let f = try fixture(newTask: true), identity = f.port.composerIdentity!, claim = T3ComposerFileClaim(identity: identity)
+        let target = f.request["target"] as! [String: String], key = target["draftKey"]!
+        let input = try T3PickerRequest(["op": "composerPickerIntake", "action": "pick", "operationId": UUID().uuidString.lowercased(),
+            "generation": 1, "identity": identity.json, "target": target, "document": ["incarnation": target["createdAt"]!, "revision": 2],
+            "source": "files", "remaining": 3, "fileLimit": 100_000])
+        let (op, _, _) = try f.coordinator.beginPicker(input, claim: claim)
+        let file = try f.coordinator.stagePicker(op, bytes: Data("picked".utf8), metadata: ["kind": "file", "name": "picked.txt", "mimeType": "text/plain"])
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        check(UIImage(data: png) != nil, "NewTask finish fixture stages decodable PNG bytes")
+        let image = try f.coordinator.stagePicker(op, bytes: png, metadata: ["kind": "image", "name": "image.png", "mimeType": "image/png"])
+        let discard = try f.coordinator.stagePicker(op, bytes: Data("discard".utf8), metadata: ["kind": "file", "name": "discard.txt", "mimeType": "text/plain"])
+        _ = try f.coordinator.completePicker(op, error: "")
+        var adopted = file; adopted.removeValue(forKey: "kind")
+        adopted.merge(["contextId": "picked-file", "draftKey": key, "environmentId": "env", "source": "attached", "status": "staged", "attachmentId": ""]) { _, next in next }
+        var saved = try preferences(f), record = record(saved, key: key)
+        record["revision"] = 3; record["choices"] = choices("original")
+        record["branchChoice"] = ["kind": "current", "branch": "main"]
+        record["context"] = ["version": 1, "records": [["kind": "mention", "contextId": "mention", "label": "path", "path": "README.md"]]]
+        record["future"] = ["counter": 7, "choices": ["runtimeMode": "protected"], "null": NSNull()]
+        saved = settingRecord(record, in: saved, key: key)
+        let text = "hello 🙂", images = [image], files = [f.file, adopted]
+        let ids = [image["id"] as! String, f.file["id"] as! String, file["id"] as! String]
+        saved["drafts"] = [key: text]; saved["snapshotDrafts"] = [key: images]; saved["composerFiles"] = files; saved["mobileAttachmentOrder"] = [key: ids]
+        let after: T3PickerObject = ["record": record, "text": text, "images": images, "files": files, "attachmentIds": ids, "attachmentOrder": ids]
+        try save(f, saved)
+        return NewTaskPick(f: f, op: op, claim: claim, saved: try preferences(f), after: after,
+            accepted: [file["id"] as! String, image["id"] as! String], discarded: [discard["id"] as! String])
+    }
+    private func delayedNewTaskFinish(retryFirst: Bool) async throws {
+        let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+        let original = try p.request("finish"), encoded = try T3PickerRequest.encoded(original.object)
+        let entered = DispatchSemaphore(value: 0), arrive = DispatchSemaphore(value: 0)
+        let delayed = Task.detached {
+            entered.signal()
+            guard arrive.wait(timeout: .now() + 10) == .success else { return Result<T3PickerObject, Error>.failure(CocoaError(.userCancelled)) }
+            return Result { try f.coordinator.performPicker(original, claim: nil) }
+        }
+        let waiting = await Task.detached { entered.wait(timeout: .now() + 5) == .success }.value
+        check(waiting, "Original finish is dispatched but held before native arrival")
+        var current = record(p.saved, key: p.key); current["choices"] = choices("latest")
+        let latest = settingRecord(current, in: p.saved, key: p.key); try save(f, latest)
+        check(try f.coordinator.performPicker(p.request("status"), claim: nil)["status"] as? String == "staged",
+              "Status between dispatch and arrival leaves original finish unresolved")
+        let firstRetry: Result<T3PickerObject, Error>? = retryFirst ? Result { try f.coordinator.performPicker(original, claim: nil) } : nil
+        arrive.signal()
+        let arrived = await delayed.value
+        let result = try arrived.get()
+        check(result["status"] as? String == "finished", "Delayed original first finish accepts latest choices, retryFirst=\(retryFirst)")
+        if let firstRetry { check(try firstRetry.get()["status"] as? String == "finished", "Retry may arrive before original with the same immutable proof") }
+        else { check(try f.coordinator.performPicker(original, claim: nil)["status"] as? String == "finished", "Retry after original returns the same terminal") }
+        check(try json(preferences(f)) == json(latest), "First finish preserves complete latest saved preferences")
+        check(try p.op.terminal == Data(SHA256.hash(data: T3PickerRequest.encoded(original.object["publication"]!)))
+              && (try T3PickerRequest.encoded(original.object)) == encoded, "Terminal binds the unchanged original full publication")
+    }
+    private func assertRefused(_ p: NewTaskPick, after: T3PickerObject, name: String) throws {
+        let before = try Data(contentsOf: p.f.disk.root.appendingPathComponent("t3-code.json")), writes = p.f.disk.preferenceWrites
+        refuses(name) { _ = try p.f.coordinator.performPicker(p.request("finish", after: after), claim: nil) }
+        check(p.op.status == "staged" && p.op.terminal == nil && p.f.disk.preferenceWrites == writes,
+              name + " retains staged custody without adoption write")
+        check(try Data(contentsOf: p.f.disk.root.appendingPathComponent("t3-code.json")) == before,
+              name + " preserves actual saved bytes")
+        check(p.op.files.allSatisfy { FileManager.default.fileExists(atPath: p.url($0).path) }, name + " retains all issued bytes")
+    }
+    private func choicePair(_ original: Any?, _ current: Any?, name: String, accepts: Bool) throws {
+        let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+        var offered = p.after["record"] as! T3PickerObject, now = offered, after = p.after
+        offered["choices"] = original; now["choices"] = current; after["record"] = offered
+        let latest = settingRecord(now, in: p.saved, key: p.key); try save(f, latest)
+        if accepts {
+            let request = try p.request("finish", after: after)
+            check(try f.coordinator.performPicker(request, claim: nil)["status"] as? String == "finished", name)
+            check(try json(preferences(f)) == json(latest), name + " preserves latest choices and protected record")
+            check(p.op.terminal == Data(SHA256.hash(data: try T3PickerRequest.encoded(request.object["publication"]!))), name + " keeps original signature")
+        } else { try assertRefused(p, after: after, name: name) }
+    }
+    private func newTaskChoiceBindings() throws {
+        func model(_ rows: [Any]) -> T3PickerObject { ["providerId": "", "modelId": "future-model", "modelOptions": rows] }
+        let clean: [Any] = [NSNull(), T3PickerObject(), choices(""), choices("future-value")]
+        for (i, original) in clean.enumerated() {
+            for (j, current) in clean.enumerated() { try choicePair(original, current, name: "Clean choice transition \(i) to \(j)", accepts: true) }
+        }
+        try choicePair(model([["id": "one", "value": "a"], ["id": "two", "value": false]]),
+                       model([["id": "two", "value": true], ["id": "added", "value": ""], ["id": "one", "value": "b"]]),
+                       name: "Known-only options add and reorder", accepts: true)
+        try choicePair(model([["id": "one", "value": true]]), model([]), name: "Known-only options remove", accepts: true)
+        let opaque: [T3PickerObject] = [[:], ["id": "missing-value"], ["value": "missing-id"], ["id": 1, "value": true],
+            ["id": "numeric", "value": 1], ["id": "zero", "value": 0], ["id": "null", "value": NSNull()],
+            ["id": "object", "value": ["runtimeMode": "bound", "choices": ["x": true]]], ["id": "array", "value": ["a", "b"]]]
+        for (index, row) in opaque.enumerated() {
+            var changed = model([row]); changed["providerId"] = "new"; changed["interactionMode"] = "future"
+            try choicePair(model([row]), changed, name: "Opaque object row \(index) remains exact through choices drift", accepts: true)
+            var modified = row; modified["future"] = NSNull()
+            try choicePair(model([row]), model([modified]), name: "Opaque row \(index) mutation", accepts: false)
+        }
+        for number in [0, 1] {
+            try choicePair(model([["id": "flag", "value": number]]), model([["id": "flag", "value": number == 1]]),
+                           name: "Numeric \(number) does not become Boolean", accepts: false)
+            try choicePair(model([["id": "flag", "value": number == 1]]), model([["id": "flag", "value": number]]),
+                           name: "Boolean does not become numeric \(number)", accepts: false)
+        }
+        let extended: T3PickerObject = ["id": "bound-id", "value": "old", "metadata": ["providerId": "bound", "null": NSNull(), "array": [true, 2] as [Any]]]
+        try choicePair(NSNull(), model([extended]), name: "Null cannot acquire protected option metadata", accepts: false)
+        try choicePair(model([extended]), NSNull(), name: "Null cannot erase protected option metadata", accepts: false)
+        try choicePair(model([T3PickerObject()]), model([]), name: "Empty opaque row cannot disappear", accepts: false)
+        try choicePair(model([T3PickerObject()]), model([["id": "plain", "value": ""], T3PickerObject()]), name: "Opaque row keeps original index", accepts: false)
+        var next = extended; next["value"] = true
+        try choicePair(model([extended]), model([next]), name: "Metadata-bearing option permits only selected value drift", accepts: true)
+        var missingValue = extended; missingValue.removeValue(forKey: "value")
+        try choicePair(model([extended]), model([missingValue]), name: "Recognized option cannot become an opaque row with the same residual", accepts: false)
+        try choicePair(model([missingValue]), model([extended]), name: "Opaque row cannot become a recognized option with the same residual", accepts: false)
+        let nullMetadata: T3PickerObject = ["id": "bound", "value": true, "extra": NSNull()]
+        try choicePair(model([nullMetadata]), model([["id": "bound", "value": false]]), name: "Null option metadata differs from absent", accepts: false)
+        try choicePair(model([nullMetadata]), model([["id": "bound", "value": false, "extra": T3PickerObject()]]), name: "Null option metadata differs from empty object", accepts: false)
+        try choicePair(model([["id": "x", "value": true, "extra": [true, 1] as [Any]]]),
+                       model([["id": "x", "value": false, "extra": [1, true] as [Any]]]), name: "Protected option array order and Boolean type remain exact", accepts: false)
+        for field in ["id", "metadata", "removed", "index", "delete"] {
+            var next = extended; next["value"] = false
+            switch field {
+            case "id": next["id"] = "other"
+            case "metadata": next["metadata"] = ["providerId": "other"]
+            case "removed": next.removeValue(forKey: "metadata")
+            default: break
+            }
+            let rows: [Any] = field == "delete" ? [] : field == "index" ? [["id": "plain", "value": ""], next] : [next]
+            try choicePair(model([extended]), model(rows), name: "Protected option \(field) binds", accepts: false)
+        }
+        let unknown: T3PickerObject = ["future": ["runtimeMode": "bound", "modelOptions": [["id": "x", "value": true]], "array": [1, 2]]]
+        var withModes = unknown; withModes["runtimeMode"] = ""; withModes["interactionMode"] = "future"
+        try choicePair(unknown, withModes, name: "Unknown choice metadata remains exact beside validated mode drift", accepts: true)
+        for value in [NSNull(), T3PickerObject(), ["future": NSNull()], ["future": ["runtimeMode": "other"]],
+                      ["future": ["runtimeMode": "bound", "modelOptions": [["id": "x", "value": 1]], "array": [1, 2]]]] as [Any] {
+            try choicePair(unknown, value, name: "Unknown choices cannot be removed, masked, nulled or coerced", accepts: false)
+            try choicePair(value, unknown, name: "Unknown choices cannot be added through clean transitions", accepts: false)
+        }
+        let keyedA: T3PickerObject = ["z": NSNull(), "a": ["n": true, "s": "same"]]
+        let keyedB: T3PickerObject = ["a": ["s": "same", "n": true], "z": NSNull()]
+        try choicePair(["future": keyedA, "runtimeMode": "before"], ["runtimeMode": "after", "future": keyedB],
+                       name: "Dictionary key order does not bind", accepts: true)
+    }
+    private func invalidNewTaskChoices() throws {
+        var invalid: [(String, Any?)] = [("absent", nil), ("array", []), ("string", ""), ("number", 0), ("bool", true)]
+        let group = ["providerId", "modelId", "modelOptions"]
+        for mask in 1..<7 {
+            var raw: T3PickerObject = [:]
+            for (index, field) in group.enumerated() where mask & (1 << index) != 0 { raw[field] = field == "modelOptions" ? [] : "" as Any }
+            invalid.append(("partial group \(mask)", raw))
+        }
+        for field in group + ["runtimeMode", "interactionMode"] {
+            for (index, value) in [NSNull(), false, 1, [], [:], ""].enumerated() {
+                if field == "modelOptions" && index == 3 { continue }
+                if field != "modelOptions" && index == 5 { continue }
+                var raw = choices("valid"); raw[field] = value
+                invalid.append(("\(field) type \(index)", raw))
+            }
+        }
+        for (index, row) in [NSNull(), "row", 1, true, []].enumerated() {
+            var raw = choices("valid"); raw["modelOptions"] = [row]; invalid.append(("non-object option \(index)", raw))
+        }
+        let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+        for (name, raw) in invalid {
+            for side in ["current", "offered", "both"] {
+                var offered = p.after["record"] as! T3PickerObject, now = offered, after = p.after
+                if side != "current" { offered["choices"] = raw }
+                if side != "offered" { now["choices"] = raw }
+                after["record"] = offered; try save(f, settingRecord(now, in: p.saved, key: p.key))
+                try assertRefused(p, after: after, name: "Invalid \(name) on \(side), including equal-invalid pairs")
+            }
+        }
+    }
+    private func protectedNewTaskBindings() throws {
+        let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+        let fields = ["key", "origin", "environmentId", "projectId", "createdAt", "revision", "branchChoice", "context",
+                      "context-absent", "context-null", "future", "counter", "boolean", "array-order", "nested-choices"]
+        for field in fields {
+            for side in ["current", "offered"] {
+                var offered = p.after["record"] as! T3PickerObject, now = offered, changed = offered, after = p.after
+                switch field {
+                case "revision": changed[field] = 4
+                case "context-absent": changed.removeValue(forKey: "context")
+                case "context-null": changed["context"] = NSNull()
+                case "context": changed[field] = ["version": 1, "records": [["kind": "mention", "contextId": "other"]]]
+                case "branchChoice": changed[field] = ["kind": "current", "branch": "other"]
+                case "future": changed.removeValue(forKey: field)
+                case "counter": changed[field] = 1
+                case "boolean": offered["flag"] = true; now["flag"] = true; changed["flag"] = 1
+                case "array-order": offered["order"] = [1, 2]; now["order"] = [1, 2]; changed["order"] = [2, 1]
+                case "nested-choices": changed["future"] = ["counter": 7, "choices": ["runtimeMode": "changed"], "null": NSNull()]
+                default: changed[field] = "changed"
+                }
+                if side == "current" { now = changed } else { offered = changed }
+                now["choices"] = choices("latest"); after["record"] = offered
+                try save(f, settingRecord(now, in: p.saved, key: p.key))
+                try assertRefused(p, after: after, name: "Protected \(field) on \(side)")
+            }
+        }
+        for field in ["text", "image", "file", "order", "ids", "file-metadata", "image-metadata", "extra-after", "invalid-sibling"] {
+            var current = p.saved, after = p.after, now = record(current, key: p.key)
+            now["choices"] = choices("latest"); current = settingRecord(now, in: current, key: p.key)
+            switch field {
+            case "text": current["drafts"] = [p.key: "changed"]
+            case "image": current["snapshotDrafts"] = [p.key: [T3PickerObject]()]
+            case "file": current["composerFiles"] = [f.file]
+            case "order": current["mobileAttachmentOrder"] = [p.key: (p.after["attachmentIds"] as! [String]).reversed().map { $0 }]
+            case "ids": after["attachmentIds"] = [String]()
+            case "file-metadata":
+                var files = p.after["files"] as! [T3PickerObject]; files[1]["name"] = "changed"; after["files"] = files; current["composerFiles"] = files
+            case "image-metadata":
+                var images = p.after["images"] as! [T3PickerObject]; images[0]["sizeBytes"] = 1; after["images"] = images; current["snapshotDrafts"] = [p.key: images]
+            case "extra-after": after["counter"] = 1
+            default: current["composerFiles"] = (p.after["files"] as! [T3PickerObject]) + [["id": "malformed"]]
+            }
+            try save(f, current); try assertRefused(p, after: after, name: "Full current publication binds \(field)")
+        }
+        var latest = record(p.saved, key: p.key); latest["choices"] = choices("latest")
+        try save(f, settingRecord(latest, in: p.saved, key: p.key))
+        for field in ["generation", "operationId", "owner", "editorId", "routeVisit", "renderEpoch", "mountId", "eventCount", "operationRevision"] {
+            var raw = try p.request("finish").object
+            if ["owner", "editorId", "routeVisit", "renderEpoch", "mountId"].contains(field) {
+                var identity = raw["identity"] as! T3PickerObject; identity[field] = "other"; raw["identity"] = identity
+            } else { raw[field] = field == "operationId" ? UUID().uuidString.lowercased() : 2 as Any }
+            refuses("Finish cannot change request \(field)") { _ = try f.coordinator.performPicker(T3PickerRequest(raw), claim: nil) }
+            check(p.op.status == "staged" && p.op.terminal == nil, "Foreign \(field) leaves original operation staged")
+        }
+        for partition in [([String](), [String]()), (p.accepted, p.discarded + p.accepted), ([p.accepted[0]], p.discarded + [p.accepted[1]])] {
+            var raw = try p.request("finish").object, publication = raw["publication"] as! T3PickerObject
+            publication["acceptedIds"] = partition.0; publication["discardedIds"] = partition.1; raw["publication"] = publication
+            refuses("Partition remains complete, disjoint and consistent with saved inventory") { _ = try f.coordinator.performPicker(T3PickerRequest(raw), claim: nil) }
+            check(p.op.status == "staged" && p.op.terminal == nil, "Invalid partition retains custody")
+        }
+        // Reorder serialized dictionaries at every level, preserving array order.
+        func reordered(_ raw: Any) -> Any {
+            if let object = raw as? T3PickerObject { return object.keys.sorted(by: >).reduce(into: T3PickerObject()) { $0[$1] = reordered(object[$1]!) } }
+            if let array = raw as? [Any] { return array.map(reordered) }
+            return raw
+        }
+        let after = reordered(p.after) as! T3PickerObject
+        check(try f.coordinator.performPicker(p.request("finish", after: after), claim: nil)["status"] as? String == "finished",
+              "Complete record and publication dictionary key reorder accepts after protected refusals")
+    }
+    private func newTaskFinishFailures() throws {
+        for mode in ["preferences-before", "preferences-after", "queue-before", "queue-after", "response"] {
+            let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+            let original = try p.request("finish"), signature = Data(SHA256.hash(data: try T3PickerRequest.encoded(original.object["publication"]!)))
+            var now = record(p.saved, key: p.key); now["choices"] = choices("latest")
+            let latest = settingRecord(now, in: p.saved, key: p.key); try save(f, latest)
+            switch mode {
+            case "preferences-before": f.disk.failPreferences = true
+            case "preferences-after": f.disk.failPreferencesAfter = true
+            case "queue-before": f.disk.failBefore = true
+            case "queue-after": f.disk.failAfter = true
+            default: f.disk.failQueueAt = f.disk.saves + 2
+            }
+            refuses("Finish reports \(mode) durability failure") { _ = try f.coordinator.performPicker(original, claim: nil) }
+            let terminal = mode == "response"
+            check(p.op.status == (terminal ? "finished" : "staged") && p.op.terminal == (terminal ? signature : nil),
+                  "\(mode) respects terminal assignment boundary")
+            check(try json(preferences(f)) == json(latest), "\(mode) never restores offered old settings")
+            check(p.op.files.allSatisfy { FileManager.default.fileExists(atPath: p.url($0).path) }, "\(mode) leaves issued bytes before cleanup")
+            f.disk.failPreferences = false; f.disk.failPreferencesAfter = false; f.disk.failBefore = false; f.disk.failAfter = false; f.disk.failQueueAt = nil
+            now["choices"] = choices("newer")
+            var newer = settingRecord(now, in: p.saved, key: p.key)
+            if terminal { newer["drafts"] = [p.key: "changed after historical success"] }
+            try save(f, newer)
+            let writes = f.disk.preferenceWrites
+            check(try f.coordinator.performPicker(original, claim: nil)["status"] as? String == "finished", "Original request repairs \(mode)")
+            check(try json(preferences(f)) == json(newer), "Retry after \(mode) preserves newest complete preferences")
+            check(p.op.terminal == signature && f.disk.preferenceWrites == writes + (terminal ? 0 : 1),
+                  "Retry after \(mode) adopts once or replays original terminal")
+        }
+    }
+    private func newTaskLostReply() throws {
+        let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+        let original = try p.request("finish"), signature = Data(SHA256.hash(data: try T3PickerRequest.encoded(original.object["publication"]!)))
+        var now = record(p.saved, key: p.key); now["choices"] = choices("latest")
+        try save(f, settingRecord(now, in: p.saved, key: p.key))
+        _ = try f.coordinator.performPicker(original, claim: nil)
+        now["choices"] = choices("after-lost-reply"); now["revision"] = 4
+        var newer = settingRecord(now, in: p.saved, key: p.key); newer["drafts"] = [p.key: "newer text"]
+        try save(f, newer)
+        let before = try Data(contentsOf: f.disk.root.appendingPathComponent("t3-code.json")), writes = f.disk.preferenceWrites
+        check(try f.coordinator.performPicker(p.request("status"), claim: nil)["status"] as? String == "finished", "Status observes historical terminal after lost reply")
+        f.disk.failBefore = true
+        refuses("Terminal response can still fail cleanup persistence") { _ = try f.coordinator.performPicker(original, claim: nil) }
+        check(p.op.terminal == signature && p.op.status == "finished", "Cleanup failure cannot revoke historical terminal")
+        f.disk.failBefore = false
+        check(try f.coordinator.performPicker(original, claim: nil)["status"] as? String == "finished", "Lost successful reply replays after more choice and text changes")
+        var changed = p.after, changedRecord = changed["record"] as! T3PickerObject
+        changedRecord["choices"] = choices("after-lost-reply"); changed["record"] = changedRecord
+        refuses("Even choices-only proof replacement cannot replay original success") { _ = try f.coordinator.performPicker(p.request("finish", after: changed), claim: nil) }
+        check(try Data(contentsOf: f.disk.root.appendingPathComponent("t3-code.json")) == before && f.disk.preferenceWrites == writes,
+              "Terminal replay and changed-proof refusal never rewrite preferences")
+    }
+    private func newTaskByteBinding() throws {
+        for member in 0..<3 {
+            for mutation in ["bytes", "inode", "leaf-link", "parent-link"] {
+                let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+                var current = record(p.saved, key: p.key); current["choices"] = choices("latest")
+                try save(f, settingRecord(current, in: p.saved, key: p.key))
+                let row = p.op.files[member], url = p.url(row), original = try Data(contentsOf: url)
+                let backup = f.disk.root.appendingPathComponent("backup-" + UUID().uuidString)
+                switch mutation {
+                case "bytes":
+                    var changed = original; changed[changed.count - 1] ^= 1
+                    let handle = try FileHandle(forWritingTo: url); try handle.write(contentsOf: changed); try handle.synchronize(); try handle.close()
+                case "inode":
+                    try FileManager.default.moveItem(at: url, to: backup)
+                    try original.write(to: url)
+                case "leaf-link":
+                    try FileManager.default.moveItem(at: url, to: backup)
+                    try FileManager.default.createSymbolicLink(at: url, withDestinationURL: backup)
+                default:
+                    let parent = url.deletingLastPathComponent()
+                    try FileManager.default.moveItem(at: parent, to: backup)
+                    try FileManager.default.createSymbolicLink(at: parent, withDestinationURL: backup)
+                }
+                check((try Data(contentsOf: url)).count == original.count, "Byte probe preserves size for member \(member), \(mutation)")
+                try assertRefused(p, after: p.after, name: "Issued member \(member), \(mutation), including discarded bytes")
+            }
+        }
+        let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+        var current = record(p.saved, key: p.key); current["choices"] = choices("latest")
+        try save(f, settingRecord(current, in: p.saved, key: p.key))
+        let snapshots = f.disk.root.appendingPathComponent("snapshots"), backup = f.disk.root.appendingPathComponent("snapshots-backup")
+        try FileManager.default.moveItem(at: snapshots, to: backup)
+        try FileManager.default.createSymbolicLink(at: snapshots, withDestinationURL: backup)
+        try assertRefused(p, after: p.after, name: "Image grandparent symlink cannot inherit issued byte custody")
+    }
+    private func newTaskRetirement() throws {
+        for detach in [false, true] {
+            let p = try newTaskPick(), f = p.f; defer { f.coordinator.endFileHoldOwner(p.claim); cleanup(f) }
+            let rejected = p.op.files[2]
+            var file = rejected; file.removeValue(forKey: "kind")
+            file.merge(["contextId": "discarded", "draftKey": p.key, "environmentId": "env", "source": "attached", "status": "staged", "attachmentId": ""]) { _, next in next }
+            var hold = f.request; hold["file"] = file; hold["requestId"] = UUID().uuidString.lowercased()
+            var raw = try p.request("status").object; raw["action"] = "hold"; raw["request"] = hold
+            let request = try T3PickerRequest(raw)
+            _ = try f.coordinator.performPicker(request, claim: p.claim)
+            var current = record(p.saved, key: p.key); current["choices"] = choices("latest")
+            try save(f, settingRecord(current, in: p.saved, key: p.key))
+            if detach { p.claim.detach() } else { f.coordinator.endFileHoldOwner(p.claim) }
+            refuses("Retired NewTask owner cannot acquire, detach=\(detach)") { _ = try f.coordinator.performPicker(request, claim: p.claim) }
+            check(try f.coordinator.performPicker(p.request("status"), claim: nil)["status"] as? String == "staged", "Retired operation remains issued before original finish")
+            _ = try f.coordinator.performPicker(p.request("finish"), claim: nil)
+            if detach {
+                check(FileManager.default.fileExists(atPath: p.url(rejected).path), "Detached retained history still protects discarded issued bytes")
+                f.disk.failBefore = true; f.coordinator.endFileHoldOwner(p.claim)
+                check(FileManager.default.fileExists(atPath: p.url(rejected).path), "Failed candidate retirement keeps discarded history bytes")
+                f.disk.failBefore = false
+            }
+            _ = try f.coordinator.releaseAttachments()
+            check(!FileManager.default.fileExists(atPath: p.url(rejected).path), "Ended owner cleanup removes discarded bytes after original finish")
+            check(p.op.files.prefix(2).allSatisfy { FileManager.default.fileExists(atPath: p.url($0).path) }, "Cleanup retains adopted canonical file and PNG")
+            let before = try Data(contentsOf: f.disk.root.appendingPathComponent("t3-code.json"))
+            let fresh = T3MobileQueuedEdit(root: f.disk.root); _ = try fresh.releaseAttachments()
+            check(try fresh.performPicker(p.request("status"), claim: nil)["status"] as? String == "absent", "Fresh coordinator has no persisted terminal")
+            refuses("Restart cannot infer successful finish from absence") { _ = try fresh.performPicker(p.request("finish"), claim: nil) }
+            check(try Data(contentsOf: f.disk.root.appendingPathComponent("t3-code.json")) == before
+                  && p.op.files.prefix(2).allSatisfy { FileManager.default.fileExists(atPath: p.url($0).path) }, "Restart keeps adopted bytes and complete latest preferences")
+        }
     }
     private func unobservedFinalUndo() async throws {
         let f = try fixture(newTask: true); defer { cleanup(f) }
@@ -601,6 +1004,14 @@ import UIKit
         }
         await attempt("new task native holds") { try await newTaskHolds() }
         for newTask in [false, true] { await attempt("picker publication \(newTask)") { try pickerPublication(newTask: newTask) } }
+        for retryFirst in [false, true] { await attempt("delayed first finish \(retryFirst)") { try await delayedNewTaskFinish(retryFirst: retryFirst) } }
+        await attempt("choice bindings") { try newTaskChoiceBindings() }
+        await attempt("invalid choices") { try invalidNewTaskChoices() }
+        await attempt("protected bindings") { try protectedNewTaskBindings() }
+        await attempt("finish write failures") { try newTaskFinishFailures() }
+        await attempt("lost finish reply") { try newTaskLostReply() }
+        await attempt("canonical byte binding") { try newTaskByteBinding() }
+        await attempt("finish retirement and restart") { try newTaskRetirement() }
         voice.destroy()
         return ["passed": checks.filter { $0["pass"] as? Bool == true }.count, "failed": checks.filter { $0["pass"] as? Bool == false }.count, "checks": checks]
     }

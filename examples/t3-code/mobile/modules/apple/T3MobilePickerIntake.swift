@@ -109,6 +109,64 @@ struct T3PickerStage: @unchecked Sendable {
     func write(_ bytes: Data, metadata: T3PickerObject) throws -> T3PickerObject { try coordinator.stagePicker(operation, bytes: bytes, metadata: metadata) }
 }
 
+private struct NewTaskFinishBinding: Equatable {
+    private let record: Data
+    private let choiceExtensions: Data
+    private let protectedOptions: [ProtectedOption]
+    private struct ProtectedOption: Equatable {
+        let index: Int
+        let recognized: Bool
+        let members: Data
+    }
+    private enum Field: String, CaseIterable {
+        case providerId, modelId, modelOptions, runtimeMode, interactionMode
+        var modelGroup: Bool {
+            switch self {
+            case .providerId, .modelId, .modelOptions: return true
+            case .runtimeMode, .interactionMode: return false
+            }
+        }
+    }
+    static func requireSame(_ current: T3PickerObject, _ offered: Any?) throws {
+        guard let offered = offered as? T3PickerObject else { throw T3PickerRequest.error("The offered new task record is invalid.") }
+        let currentBinding = try Self(current), offeredBinding = try Self(offered)
+        guard currentBinding == offeredBinding else { throw T3PickerRequest.error("The saved new task publication changed.") }
+    }
+    private init(_ raw: T3PickerObject) throws {
+        guard JSONSerialization.isValidJSONObject(raw), let choices = raw["choices"] else {
+            throw T3PickerRequest.error("The new task choices are missing or invalid.")
+        }
+        var remainder = raw; remainder.removeValue(forKey: "choices")
+        record = try T3PickerRequest.encoded(remainder)
+        var extensions: T3PickerObject = [:], protected: [ProtectedOption] = []
+        if !(choices is NSNull) {
+            guard let object = choices as? T3PickerObject else { throw T3PickerRequest.error("The new task choices must be null or an object.") }
+            let group = Field.allCases.filter(\.modelGroup)
+            guard !group.contains(where: { object[$0.rawValue] != nil }) || group.allSatisfy({ object[$0.rawValue] != nil }) else {
+                throw T3PickerRequest.error("The new task model choices are incomplete.")
+            }
+            extensions = object
+            for field in Field.allCases {
+                guard let value = object[field.rawValue] else { continue }
+                if field == .modelOptions {
+                    guard let rows = value as? [T3PickerObject] else { throw T3PickerRequest.error("The new task model options must be objects.") }
+                    for (index, row) in rows.enumerated() {
+                        let boolean = (row["value"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } == true
+                        let recognized = row["id"] is String && (row["value"] is String || boolean)
+                        if recognized && Set(row.keys) == Set(["id", "value"]) { continue }
+                        // Extensions belong to this ID at this index. Opaque rows bind whole.
+                        var members = row
+                        if recognized { members.removeValue(forKey: "value") }
+                        protected.append(ProtectedOption(index: index, recognized: recognized, members: try T3PickerRequest.encoded(members)))
+                    }
+                } else if !(value is String) { throw T3PickerRequest.error("The new task choice must be a string.") }
+                extensions.removeValue(forKey: field.rawValue)
+            }
+        }
+        choiceExtensions = try T3PickerRequest.encoded(extensions); protectedOptions = protected
+    }
+}
+
 /// No independent storage owner: queue read/save is supplied only by the concrete locked coordinator.
 final class T3MobilePickerIntakeStore {
     private let root: URL
@@ -316,11 +374,11 @@ final class T3MobilePickerIntakeStore {
     private func newTaskPublication(_ after: T3PickerObject, op: T3PickerOperation, preferences: T3PickerObject) throws {
         let destination = op.destination, record = try destination.savedNewTask(in: preferences)
         guard Set(after.keys) == Set(["record", "text", "images", "files", "attachmentIds", "attachmentOrder"]),
-              T3PickerRequest.equal(record, after["record"]), let text = after["text"] as? String, text.utf16.count <= 1_000_000,
+              let text = after["text"] as? String, text.utf16.count <= 1_000_000,
               let drafts = preferences["drafts"] as? [String: String], Array((drafts[destination.draftKey] ?? "").utf16) == Array(text.utf16),
               let captured = op.request.object["document"] as? T3PickerObject,
-              (T3PickerRequest.integer(record["revision"]) ?? -1) >= (captured["revision"] as! Int),
-              record["choices"] is NSNull || record["choices"] is T3PickerObject else { throw T3PickerRequest.error("The saved new task publication changed.") }
+              (T3PickerRequest.integer(record["revision"]) ?? -1) >= (captured["revision"] as! Int) else { throw T3PickerRequest.error("The saved new task publication changed.") }
+        try NewTaskFinishBinding.requireSame(record, after["record"])
         if let raw = record["context"] {
             guard let context = raw as? T3PickerObject, T3PickerRequest.integer(context["version"]) == 1,
                   let records = context["records"] as? [T3PickerObject], records.count <= 200,

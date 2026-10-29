@@ -160,6 +160,21 @@ test('NewTask finish preserves absent context and refuses malformed ownership, c
   ])expect(()=>request({...newFinish(),publication})).toThrow();
 });
 
+test('NewTask proof refuses non-JSON values before cloning could erase or coerce them',()=>{
+  for(const value of [undefined,NaN,Infinity,-Infinity]){
+    for(const field of ['choices','context','extension']){
+      const raw=newFinish(),record:Record<string,unknown>=raw.publication.after.record;
+      record[field]=field==='extension'?{nested:value}:value;
+      expect(()=>request(raw)).toThrow();
+    }
+    const raw=newFinish(),record:Record<string,unknown>=raw.publication.after.record;
+    record.choices={providerId:'future',modelId:'',modelOptions:[{id:'opaque',value}]};
+    expect(()=>request(raw)).toThrow();
+  }
+  const raw=newFinish(),record:Record<string,unknown>=raw.publication.after.record;
+  record.extension={record};expect(()=>request(raw)).toThrow();
+});
+
 test('NewTask saved and issued holds retain their exact requests and retire late replies into cleanup',async()=>{
   for(const issued of [false,true]){
     const ledger=create(newIdentity,3,newTarget),requestId=id(issued?30:31),provenance=issued?{operationId:pick.operationId}:undefined;
