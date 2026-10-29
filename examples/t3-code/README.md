@@ -478,10 +478,12 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - Text a platform view draws keeps AppKit's font smoothing (LLP 1019 D12): with Font smoothing on,
   the composer's and the fields' typed text is a shade heavier than the reference's, which draws
   all of its text `antialiased`.
-- The ContextMenu key and VoiceOver's show menu on a reply's mailto, irc, xmpp or fragment link open nothing,
-  where the reference opens the desktop shell's menu: those links write no `contextmenu`, and on macOS a
-  keyboard or VoiceOver menu request that no node answers ends (`MouseEventsMac.swift` `contextTarget`),
-  while a right-click goes on to the shell's menu. Chrome sends the request on to the default menu.
+- The ContextMenu key on a reply's mailto, irc, xmpp or fragment link opens nothing, where the reference's
+  desktop shell answers it, as any page context menu, with Cut, Copy, Paste and Select All
+  (`DesktopWindow.ts`). Those links write no `contextmenu`; since main's #1114 the key goes on as a
+  secondary click at the link would, to the menu of the text drawn there, which has none while no text
+  is selected (agent drive, 2026-10-30). VoiceOver's show menu takes the same path; not checked with
+  VoiceOver.
 - On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
   reference opens it at the click.
 - View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
