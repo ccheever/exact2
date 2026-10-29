@@ -9,6 +9,8 @@ import type { Native } from '../../src/client/protocol';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFns } from '../support/contract-fn-fixture';
 import { appText } from '../support/app-files';
+import { adoptAppFiles } from '../../src/media/save-file';
+import { useClipboardCalls } from '../../src/media/media-copy-image';
 
 const native: Native = { available: true, watch() {}, later: async () => ({}) };
 const fileImage: MediaActionSource = { kind: 'image', name: 'logo.png', src: 'http://127.0.0.1:3/api/assets/x/logo.png', reference: { kind: 'file', path: '/repo/screens/logo.png', relativePath: 'screens/logo.png' },
@@ -16,6 +18,14 @@ const fileImage: MediaActionSource = { kind: 'image', name: 'logo.png', src: 'ht
 const urlVideo: MediaActionSource = { kind: 'video', name: 'clip', src: 'https://cdn.example/clip%20one.mp4', reference: { kind: 'url', url: 'https://cdn.example/clip%20one.mp4' } };
 
 type Call = Record<string, unknown>;
+/** Copy image's fetch (a reply of `type`), the app's files and @exact/clipboard, faked; `restore` puts them back. */
+function copying(type = 'image/png', write: () => Promise<void> = async () => {}) {
+  const fetched: string[] = [], written: unknown[] = [], original = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => { fetched.push(String(url)); return new Response('', { headers: { 'content-type': type } }); }) as unknown as typeof fetch;
+  adoptAppFiles({ fs: { readFile: async () => new ArrayBuffer(0), writeFile: async () => {}, mkdir: async () => {}, rm: async () => {} } });
+  useClipboardCalls({ write: async items => { await write(); written.push(items); }, ClipboardItem: class { constructor(items: Call) { Object.assign(this, items); } } });
+  return { fetched, written, restore: () => { globalThis.fetch = original; useClipboardCalls(null); } };
+}
 function fakeClient(answers: (request: Call) => unknown, extra: Partial<Record<string, unknown>> = {}) {
   const calls: Call[] = [], rpcs: Call[] = [];
   const client = {
@@ -110,19 +120,30 @@ describe('showMediaMenu', () => {
     expect(calls[1]).toEqual({ op: 'mediaSave', url: 'http://127.0.0.1:16260/api/assets/fresh/logo.png?sig=2', name: 'logo.png' });
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Download started' });
   });
-  test('Copy image uses the shown URL when there is no asset; a media-file asset takes the shown thread', async () => {
+  test('Copy image writes the shown URL\'s PNG through @exact/clipboard when there is no asset; a media-file asset takes the shown thread', async () => {
+    const copy = copying();
     const plain = fakeClient(request => (request.op === 'mediaMenu' ? { id: 'copy-image' } : { ok: true }));
     await showMediaMenu(plain.client, native, encodeMediaSource({ kind: 'image', name: 'shot.png', src: '//cdn.example/shot.png' }), 'pointer');
     expect(plain.rpcs).toEqual([]);
-    expect(plain.calls[1]).toEqual({ op: 'mediaCopyImage', url: 'https://cdn.example/shot.png' });
+    expect(copy.fetched).toEqual(['https://cdn.example/shot.png']);
+    expect(copy.written).toHaveLength(1);
+    expect(plain.calls.map(call => call.op)).toEqual(['mediaMenu']);
     expect(toasts(plain.client).at(-1)).toMatchObject({ kind: 'success', title: 'Image copied' });
     const md = fakeClient(request => (request.op === 'mediaMenu' ? { id: 'copy-image' } : { ok: true }));
     await showMediaMenu(md.client, native, encodeMediaSource({ kind: 'image', name: 'a', src: null, asset: { resource: { _tag: 'media-file', path: '/tmp/a.png' } } }), 'pointer');
     expect(md.rpcs[0]).toEqual({ method: 'assets.createUrl', resource: { _tag: 'media-file', path: '/tmp/a.png', threadId: 't1' } });
+    // An SVG, which the image codec does not draw, is the module's to copy.
+    copying('image/svg+xml');
+    const svg = fakeClient(request => (request.op === 'mediaMenu' ? { id: 'copy-image' } : { ok: true }));
+    await showMediaMenu(svg.client, native, encodeMediaSource({ kind: 'image', name: 'mark.svg', src: 'https://cdn.example/mark.svg' }), 'pointer');
+    expect(svg.calls[1]).toEqual({ op: 'mediaCopyImage', url: 'https://cdn.example/mark.svg' });
+    copy.restore();
   });
   test('failures keep the progress toast and say what failed, in the reference\'s words', async () => {
-    const refused = fakeClient(request => (request.op === 'mediaMenu' ? { id: 'copy-image' } : { ok: false, message: 'This image is too large or has no usable dimensions. Try saving it instead.' }));
+    const copy = copying('image/png', async () => { throw new DOMException('too large: 10000×7000 is over 64,000,000 pixels', 'DataError'); });
+    const refused = fakeClient(request => (request.op === 'mediaMenu' ? { id: 'copy-image' } : { ok: true }));
     await showMediaMenu(refused.client, native, encodeMediaSource(fileImage), 'pointer');
+    copy.restore();
     expect(toasts(refused.client)).toHaveLength(1);
     expect(toasts(refused.client)[0]).toMatchObject({ kind: 'error', title: 'Could not copy image', description: 'This image is too large or has no usable dimensions. Try saving it instead.' });
     const offline = fakeClient(request => (request.op === 'mediaMenu' ? { id: 'save' } : { ok: true }), { connection: 'reconnecting' });

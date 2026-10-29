@@ -53,6 +53,7 @@ shape LegacyProjectRow
   newThreadLabel: string
   enter: bool
   menu: SidebarMenuRow[]
+  members: SidebarMenuRow[]
 shape LegacySidebarView
   enabled: bool
   projects: LegacyProjectRow[]

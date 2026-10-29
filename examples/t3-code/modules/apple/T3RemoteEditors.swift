@@ -1,18 +1,13 @@
 // Remote open-in-editor on this Mac (MIT reference, see LICENSE-T3:
 // apps/desktop/src/ipc/methods/window.ts probeRemoteEditors, packages/shared/src/editor.ts
-// resolveEditorCommand (macOS branch), apps/desktop/src/electron/ElectronShell.ts
-// parseSafeExternalUrl / openExternal (74541bab17), apps/web/src/remoteOpen.ts useRemoteOpenHint, at
+// resolveEditorCommand (macOS branch), apps/web/src/remoteOpen.ts useRemoteOpenHint, at
 // 9c161462c9). The probe lists the remote-capable editors whose command resolves on the
 // login shell's PATH, inside an app bundle in ~/Applications or /Applications (a JetBrains
 // Toolbox bundle carries its version, `IntelliJ IDEA 2026.1.4.app`), or among Toolbox's
-// scripts. The client's opens are Contract's `openURL` (external-open.ts, app.json `open_url`);
-// `openOrRecord` opens for the module's own callers, only an http(s) URL or a remote editor deep
-// link with no URL user info. Agent runs never open anything: the URL is recorded
-// (T3_REMOTE_OPEN_LOG names a file to append it to), and T3_EDITOR_PATH / T3_EDITOR_APP_ROOTS /
-// T3_EDITOR_HOME replace the PATH, the app folders and the home whose Toolbox scripts are read
-// (none without it).
+// scripts. The client's opens are Contract's `openURL` (external-open.ts, app.json `open_url`).
+// Under the agent T3_EDITOR_PATH / T3_EDITOR_APP_ROOTS / T3_EDITOR_HOME replace the PATH, the app
+// folders and the home whose Toolbox scripts are read (none without it).
 import Foundation
-import AppKit
 
 enum T3RemoteEditors {
     struct Editor {
@@ -40,17 +35,6 @@ enum T3RemoteEditors {
     private static let lock = NSLock()
     private static var agentHintSeen = false
     private static var cachedLoginPath: String?
-
-    /// ElectronShell.openExternal for module code off the main thread (T3CodexAuth.swift): an agent
-    /// run appends the URL to T3_REMOTE_OPEN_LOG; otherwise NSWorkspace opens it.
-    static func openOrRecord(_ value: String, agent: Bool) -> Bool {
-        guard let url = safeExternalUrl(value) else { return false }
-        if agent {
-            if let log = ProcessInfo.processInfo.environment["T3_REMOTE_OPEN_LOG"], !log.isEmpty { append(url + "\n", to: log) }
-            return true
-        }
-        return DispatchQueue.main.sync { URL(string: url).map { NSWorkspace.shared.open($0) } ?? false }
-    }
 
     static func perform(_ request: [String: Any], agent: Bool, completion: @escaping ([String: Any]) -> Void) {
         let op = request["op"] as? String ?? ""
@@ -136,29 +120,5 @@ enum T3RemoteEditors {
         }
         lock.lock(); cachedLoginPath = value; lock.unlock()
         return value
-    }
-
-    /// parseSafeExternalUrl: http(s), or `<scheme>://vscode-remote/ssh-remote+<host>…` /
-    /// `zed://ssh/[<user>@]<host>/…` / `jetbrains://gateway/ssh/environment?h=<host>…` with no URL user info
-    /// (Zed's user sits in the path, where a password or port is refused); anything else is refused.
-    static func safeExternalUrl(_ raw: Any?) -> String? {
-        guard let raw = raw as? String, let components = URLComponents(string: raw), let scheme = components.scheme?.lowercased() else { return nil }
-        if scheme == "http" || scheme == "https" { return (components.host ?? "").isEmpty ? nil : components.url?.absoluteString }
-        guard remoteSchemes.values.contains(scheme), (components.user ?? "").isEmpty, (components.password ?? "").isEmpty else { return nil }
-        let host = components.percentEncodedHost ?? "", path = components.percentEncodedPath
-        if scheme == "zed" {
-            guard host == "ssh", path.range(of: #"^/(?:[^/@:]+@)?[^/@:]+/.*$"#, options: .regularExpression) != nil else { return nil }
-        } else if scheme == "jetbrains" {
-            guard host == "gateway", path == "/ssh/environment", !(components.queryItems?.first(where: { $0.name == "h" })?.value ?? "").isEmpty else { return nil }
-        } else {
-            guard host == "vscode-remote", path.hasPrefix("/ssh-remote+"), path.count > "/ssh-remote+".count else { return nil }
-        }
-        return components.url?.absoluteString
-    }
-
-    private static func append(_ line: String, to path: String) {
-        if !FileManager.default.fileExists(atPath: path) { FileManager.default.createFile(atPath: path, contents: nil) }
-        guard let handle = FileHandle(forWritingAtPath: path) else { return }
-        handle.seekToEndOfFile(); handle.write(Data(line.utf8)); try? handle.close()
     }
 }

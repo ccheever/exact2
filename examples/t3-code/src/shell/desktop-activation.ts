@@ -164,7 +164,7 @@ export async function activationPrepare(client: T3Client, native: Native | null 
 }
 
 /**
- * The shell view's open request: a clicked notification's thread (T3Notifications `opened`) or a
+ * The shell view's open request: a clicked notification's thread (shell-notify.ts `notification-open`) or a
  * request the native side handed this window, whichever came last, as `open:<n>` with its target.
  */
 export async function activationOpen(client: object, native: Native | null | undefined, status: { opened: string; openedThread: string }): Promise<{ openRequest: string; openThreadId: string }> {

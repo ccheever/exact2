@@ -123,7 +123,6 @@ describe('draft rows: context menu and discard behind Undo (95edeb753b)', () => 
     await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'copy-branch');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/other', 'feature/x']);
     expect(await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'project-settings')).toBe('sidebar:project-settings:p2');
-    expect(calls.filter(call => call.op === 'sidebarMenu')).toEqual([]);
   });
 
   test('Discard draft clears the session; Undo brings back the text, images and workspace choice', async () => {

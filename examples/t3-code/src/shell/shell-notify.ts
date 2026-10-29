@@ -2,18 +2,45 @@
 // ThreadNotificationCoordinator.tsx and ThreadNotificationCoordinator.logic.ts at 7c3b3b3605ef, threadNotifications.ts).
 // Provider updates raise no toast at launch: the sidebar's pill and Settings ›
 // Providers offer them. The window's focus is the page's
-// (`exactPage().hasFocus`, document.hasFocus(): exact2 #219); the macOS side
-// (notification center, sound, Dock badge, a click that opens the thread) is
-// modules/apple/T3Notifications.swift, which says why it is not `showNotification`.
+// (`exactPage().hasFocus`, document.hasFocus(): exact2 #219), and so is the permission
+// (app.contract `notificationPermission`, read again when the app comes to the front). The
+// system's side is @exact/notifications (LLP 1133.004): the silent post, its click, the Dock
+// badge and the permission's request. A post names its destination as a `navigate`
+// location the window opens (app.contract notificationOpen); the sounds are the window's
+// (`notificationSound`, app.contract notifyCompletionSound).
+// The bake binds the package from its exact.json; Bun's tests read the exact.json itself, so they hand in their own.
+import * as notificationsPackage from '@exact/notifications';
 import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import type { T3Client } from '../client/client';
 import { pushToast } from './toast';
 import { obj, str, type Shell } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import { sidebarStatus, latestRun } from '../sidebar/sidebar-model';
-import { fleet, fleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { fleet, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { letGo } from '../client/let-go';
+import { decodeGuideOpenTarget } from '../pull-requests/guide-target';
 
-export type NotifyStatus = { active: boolean; authorization: string; agent: boolean; opened: string; openedThread: string };
+export type NotificationStatus = { available: boolean; state: string; badge: boolean };
+export type NotificationCalls = {
+  showNotification(options: { title: string; body?: string; tag?: string; silent?: boolean; navigate?: string }): Promise<void>;
+  closeNotification(options: { tag: string }): Promise<void>;
+  setAppBadge(options: { contents?: number }): Promise<void>;
+  clearAppBadge(options: object): Promise<void>;
+  requestNotificationPermission(options: object): Promise<NotificationStatus>;
+};
+let notifications = notificationsPackage as unknown as NotificationCalls;
+/** A test's own `@exact/notifications` (null puts the package back). */
+export function useNotificationCalls(fake: NotificationCalls | null): void { notifications = fake ?? notificationsPackage as unknown as NotificationCalls; }
+/** A refusal (denied, a host without notifications, a test without the package) changes nothing the window shows. */
+async function quietly<T>(call: () => Promise<T>): Promise<T | undefined> {
+  try { return await call(); } catch (error) { if (letGo(error)) throw error; return undefined; }
+}
+
+/**
+ * `active` is the page's focus; `authorization` the permission state (`granted`, `prompt`, `denied` or `unknown`);
+ * `opened` / `openedThread` the latest notification click (`notification-open`), which desktop-activation.ts opens.
+ */
+export type NotifyStatus = { active: boolean; authorization: string; opened: string; openedThread: string };
 /** ThreadNotificationObservation: the attention key, and whether the thread is idle with its latest run completed (when). */
 type Memory = { attention: string | null; settled: boolean; completedAt: number | null };
 /**
@@ -44,19 +71,82 @@ export function notificationsWaiting(client: T3Client): boolean {
 export const hasNotificationSound = (mode: string) => mode === 'sound' || mode === 'notifications-and-sound';
 export const hasDesktopNotifications = (mode: string) => mode === 'notifications' || mode === 'notifications-and-sound';
 
+/** Each client's latest notification click, which its `navigate` route handed in (app.contract notificationOpen). */
+const clicks = new WeakMap<object, { serial: number; target: string }>();
 /**
- * The notification center as the native module sees it; `active` is the page's
- * own focus fact (`exactPage().hasFocus`, ThreadNotificationCoordinator's
- * document.hasFocus()), never the module's.
+ * `notification-open`: a clicked notification's destination, which is one of the window's own posts' targets: a thread
+ * (`fleet:<environment>:<thread>`) or a review guide (guide-target.ts). Anything else opens nothing.
  */
-export async function nativeNotifyStatus(native: Native, previous: NotifyStatus, focused: boolean): Promise<NotifyStatus> {
-  try {
-    const response = await bridgeReply(native, { op: 'notifyStatus' });
-    if (!response.ok) return { ...previous, active: focused };
-    const value = obj(response.value);
-    return { active: focused, authorization: str(value.authorization, 'unknown'), agent: value.agent === true,
-      opened: str(value.opened), openedThread: str(value.openedThread) };
-  } catch { return { ...previous, active: focused }; }
+export async function notificationOps(this: T3Client, op: string, id: string): Promise<boolean> {
+  if (op !== 'notification-open') return false;
+  if (parseFleetThreadId(id) || decodeGuideOpenTarget(id)) clicks.set(this, { serial: (clicks.get(this)?.serial ?? 0) + 1, target: id });
+  return true;
+}
+/** Where a click opens (app.contract `notification` route): `/notification?t=<target>`. */
+export const notificationLocation = (target: string) => `/notification?t=${encodeURIComponent(target)}`;
+
+/**
+ * The window's facts and the latest click: `active` is the page's own focus (`exactPage().hasFocus`,
+ * ThreadNotificationCoordinator's document.hasFocus()), `permission` the root's live read of the package's state
+ * ('' keeps the previous one).
+ */
+export function notifyStatus(client: object, previous: NotifyStatus, focused: boolean, permission: string): NotifyStatus {
+  const click = clicks.get(client);
+  return { active: focused, authorization: permission || previous.authorization,
+    opened: click ? `${click.serial}:${click.target}` : '', openedThread: click?.target ?? '' };
+}
+
+/** The notifications posted since the window last had the focus (notificationBadge.ts counts them on the Dock tile). */
+const pendings = new WeakMap<object, Set<string>>();
+function pending(client: object): Set<string> {
+  let tags = pendings.get(client);
+  if (!tags) pendings.set(client, tags = new Set());
+  return tags;
+}
+/**
+ * `new Notification(title, {body, tag, silent: true})` while permission is granted, as the coordinator posts one
+ * only then; its click opens `target`. The badge then counts what is pending (trackNotification).
+ */
+export async function postNotification(client: object, status: NotifyStatus, title: string, body: string, tag: string, target: string): Promise<void> {
+  if (status.authorization !== 'granted') return;
+  if ((await quietly(() => notifications.showNotification({ title, body, tag, silent: true, navigate: notificationLocation(target) }).then(() => true))) !== true) return;
+  const tags = pending(client);
+  tags.add(tag);
+  await quietly(() => notifications.setAppBadge({ contents: tags.size }));
+}
+/** clearPending: each pending notification closes and the badge clears (the window's focus, a mode change). */
+async function clearPending(client: object, always: boolean): Promise<void> {
+  const tags = pending(client);
+  if (!tags.size && !always) return;
+  const closing = [...tags];
+  tags.clear();
+  for (const tag of closing) await quietly(() => notifications.closeNotification({ tag }));
+  await quietly(() => notifications.clearAppBadge({}));
+}
+
+/** playNotificationSound's files' lengths (assets/notification-*.wav): one playback stands for a burst (`playingUntil`). */
+const SOUND_MS = { completion: 602, input: 714 } as const;
+type SoundKind = keyof typeof SOUND_MS;
+const sounds = new WeakMap<object, Record<SoundKind, number> & { until: Record<SoundKind, number> }>();
+function soundsOf(client: object) {
+  let value = sounds.get(client);
+  if (!value) sounds.set(client, value = { completion: 0, input: 0, until: { completion: 0, input: 0 } });
+  return value;
+}
+/**
+ * playNotificationSound: asks the window to play `kind`'s sound (app.contract notifyCompletionSound, notifyInputSound).
+ * Each kind keeps its own slot, and one still playing at `now` stands for the next; with no clock (0) each plays.
+ */
+export function notificationSound(client: object, kind: SoundKind, now: number): void {
+  const value = soundsOf(client);
+  if (now > 0 && now < value.until[kind]) return;
+  value[kind]++;
+  value.until[kind] = now + SOUND_MS[kind];
+}
+/** The shell view's sound requests: each kind's count, which the window plays each time it moves. */
+export function notificationSounds(client: object): Record<SoundKind, number> {
+  const { completion, input } = soundsOf(client);
+  return { completion, input };
 }
 
 const reportedFacts = new WeakMap<object, string>();
@@ -168,13 +258,14 @@ export function notifyEnvironments(client: T3Client, source: EnvironmentFleet = 
  * later call that runs during those awaits diffs a newer shell against memory no older than the
  * shells this call read, and this call never writes an older shell's memory over a newer one.
  */
-export async function threadNotifications(client: T3Client, native: Native, status: NotifyStatus, source: EnvironmentFleet = fleet, now = 0): Promise<void> {
+export async function threadNotifications(client: T3Client, status: NotifyStatus, source: EnvironmentFleet = fleet, now = 0): Promise<void> {
   const state = notifyState(client);
   const prefs = client.local.clientSettings;
   const mode = str(prefs.notificationMode, 'off'), inApp = prefs.inAppNotificationsEnabled === true;
   const modeChanged = state.mode !== mode;
   state.mode = mode;
-  if (modeChanged) await bridgeReply(native, { op: 'notifyClear' }).catch(() => undefined);
+  // applyMode clears what is pending, and the window's `focus` clears it while desktop notifications are on.
+  if (modeChanged || status.active) await clearPending(client, modeChanged);
   if (mode === 'off' && !inApp) { state.previous.clear(); state.gates.clear(); return; }
   const environments = notifyEnvironments(client, source);
   const listed = new Set(environments.map(environment => environment.environmentId));
@@ -188,15 +279,15 @@ export async function threadNotifications(client: T3Client, native: Native, stat
     state.previous.set(environment.environmentId, next);
     for (const transition of transitions) pending.push({ environment, transition });
   }
-  for (const { environment, transition } of pending) await notifyTransition(client, native, status, environment, transition, mode, inApp);
+  for (const { environment, transition } of pending) await notifyTransition(client, status, environment, transition, mode, inApp, now);
 }
 
 /** One transition: the sound, then the in-app toast (focused window, not the open thread) or the system notification. */
-async function notifyTransition(client: T3Client, native: Native, status: NotifyStatus, environment: WatchedEnvironment, transition: Transition, mode: string, inApp: boolean): Promise<void> {
+async function notifyTransition(client: T3Client, status: NotifyStatus, environment: WatchedEnvironment, transition: Transition, mode: string, inApp: boolean, now: number): Promise<void> {
   const thread = environment.shell.threads.find(entry => entry.id === transition.threadId);
   const body = str(thread?.title, 'Untitled thread');
   const target = fleetThreadId(environment.environmentId, transition.threadId);
-  if (hasNotificationSound(mode)) await bridgeReply(native, { op: 'notifySound', kind: transition.kind }).catch(() => undefined);
+  if (hasNotificationSound(mode)) notificationSound(client, transition.kind, now);
   if (inApp && status.active && !(environment.focused && transition.threadId === client.threadId)) {
     const { kind, leading } = transitionToast(transition);
     pushToast(client, { kind, title: transition.title, description: body, leading, hideCopy: true,
@@ -204,8 +295,7 @@ async function notifyTransition(client: T3Client, native: Native, status: Notify
     return;
   }
   if (!hasDesktopNotifications(mode) || status.active) return;
-  await bridgeReply(native, { op: 'notifyPost', title: transition.title, body,
-    tag: `${environment.environmentId}:${transition.threadId}`, threadId: target }).catch(() => undefined);
+  await postNotification(client, status, transition.title, body, `${environment.environmentId}:${transition.threadId}`, target);
 }
 
 // --- NotificationSettings permission gate ------------------------------------
@@ -215,17 +305,13 @@ export const PERMISSION_DENIED = 'Allow notifications in your browser or system 
 /** The Thread notifications row's description while a permission request was refused. */
 export function notificationPermissionMessage(client: T3Client): string { return permissionMessages.get(client) ?? ''; }
 /**
- * Before a notification mode is saved, ask macOS (never from an agent-launched
- * app). Refused or undecided keeps the previous value and explains why.
+ * NotificationSettings: before a notification mode is saved, `Notification.requestPermission()`, which asks only
+ * while the person has not decided. Refused or undecided keeps the previous value and explains why.
  */
-export async function notificationPermission(client: T3Client, native: Native, mode: string): Promise<boolean> {
+export async function notificationPermission(client: T3Client, mode: string): Promise<boolean> {
   permissionMessages.delete(client);
   if (!hasDesktopNotifications(mode)) return true;
-  try {
-    const response = await bridgeReply(native, { op: 'notifyAuthorize' });
-    const authorization = str(obj(response.value).authorization);
-    if (response.ok && (authorization === 'authorized' || authorization === 'provisional')) return true;
-  } catch { /* unavailable: the message below says what to do */ }
+  if ((await quietly(() => notifications.requestNotificationPermission({})))?.state === 'granted') return true;
   permissionMessages.set(client, PERMISSION_DENIED);
   return false;
 }

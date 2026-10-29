@@ -14,8 +14,6 @@ final class T3Module: ExactModule {
     let chrome = T3WindowChrome()
     let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
     let menus = T3Menus() // Paste as Text, the updates box and the folder panels (T3Menus.swift).
-    let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
-    let sidebar: T3Sidebar // The legacy members menu and timed sidebar repaints (T3Sidebar.swift).
     let browserPages: T3BrowserPages // What this session's Browser frames hand the `t3-browser-page` hatch (T3BrowserPage.swift)
     private let latinChords: T3LatinChords // Wake, chords by physical key, hover under a still pointer (T3LatinChords.swift).
     let textMenu: T3TextContextMenu // the desktop shell's context menu wherever the page shows none (T3TextContextMenu.swift).
@@ -26,8 +24,6 @@ final class T3Module: ExactModule {
         // A topic announced while the snapshot read is in flight lets its reply land, then asks once
         // more (exact2 #183, #109); the app no longer holds topics during a read.
         let changed: (String) -> Void = context.changed
-        notifications = T3Notifications(agent: context.agent, changed: changed)
-        sidebar = T3Sidebar(agent: context.agent, changed: changed)
         snapShot = T3SnapShot(directory: context.data, agent: context.agent, changed: changed)
         composer = T3Composer(changed: changed)
         devices = T3DeviceStreams(changed: changed)
@@ -51,7 +47,7 @@ final class T3Module: ExactModule {
     }
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns is the module's own (`status`). No two areas share an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.localOps, T3Module.activationOps, T3Module.codexAuthOps, T3Module.browserOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.localOps, T3Module.activationOps, T3Module.browserOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
@@ -84,7 +80,7 @@ final class T3Module: ExactModule {
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { detachAppControl(); mediaFocus.destroy(); T3MenuDismissal.disarm(); latinChords.destroy(); textMenu.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); devices.destroy(); chrome.destroy(); menus.destroy(); ssh.destroy(); browserPages.destroy(); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
+    override func destroy() { detachAppControl(); mediaFocus.destroy(); T3MenuDismissal.disarm(); latinChords.destroy(); textMenu.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); devices.destroy(); chrome.destroy(); menus.destroy(); ssh.destroy(); browserPages.destroy(); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self

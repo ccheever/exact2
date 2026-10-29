@@ -70,6 +70,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "sourceControlPage",
             "promptLinkView",
             "promptLinksReady",
+            "codexReceive",
             "pagesHome",
             "usagePage",
             "usageKeys",

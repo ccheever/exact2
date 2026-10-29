@@ -100,6 +100,9 @@ shape ShellEditor
   id: string
   label: string
   selected: bool
+shape NotifySound
+  completion: number
+  input: number
 shape ShellView
   openGuideSelected: string
   toasts: ShellToast[]
@@ -121,6 +124,8 @@ shape ShellView
   titleMenu: ShellMenuItem[]
   titleSubmenu: ShellMenuItem[]
   notifications: string
+  // The notification sounds the window plays (shell-notify.ts notificationSound): each kind's count of requests.
+  notifySound: NotifySound
   // panel-surfaces.ts: the right panel's tabs and its Files / Linked pull requests / Device surfaces.
   panel: PanelView
   // The branch picker's PullRequestThreadDialog (pr-checkout.ts).

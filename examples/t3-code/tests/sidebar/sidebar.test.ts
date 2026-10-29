@@ -269,7 +269,6 @@ describe('the rows\' context popover (sidebar-row.contract ThreadMenu, DraftMenu
     expect(rows.find(row => row.id === 'a')!.menu.filter(entry => entry.parent === 'copy').map(entry => entry.label)).toEqual(['Path', 'Branch', 'Thread ID']);
     await sidebarCommand(client, native, files, 'menu-choice', 'a', 'copy-path');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/wt/a']);
-    expect(calls.filter(call => call.op === 'sidebarMenu')).toEqual([]); // no module menu for a pointer's choice
     sidebarSession(client).selection = ['b', 'c'];
     const selected = sidebarSnapshot(client, NOW, helpers).threads;
     expect(selected.find(row => row.id === 'b')!.menu.filter(entry => entry.parent === '').map(entry => entry.label)).toEqual(['Settle (2)', 'Snooze (2)', 'Regenerate titles (2)', 'Mark unread (2)', 'Delete (2)']);

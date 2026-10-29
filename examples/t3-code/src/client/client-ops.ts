@@ -22,6 +22,7 @@ import { terminalPanelOps } from '../terminal/terminal-panel';
 import { terminalOps } from '../terminal/terminal-drawer-view';
 import { autoBalanceOps } from './client-ops-auto-balance';
 import { activationOps } from '../shell/desktop-activation'; // `t3 app <dir>`
+import { notificationOps } from '../shell/shell-notify'; // a clicked notification's destination
 
 /** A provider write on the environment Settings › Providers shows, when that is not the focused one (providers-scope.ts). */
 export type ProvidersRoute = { host: ProviderHost; native(native: Native): Native; requireWrite(): void };
@@ -30,7 +31,7 @@ export type OpGroup = (this: T3Client, op: string, id: string, value: string, n:
 
 const updateEverythingOps: OpGroup = async function(op, _id, _value, n, native) { return updateEverythingOp(this, op, native, n); };
 
-export const READ_OPS: OpGroup[] = [updateEverythingOps, connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps, autoBalanceOps, activationOps];
+export const READ_OPS: OpGroup[] = [updateEverythingOps, connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps, autoBalanceOps, activationOps, notificationOps];
 export const WRITE_OPS: OpGroup[] = [settingsWrites, composerWrites, threadWrites, sidebarWrites, laneWrites];
 
 /** Runs `op` in the first group that owns it; false when none does. */

@@ -3,12 +3,13 @@
 use ThreadFindView from "./src/timeline/thread-find.contract"
 use ServerBrowserFrame from "./src/browser/server-browser.contract"
 use clearSiteData, ClearedSiteData from "@exact/browser"
+use notificationStatus, NotificationStatus from "@exact/notifications" // the thread and guide notifications' posts, badge and permission (shell-notify.ts)
 use handleUserPrompt, EmptyResult from "@exact/browser-automation"
 use PromptLinkView from "./src/prompt-links/prompt-links.contract"
 use ThemeUse, ThemeRoleUsage from "./src/appearance/settings-appearance-editor-shapes.contract"
 use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./src/shell/app-shapes.contract" // first: the plan orders shapes by first use
 use HighlightAsk, HighlightCoded, HighlightStored from "./src/highlight/highlight.contract"
-use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas from "./src/shared/shapes.contract"
+use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas, CodexReceive from "./src/shared/shapes.contract"
 use PairFields from "./src/connections/pairing-shapes.contract"
 use providerLinkVisit from "./src/shell/app-settings.contract"
 use SshPromptView, SshPromptAnswer from "./src/connections/ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
@@ -52,9 +53,13 @@ use heldModifiers from "./src/shared/press-modifiers.contract"
 use QuitHoldState, quitHoldIdle, quitKeyDown, quitKeyUp, quitWatchFired, quitTypesLatin from "./src/shell/quit-hold.contract"
 use composerChord, composerChordIn from "./src/composer/composer-keys.contract"
 use layoutFrame, optionsTriggerId from "./src/shell/layout-frames.contract"
+// playNotificationSound's two sounds (threadNotifications.ts): the reference's MP3s as PCM, as `sound` reads them.
+sound "assets/notification-completion.wav"
+sound "assets/notification-input.wav"
 routes promptLinks
   home "/"
   incoming "/open"
+  notification "/notification" // where a clicked notification goes (shell-notify.ts notificationLocation)
 
 component T3Code
   action promptLinkNavigate(location: string)
@@ -71,6 +76,23 @@ component T3Code
     send fragmentChanged = command("shelllocal:prompt-link-open", "", value, 0)
   action promptLinkAct(which: string)
     send fragmentChanged = command("shelllocal:prompt-link-action", which, "", 0)
+  // A notification's click (its `navigate`, warm or at launch) names its thread or review guide, which the shell opens
+  // as ThreadNotificationCoordinator's click navigates there at once (shell-notify.ts `notification-open`).
+  task notificationOpened when top(promptLinks).name == "notification"
+    after(1, notificationOpen)
+  action notificationOpen
+    let target = searchParam(top(promptLinks), "t")
+    promptLinks = open(promptLinks, path("home"))
+    send localChanged = command("notification-open", target, "", 0)
+  // playNotificationSound: each request the shell view counts (shell-notify.ts notificationSound) plays its sound once.
+  task notifyCompletionSound when shell.notifySound.completion > 0 key=shell.notifySound.completion
+    after(1, playCompletionSound)
+  task notifyInputSound when shell.notifySound.input > 0 key=shell.notifySound.input
+    after(1, playInputSound)
+  action playCompletionSound
+    playSound("assets/notification-completion.wav")
+  action playInputSound
+    playSound("assets/notification-input.wav")
   state themeInspecting = false // Color inspection owns Escape while its floating editor remains open.
   action setThemeInspecting(value: bool)
     themeInspecting = value
@@ -81,6 +103,14 @@ component T3Code
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
   resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restResting, restAtEnd, restPulls, transportSeen, composerTyping, layoutFrames, wallTime.formatLocale) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts); the typing guard (composer-typing-guard.ts)
+  // receiveCodexAuthCallback: while a ChatGPT sign-in waits on its loopback callback, this answer holds openAuthSession's
+  // receiver on the redirect's port (codex-setup-ops.ts receiveCallback); another URL, or none, lets it go.
+  resource codexLoopback = codexReceive(data.codexReceiving) as shape CodexReceive
+  // The notification permission, read again when the app comes to the front: the shell posts while it is `granted`
+  // (shell-notify.ts). Data code makes the posts, and a package enters the plan only by a name Contract reads, so this
+  // read is also what lets the agent answer data code's calls, which it refuses for a package not in the plan
+  // (LLP 1133.004, "As built").
+  resource notificationPermission = notificationStatus() as shape NotificationStatus
   state reconnectGraceKey = ""
   state disconnectDelayKey = ""
   task reconnectGrace when data.serverUpdate.reconnecting != "" key=data.serverUpdate.reconnecting
