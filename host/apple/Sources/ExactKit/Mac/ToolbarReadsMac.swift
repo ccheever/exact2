@@ -161,9 +161,11 @@ extension WindowToolbarHost {
         var mine = besideParts.map(\.node)
         if projected, let owner { mine.append(owner) }
         for node in mine { inputs.projected[node.id] = node.isHidden }
+        // By identity, once: the pass over the record is then linear, not one search of `mine` a node.
+        let projecting = Set(mine.map(ObjectIdentifier.init))
         for id in reads.nodes {
             guard let node = presenter.views[id] else { continue }
-            let hidden = node.isHidden && !mine.contains { $0 === node }
+            let hidden = node.isHidden && !projecting.contains(ObjectIdentifier(node))
             let bits: UInt8 = (hidden ? 1 : 0) | (node.routeInert ? 2 : 0)
             if bits != 0 { inputs.gates[id] = bits }
         }
