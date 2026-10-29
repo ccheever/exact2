@@ -1599,3 +1599,9 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - **Ink readback RSS peaks** (LLP 1149 S0 C5). Desktop peaks rise during the CPU pixel copy, after device and glyph setup, with or without `ps` sampling. Zeroed output allocation did not remove them. Reuse the presenter's CPU pixmap and the device's staging buffer, then repeat the C4 memory protocol; see `host/ink/MEASUREMENTS.md`.
 
 - **Ink D3D11 readback cost** (LLP 1149 S0 C6). On the NucBox, 1920×1080 C4 scrolling takes 3.920 ms with D3D11 versus 2.718 ms with wgpu DX12; readback, including completion, takes 3.238 ms versus 1.632 ms. Profile staging, completion and copying before optimizing the headless path. DirectComposition avoids that readback in the window. See `host/ink/MEASUREMENTS.md`, “NucBox”.
+
+- **Ink's bounded startup still needs a visible CPU fallback** (LLP 1149 S2.6). On the NucBox an ordinary bitmap child stays black under the composition parent; a layered-child experiment refused `UpdateLayeredWindow` with `0x80070057`. Investigation stopped at the three-round limit. Qualify the CPU first frame, delayed hardware takeover and a cache-cold launch before landing the S2 default. See `host/ink/MEASUREMENTS.md`.
+
+- **Windows Shell jump-list setup blocks first pixel** (LLP 1149 S2.6). The NucBox phase log puts 206.625 ms of a 330.363 ms Ink startup inside `jump_list::set_from_compat`, with the device ready at 63.547 ms. Move that Shell work off the first-frame path; see `host/ink/MEASUREMENTS.md`.
+
+- **Qualify Ink's appearance without Mica** (LLP 1149 S2.6). With backdrop setup refused, the captured sidebar exposes dark/desktop content despite a successful present. Supply and qualify an opaque material fallback.
