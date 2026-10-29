@@ -8,6 +8,7 @@ use MermaidDiagram from "../timeline/mermaid-frame.contract"
 use AttachmentUrl from "../timeline/timeline-attachments.contract"
 use PrRowExtra from "../details/pr-row-shapes.contract"
 use MergeAsk from "../details/pr-row-shapes.contract"
+use ViewerFrameView from "./viewer-frame.contract"
 
 shape AttachmentCodeRun
   id: string
@@ -84,7 +85,6 @@ shape AttachmentSurface
   saving: bool
   saveLabel: string
   truncatedNote: string
-  table: AttachmentTableRow[]
   lines: AttachmentCodeLine[]
   gutter: number
   url: string
@@ -102,6 +102,44 @@ shape AttachmentSurface
   mermaidNote: string
   // "No preview for this file" reports a failure: a font that did not load.
   noPreviewAlert: bool
+  // The viewer page (viewer-frame.contract) for a PDF, text past 1 MB, a table, a document, an archive or a database;
+  // an archive entry it opened, drawn under its bar; a notebook's cells it parsed (notebook-preview.contract).
+  viewer: ViewerFrameView
+  entry: ArchiveEntry
+  notebook: NotebookPreviewView
+// BinaryViewer ArchiveFile: an opened entry's source lines, its picture, or why it cannot open (notebook-preview.ts).
+shape ArchiveEntry
+  open: bool
+  path: string
+  preview: string
+  lines: AttachmentCodeLine[]
+  gutter: number
+  url: string
+  message: string
+  truncatedNote: string
+shape NotebookOutput
+  id: string
+  kind: string
+  text: string
+  url: string
+  frame: ViewerFrameView
+  height: number
+shape NotebookCell
+  id: string
+  label: string
+  aria: string
+  // The markdown cell's document id in the preview's parse; "" for a source cell.
+  document: string
+  lines: AttachmentCodeLine[]
+  gutter: number
+  sourceHeight: number
+  outputs: NotebookOutput[]
+shape NotebookPreviewView
+  open: bool
+  status: string
+  cells: NotebookCell[]
+  empty: bool
+  more: string
 // A composer file chip's preview (composer-chip-file.ts): open while its draft file is in the open draft.
 shape ComposerFilePreview
   open: bool

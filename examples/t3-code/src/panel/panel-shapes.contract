@@ -19,6 +19,7 @@ use BrowserPanel from "../browser/browser-shapes.contract"
 use BrowserMini from "../browser/browser-shapes.contract"
 use BrowserFrames from "../browser/browser-shapes.contract"
 use MediaView from "../media/media-actions.contract"
+use ViewerFrameView from "./viewer-frame.contract"
 
 shape PanelTab
   id: string
@@ -93,10 +94,6 @@ shape FileEditor
   id: string
   label: string
   selected: bool
-shape RenderedTableRow
-  id: string
-  header: bool
-  cells: FilesCodeRun[]
 shape FilesView
   cwd: string
   project: string
@@ -160,7 +157,6 @@ shape FilesView
   mdUrls: AttachmentUrl[]
   codeCopied: string
   codeCopyNonce: number
-  table: RenderedTableRow[]
   editing: bool
   editorText: string
   // Bumped when a change from outside replaced the editor's text; the editor mounts again on it.
@@ -170,7 +166,7 @@ shape FilesView
   crumbMenu: FilesCrumbMenu
   crumbsMask: string
   crumbsOffset: number
-  // A rendered page or PDF's frame source, or an audio file's signed URL.
+  // A rendered page's frame source, or an audio file's signed URL.
   url: string
   // An image or video file (media-views.ts filesMediaView).
   media: MediaView
@@ -180,6 +176,16 @@ shape FilesView
   fileKey: string
   // A document, or a file read as binary: AttachmentFilePreview under "File" (preview "attachment").
   attachment: AttachmentSurface
+  // A PDF, a rendered table or a text file past 1 MB in the viewer page (preview "viewer", files-viewer.ts), and the
+  // "Full file" subheader of the last.
+  viewer: ViewerFrameView
+  fullFile: FullFileBar
+shape FullFileBar
+  open: bool
+  copyLabel: string
+  copied: bool
+  saving: bool
+  saveLabel: string
 shape FilesCrumbEntry
   id: string
   path: string

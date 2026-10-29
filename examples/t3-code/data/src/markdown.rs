@@ -160,6 +160,7 @@ impl DataSource for Markdown {
                 && kind != "user"
                 && kind != "file"
                 && kind != "attachment"
+                && kind != "notebook"
             {
                 continue;
             }
@@ -178,6 +179,19 @@ impl DataSource for Markdown {
             // AttachmentFilePreview: no `cwd`, task checkboxes disabled.
             if kind == "attachment" {
                 documents.push(document_with_links(id.clone(), text, None, false, false));
+                continue;
+            }
+            // NotebookPreview's Markdown cell: an attachment's, made inert (`inert_blocks`).
+            if kind == "notebook" {
+                documents.push(chat_document(
+                    id.clone(),
+                    text,
+                    None,
+                    false,
+                    false,
+                    false,
+                    true,
+                ));
                 continue;
             }
             // UserMessageBody keeps single newlines as U+2028 line breaks and its raw HTML literal.
@@ -213,6 +227,7 @@ include!("markdown_headings.rs");
 include!("markdown_runs.rs");
 include!("markdown_direction.rs");
 include!("markdown_math.rs");
+include!("markdown_inert.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
@@ -628,15 +643,16 @@ fn document_with_links(
     toggle_tasks: bool,
     cwd: bool,
 ) -> Value {
-    chat_document(id, text, skill_values, toggle_tasks, cwd, true)
+    chat_document(id, text, skill_values, toggle_tasks, cwd, true, false)
 }
 
 /// A user message: UserMessageBody renders with `parseRawHtml={false}`, so a raw HTML line is literal text.
 fn user_document(id: Value, text: &str, skill_values: Option<&Value>) -> Value {
-    chat_document(id, text, skill_values, false, true, false)
+    chat_document(id, text, skill_values, false, true, false, false)
 }
 
 /// `raw_html`: the document parses raw HTML (rehype-raw), so a raw HTML line's text has a direction.
+/// `inert`: a saved notebook's cell, which loads no URL and links nowhere (`inert_blocks`).
 fn chat_document(
     id: Value,
     text: &str,
@@ -644,6 +660,7 @@ fn chat_document(
     toggle_tasks: bool,
     cwd: bool,
     raw_html: bool,
+    inert: bool,
 ) -> Value {
     let skills: Vec<(String, String)> = match skill_values {
         Some(Value::List(skills)) => skills
@@ -660,6 +677,13 @@ fn chat_document(
             .collect(),
         _ => Vec::new(),
     };
+    let inert_text;
+    let text = if inert {
+        inert_text = inert_source(text);
+        inert_text.as_str()
+    } else {
+        text
+    };
     // Task offsets name the file's own text: image_chip_links drops the `!` of each
     // `![name](t3-context://…)`, which would shift every later marker by one.
     let source = text;
@@ -668,6 +692,9 @@ fn chat_document(
     let text = strike_marks(&inline_image_links(&text)).into_owned();
     let mut doc = markdown_parse::parse(&text, &|href| image_link(&link_href, href));
     linked_images(&mut doc.blocks, &|href| image_link(&link_href, href));
+    if inert {
+        inert_blocks(&mut doc.blocks);
+    }
     // An image alone on its line is a block the parser resolved as a link: its source resolves as media.
     for block in &mut doc.blocks {
         if matches!(block.kind, markdown_parse::Kind::Image)
