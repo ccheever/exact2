@@ -59,10 +59,17 @@ impl Preparing {
     }
 
     pub fn finish(self) -> Result<D3d11> {
+        let joined = Instant::now();
         let prepared = self
             .0
             .recv()
             .map_err(|_| Error::Device("device worker disconnected".into()))??;
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            eprintln!(
+                "exact-ink: device receiver wait {:.3} ms",
+                joined.elapsed().as_secs_f64() * 1000.
+            );
+        }
         D3d11::from_prepared(prepared)
     }
 }
