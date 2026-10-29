@@ -15,6 +15,19 @@ private let cite = "[Quote](t3-citation:1)"
 private let source = "Ask " + cite + " now"
 /// The atom's start and end.
 private let a = 4, b = 4 + (cite as NSString).length
+/// A face in Display P3's own red and green, which sRGB has neither of.
+private let wide = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"color(display-p3 1 0 0)","backgroundColor":"color(display-p3 0 1 0)"}]"##
+
+/// A face colour in Display P3 as a bound text colour's channels are
+/// (`textChannels`, LLP 1100 D2): the sRGB four, then the space (1) and
+/// `components`, which `TextEngine.color` draws in that space.
+private func assertDisplayP3(_ channels: [Double]?, _ components: [Double], file: StaticString = #filePath, line: UInt = #line) {
+    guard let c = channels else { return XCTFail("no colour", file: file, line: line) }
+    XCTAssertEqual(c.count, 9, "\(c)", file: file, line: line)
+    XCTAssertEqual(c.dropFirst(4).first, 1, "Display P3", file: file, line: line)
+    XCTAssertEqual(Array(c.dropFirst(5)), components, file: file, line: line)
+    XCTAssertEqual(TextEngine.color(c).cgColor.colorSpace?.name as String?, CGColorSpace.extendedDisplayP3 as String, file: file, line: line)
+}
 
 #if os(macOS)
 import AppKit
@@ -196,6 +209,33 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
     }
 
+    /// A face's colour in a wide space keeps it, as a bound text colour
+    /// does: the picture's fill, read in Display P3, is that space's own
+    /// green, where its sRGB clip would read about (117, 251, 76).
+    func testAWideFaceColourKeepsItsSpaceInThePicture() throws {
+        let (_, f, window) = editor(faces: wide)
+        defer { window.close() }
+        drain()
+        let atom = try XCTUnwrap(drawnAtom(f))
+        assertDisplayP3(atom.ink, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+        let pill = try XCTUnwrap(attachments(f).first)
+        let size = CGSize(width: 40, height: 20)
+        let location = try XCTUnwrap(f.textLayoutManager?.documentRange.location)
+        let image = try XCTUnwrap(pill.image(for: CGRect(origin: .zero, size: size), attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil))
+        let p3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+        let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        image.draw(in: CGRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        // A point of fill left of the label, halfway up.
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        let at = 10 * context.bytesPerRow + 2 * 4
+        let got = (0..<4).map { Int(pixels[at + $0]) }
+        for (channel, want) in zip(got, [0, 255, 0, 255]) { XCTAssertEqual(channel, want, accuracy: 2, "\(got)") }
+    }
+
     func testASelectedPillIsEmphasizedOnlyInTheKeyWindowAndKeyChangesRestyle() throws {
         let (_, f, window) = editor(selection: NSRange(location: a, length: b - a))
         defer { window.close() }
@@ -357,6 +397,16 @@ final class InlineAtomEditorIOSTests: XCTestCase {
         XCTAssertEqual(drawn()?.ink, [255, 103, 98, 255], "dark, its dark half")
     }
 
+    /// A face's colour in a wide space keeps it on the pill, as a bound
+    /// text colour does (LLP 1100 D2).
+    func testAWideFaceColourKeepsItsSpace() throws {
+        let (_, _, f) = field(faces: wide)
+        window.layoutIfNeeded()
+        let atom = try XCTUnwrap(f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)
+        assertDisplayP3(atom.ink, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+    }
+
     func testACaretInsideGoesToTheEndAndBackspaceRemovesItWhole() {
         let (_, _, f) = field()
         f.selectedRange = NSRange(location: b, length: 0)
@@ -406,6 +456,16 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(light.color, [213, 44, 54, 255])
         XCTAssertEqual(dark.color, [255, 103, 98, 255])
         XCTAssertEqual(light.background, [4, 5, 6, 255], "an empty face colour keeps the kind's")
+    }
+
+    /// A face's colour in a wide space keeps it on its run and box, as a
+    /// bound text colour does (LLP 1100 D2).
+    func testAWideFaceColourKeepsItsSpace() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: wide))
+        let atom = try XCTUnwrap(runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
+        assertDisplayP3(atom.color, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
     }
 }
 

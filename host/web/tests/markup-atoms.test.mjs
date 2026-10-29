@@ -328,6 +328,32 @@ for (const engine of engines) {
       expect(lines).toBeLessThanOrEqual(1);
     }, { width: 400, faceList: [[long, long]] });
   }, 60000);
+
+  // LLP 1045.000 D2: on the JS target a face's colour is what this browser
+  // takes (`shape.js`), as a bound colour row's is; a cascade keyword
+  // anywhere is none, and so is a standard space's (LLP 1100 D1) on the web.
+  engineTest[engine](`${engine}: a face's colour on the JS target is what the browser takes`, async () => {
+    const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
+      if (new URL(request.url).pathname === '/shape.js') return new Response(Bun.file(resolve(WEB, '../web-js/shape.js')), { headers: { 'content-type': 'text/javascript' } });
+      return new Response(`<!doctype html><meta charset="utf-8"><script type="module">
+        const journal = []; globalThis.exact = { journal, now: () => 0 };
+        const { atomFacesRecord } = await import('./shape.js');
+        const colours = ['color(display-p3 1 0 0)', 'oklch(70% 0.1 200)', 'var(--x)', 'color(--dci-p3 1 0 0)', 'notacolour', 'light-dark(currentcolor, #000)', 'inh\\\\65rit'];
+        const out = JSON.parse(atomFacesRecord(colours.map(c => ['@a', '', '', '', c, '']), c => c, () => 9));
+        window.result = { kept: out.map(f => f.color), journal };
+      </script>`, { headers: { 'content-type': 'text/html' } });
+    } });
+    const context = await (await browser(engine)).newContext();
+    try {
+      const page = await context.newPage();
+      await page.goto(`http://127.0.0.1:${server.port}/`);
+      await page.waitForFunction(() => window.result);
+      const { kept, journal } = await page.evaluate(() => window.result);
+      expect(kept).toEqual(['color(display-p3 1 0 0)', 'oklch(70% 0.1 200)', 'var(--x)', '', '', '', '']);
+      expect(journal).toEqual(['color(--dci-p3 1 0 0)', 'notacolour', 'light-dark(currentcolor, #000)', 'inh\\65rit']
+        .map(c => `t=0 view 9: invalid atomFaces colour ${JSON.stringify(c)}; its kind's paint stands`));
+    } finally { await context.close(); server.stop(true); }
+  }, 60000);
 }
 
 // An input method's composition over a range holding an atom (Chromium's IME through CDP).

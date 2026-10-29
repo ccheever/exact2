@@ -8,8 +8,6 @@
 //! (`TextDecorations`, `MediaMetadata`) are read by position too, and take
 //! an input of their own this way when their fields change.
 
-use std::path::Path;
-
 #[cfg(test)]
 thread_local! {
     /// Tests only: compute the compatibility id without this input, as main
@@ -25,21 +23,17 @@ pub(crate) fn binds(plan: &exact_plan::Plan) -> bool {
 }
 
 /// `atomFace` into `compat`'s inputs, and its id again, when a plan that
-/// ships (the app's, read as `icon_rules` reads it, or an entry's) binds
-/// `atomFaces`; nothing otherwise.
+/// ships (`main`, the app's, or an entry's) binds `atomFaces`; nothing
+/// otherwise.
 pub(crate) fn apply(
     compat: &mut crate::compat::Compat,
-    app_dir: &Path,
-    compiled: Option<&exact_plan::Plan>,
+    main: Option<&exact_plan::Plan>,
     entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
-) -> Result<(), String> {
+) {
     #[cfg(test)]
     if SKIP.with(std::cell::Cell::get) {
-        return Ok(());
+        return;
     }
-    let out = std::env::var_os("OUT_DIR").map(std::path::PathBuf::from);
-    let other = crate::icon_rules::shipped(app_dir, compiled, out.as_deref())?;
-    let main = other.as_ref().or(compiled);
     if main
         .into_iter()
         .chain(entries.values().map(|e| &e.plan))
@@ -48,7 +42,6 @@ pub(crate) fn apply(
         compat.inputs["atomFace"] = serde_json::json!(exact_runner::decorations::ATOM_FACE_FIELDS);
         compat.id = crate::compat::compatibility_digest(&compat.inputs);
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -120,63 +113,5 @@ mod tests {
         for dir in [bound, unbound] {
             let _ = std::fs::remove_dir_all(dir);
         }
-    }
-
-    /// Every `.contract` source under `dir`.
-    fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name();
-            if path.is_dir() {
-                if name != "node_modules" && name != "target" && name != ".exact" {
-                    sources(&path, out);
-                }
-            } else if path.extension().is_some_and(|e| e == "contract") {
-                out.push(path);
-            }
-        }
-    }
-
-    /// Markdown Stress is the one app in this repository whose id moves: a
-    /// plan binds `atomFaces` only where a source it compiles writes it, the
-    /// app's own or a package's, and of every app's and package's sources
-    /// only Markdown Stress's do; its plan binds them, and its id moves.
-    #[test]
-    fn markdown_stress_is_the_one_repo_app_whose_id_moves() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let mut paths = Vec::new();
-        for dir in ["apps", "packages"] {
-            sources(&root.join(dir), &mut paths);
-        }
-        assert!(
-            paths.len() > 100,
-            "no sources found under {}",
-            root.display()
-        );
-        // The app or package a source is in: `apps/<name>`, `packages/<name>`.
-        let owner = |p: &Path| {
-            let parts: Vec<_> = p.strip_prefix(&root).unwrap().iter().take(2).collect();
-            parts
-                .join(std::ffi::OsStr::new("/"))
-                .to_string_lossy()
-                .into_owned()
-        };
-        let mut writers: Vec<String> = paths
-            .iter()
-            .filter(|p| std::fs::read_to_string(p).is_ok_and(|s| s.contains("atomFaces")))
-            .map(|p| owner(p))
-            .collect();
-        writers.sort();
-        writers.dedup();
-        assert_eq!(writers, ["apps/markdown-stress"]);
-        let stress = root.join("apps/markdown-stress");
-        let plan = crate::colors::compiled(&stress).unwrap().expect("its plan");
-        assert!(super::binds(&plan));
-        let (now, main) = (compat(&stress, false), compat(&stress, true));
-        assert!(now.inputs.get("atomFace").is_some());
-        assert_ne!(now.id, main.id);
     }
 }

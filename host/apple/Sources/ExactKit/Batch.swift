@@ -23,7 +23,7 @@ extension BatchValue {
     /// Text's channels (LLP 1100 D2): the sRGB four, then for a colour in its
     /// own space its space (0 sRGB, 1 Display P3, 2 linear sRGB) and its four
     /// components, which `TextEngine.color` reads.
-    func textChannels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
+    package func textChannels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
         guard let c = channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) else { return nil }
         guard case .object(let o) = self, let halves = o["cs"]?.array, !halves.isEmpty,
               case .object(let half) = halves[dark && halves.count > 1 ? 1 : 0] else { return c }

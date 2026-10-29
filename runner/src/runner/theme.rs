@@ -128,7 +128,9 @@ impl<D: DataSource> Runner<D> {
             self.ids.theme.looks_read(view, tokens);
         }
         // A Markdown node's faces that read one, read again in their own
-        // tuple (LLP 1045.000 D2), as a row is.
+        // tuple (LLP 1045.000 D2), as a row is; faces with a colour that is
+        // no colour now keep their old value, as a row its parse refuses
+        // does, and the journal names it.
         let mut faces: Vec<_> = self
             .ids
             .theme
@@ -140,10 +142,17 @@ impl<D: DataSource> Runner<D> {
         for (view, text, tuple) in faces {
             let _tuple = Tuple::new(tuple);
             exact_kernel::style::theme::take_named();
-            let prop = exact_kernel::PropId::AtomFaces;
-            let value = crate::bridge::atom_face_paint(&self.plan, prop, text, &mut Vec::new());
+            let (prop, mut refused) = (exact_kernel::PropId::AtomFaces, Vec::new());
+            let value = crate::bridge::atom_face_paint(&self.plan, prop, text, &mut refused);
             let tokens = exact_kernel::style::theme::take_named();
             self.ids.theme.faces_read(view, tokens);
+            if !refused.is_empty() {
+                for text in refused {
+                    let line = crate::instance::invalid_face(view, text, "its faces stay as they were");
+                    self.notes.push(line);
+                }
+                continue;
+            }
             ops.push(Op::SetProp {
                 id: view,
                 prop,
@@ -169,3 +178,7 @@ impl Drop for Tuple {
         crate::bridge::set_tuple(self.0);
     }
 }
+
+#[cfg(test)]
+#[path = "theme_tests.rs"]
+mod tests;

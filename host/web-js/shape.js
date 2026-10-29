@@ -63,27 +63,29 @@ export function failureCode(e) {
 export const failureReason = e => e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";
 
 /** `atomFaces`' `AtomFace` records as the named JSON the runner's bridge writes (LLP 1045.000 D2), each face's colours
- * read as a bound colour row's are: written as the kernel reads a colour (a name, a hex, its colour functions), through
- * the build's colour map `cm`, which takes a theme entry's name and a role and refuses, journalling it, a
- * `-exact-platform-color()` none of the plan's literals is (LLP 1095 D3, D4), then as the browser takes it. A
- * substitution (`var()`, `env()`, `attr()`), an escape and a keyword that defers to the cascade are no colour. One
- * that is none is empty, so the kind's paint stands, said once in the journal. */
-const FUNCTIONS = /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|light-dark|-exact-platform-color)$/i;
-const DEFERS = /^\s*(initial|inherit|unset|revert|revert-layer|currentcolor)\s*$/i;
-export function atomFacesRecord(v, cm = c => c) {
+ * read as a bound colour row's are on this target: through the build's colour map `cm`, which takes a theme entry's
+ * name and a role and refuses a `-exact-platform-color()` none of the plan's literals is (LLP 1095 D3, D4), then as the
+ * browser takes them. `currentcolor` and a keyword that defers to the cascade are no colour anywhere in the value, as
+ * on the native hosts, where nothing cascades into a pill. One that is none is empty, so the kind's paint stands, and
+ * the journal says so as the runner does, naming the node's view (`view`, called only then). */
+const DEFERS = /(?<![-\w])(initial|inherit|unset|revert|revert-layer|currentcolor)(?![-\w])/i;
+const unescaped = c => c.replace(/\\(?:([0-9a-f]{1,6})\s?|(.))/gis, (_, hex, ch) => {
+  if (!hex) return ch;
+  const n = parseInt(hex, 16);
+  return String.fromCodePoint(n > 0 && n <= 0x10ffff && (n < 0xd800 || n > 0xdfff) ? n : 0xfffd);
+});
+export function atomFacesRecord(v, cm = c => c, view = () => 0) {
   const none = c => {
     const x = globalThis.exact;
-    x?.journal?.push(`t=${x.now?.() ?? 0} invalid atomFaces colour ${JSON.stringify(c)}; its kind's paint stands`);
+    x?.journal?.push(`t=${x.now?.() ?? 0} view ${view()}: invalid atomFaces colour ${JSON.stringify(c)}; its kind's paint stands`);
     return "";
   };
   const paint = c => {
     if (typeof c !== "string" || !c.trim()) return "";
-    const calls = [...c.matchAll(/([-\w]+)\s*\(/g)].map(([, name]) => name);
-    if (c.includes("\\") || DEFERS.test(c) || !calls.every(name => FUNCTIONS.test(name))) return none(c);
-    const m = cm(c) ?? "";
-    // The map refused it and said so: `unset` is never a colour written here.
-    if (m === "unset") return "";
-    return typeof CSS === "undefined" || CSS.supports("color", m) ? m : none(c);
+    if (DEFERS.test(unescaped(c))) return none(c);
+    let refused = false;
+    const m = cm(c, () => { refused = true; return ""; }) ?? "";
+    return refused || typeof CSS !== "undefined" && !CSS.supports("color", m) ? none(c) : m;
   };
   return v == null ? null : JSON.stringify(v.map(([source, label, icon, title, color, backgroundColor]) =>
     ({ source, label, icon, title, color: paint(color), backgroundColor: paint(backgroundColor) })));

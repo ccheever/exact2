@@ -197,13 +197,17 @@ pub fn compatibility_id_sources_with_entries(
         source_scopes(&mut compat, grants.unwrap_or(""), rust);
     }
     crate::reach::derive(app_dir, platform, plan.as_ref(), &mut compat)?;
-    // The entry plans, resolved once (the receipt writes them); an even-odd
-    // icon in any plan that ships moves the id (stage 14 C2, icon_rules.rs).
+    // The plans that ship, each resolved once (the receipt writes the entry
+    // plans): an even-odd icon in any moves the id (stage 14 C2,
+    // icon_rules.rs), and one that binds `atomFaces` names its record's
+    // fields (atom_faces.rs).
     let mut owned = None;
     let entries = crate::icon_rules::entries(app_dir, entries, &mut owned)?;
-    crate::icon_rules::apply(&mut compat, app_dir, plan.as_ref(), entries)?;
-    // A plan that binds `atomFaces` names the fields its record has (atom_faces.rs).
-    crate::atom_faces::apply(&mut compat, app_dir, plan.as_ref(), entries)?;
+    let out = std::env::var_os("OUT_DIR").map(std::path::PathBuf::from);
+    let other = crate::icon_rules::shipped(app_dir, plan.as_ref(), out.as_deref())?;
+    let ships = other.as_ref().or(plan.as_ref());
+    crate::icon_rules::apply(&mut compat, ships, entries)?;
+    crate::atom_faces::apply(&mut compat, ships, entries);
     if let Some(plan) = &plan {
         faces(&mut compat, plan, platform, target);
     }

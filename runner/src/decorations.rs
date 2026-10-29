@@ -155,9 +155,10 @@ pub fn from_value(value: &Value) -> Result<String, String> {
 }
 
 /// `AtomFace`'s fields in the compiler's order (LLP 1045.000 D2): the
-/// record [`atom_faces`] reads, each its JSON name. A plan that binds
-/// `atomFaces` puts this list in its compatibility id (`exact_bake`), so a
-/// binary that reads other fields is never given it.
+/// record [`atom_faces`] reads, each a text, by its JSON name. A plan that
+/// binds `atomFaces` puts this list in its compatibility id (`exact_bake`),
+/// so a binary that reads other fields is never given it; a test ties it,
+/// with each field's text type, to the compiler's shape.
 pub const ATOM_FACE_FIELDS: [&str; 6] = [
     "source",
     "label",

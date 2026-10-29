@@ -113,8 +113,6 @@ fn face_paint(text: &str) -> serde_json::Value {
     // No session's overrides: the runner resolved the session's into the text.
     let _roles = exact_kernel::style::roles::bind(&Default::default());
     exact_runner::decorations::face_color(text)
-        // A profile the plan declares, which the runner interned reading it.
-        .or_else(|| exact_kernel::style::profiled::interned(text))
         .and_then(|color| {
             let mut wire = String::new();
             crate::style::push_color_value(&mut wire, color);
@@ -657,11 +655,11 @@ mod tests {
     /// the presenters' wire form: a role as its platform colour, resolved
     /// with no session's overrides even while two sessions live on the
     /// thread (each would be a guess); a colour in a built-in profile's
-    /// space; and one in a profile the plan declares, which the runner
-    /// interned as it read the face with the declarations bound.
+    /// space, and one in a wide space, each in its own. A profile the app
+    /// declares is none here, as the runner never writes one.
     #[test]
     fn a_faces_paint_crosses_in_the_wire_form() {
-        use exact_kernel::style::{profiled, roles};
+        use exact_kernel::style::roles;
         let (a, b) = (roles::Roles::new(Vec::new()), roles::Roles::new(Vec::new()));
         roles::install(&a);
         roles::install(&b);
@@ -672,13 +670,9 @@ mod tests {
             built_in["cs"][0]["s"], "cg:kCGColorSpaceDCIP3",
             "{built_in}"
         );
-        {
-            let _declared = profiled::declarations([("--press", "assets/press.icc", "perceptual")]);
-            let text = "color(--press 0.1 0.8 0.2)";
-            assert!(exact_runner::decorations::face_color(text).is_some());
-        }
-        let declared = face_paint("color(--press 0.1 0.8 0.2)");
-        assert_eq!(declared["cs"][0]["s"], "icc:assets/press.icc", "{declared}");
+        let wide = face_paint("color(display-p3 1 0 0)");
+        assert_eq!(wide["cs"][0]["s"], "display-p3", "{wide}");
+        assert!(face_paint("color(--press 0.1 0.8 0.2)").is_null());
         assert!(face_paint("not a colour").is_null());
         drop((a, b));
     }

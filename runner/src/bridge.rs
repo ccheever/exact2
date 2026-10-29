@@ -151,11 +151,12 @@ pub fn icon_of<'a>(
 /// `color` and `backgroundColor` read as a bound colour row of `plan` reads
 /// one, in the tuple bound (a theme entry's name as the colour it stands
 /// for, LLP 1095 D4; a `-exact-platform-color()` only as one of the plan's
-/// literals, D3; a profile the plan declares, LLP 1100 D3) and written as
-/// the wire's text, which a host reads with no theme bound. One that is no
-/// colour is empty, so its kind's paint stands, and is added to `refused`.
-/// Any other prop as it is. A node's faces that read a token are read again
-/// when it or the tuple changes (`instance::theme`).
+/// literals, D3), except that a profile the app declares is no colour here
+/// (a built-in one is, LLP 1100 D3), and written as the wire's text, which
+/// a host reads with no theme bound. One that is no colour is empty, so its
+/// kind's paint stands, and is added to `refused`. Any other prop as it is.
+/// A node's faces that read a token are read again when it or the tuple
+/// changes (`instance::theme`).
 pub fn atom_face_paint(
     plan: &exact_plan::Plan,
     prop: PropId,
@@ -171,14 +172,9 @@ pub fn atom_face_paint(
     };
     let _theme =
         (!plan.theme.is_empty()).then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
-    // A profile the plan declares, as `set_plan_style` reads one.
-    let _profiles = (!plan.profiles.is_empty()).then(|| {
-        exact_kernel::style::profiled::declarations(
-            plan.profiles
-                .iter()
-                .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
-        )
-    });
+    // None declared, whatever the caller's scope: a host draws a face from
+    // its text alone, which names no ICC file.
+    let _profiles = exact_kernel::style::profiled::declarations(std::iter::empty());
     for face in faces
         .iter_mut()
         .filter_map(serde_json::Value::as_object_mut)

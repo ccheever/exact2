@@ -14,27 +14,18 @@ thread_local! {
     pub(crate) static SKIP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// The fill rules the app at `app_dir`'s plan needs a binary to read beyond
-/// nonzero: `["evenodd"]` when it keeps an even-odd icon, else none. Read
-/// from the plan that ships (C2 round 1, Astra 3 = Grok): the bake's
-/// `out/app.plan` when it wrote one (`receipt::emit` requires it), else the
-/// `app.contract` plan the compatibility id already compiled (`compiled`,
-/// `colors::compiled`: no second compile), else a game's `app/app.contract`,
-/// compiled here. A contract that is there and doesn't compile fails the id
-/// (no fail-open: the rule could be missed). `entries`: the entry plans that
-/// ship beside it (widgets, activities), each read the same way.
+/// The fill rules a binary needs to read beyond nonzero: `["evenodd"]` when
+/// `main`, the plan that ships ([`shipped`], else the one compiled), or one
+/// of `entries`, the entry plans that ship beside it (widgets, activities),
+/// keeps an even-odd icon; else none.
 pub(crate) fn needed(
-    app_dir: &Path,
-    compiled: Option<&exact_plan::Plan>,
-    out: Option<&Path>,
+    main: Option<&exact_plan::Plan>,
     entries: &[&exact_plan::Plan],
 ) -> Result<Option<Vec<&'static str>>, String> {
     #[cfg(test)]
     if SKIP.with(std::cell::Cell::get) {
         return Ok(None);
     }
-    let other = shipped(app_dir, compiled, out)?;
-    let main = other.as_ref().or(compiled);
     let mut any = false;
     for plan in main.into_iter().chain(entries.iter().copied()) {
         any |= even_odd(plan)?;
@@ -42,11 +33,14 @@ pub(crate) fn needed(
     Ok(any.then(|| vec!["evenodd"]))
 }
 
-/// The plan that ships when it is not `compiled`, as [`needed`] reads it:
-/// the bake's `out/app.plan` when it wrote one, else a game's
-/// `app/app.contract` compiled here when there is no `compiled`; `None`
-/// when `compiled` is the one, or there is none. A plan that is there and
-/// doesn't decode or compile is an error.
+/// The plan that ships when it is not `compiled` (C2 round 1, Astra 3 =
+/// Grok): the bake's `out/app.plan` when it wrote one (`receipt::emit`
+/// requires it); none when there is no such file and `compiled` is the one
+/// (the `app.contract` plan the compatibility id already compiled,
+/// `colors::compiled`: no second compile); else a game's
+/// `app/app.contract`, compiled here. A plan that is there and doesn't
+/// decode or compile fails the id (no fail-open: a rule could be missed).
+/// compat.rs reads it once for every input that needs it.
 pub(crate) fn shipped(
     app_dir: &Path,
     compiled: Option<&exact_plan::Plan>,
@@ -88,17 +82,15 @@ pub(crate) fn entries<'a>(
 }
 
 /// `iconFillRules` into `compat`'s inputs, and its id again, when a plan
-/// that ships (the app's, read as [`needed`] reads it, or an entry's) keeps
-/// an even-odd icon; nothing otherwise.
+/// that ships (`main`, the app's, or an entry's) keeps an even-odd icon;
+/// nothing otherwise.
 pub(crate) fn apply(
     compat: &mut crate::compat::Compat,
-    app_dir: &Path,
-    compiled: Option<&exact_plan::Plan>,
+    main: Option<&exact_plan::Plan>,
     entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
 ) -> Result<(), String> {
-    let out = std::env::var_os("OUT_DIR").map(std::path::PathBuf::from);
     let entry_plans: Vec<&exact_plan::Plan> = entries.values().map(|e| &e.plan).collect();
-    if let Some(rules) = needed(app_dir, compiled, out.as_deref(), &entry_plans)? {
+    if let Some(rules) = needed(main, &entry_plans)? {
         compat.inputs["iconFillRules"] = serde_json::json!(rules);
         compat.id = crate::compat::compatibility_digest(&compat.inputs);
     }
@@ -157,6 +149,17 @@ pub(crate) fn even_odd(plan: &exact_plan::Plan) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::even_odd;
+
+    /// [`super::needed`] of the plan that ships, found as compat.rs finds it.
+    fn needed(
+        app_dir: &std::path::Path,
+        compiled: Option<&exact_plan::Plan>,
+        out: Option<&std::path::Path>,
+        entries: &[&exact_plan::Plan],
+    ) -> Result<Option<Vec<&'static str>>, String> {
+        let other = super::shipped(app_dir, compiled, out)?;
+        super::needed(other.as_ref().or(compiled), entries)
+    }
 
     /// A plan with an even-odd icon needs the rule; one with only nonzero
     /// icons, or none, needs nothing (its compatibility id is unchanged).
@@ -221,7 +224,7 @@ mod tests {
     fn a_plan_with_no_even_odd_icon_keeps_mains_compatibility_id() {
         let plain = app("plain", "nonzero");
         assert_eq!(
-            super::needed(
+            needed(
                 &plain,
                 crate::colors::compiled(&plain).unwrap().as_ref(),
                 None,
@@ -253,7 +256,7 @@ mod tests {
             "the moved icons are in its plan"
         );
         assert!(!even_odd(plan).unwrap());
-        assert_eq!(super::needed(&gate, Some(plan), None, &[]).unwrap(), None);
+        assert_eq!(needed(&gate, Some(plan), None, &[]).unwrap(), None);
         let (now, main) = (compat(&gate, false), compat(&gate, true));
         assert_eq!(now.id, main.id);
         assert_eq!(now.inputs, main.inputs);
@@ -266,7 +269,7 @@ mod tests {
     fn a_plan_with_an_even_odd_icon_gets_the_rule_and_another_id() {
         let odd = app("odd", "evenodd");
         assert_eq!(
-            super::needed(
+            needed(
                 &odd,
                 crate::colors::compiled(&odd).unwrap().as_ref(),
                 None,
@@ -337,18 +340,18 @@ mod tests {
         );
         std::fs::write(out.join("app.plan"), b.finish().unwrap().encode()).unwrap();
         assert_eq!(
-            super::needed(&plain, compiled.as_ref(), Some(&out), &[]).unwrap(),
+            needed(&plain, compiled.as_ref(), Some(&out), &[]).unwrap(),
             Some(vec!["evenodd"]),
             "the baked plan's row"
         );
         assert_eq!(
-            super::needed(&plain, compiled.as_ref(), None, &[]).unwrap(),
+            needed(&plain, compiled.as_ref(), None, &[]).unwrap(),
             None,
             "the contract's own"
         );
         std::fs::write(out.join("app.plan"), b"not a plan").unwrap();
         assert!(
-            super::needed(&plain, compiled.as_ref(), Some(&out), &[]).is_err(),
+            needed(&plain, compiled.as_ref(), Some(&out), &[]).is_err(),
             "an invalid baked plan fails"
         );
         let game =
@@ -356,7 +359,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&game);
         std::fs::create_dir_all(game.join("app")).unwrap();
         assert_eq!(
-            super::needed(&game, None, None, &[]).unwrap(),
+            needed(&game, None, None, &[]).unwrap(),
             None,
             "no contract, no plan"
         );
@@ -365,7 +368,7 @@ mod tests {
             "component App\n  view\n    nonsense here\n",
         )
         .unwrap();
-        let err = super::needed(&game, None, None, &[]).unwrap_err();
+        let err = needed(&game, None, None, &[]).unwrap_err();
         assert!(err.starts_with("app/app.contract:"), "{err}");
         for dir in [plain, game] {
             let _ = std::fs::remove_dir_all(dir);
@@ -413,7 +416,7 @@ mod tests {
             );
             std::fs::write(dir.join("out/app.plan"), baked.encode()).unwrap();
             assert_eq!(
-                super::needed(&dir, Some(&compiled), Some(&dir.join("out")), &[]).unwrap(),
+                needed(&dir, Some(&compiled), Some(&dir.join("out")), &[]).unwrap(),
                 want,
                 "{answer}"
             );
@@ -431,7 +434,7 @@ mod tests {
         );
         std::fs::write(dir.join("out/app.plan"), broken.encode()).unwrap();
         assert!(
-            super::needed(&dir, Some(&compiled), Some(&dir.join("out")), &[]).is_err(),
+            needed(&dir, Some(&compiled), Some(&dir.join("out")), &[]).is_err(),
             "the compat id fails"
         );
         broken.resources[0].initial = exact_plan::Bytes { offset: 0, len: 0 };
@@ -455,12 +458,12 @@ mod tests {
         let plans: Vec<&exact_plan::Plan> = entries.values().map(|e| &e.plan).collect();
         assert_eq!(plans.len(), 1);
         assert_eq!(
-            super::needed(&dir, compiled.as_ref(), None, &[]).unwrap(),
+            needed(&dir, compiled.as_ref(), None, &[]).unwrap(),
             None,
             "the app's own plan draws none"
         );
         assert_eq!(
-            super::needed(&dir, compiled.as_ref(), None, &plans).unwrap(),
+            needed(&dir, compiled.as_ref(), None, &plans).unwrap(),
             Some(vec!["evenodd"]),
             "its widget's does"
         );
@@ -531,7 +534,7 @@ mod tests {
             };
             // Reading the fill rules from the plan compat already compiled.
             let plan = crate::colors::compiled(dir).ok().flatten();
-            let needed = median(&mut || drop(super::needed(dir, plan.as_ref(), None, &[])));
+            let needed = median(&mut || drop(needed(dir, plan.as_ref(), None, &[])));
             println!(
                 "ICON-RULES {}: compiles {:?}; own compile {own:.1} ms; compat with {with:.1} ms, without {without}; reading the rules {:.3} ms",
                 dir.display(),

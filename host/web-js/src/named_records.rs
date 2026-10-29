@@ -34,10 +34,13 @@ impl Em<'_> {
             self.uses.rt("P"),
             self.uses.rt(record),
         );
+        // A face's colours go through the colour map, and a refusal names
+        // the node's view, as the runner's journal line does.
         let colors = if b.id == PropId::AtomFaces as u16 {
             let plan = self.plan;
             let map = self.uses.constant("$cm", || crate::style::color_map(plan));
-            format!(",{map}")
+            let view = self.uses.rt("viewId");
+            format!(",{map},()=>{view}({e})")
         } else {
             String::new()
         };
@@ -52,7 +55,8 @@ impl Em<'_> {
 #[cfg(test)]
 mod tests {
     /// A face's colours go through the build's colour map (LLP 1045.000
-    /// D2), the one constant every colour site shares.
+    /// D2), the one constant every colour site shares, and a refusal names
+    /// the node's view.
     #[test]
     fn atom_faces_take_the_colour_map() {
         let plan = contract::compile(
@@ -69,17 +73,67 @@ component App
         .unwrap();
         let js = crate::emit::emit(&plan, false, false).unwrap().js;
         assert!(
-            js.contains("atomFacesRecord(") && js.contains("(),$cm));"),
+            js.contains("atomFacesRecord(") && js.contains("(),$cm,()=>"),
             "{js}"
         );
         assert_eq!(js.matches("const $cm=").count(), 1);
     }
 
-    /// A face's colours through the build's own colour map, run in Bun
-    /// (`shape.js` `atomFacesRecord`): what the map takes is kept; what it
-    /// refuses it journals, once; what is no colour (a substitution, an
-    /// escape, a keyword, what the browser refuses) is journalled once more,
-    /// and each is empty, so its kind's paint stands.
+    /// `shape.js`'s `atomFacesRecord` run in Bun on `faces` (positional
+    /// records, as the compiler builds them) with `map` and a stand-in for
+    /// the browser's `CSS.supports`: the named records and the journal.
+    fn record(faces: &serde_json::Value, map: &str) -> serde_json::Value {
+        let script = format!(
+            r#"
+const {{ atomFacesRecord }} = await import(process.argv[1]);
+const journal = [];
+globalThis.exact = {{ journal, now: () => 7 }};
+globalThis.CSS = {{ supports: (property, value) => property === "color" && !value.includes("notacolour") }};
+const out = atomFacesRecord({faces}, {map}, () => 4);
+console.log(JSON.stringify({{ out: JSON.parse(out), journal }}));
+"#
+        );
+        let out =
+            std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+                .args(["--eval", &script])
+                .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shape.js"))
+                .output()
+                .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+
+    /// The converter copies the compiler's positional record field by
+    /// field: each value lands under its field's name, in the order the
+    /// runner's bridge reads (`ATOM_FACE_FIELDS`, which a Contract test ties
+    /// to the compiler's shape).
+    #[test]
+    fn a_faces_fields_land_under_their_names() {
+        let fields = exact_runner::decorations::ATOM_FACE_FIELDS;
+        let value = |name: &str| match name {
+            "color" => "red".to_string(),
+            "backgroundColor" => "blue".to_string(),
+            name => format!("the {name}"),
+        };
+        let face: Vec<String> = fields.iter().map(|f| value(f)).collect();
+        let got = record(&serde_json::json!([face]), "c=>c");
+        let named = got["out"][0].as_object().unwrap();
+        assert_eq!(named.len(), fields.len(), "{got}");
+        for f in fields {
+            assert_eq!(named[f], value(f), "{f}: {got}");
+        }
+    }
+
+    /// A face's colours through the build's own colour map: what the map
+    /// takes, then the browser (here its stand-in), is kept; a colour the
+    /// map refuses (an unadmitted platform colour), the browser refuses, or
+    /// that has `currentcolor` or a cascade keyword anywhere (escaped, too)
+    /// is empty, so its kind's paint stands, with one journal line in the
+    /// runner's words and no other.
     #[test]
     fn a_faces_colours_go_through_the_real_colour_map() {
         let plan = contract::compile(
@@ -94,37 +148,27 @@ component App
 "#,
         )
         .unwrap();
-        let map = crate::style::color_map(&plan);
-        // `CSS.supports` stands for the browser's own check, which Bun lacks.
-        let script = format!(
-            r#"
-const {{ atomFacesRecord }} = await import(process.argv[1]);
-const journal = [];
-globalThis.exact = {{ journal, now: () => 7 }};
-globalThis.CSS = {{ supports: (property, value) => property === "color" && !value.includes("notacolour") }};
-const cm = {map};
-const faces = [
-  ["@a", "", "", "", "brand", "-exact-platform-color(web Highlight, #ffffff)"],
-  ["@b", "", "", "", "-exact-platform-color(web systemRedColor, #ff0000)", ""],
-  ["@c", "", "", "", "env(safe-area-inset-top)", "attr(data-c type(<color>))"],
-  ["@d", "", "", "", "v\\61r(--x)", "inherit"],
-  ["@e", "", "", "", "notacolour", ""],
-];
-console.log(JSON.stringify({{ out: JSON.parse(atomFacesRecord(faces, cm)), journal }}));
-"#
-        );
-        let out =
-            std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
-                .args(["--eval", &script])
-                .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shape.js"))
-                .output()
-                .unwrap();
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        let got: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let faces = serde_json::json!([
+            [
+                "@a",
+                "",
+                "",
+                "",
+                "brand",
+                "-exact-platform-color(web Highlight, #ffffff)"
+            ],
+            [
+                "@b",
+                "",
+                "",
+                "",
+                "-exact-platform-color(web systemRedColor, #ff0000)",
+                "var(--accent)"
+            ],
+            ["@c", "", "", "", "light-dark(currentcolor, #000)", "inh\\65rit"],
+            ["@d", "", "", "", "notacolour", "var(--inherit)"],
+        ]);
+        let got = record(&faces, &crate::style::color_map(&plan));
         let paint = |i: usize, key: &str| got["out"][i][key].as_str().unwrap().to_string();
         assert!(
             paint(0, "color").contains("d52c36"),
@@ -135,14 +179,9 @@ console.log(JSON.stringify({{ out: JSON.parse(atomFacesRecord(faces, cm)), journ
             "Highlight",
             "an admitted platform colour"
         );
-        for (i, key) in [
-            (1, "color"),
-            (2, "color"),
-            (2, "backgroundColor"),
-            (3, "color"),
-            (3, "backgroundColor"),
-            (4, "color"),
-        ] {
+        assert_eq!(paint(1, "backgroundColor"), "var(--accent)", "{got}");
+        assert_eq!(paint(3, "backgroundColor"), "var(--inherit)", "{got}");
+        for (i, key) in [(1, "color"), (2, "color"), (2, "backgroundColor"), (3, "color")] {
             assert_eq!(paint(i, key), "", "{i} {key}: {got}");
         }
         let journal: Vec<&str> = got["journal"]
@@ -154,12 +193,10 @@ console.log(JSON.stringify({{ out: JSON.parse(atomFacesRecord(faces, cm)), journ
         assert_eq!(
             journal,
             [
-                r#"t=7 invalid color value "-exact-platform-color(web systemRedColor, #ff0000)"; unset"#,
-                r#"t=7 invalid atomFaces colour "env(safe-area-inset-top)"; its kind's paint stands"#,
-                r#"t=7 invalid atomFaces colour "attr(data-c type(<color>))"; its kind's paint stands"#,
-                r#"t=7 invalid atomFaces colour "v\\61r(--x)"; its kind's paint stands"#,
-                r#"t=7 invalid atomFaces colour "inherit"; its kind's paint stands"#,
-                r#"t=7 invalid atomFaces colour "notacolour"; its kind's paint stands"#,
+                r#"t=7 view 4: invalid atomFaces colour "-exact-platform-color(web systemRedColor, #ff0000)"; its kind's paint stands"#,
+                r#"t=7 view 4: invalid atomFaces colour "light-dark(currentcolor, #000)"; its kind's paint stands"#,
+                r#"t=7 view 4: invalid atomFaces colour "inh\\65rit"; its kind's paint stands"#,
+                r#"t=7 view 4: invalid atomFaces colour "notacolour"; its kind's paint stands"#,
             ],
             "one line a colour"
         );

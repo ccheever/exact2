@@ -327,6 +327,12 @@ impl super::NodeInst {
         painted
     }
 
+    /// Binding `i`'s faces are cleared: they read no token now.
+    pub(super) fn unthemed_faces(&mut self, u: &mut super::Update<'_>, i: usize) {
+        self.themed.set(i, false, false);
+        u.ids.theme.faces.remove(&self.view);
+    }
+
     /// Binding `i` set `style`'s row from `text`: kept beside its token when
     /// the parse read one (`ok`, the row took it), else forgotten.
     pub(super) fn index(

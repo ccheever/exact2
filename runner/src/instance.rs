@@ -1012,10 +1012,8 @@ impl NodeInst {
                             _ => pv,
                         };
                         for text in refused {
-                            let shown = serde_json::Value::String(text);
-                            u.notes.push(format!(
-                                "view {id}: invalid atomFaces colour {shown}; its kind's paint stands"
-                            ));
+                            u.notes
+                                .push(invalid_face(id, text, "its kind's paint stands"));
                         }
                         u.ops.push(Op::SetProp { value, id, prop })
                     }
@@ -1024,6 +1022,9 @@ impl NodeInst {
                         | bridge::BridgeError::Unset(prop)),
                     ) => {
                         let id = self.view;
+                        if prop == exact_kernel::PropId::AtomFaces {
+                            self.unthemed_faces(u, i);
+                        }
                         u.ops.push(Op::ClearProp { id, prop });
                         if matches!(e, bridge::BridgeError::PropKind { .. }) {
                             u.notes.push(invalid(id, prop.name(), &value));
@@ -1248,6 +1249,13 @@ fn invalid(view: ViewId, row: &str, value: &Value) -> String {
     let mut shown = String::new();
     crate::agent::untyped_json(value, &mut shown);
     format!("view {view}: invalid {row} value {shown}; unset")
+}
+
+/// A face's colour that is no colour (LLP 1045.000 D2), as written; `then`
+/// says what is drawn instead.
+pub(crate) fn invalid_face(view: ViewId, text: String, then: &str) -> String {
+    let shown = serde_json::Value::String(text);
+    format!("view {view}: invalid atomFaces colour {shown}; {then}")
 }
 
 /// The root of the instance tree: the plan's top-level sites.

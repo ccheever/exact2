@@ -47,9 +47,12 @@ enum AtomHandle {
 /// as RGBA channels for one appearance.
 enum AtomPaint {
     /// A face's `color` or `backgroundColor` in the colour wire form the
-    /// archive wrote (`face_paint`); nil where the kind's paint stands.
+    /// archive wrote (`face_paint`), as a bound text colour's channels are
+    /// (`textChannels`): a colour in its own space keeps it, so
+    /// `TextEngine.color` draws it unclipped (LLP 1100 D2); nil where the
+    /// kind's paint stands.
     static func face(_ value: Any?, _ atoms: MarkdownAtoms) -> [Double]? {
-        batch(value)?.channels(dark: atoms.dark, contrast: atoms.contrast)
+        batch(value)?.textChannels(dark: atoms.dark, contrast: atoms.contrast)
     }
 
     /// `(ink, background)` by kind name.

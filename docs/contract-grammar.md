@@ -1447,11 +1447,16 @@ component Composer
   draws a URL or asset, not yet a `symbol:`). `color` and `backgroundColor`
   paint that atom over its kind's `color` and `background-color`: a colour as a
   bound `color` takes one (`light-dark()`, a theme entry's name, a role, a
-  `-exact-platform-color()` only as one of the app's literals, a colour in a
-  profile's space, which Apple draws and the web refuses), or empty for the
-  kind's. One that names a token follows `setMode`, a pin and a token's new
-  value, as a themed row does. A colour that is none, a `var()` or `env()`, or
-  `inherit`, leaves the kind's paint, and the journal says so.
+  `-exact-platform-color()` only as one of the app's literals, a wide colour, a
+  colour in a standard space the platforms ship, which Apple draws and the web
+  refuses), or empty for the kind's. A colour in a profile the app declares with
+  `color-profile` is refused on every host. One that names a token follows
+  `setMode`, a pin and a token's new value, as a themed row does.
+  `currentcolor`, or `inherit` or another cascade keyword, anywhere in the
+  value, is no colour. A colour that is none leaves the kind's paint, and the
+  journal says so: on the native hosts and the web's wasm target, one the kernel
+  does not read (a `var()` or `env()`, too); on the JS target, one the browser
+  refuses.
 - `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that
