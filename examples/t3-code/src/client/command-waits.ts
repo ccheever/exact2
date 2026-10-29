@@ -14,9 +14,6 @@ export function sleep(ms: number): Promise<void> {
   });
 }
 
-/** useDebouncedValue's wait, and a poll's: `sleep`, for the command flows that hand their module along. */
-export const settle = (_native: Native, ms: number): Promise<void> => sleep(ms);
-
 /** The shell resource reads again now (its answer shows the command's state so far). */
 export async function wakeShell(native: Native): Promise<void> {
   try { await native.later({ op: 'wake', topic: 't3.notify' }); } catch { /* no module: nothing to wake */ }

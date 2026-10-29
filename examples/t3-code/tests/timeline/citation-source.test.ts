@@ -77,6 +77,25 @@ describe('citation View source (AssistantCitationSource)', () => {
   });
 });
 
+describe('the composer chip\'s View source', () => {
+  // Its chip act takes View source's own send (app.contract editorOp), so it is let go only by a newer View source,
+  // which takes the flag over and clears it.
+  test('holds the flag while it places its answer; a newer View source clears it', async () => {
+    const { performChipAct } = await import('../../src/composer/composer-chip-details');
+    const client = new T3Client();
+    Object.assign(client, { threadId: 't1', connection: 'connected', thread: loaded(['u1', 'a1', 'u2', 'a2']) });
+    client.shell.threads = [{ id: 't1' }, { id: 't2' }] as typeof client.shell.threads;
+    timelineView(client).lastRows = { threadId: 't1', rows };
+    const native = { available: true, watch() {}, async later(request: Record<string, unknown>) { return { ok: true, generation: request.generation, value: {} }; } } as unknown as Native;
+    client.openSelected = () => new Promise(() => {}); // the chip's View source is let go while it opens its thread
+    void performChipAct(client, native, { act: 'citation', link: '[Assistant quote](t3-citation://v1/env/t2/b1?text=answer&start=0&end=6&prefix=&suffix=)' });
+    await Promise.resolve();
+    expect(timelineSnapshot(client).citing).toBe(true);
+    await chatLocal(client, native, 'chip-citation', 't1', 'a2');
+    expect(timelineSnapshot(client).citing).toBe(false);
+  });
+});
+
 describe('a quote that no longer reads in its answer', () => {
   const href = (text: string) => `t3-citation://v1/env/t/message:provider:codex:native-item:a7?text=${encodeURIComponent(text)}&start=0&end=4`;
   const rows = (quote: string) => [

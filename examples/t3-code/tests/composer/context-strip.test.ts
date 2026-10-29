@@ -139,10 +139,9 @@ describe('openScratch', () => {
     expect(machineChanging(client)).toBe(false);
   });
   test('fails with ScratchProjectNotLoadedError after 10 seconds without the project', async () => {
-    const native = { available: true, watch() {}, later: async () => ({ ok: true, value: {}, generation: 0 }) } as Native;
     const [error, waited] = await withTimers(async () => {
       const start = Date.now();
-      return [await awaitScratchProject(native, () => false, async () => {}).catch((failure: unknown) => failure), Date.now() - start] as const;
+      return [await awaitScratchProject(() => false, async () => {}).catch((failure: unknown) => failure), Date.now() - start] as const;
     });
     expect((error as Error).message).toBe(SCRATCH_NOT_LOADED);
     expect(waited).toBe(10_000);

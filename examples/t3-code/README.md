@@ -371,7 +371,8 @@ picker's Copy branch name (on its trigger and on each ref in the open picker, wh
 web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
 `external-link-menu.ts` and `file-link-menu.ts`). A draft
 row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
-xmpp or fragment link has no menu of its own, so its right-click is the desktop shell's. The media menu and
+xmpp or fragment link has no menu of its own, so its right-click and its ContextMenu key get the desktop shell's
+(`T3TextContextMenu.swift`). The media menu and
 the legacy sidebar's choice of project members stay the module's (`T3ContextMenu.swift` and `T3Sidebar.swift` say why). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
 
@@ -471,19 +472,17 @@ filed were moved there or closed). The gaps someone using this app runs into:
   timeouts, the debounces) are the flow's own, on the app's clock. Natively a timer raced against a
   host call its answer awaits runs only once that call lands (main's `QUEUE.md`), so Annotate's 5 s
   crop deadline and a recording's capture timeout wait out a capture that hangs, where the
-  reference gives up. A flow whose answer is let go while it waits on a timer stops there: View
-  source has a send of its own (`app.contract` `citationShown`), so only a newer View source ends
-  it. Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
+  reference gives up. A flow whose answer is let go while it waits on a timer stops there, its
+  `finally` unrun, so each flow that holds state across a wait has a send no other flow replaces
+  (`app.contract`): View source, a transcript chip's or the composer's (`citationShown`); the
+  Browser's Capture, whose Record start waits for two frames (`capturePressed`, queued); the
+  checkout dialog's edits, whose next edit takes the debounce over (`prCheckoutTyped`); and the
+  prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
+  Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
   graces) is Contract tasks.
 - Text a platform view draws keeps AppKit's font smoothing (LLP 1019 D12): with Font smoothing on,
   the composer's and the fields' typed text is a shade heavier than the reference's, which draws
   all of its text `antialiased`.
-- The ContextMenu key on a reply's mailto, irc, xmpp or fragment link opens nothing, where the reference's
-  desktop shell answers it, as any page context menu, with Cut, Copy, Paste and Select All
-  (`DesktopWindow.ts`). Those links write no `contextmenu`; since main's #1114 the key goes on as a
-  secondary click at the link would, to the menu of the text drawn there, which has none while no text
-  is selected (agent drive, 2026-10-30). VoiceOver's show menu takes the same path; not checked with
-  VoiceOver.
 - On the pull request page a file link's press opens its menu below the link (a popover invoker), where the
   reference opens it at the click.
 - View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or

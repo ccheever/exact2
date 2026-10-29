@@ -82,18 +82,17 @@ describe('No project drafts switch machine (c47f4263f9, 845ddd9354)', () => {
   });
 
   test('openScratch waits up to 10 s: rereads every half second, then fails', async () => {
-    const native = { available: true, watch() {}, later: async () => ({ ok: true, value: {}, generation: 0 }) } as Native;
     let reads = 0;
     const found = await withTimers(async () => {
       const start = Date.now();
-      await awaitScratchProject(native, () => reads >= 3, async () => { reads++; });
+      await awaitScratchProject(() => reads >= 3, async () => { reads++; });
       return Date.now() - start;
     });
     expect([reads, found]).toEqual([3, 1_500]);
     reads = 0;
     const [error, waited] = await withTimers(async () => {
       const start = Date.now();
-      return [await awaitScratchProject(native, () => false, async () => { reads++; }).catch((failure: unknown) => failure), Date.now() - start] as const;
+      return [await awaitScratchProject(() => false, async () => { reads++; }).catch((failure: unknown) => failure), Date.now() - start] as const;
     });
     expect((error as Error).message).toBe(SCRATCH_NOT_LOADED);
     expect([reads, waited]).toEqual([20, 10_000]);

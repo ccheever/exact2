@@ -26,7 +26,7 @@ import { providerMark, terminology } from '../details/git-logic';
 import { offHeadCheckoutToast } from '../details/pr-row-logic';
 import { pushToast } from '../shell/toast';
 import { ensureDraftThreadId } from './draft-thread-id';
-import { settle, wakeShell } from '../client/command-waits'; // the 450 ms debounce
+import { sleep, wakeShell } from '../client/command-waits'; // the 450 ms debounce
 
 export type CheckoutItem = { reference: string; title: string; mark: string };
 type Resolution = { pullRequest: Obj } | { error: string };
@@ -150,7 +150,7 @@ export async function checkoutLocal(client: T3Client, native: Native, op: string
     state.waiting = true; state.memo = memoFor(state, parsed);
     await wakeShell(native); // the field's own render: "Resolving pull request..." while the wait runs
     const lookup = resolve(client, native, state, parsed); // started now, as the reference's cache read starts it
-    await settle(native, 450);
+    await sleep(450);
     // A later edit (its own command) or another opening owns the dialog now.
     if (edit !== state.edits || serial !== state.serial || !state.open) return '';
     state.waiting = false; state.debounced = parsed;

@@ -75,6 +75,7 @@ final class T3Module: ExactModule {
         composer.install(element); promptPreview.install(element); chrome.install(element); menus.install(element); devices.install(element)
         mediaFocus.install(element); browserPages.install(element)
         activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)
+        if let window = element.view?.window { textMenu.attachTail(to: window) } // the shell's menu for a request no node answers
         if element.hatch == .t3Composer { snapShot.setComposer(key: ObjectIdentifier(element), owner: element.data[.snapshotOwner] ?? "", view: element.view, focus: { [weak element] in element?.focus() }) }
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }
     }

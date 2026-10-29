@@ -64,7 +64,7 @@ component ScriptRow
         button id="details-script-actions" popovertarget="details-scripts-menu" key=triggerKey hover=hover("menu") aria-label="Script actions" aria-haspopup="menu" aria-expanded=open testId="details-script-actions" width=(details.scriptName == "" ? "100%" : "2rem") height="2rem" padding=(details.scriptName == "" ? "0 0.6875rem" : "0px") border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
           if details.scriptName == ""
             CnScriptIcon(icon="configure", size=16, color="light-dark(#71717b, #a1a1a1)")
-            text "Actions" flex=1 text-align="left" font-size="0.8125rem" color="light-dark(#71717b, #a1a1a1)"
+            text "Actions" flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
           ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #a1a1a1)")
         ScriptMenu(details=details, items=menuItems, width=menuWidth, act=act, toggled=toggled)
 

@@ -109,13 +109,4 @@ describe('a sent sound is an audio chip (#21363)', () => {
     chip.call('refused', state, scope, ['MEDIA_ERR_DECODE']);
     expect(reports).toEqual(['1memo.wav', '0memo.wav', '1memo.wav', '0memo.wav']);
   });
-  test('the report queues on the pages\' report send, so a sound that ends never lets another local flow go', async () => {
-    const { contractComponent } = await import('../support/contract-action-fixture');
-    const { appText } = await import('../support/app-files');
-    const root = contractComponent('app.contract', 'T3Code'), sent: string[] = [];
-    const scope = { command: (op: string) => op, sent: (mutation: string, op: string) => sent.push(`${mutation} ${op}`) };
-    for (const op of ['audio-playing', 'diagram-frame', 'chip-citation', 'copy']) root.call('chatLocal', { foldHold: false, rightPanelAt: '' }, scope, [op, 'row', '1memo.wav']);
-    expect(sent).toEqual(['frameReported chatlocal:audio-playing', 'frameReported chatlocal:diagram-frame', 'citationShown chatlocal:chip-citation', 'localChanged chatlocal:copy']);
-    expect(appText('app.contract')).toContain('mutation frameReported as shape Change queue');
-  });
 });

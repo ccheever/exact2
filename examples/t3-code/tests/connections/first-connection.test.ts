@@ -1,7 +1,7 @@
 // A first connection made from Add environment toasts and leaves Settings alone,
 // a failed one leaves no trace of the failed origin, and PullRequestThreadDialog debounces its
 // lookup by 450 ms with "Resolving pull request..." drawn while it waits.
-import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from 'bun:test';
 import { runConnectionOp } from '../../src/connections/connections';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { toasts } from '../../src/shell/toast';
@@ -159,6 +159,19 @@ describe('PullRequestThreadDialog shows its lookup after a 450 ms debounce (HEAD
     expect(checkoutView(client)).toMatchObject({ resolving: false, prTitle: 'PR 101', canConfirm: true });
     await clock.elapse(); await again;
     expect(lookups).toEqual(['999', '101']);
+  });
+  test('an edit let go during its wait is taken over by the next one, which clears "Resolving" and enables Confirm', async () => {
+    const { client } = dialogClient(), clock = new Clock();
+    await checkoutLocal(client, clock, 'open', '101');
+    // The first edit's answer is let go while it waits: the runtime clears its timer, so it never resumes.
+    const cleared = spyOn(globalThis, 'setTimeout').mockImplementationOnce((() => 0) as unknown as typeof setTimeout);
+    void checkoutLocal(client, clock, 'text', '#102');
+    await tick();
+    cleared.mockRestore();
+    expect(checkoutView(client)).toMatchObject({ resolving: true, canConfirm: false });
+    const next = checkoutLocal(client, clock, 'text', '#103');
+    await tick(); await clock.elapse(); await next;
+    expect(checkoutView(client)).toMatchObject({ resolving: false, prTitle: 'PR 103', canConfirm: true, settled: '103' });
   });
   test('closing during the wait leaves the dialog closed', async () => {
     const { client } = dialogClient(), clock = new Clock();
