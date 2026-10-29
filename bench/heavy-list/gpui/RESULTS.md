@@ -2,15 +2,13 @@
 
 @ref LLP 1149 §4; G1.
 
-**G1m has no qualifying timing series.** Both release apps built and passed
-G1's functional checks below. The corrected quiet preflight passed for the
-2026-10-28 14:43 PDT attempt: load averages stayed below 12, with no compiler
-processes observed. The native run scrolled, but the driver rejected it because
-the window was inactive for all 1,195 sampled display callbacks. macOS reports
-`CGSSessionScreenIsLocked=true`; waking the display did not unlock the desktop.
-Thermals were nominal. Raw output is in `target/g1/series-g1m3/`; it is excluded
-from the tables. An unlocked desktop is required to finish the comparison.
-No performance winner is established.
+**G1m remains incomplete: three clean interleaved pairs, not five.** The
+2026-10-28 evening attempts used the corrected quiet rule and an unlocked
+desktop. All three attempts stopped when a benchmark window lost focus;
+one also observed compilation after its first pair. The tables below report
+only the three completed clean pairs as diagnostic samples. They do not meet
+the requested five-round comparison or ten fresh launches per app. Work stopped
+at the lane's three-round limit; no performance verdict is established.
 
 ## Arms and provenance
 
@@ -18,7 +16,8 @@ No performance winner is established.
   `bun host/apple/build.mjs exact-heavylist-apple --release` and
   `EXACT_APP_DIR=$PWD/bench/heavy-list/exact-heavylist`.
 - GPUI app and probe source: `a0f6fe8523` on `lane/gpui-arm`. The report and
-  captures do not change either executable.
+  captures do not change either executable. G1m ran the existing instrumented
+  release copies at report commit `11896dd84d`; neither was rebuilt.
 - GPUI: **0.2.2**, pinned with `=0.2.2` and this directory's own `Cargo.lock`.
   The [crates.io registry index](https://index.crates.io/gp/ui/gpui), checked
   2026-10-28, lists no newer non-yanked release. Native Metal, build-compiled
@@ -42,7 +41,9 @@ Compiler executables `swift-frontend` and `clang++` count too. An idle
 `codex exec` process is not a reason to refuse the series. Check `uptime` and
 `ps` before launching, wait at most 20 minutes if necessary, and monitor the
 same conditions during measurement. The desktop must be unlocked so each
-window can become active; waking the display alone does not unlock it.
+window can become active and remain in front for the whole fling/rest sample;
+waking the display alone does not unlock it. G1m sampled load and compiler
+processes every five seconds, retaining `quiet.jsonl` beside each attempt.
 
 `measure.m` launches fresh processes for five interleaved rounds, alternating
 native/GPUI and GPUI/native. Both receive the same four 600-point flings at
@@ -80,8 +81,10 @@ port. The process CPU counters are Mach ticks, converted with
 `mach_timebase_info`; see XNU’s [fill_task_rusage](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/bsd_kern.c).
 CPU is cumulative-counter delta divided by elapsed sample time, in ms/s,
 with one-second samples retained as well as each phase’s aggregate. Both windows
-are brought to the front; the driver rejects a run that loses focus or changes
-thermal state. A stable `fair` state is recorded, not treated as nominal.
+are brought to the front; the driver rejects inactive start/end samples, inactive
+display callbacks during the fling, or differing start/end thermal states.
+Thermals and rest focus are not sampled continuously. A `fair` endpoint is
+recorded, not treated as nominal.
 Fling footprint is sampled each display callback; rest footprint once per second.
 Lifetime peak and end footprint are retained separately. The display-link sampler
 is paused at rest. Samples include probe overhead and exclude WindowServer's CPU.
@@ -126,27 +129,80 @@ the list above names the differences established from the implementation.
 
 ## Whole app
 
+**Diagnostic samples only: three pairs.** Values are the median (minimum–maximum)
+of `series-g1m4/fling` round 1 and `series-g1m5/fling` rounds 1 and 2, under
+`target/g1/`. Their order was native/GPUI, native/GPUI, GPUI/native. These six
+processes passed the driver's focus and scroll checks, had nominal thermal
+endpoints and Low Power Mode off, and had no compiler observed during their
+measurements. All were fresh launches with warm system caches. No rejected run
+or unpaired native run contributes to these tables.
+
+| Metric | Native Apple host | GPUI 0.2.2 |
+|---|---:|---:|
+| Cold to complete-screen milestone, ms; **3 launches each, not 10** | 596.84 (441.92–621.55) | 338.49 (318.66–447.50) |
+| Fling process CPU, ms/s | 121.41 (115.96–124.16) | 89.47 (88.60–93.55) |
+| Fling main-thread CPU, ms/s | 81.77 (79.82–82.69) | 43.15 (43.14–45.15) |
+| Peak footprint during fling, MiB | 224.16 (197.08–230.61) | 397.50 (396.16–398.16) |
+| Lifetime peak footprint through end of rest, MiB | 226.38 (214.88–234.08) | 413.33 (403.80–417.89) |
+| End-of-fling footprint, MiB | 216.86 (188.27–225.58) | 388.56 (387.58–388.97) |
+| Rest process CPU, ms/s | 1.084 (1.076–1.113) | 5.113 (4.796–5.401) |
+| Rest main-thread CPU, ms/s | 0.471 (0.467–0.491) | 3.301 (3.071–3.474) |
+| End-of-rest footprint, MiB | 216.27 (187.78–224.97) | 208.52 (204.47–209.38) |
+
+In these samples, GPUI used 31.94 ms/s less process CPU during the fling
+(26.3%) and 38.62 ms/s less main-thread CPU (47.2%). Native Exact used
+173.34 MiB less peak fling footprint and 186.95 MiB less lifetime peak footprint;
+its rest process/main-thread CPU was lower by 4.029/2.831 ms/s. Native Exact's
+end-of-fling footprint was 171.70 MiB lower. GPUI's end-of-rest footprint was
+7.75 MiB lower, within the native runs' spread. GPUI's cold milestone was
+258.34 ms earlier, but the milestones differ and this is not a startup win
+measured with one instrument. These are whole-app observations from an
+incomplete series, not a renderer ranking.
+
+Equal input produced native final offsets of 8,454, 8,318 and 8,366 points;
+GPUI ended at item 18, offset 255, every time. The driver posted 106 events
+per gesture at an 8.33 ms nominal period in each selected run. The apps do not
+establish equal scroll work from those inputs.
+
 **The frame intervals use different instruments.** The native probe records
 display-link cadence, not presented-frame timestamps. GPUI also records
 `MTLDrawable.presentedTime`. Native cadence and GPUI presentation cannot
 establish which app presents more smoothly; native presented-frame intervals
 and late frames remain unmeasured.
 
-| Arm | Cold to complete screen | Fling process/main CPU | Peak footprint | Rest process/main CPU |
+| Arm and instrument | Interval p50, ms | p95, ms | p99, ms | Late intervals/s |
 |---|---:|---:|---:|---:|
-| Native Apple host | unavailable | unavailable | unavailable | unavailable |
-| GPUI 0.2.2 | unavailable | unavailable | unavailable | unavailable |
+| Native, display-link timestamp | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 0.10 (0.00–0.30) |
+| GPUI, display-link timestamp | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–16.67) | 0.30 (0.10–1.30) |
+| Native, presented frame | unmeasured | unmeasured | unmeasured | unmeasured |
+| GPUI, presented frame within gesture windows | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 8.33 (8.33–8.33) | 0.44 (0.22–0.44) |
 
-| Arm | Fling interval p50/p95/p99 | Late frames/s | End-of-fling footprint |
-|---|---:|---:|---:|
-| Native Apple host | unavailable | unavailable | unavailable |
-| GPUI 0.2.2 | unavailable | unavailable | unavailable |
+Each run's quantiles use sorted intervals at index `floor(p × count)`, capped
+at the final index; the table takes medians and ranges of those per-run values.
+Late means strictly greater than 12.5 ms on this 120 Hz display. Display-link
+late counts are divided by the whole ten-second fling sample. GPUI presentation
+intervals join timestamps only within each individual gesture window; late
+counts are divided by those windows' combined durations, 4.534–4.541 seconds.
+Each run supplies 481–485 such intervals. Native display-link lateness was
+0.20 intervals/s lower at the median; interval quantiles tied at this precision.
+Neither observation establishes a presented-frame winner.
 
-There are **zero qualifying rounds**. The remaining requirement is five
-interleaved rounds with both windows active, recorded stable thermals and no
-builds on the machine. The driver rejects a lost-focus, non-scrolling or
-thermal-transition run.
-The functional previews are excluded from these tables.
+The requested series is unfinished. The three attempted series are retained
+separately so the exclusions can be checked:
+
+| Raw directory under `target/g1/` | Start, 2026-10-28 PDT | Completed clean pairs | Why the driver stopped |
+|---|---|---:|---|
+| `series-g1m4/fling` | 20:17:27 | 1 | GPUI round 2 lost focus for 198 fling callbacks and at the end; Cargo/rustc appeared during that round |
+| `series-g1m5/fling` | 20:19:16 | 2 | GPUI round 3 lost focus during rest; its fling had zero inactive callbacks; no compiler observed |
+| `series-g1m6/fling` | 20:23:58 | 0 | Native round 1 was inactive at both endpoints and for 1,002 fling callbacks; no compiler observed |
+
+Every observed load average was below 13.3 across the attempts. The final attempt
+held the display awake with `caffeinate -d -i -u -t 600`, released when the driver
+exited; it did not cure lost focus. The desktop was unlocked before the retries;
+cmux was frontmost after the second failure. The cause of focus loss was not
+established. The intended second five-round pass, to bring cold starts to ten
+per app, never began. Finishing requires an uninterrupted desktop interval of
+about eight minutes, with the benchmark windows in front and no compilation.
 
 ## Renderer only
 
@@ -171,6 +227,9 @@ The link description ends with an ellipsis after two lines.
 
 For this report update, `git diff --check` and `bun scripts/caps.mjs` passed:
 “All budgets within cap. 10 categories inspected.” No test suite was rerun.
+The six selected launches were checked against their raw JSON and wheel logs:
+800×800-point windows, 2× scale, 120 Hz, ten-second phases, monotonic CPU
+counters and four identical 106-event gestures each.
 
 G1 (`6ffede6aa8`) records the following commands passing on this worktree.
 These are G1's results, not new G1m test runs. G1m changes only this report;
