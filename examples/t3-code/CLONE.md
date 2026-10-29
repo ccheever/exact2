@@ -317,6 +317,20 @@ it, and restores an empty composer after restart. The environment and conversati
 remain available. Native NewTask producer integration and activation remain open;
 its textarea is unchanged. This IO unit is outside the delivered TestFlight build.
 
+The NewTask context owner now publishes captured attachment batches atomically.
+It preserves the captured UTF-16 range, shelf-only image policy, mixed inventory
+order, context history and latest draft settings. Independent review found an
+unreferenced binding mismatch that could queue a live file for removal. Complete
+saved binding validation now refuses that case before projection. The focused
+suites pass 76 tests; all 3,903 mobile tests, strict TypeScript, boot and the normal
+native build pass. Picker dispatch, durable finish proof and native editor
+activation remain separate work. This reducer is outside the TestFlight build.
+
+Two normal NewTask Files drives return to Choose project after selection or
+Cancel. The typed draft survives in Unsent, but the selected file is not retained.
+An instrumented Cancel drive returns correctly with the authored route and native
+stack unchanged. The cause remains open; no navigation fix has been accepted.
+
 A large-catalogue cold launch exposed a blank transcript, unready Send and a
 Hermes allocation failure. Composer preparation copied and fingerprinted command
 catalogues for every workspace. It now projects only the exact current workspace,
