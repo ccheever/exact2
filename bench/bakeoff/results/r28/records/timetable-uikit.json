@@ -1,0 +1,26 @@
+{
+  "spec": "timetable",
+  "arm": "uikit",
+  "model": "gpt",
+  "appId": "dev.bakeoff.timetable.bbf3589",
+  "assignedId": "dev.bakeoff.timetable.bbf3589",
+  "appName": "Timetable",
+  "sim": "EEFC0029-1010-45E4-8242-42CF67E16C96",
+  "pin": "d7ed471d11",
+  "minutes": 13.82,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 2508960,
+    "fresh": 77484,
+    "input": 2475436,
+    "cached": 2397952,
+    "output": 33524,
+    "cost": null,
+    "calls": 9,
+    "toolCalls": 48
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r28/built/timetable-uikit.app",
+  "notes": true,
+  "finished": "2026-10-27T21:10:02.215Z"
+}

@@ -55,6 +55,7 @@ pub fn mixed<J: DataSource>(javascript: J, rust: Placement) -> Data<J> {
             "importNotes",
             "deleteNote",
             "walk",
+            "sharedText",
         ],
         RUST_SOURCES,
     )

@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Mine are blue on the right and Sam's are grey on the left, oldest at the top. Centered day headers (\"Wednesday, July 1\", \"Thursday\", \"Today\") appear where the day changes and match the data. Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Sends, stays at the bottom showing the new bubble and clears the field. Send is disabled when the field is empty or only spaces, and leading whitespace is trimmed."},
+      {"n": 3, "status": "pass", "note": "The composer rides on top of the keyboard and the newest messages stay visible above it."},
+      {"n": 4, "status": "pass", "note": "An animated three-dot bubble with a \"Sam is typing…\" caption shows, then a canned reply (\"Sure thing\") arrives about 2 s later."},
+      {"n": 5, "status": "pass", "note": "Long-press opens the native context menu with a lifted preview, Copy and Delete. Copy puts the text on the pasteboard (paste verified) and Delete removes the bubble."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches message 1 with no blank rows. A round glass ↓ button appears when far up and jumps back to the newest message."},
+      {"n": 7, "status": "pass", "note": "The sent message and Sam's reply are still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Bubbles have no tail; every bubble is a plain rounded rectangle.",
+      "The Sam title (avatar and name) does not grow with Dynamic Type at the largest size.",
+      "The day header gives only the weekday or date, with no time as Messages shows (minor)."
+    ],
+    "scroll": "Smooth. Drags and flings move as a native list, with no blank rows or pop-in, and the bubbles blur under the glass nav bar and composer like iOS 26+ Messages.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Mine are blue on the right and Sam's are grey on the left. Messages-style day headers (\"Thu, Sep 24 at 2:48 AM\", \"Today 8:27 AM\") match the data. Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Sends, stays at the bottom and clears. Send is disabled for an empty or whitespace-only message."},
+      {"n": 3, "status": "pass", "note": "The composer sits directly above the keyboard and the newest messages stay visible. Swiping the list dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "A grey bubble reading \"Sam is typing...\" shows, then a reply (\"Sounds good!\" or 👍) arrives about 2 s later."},
+      {"n": 5, "status": "pass", "note": "Native context menu with Copy and Delete. Copy pastes correctly and Delete removes the message."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches message 1 with smooth rendering. A ↓ button appears when far up and jumps to the newest message."},
+      {"n": 7, "status": "pass", "note": "Sent messages and Sam's replies survive relaunch."}
+    ],
+    "bugs": [
+      "The jump-to-newest button is a nearly transparent pill. Its thin black arrow draws straight on top of the bubble text under it (\"Sent you the photos from the hi↓ke\"), so it is hard to see and makes the text hard to read. At the largest text size the arrow becomes a huge glyph over a message."
+    ],
+    "tells": [
+      "The transcript is hard-clipped above the composer, with half-cut bubbles at the bottom edge. Nothing scrolls under a glass bar, so the nav bar and composer feel flat and not iOS 26+.",
+      "The typing indicator is plain grey text in a bubble, with no animated dots.",
+      "The send and jump arrows use a thin, light-weight glyph that looks off next to the system controls, and they scale oddly at the largest text size.",
+      "Bubbles have no tail.",
+      "The plain text title has no avatar (fine, but less like Messages)."
+    ],
+    "scroll": "Smooth flings with no blank rows or jumps all the way to the first message. The list stops at a hard edge above the composer instead of passing under it.",
+    "scores": {"features": 10, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all seven requirements, with native context menus, correct day headers, persistence and smooth scrolling. A looks like a current iOS app: glass nav bar and composer with content scrolling beneath, an animated typing bubble and a clearly visible jump button. B's jump button is nearly invisible and draws over message text, and its clipped transcript and flat chrome feel less native."
+}

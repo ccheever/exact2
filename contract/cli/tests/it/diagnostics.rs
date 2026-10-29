@@ -248,8 +248,8 @@ fn test_cli_requires_one_file_and_keeps_explicit_flag_named_paths() {
         assert!(result.status.success(), "{result:?}");
         assert!(result.stderr.is_empty());
         let json: Value = serde_json::from_slice(&result.stdout).unwrap();
-        assert_eq!(json[0]["name"], "probe");
-        assert_eq!(json[0]["steps"][0]["op"], "clock");
+        assert_eq!(json["tests"][0]["name"], "probe");
+        assert_eq!(json["tests"][0]["steps"][0]["op"], "clock");
     }
     for args in [
         vec![],
@@ -381,7 +381,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `AtomEvent`, `AtomFace`, `ClipboardEvent`, `DOMRect`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Failure`, `FocusEvent`, `FrameCapture`, `FrameDownload`, `FrameNavigation`, `FrameNewWindow`, `FrameUserPrompt`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `TextDecorationSpan`, `TextDecorations`, `ToggleEvent`, `WheelEvent`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `AtomEvent`, `AtomFace`, `ClipboardEvent`, `DOMRect`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Failure`, `FocusEvent`, `FrameCapture`, `FrameDownload`, `FrameNavigation`, `FrameNewWindow`, `FrameUserPrompt`, `Geometry`, `InputEvent`, `IntersectionObserverEntry`, `KeyboardEvent`, `MIDIMessageEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `SharedFiles`, `Tab`, `TextDecorationSpan`, `TextDecorations`, `ToggleEvent`, `WheelEvent`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");

@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped main screen with Today (25) and All (135) smart lists and six coloured lists with open counts; counts update after completing, adding, deleting and reopening."},
+      {"n": 2, "status": "pass", "note": "Open tasks come first, then a collapsible 'Completed (7)' header with a chevron. Tapping the circle completes a task (orange check) or reopens it, and the task goes back to its place in the open list."},
+      {"n": 3, "status": "pass", "note": "Native sheet with title, notes, list picker, a pushed Priority picker and a due-date switch with an inline calendar. Tapping a row opens Edit Task and saving updates it."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with an alert icon and 'Overdue'. High priority shows an orange '!!!', low priority a '!'."},
+      {"n": 5, "status": "pass", "note": "Swipe left shows a native iOS 27 Delete action, which works. Reordering works with system grips, but only after More > Edit Tasks; the order persists."},
+      {"n": 6, "status": "partial", "note": "Rename (More > Rename List alert) and delete (More > Delete List, with a confirmation giving the task count; also Edit mode) both work and persist. Creating a list never works: the 'New List' alert accepts a name and Create closes it, but no list appears, not even after relaunch or in the task form's list picker. Tried four times."},
+      {"n": 7, "status": "pass", "note": "Completions, the added and edited task, deletion, reordering, the rename and the list deletion all survived relaunch."}
+    ],
+    "bugs": [
+      "Add List > enter a name > Create does nothing: no list is created, and nothing appears after relaunch or in the list picker.",
+      "Renaming a list leaves it in its old slot ('Office' stays after 'Trip'), although the lists otherwise look alphabetical."
+    ],
+    "tells": [
+      "Reordering needs a hidden More > Edit Tasks mode; there is no direct long-press drag.",
+      "'Add List' is a floating capsule in the bottom toolbar, and at the largest text size it overlaps list rows.",
+      "Low priority shows a bare '!' before the title, which reads like punctuation."
+    ],
+    "scroll": "A native table: slow drags, flings and the return to the top were smooth, with no blank rows or jumps, and the large title collapses as it should.",
+    "scores": {"features": 7, "platform": 9, "polish": 8, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "'Lists' screen with Today (25) and All (135) plus six lists with open counts, and a footer hint. Counts update correctly."},
+      {"n": 2, "status": "pass", "note": "Open tasks, then a 'Completed · 7' row with a Show/Hide text button. The checkbox completes and reopens, and a reopened task returns to its original position. Expanded/collapsed resets on relaunch."},
+      {"n": 3, "status": "pass", "note": "Native form sheet with title, a due-date switch plus a compact date picker, a priority pop-up menu and notes. Tapping a task opens Details for editing and saving works."},
+      {"n": 4, "status": "pass", "note": "Overdue tasks show a red 'Overdue · date' with an alert icon. High priority gets an orange 'High' pill."},
+      {"n": 5, "status": "pass", "note": "Swipe left reveals a red Delete pill, which works. Drag grips on every row reorder directly, and the order persists."},
+      {"n": 6, "status": "pass", "note": "Create (New List sheet), rename (long press or the list's actions menu) and swipe-to-delete with a confirmation all work and persist."},
+      {"n": 7, "status": "pass", "note": "All task and list changes survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The task list screens don't look like UITableView/List: rows show up in the accessibility tree as web-style 'Link' elements in a plain scroll view, which hints at a non-native list.",
+      "Separators are inconsistent: there is a hairline above the first row, rows with a 'High' pill get a separator at a different inset, and one separator went missing after a pull at the top of All.",
+      "Swipe-to-delete is a custom red 'Delete' pill rather than the system swipe action.",
+      "Every list shows the same orange hamburger icon, which looks like a drag handle, and the lists have no colours.",
+      "Drag grips are always visible on every row, unlike iOS (normally shown only in edit mode).",
+      "The completed section uses a 'Show'/'Hide' text link instead of a disclosure chevron header.",
+      "At the largest text size, main-screen rows have almost no vertical padding and text crowds the separators."
+    ],
+    "scroll": "Scrolling is smooth with momentum and rubber-banding, and no blank rows or pop-in were seen. There are minor separator glitches, and the rows don't quite feel like native table cells.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "B does every requirement, including creating lists, which in A silently fails, so a core spec item is broken in A. A is the more convincing native app (system swipe actions, inset-grouped table, coloured list icons), while B's task lists show web-like structure and separator glitches. For shipping, a working feature set outweighs A's better polish."
+}

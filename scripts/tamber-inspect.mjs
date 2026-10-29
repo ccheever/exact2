@@ -420,8 +420,14 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   const bound = new Map((node.bindings ?? []).map(b => [b.row, b]));
   // The node a state is held on, named on this one inside it (stage 9 E): its rows' places are its own.
   const owner = base.held && Number.isSafeInteger(base.held.site) ? map.nodes[base.held.site] ?? null : node;
-  // An `:active` row is written in its part (LLP 1121 D8): its file counts too, and the held node's.
-  const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...(n.bindings ?? []).flatMap(b => [b.at, ...(b.states ?? []).map(p => p.at)].flatMap(at => at ? [at.file] : []))] : [];
+  // Its chain as the page's walk up its tree takes it (the map's `walks` of `walk_steps`, by the node's `walk`, a slot's host a step with
+  // `slot: true`, tamber/1.18, stage 15 D3), else the call-site chain; a copy is still keyed by the call-site chain
+  // (`copiesOf`, `key`).
+  // (Only for a page that walks by `copies`, 1.17's: an older one still moves by call-site levels, `levelsUp`.)
+  const walked = n => (build?.capabilities?.includes('copies') && Number.isSafeInteger(n?.walk) && Array.isArray(map.walks?.[n.walk]) ? map.walks[n.walk].map(i => map.walk_steps?.[i]).filter(Boolean) : n?.chain) ?? [];
+  // An `:active` row is written in its part (LLP 1121 D8): its file counts too, and the held node's; each file its walk names (a
+  // slot's host's call) too.
+  const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...walked(n).map(c => c.file), ...(n.bindings ?? []).flatMap(b => [b.at, ...(b.states ?? []).map(p => p.at)].flatMap(at => at ? [at.file] : []))] : [];
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
   const readOnly = files.map(f => moved(map, f, read, app)).find(Boolean) || designMoved(map, build, served, design, read, app) || null;
   // The exported library component whose own view the node is of, and its part (LLP 1139 D5, *1.15*): from the map
@@ -429,7 +435,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // alias the app imports it by is in neither); absent outside one (a slot's fill is the caller's).
   const libraryOf = n => (typeof n?.library === 'string' ? { identity: n.library, part: typeof n.part === 'string' ? n.part : null } : null);
   const library = libraryOf(node);
-  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [], ...(library ? { library } : {}) };
+  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: walked(node), ...(library ? { library } : {}) };
   // A source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
   const copiesOf = n => Math.max(1, new Set(sitesAt(map, n).filter(i => same(map.nodes[i], n)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
@@ -441,7 +447,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
     // (the held node's own library and part, where it is of a library component's view)
     const ownerLibrary = owner === node ? library : libraryOf(owner);
-    const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [], ...(ownerLibrary ? { library: ownerLibrary } : {}) };
+    const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: walked(owner), ...(ownerLibrary ? { library: ownerLibrary } : {}) };
     // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
     const heldHere = Number.isSafeInteger(base.held.site) && !!owner;
     base.held = { ...base.held, rows: (base.held.rows ?? []).map((r, i) => {

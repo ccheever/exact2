@@ -1,0 +1,26 @@
+{
+  "spec": "photos",
+  "arm": "exact",
+  "model": "claude",
+  "appId": "dev.bakeoff.photos.b683112",
+  "assignedId": "dev.bakeoff.photos.b683112",
+  "appName": "Photos",
+  "sim": "C2188CC6-FBE9-409A-92A8-ABD89AC2C432",
+  "pin": "05b2942866",
+  "minutes": 22.09,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 10050447,
+    "fresh": 180999,
+    "input": 9992843,
+    "cached": 9811844,
+    "output": 57604,
+    "cost": 4.561800799999999,
+    "calls": 154,
+    "toolCalls": 84
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r33/built/photos-exact.app",
+  "notes": true,
+  "finished": "2026-10-28T15:58:55.087Z"
+}

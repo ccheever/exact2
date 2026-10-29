@@ -88,10 +88,12 @@ impl<D: DataSource> Runner<D> {
         }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(lines::query(&resource, &source));
+        self.count_ask(i);
         if self.live.admitted {
             self.count_churn(i, args, &resource);
         }
         self.snapshot_sockets();
+        self.store.set_clock_ms(self.now_ms);
         let answer =
             self.data
                 .answer_for(super::Target::Resource(i), &mut self.store, &source, args);
@@ -107,6 +109,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Say once, in a development build, that resource `i` is asked again
     /// and again, its arguments new each time: [`CHURN_ASKS`] in a second.
+    /// An alert, so it reaches the platform's log (LLP 1146 D4).
     fn count_churn(&mut self, i: usize, args: &[Value], resource: &str) {
         let (now, answering) = (self.now_ms, self.churn.answering);
         let row = self
@@ -135,7 +138,7 @@ impl<D: DataSource> Runner<D> {
         if row.2 < CHURN_ASKS || std::mem::replace(&mut row.3, true) {
             return;
         }
-        self.log(format!(
+        self.alert(format!(
             "`{resource}` was asked {CHURN_ASKS} times in a second, its arguments new each time (argument {} last): an argument that moves on every answer, such as a clock read in a derive (`performanceNow()`), asks again without end. Give it a value that changes only when the answer should, such as a timer's tick",
             k + 1
         ));
@@ -228,5 +231,31 @@ mod tests {
             r.query(0, &[Value::Number(f64::from(n) + 1.)]).unwrap();
         }
         assert!(said(&r).is_empty());
+    }
+
+    // LLP 1146 D3 and D4: while measuring, `perf` counts each resource's asks,
+    // and the churn line is an alert the host writes to its platform's log.
+    #[test]
+    fn asks_are_counted_for_perf_and_churn_is_an_alert_while_measuring() {
+        let mut r = runner();
+        r.measure(true, false);
+        r.admit_live(None);
+        r.churn.answering = true;
+        for n in 0..=CHURN_ASKS {
+            r.query(0, &[Value::Number(f64::from(n) + 1.)]).unwrap();
+        }
+        let reply = crate::perf::reply(&r, "{\"op\":\"perf\"}");
+        assert!(
+            reply.contains(&format!(
+                "\"resources\":[{{\"name\":\"r\",\"asked\":{}}}]",
+                CHURN_ASKS + 1
+            )),
+            "{reply}"
+        );
+        let alerts = r.take_alerts();
+        assert!(
+            alerts.iter().any(|l| l.contains("times in a second")),
+            "{alerts:?}"
+        );
     }
 }

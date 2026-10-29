@@ -20,6 +20,12 @@ impl<D: DataSource> Host<D> {
         self.set_claims(covers, &[], &[], &[], &[], &[])
     }
 
+    /// What UIKit covers of list `view`'s port at its start and end
+    /// (`Runner::set_list_covered`). Nothing is laid out or sent.
+    pub fn set_list_covered(&mut self, view: ViewId, covered: [f64; 2]) {
+        self.runner.set_list_covered(view, covered);
+    }
+
     /// The kernel's layout stamp folded to one number (`Kernel::layout_stamp`):
     /// a measure kept while it stands is the one the kernel would answer.
     pub fn layout_stamp(&self) -> u64 {

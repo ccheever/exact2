@@ -14,6 +14,9 @@ shape ChainLink
   up: number
   // The component the call site is in (the copy a press of it means to select), as the server joined it.
   component: string
+  // A slot's host (`slot: true`, tamber/1.18, stage 15 D3): the step lands on the component holding the node in its
+  // slot, named by its own call.
+  slot: bool
 
 // A move of the selection up the chain (`inspect` `select`): sent, or why not.
 shape SelectUp
@@ -142,6 +145,16 @@ shape Mapped
   name: string
   text: string
   modes: ModeValue[]
+  // In to begin with (the server's choice can leave it out); a picked id flips it.
+  on: bool
+
+// What the card's choices sent answered (tamber/1.18 `choose`): the flips to drop, on cards another client chose on.
+shape Choices
+  ok: bool
+  answer: number
+  drop: string[]
+  // A newer choice came while the card's own was on its way: the list read again, so the card shows it.
+  again: bool
 
 shape Offer
   role: string
@@ -160,6 +173,20 @@ shape Unmapped
   block: string
   key: string
 
+// The diff a held import's card shows, as its choice is now (stage 15 D1.1): the held one when all of it is chosen,
+// else the plan of what is chosen; `note` says when there is none, or it could not be planned.
+shape ChosenDiff
+  proposal: string
+  // The card as it was when this was planned: its choiceGen and its flips, `<gen>|<flip;…>`.
+  shown: string
+  diff: string
+  note: string
+
+shape ChosenDiffs
+  ok: bool
+  answer: number
+  diffs: ChosenDiff[]
+
 shape Held
   proposal: string
   client: string
@@ -168,8 +195,13 @@ shape Held
   tint: string
   diff: string
   tokens: string[]
+  // Its title's words: what its operations edit, then what reads those (optext.ts heldTitle).
+  title: string
   replaces: string
   items: HeldItem[]
+  // How many times another client's choice has moved its base on this page
+  // (choice.ts `gen`) as it was built: an accept or edit names it.
+  choiceGen: number
   // An import's ("" for any other proposal).
   importer: string
   mapped: Mapped[]
@@ -603,6 +635,8 @@ shape Design
   ok: bool
   error: string
   file: string
+  // Whether the file read is the app's design, by "" or by its own path.
+  appDesign: bool
   answer: number
   groups: DialGroup[]
   columns: Column[]

@@ -37,11 +37,18 @@ fn host(_source: &str) -> Box<dyn exact_js::NativeModule> {
     Box::new(Host)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+// The packages' Windows implementations the build composes (`exact_packages()`).
+include!(concat!(env!("OUT_DIR"), "/packages.rs"));
 fn main() {
-    std::process::exit(exact_windows::run::<AppData>(
+    let composed = exact_linux::Composed {
+        packages: exact_packages(),
+        ..Default::default()
+    };
+    std::process::exit(exact_windows::run_composed::<AppData>(
         "Excord",
         window(),
         PLAN,
         COMPAT,
+        composed,
     ));
 }

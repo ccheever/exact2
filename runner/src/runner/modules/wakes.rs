@@ -28,7 +28,8 @@
 //!   (`exactPage().visibilityState`), as the platform's background is; a
 //!   page the wake hid is shown again when it ends.
 //! - **Refused** in a commit of the wake's origin: the host commands that
-//!   open system UI or play sound, journaled `<name>: refused: during a wake`.
+//!   open system UI or play sound, and bare `focus()`, which shows the
+//!   window, journaled `<name>: refused: during a wake`.
 //!   A module name declared `"origin": "app"` and a permission request are
 //!   refused by admission (`admit.rs`).
 //! - **Told by an implementation.** A bound implementation the platform ran
@@ -37,7 +38,9 @@
 //!   one wake, and at the wake's end the implementation is told
 //!   `{"extension", "woke": id, "outcome"}`, the outcome its invocation's
 //!   (`completed`, `expired`, `superseded`, `refused`), or `unheard` when no
-//!   handler hears the event.
+//!   handler hears the event. When the platform's time runs out first (a
+//!   `BGTask`'s expiration handler), the implementation says so ([`EXPIRED`]):
+//!   that wake expires now, or, not yet begun, ends `expired` unrun.
 
 use super::super::{CommitReceipt, DataSource, Runner, RunnerError};
 use super::{CallOrigin, Json, Route};
@@ -66,6 +69,10 @@ const REFUSED: &[&str] = &[
 /// The prefix of a `changed` topic that is a wake a bound implementation
 /// raises, `{"extension", "event", "args", "id"}` after it (module doc).
 pub(in crate::runner) const TOLD: &str = "exact-wake:";
+
+/// The prefix of a `changed` topic by which a bound implementation says the
+/// platform expired a wake it raised, `{"extension", "id"}` after it.
+pub(in crate::runner) const EXPIRED: &str = "exact-wake-expired:";
 
 /// How the host raises a wake's event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -141,6 +148,8 @@ pub(in crate::runner) struct Wakes {
     ended: Vec<Json>,
     /// The last wake that ended, for `state.wake`.
     last: Option<Json>,
+    /// Whether the page showed before the running wake hid it.
+    shown: bool,
 }
 
 impl<D: DataSource> Runner<D> {
@@ -260,7 +269,7 @@ impl<D: DataSource> Runner<D> {
                 let Some(mut next) = w.waiting.pop_front() else {
                     break;
                 };
-                next.hid = next.how.hidden && !self.page.hidden;
+                next.hid = next.how.hidden && !self.page.in_background();
                 let hide = next.hid;
                 self.extensions.wakes.current = Some(next);
                 if hide {
@@ -303,10 +312,18 @@ impl<D: DataSource> Runner<D> {
         (receipts, error)
     }
 
-    /// The page hidden for a wake, or shown again after it.
+    /// The page hidden for a wake and the app in the background, or both
+    /// as they were after it: a desktop page that was hidden in the
+    /// foreground (a menu-bar app's) stays hidden.
     fn wake_page(&mut self, hidden: bool) -> Result<Option<CommitReceipt>, RunnerError> {
         let mut page = self.page();
-        page.hidden = hidden;
+        if hidden {
+            self.extensions.wakes.shown = !page.hidden;
+            page.hidden = true;
+        } else {
+            page.hidden = !self.extensions.wakes.shown;
+        }
+        page.background = page.background.map(|_| hidden);
         self.set_page(page)
     }
 
@@ -566,7 +583,11 @@ impl<D: DataSource> Runner<D> {
         }
         let mut i = first;
         while i < self.commands.len() {
-            if REFUSED.contains(&self.commands[i].name.as_str()) {
+            // Bare `focus()` brings the window forward, which a wake never
+            // does (LLP 1133.025 D4); `focus(id)` is an element's.
+            let command = &self.commands[i];
+            let window = command.name == "focus" && command.args.is_empty();
+            if REFUSED.contains(&command.name.as_str()) || window {
                 let name = self.commands.remove(i).name;
                 self.log(format!("{name}: refused: during a wake"));
             } else {
@@ -606,7 +627,7 @@ impl<D: DataSource> Runner<D> {
         let how = WakeHow {
             id: hash | 1 << 63,
             cold: false,
-            hidden: self.page.hidden,
+            hidden: self.page.in_background(),
         };
         if let Err(e) = self.raise_wake(extension, event, &v["args"].to_string(), how) {
             self.log(e);
@@ -623,6 +644,34 @@ impl<D: DataSource> Runner<D> {
         {
             wake.told = told;
         }
+    }
+
+    /// The platform expired the wake an implementation raised as `id`
+    /// ([`EXPIRED`]): the current wake expires; a waiting one is dropped and
+    /// its implementation told `expired`; one already ended is left.
+    pub(in crate::runner) fn expire_told_wake(
+        &mut self,
+        body: &str,
+    ) -> (Vec<CommitReceipt>, Option<RunnerError>) {
+        let v: Json = serde_json::from_str(body).unwrap_or_default();
+        let (Some(extension), Some(id)) = (v["extension"].as_str(), v["id"].as_str()) else {
+            self.log(format!("a wake's expiry is unreadable: {body}"));
+            return (Vec::new(), None);
+        };
+        let told = Some((extension.to_owned(), id.to_owned()));
+        let w = &mut self.extensions.wakes;
+        if (w.current.as_ref()).is_some_and(|c| c.told == told) {
+            self.log(format!("{extension}: the platform expired wake {id}"));
+            return self.expire_wake();
+        }
+        if let Some(at) = w.waiting.iter().position(|q| q.told == told) {
+            w.waiting.remove(at);
+            self.log(format!(
+                "{extension}: the platform expired wake {id} before it ran"
+            ));
+            self.tell_woke(extension, id, "expired");
+        }
+        (Vec::new(), None)
     }
 
     /// Tell the implementation of `extension` that its wake `id` ended.

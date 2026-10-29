@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first: sender, subject, two-line preview, Mail-style time/weekday/short date. Unread rows get a blue dot."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows Flag/Archive and a full swipe archives. Swiping right toggles Unread/Read. Archived mail appears on the Archive screen, where a swipe moves it back to the Inbox."},
+      {"n": 3, "status": "pass", "note": "Flag by swipe or from the message toolbar, with an orange flag on the row. The native filter menu (All/Unread/Flagged) works and the subtitle shows the active filter."},
+      {"n": 4, "status": "pass", "note": "Push to a detail screen. Opening marks the message read (unread count dropped). Has Mark as Unread, Flag and Archive. Edge-swipe back works."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh (and a toolbar button) adds two new unread messages at the top with today's time."},
+      {"n": 6, "status": "pass", "note": "'N unread' subtitle under the large title, updated live."},
+      {"n": 7, "status": "pass", "note": "After relaunch, archived, flagged and read states and the refreshed messages were all kept."}
+    ],
+    "bugs": [
+      "After archiving, row separators were briefly inconsistent: one missing, one full-width instead of inset.",
+      "At the largest text size the fixed '320 messages' footer cuts across a row's preview mid-line."
+    ],
+    "tells": [
+      "The list stops above a fixed '320 messages' footer and search bar instead of scrolling under the bottom bar, so rows are cut off with a hard edge.",
+      "The collapsed title ('Inbox' / 'N unread') is left-aligned and sits over blurred list text that shows through, which looks messy.",
+      "The search field does nothing that the spec asks for; it is extra chrome.",
+      "Flag button in the message toolbar is black rather than tinted orange.",
+      "Rows have fixed heights, so one-line previews leave large empty gaps."
+    ],
+    "scroll": "Smooth through all 320 rows when dragged or flung, with no blank or popping rows. The large title collapses and content blurs under the bars as on iOS, but the list is clipped above the fixed bottom footer.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first: initials avatar, sender, subject, two-line preview ending in an ellipsis, and the date. Unread rows have a dot and a bold subject."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows Flag/Archive. Swiping right (full swipe) toggles read/unread. The Archive tab lists archived mail, with a swipe back to the Inbox."},
+      {"n": 3, "status": "pass", "note": "Inline flag button on each row plus swipe and detail flag. The segmented control filters All/Unread/Flagged. At the largest text size it becomes a menu."},
+      {"n": 4, "status": "pass", "note": "Detail screen opens and marks the message read (badge 111 to 110). Has archive, mark-unread and flag buttons. Back swipe works."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds two new unread messages at the top. There is also a refresh button."},
+      {"n": 6, "status": "pass", "note": "'N unread' in the header and as a badge on the Inbox tab."},
+      {"n": 7, "status": "pass", "note": "After relaunch, archived, flagged and read states and the new messages were all kept."}
+    ],
+    "bugs": [
+      "The tab bar is missing from the accessibility tree on the list screen, and the swipe-action buttons are unlabeled. VoiceOver users cannot reach them."
+    ],
+    "tells": [
+      "The large title never collapses: the title, counts and segmented control are a fixed header taking about 260 pt (about half the screen at large text), and the list scrolls in a box below it with a hard top edge.",
+      "The list is clipped above the tab bar instead of scrolling under it.",
+      "On the message screen a floating archive/mark-unread toolbar sits on the same row as the tab bar, which is crowded and unlike iOS.",
+      "Coloured initial avatars, navy title text and a tinted background look like a web or Android inbox more than iOS Mail.",
+      "Dates show 'Oct 24' for messages from this week, where iOS shows the weekday.",
+      "Inline flag buttons on every row are not how iOS Mail does it."
+    ],
+    "scroll": "Fast flings are smooth with no blank rows, but the list scrolls inside a fixed box under a header that never collapses, so the page feels cramped and the large title never shrinks.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all seven requirements, and both keep state across relaunch. A feels more like iOS Mail: its large title collapses, it uses a native filter menu, Mail-style dates and full-width rows. B's fixed header never collapses, it puts a toolbar beside the tab bar, and its styled avatars eat screen space. A's clipped bottom footer is its main flaw, which is smaller than B's layout problems."
+}

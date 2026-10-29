@@ -26,7 +26,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn ime_target(&self) -> Option<Target> {
         let node = self.host.kernel().node(self.focus?)?;
         (self.window_active
-            && !self.top_open()
+            && !self.shape_surface_open()
             && self.input_live(node.key)
             && node.node_type == NodeType::TextInput
             && !crate::fields::hosts(&node)

@@ -3,14 +3,14 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A deadline already due when a batch lands advances before the turn's
-/// frame is committed. A `then` is armed at its answer's time (LLP 1016.001
-/// D3), so the batch that lands the answer carries a deadline already due,
-/// and its advance waited for the next display frame: that frame showed the
-/// answer without what its `then` does (Lexy's sign-in button read "Sign In"
-/// for a frame between two requests). Here a timer's deadline passes with no
-/// turn of the run loop, and then a batch lands, as the answer's does: its
-/// advance runs before control goes back to UIKit, which commits the frame.
+/// A deadline already due when a batch lands. A `then` is armed at its
+/// answer's time (LLP 1016.001 D3) and advances before control goes back to
+/// UIKit, so the frame shows the answer with what its `then` does (Lexy's
+/// sign-in button read "Sign In" for a frame between two requests): the
+/// runner's `land_then_first` tests pin that. A timer's deadline is posted to
+/// the owner instead (LLP 1072.000 §4 B), and its commit lands with a later
+/// main-queue turn. Here a timer's deadline passes with no turn of the run
+/// loop, and then a batch lands.
 final class DueBeforeFrameIOSTests: XCTestCase {
     private var session: ExactSession?
     private var window: UIWindow?
@@ -58,15 +58,16 @@ final class DueBeforeFrameIOSTests: XCTestCase {
         return (session, shown, due)
     }
 
-    func testADeadlineAlreadyDueAdvancesBeforeControlGoesBackToUIKit() throws {
+    func testATimerAlreadyDueIsPostedAndLandsWithALaterTurn() throws {
         let (session, shown, due) = try armedAndDue()
-        // A batch lands with its deadline already due, as an answer's lands
-        // with its `then` due
         session.applyUnlessEmpty(Batch(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: due))
-        XCTAssertEqual(shown(), "Flipped", "the deadline advanced in the same main-thread work, before UIKit commits")
+        XCTAssertTrue(session.advanceInFlight, "the timer's advance is posted, main does not wait for it")
+        XCTAssertEqual(shown(), "Waiting")
+        session.drainFill()
+        XCTAssertEqual(shown(), "Flipped", "its commit lands")
     }
 
-    func testABatchWithChangesAdvancesItsDueDeadlineAfterApplyingThem() throws {
+    func testABatchWithChangesPostsItsDueDeadlineAfterApplyingThem() throws {
         let (session, shown, due) = try armedAndDue()
         let state = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "state" })
         // The batch's own change applies first, then the deadline's commit
@@ -74,7 +75,9 @@ final class DueBeforeFrameIOSTests: XCTestCase {
         batch.timerDueMs = due
         session.apply(batch)
         XCTAssertEqual(state.props["accessibilityHint"], "landed", "the batch applied")
-        XCTAssertEqual(shown(), "Flipped", "and its due deadline advanced before control went back to UIKit")
+        XCTAssertTrue(session.advanceInFlight, "then its due deadline was posted")
+        session.drainFill()
+        XCTAssertEqual(shown(), "Flipped")
     }
 
     func testADriverOwnedClockAdvancesOnlyWhenTheDriverSaysSo() throws {

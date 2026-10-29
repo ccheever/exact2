@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day ('Today', 'Sun, Oct 25'), each header shows that day's total on the right; 240 seeded transactions."},
+      {"n": 2, "status": "pass", "note": "Summary card shows October 2026 total ($5,269.70 on first launch) and expense count. It updates on add, edit and delete."},
+      {"n": 3, "status": "pass", "note": "Amount on a decimal pad, merchant, category picker pushed in with all seven categories, date defaulting to today, optional note. Empty, -5 and three-decimal amounts are all refused with an alert. Swiping the sheet down with edits asks 'Discard changes?'."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens a prefilled Edit sheet and saving updates the row. Swiping left shows the system Delete action, and deleting updates the day and month totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab: this month per category, largest first, with % share, count and a progress bar. Tapping one pushes that category's transactions for the month, grouped by day."},
+      {"n": 6, "status": "pass", "note": "Amounts shown as $1,544.59. The add, edit and delete all survived relaunch."}
+    ],
+    "bugs": [
+      "One screenshot taken mid-fling showed torn text (the 'Sat, Oct 17' header and 'Water Util|ity' drawn split); it did not happen again in later flings."
+    ],
+    "tells": [
+      "The month summary is a custom dark-green card with a multicolour segmented bar, a branded look rather than a system grouped list.",
+      "Save is a filled green capsule that is always enabled; bad input is reported by an alert after tapping, not by disabling Save.",
+      "In the form the date picker capsule floats centred under a 'Date' label instead of trailing on one row as in a system Form.",
+      "The calendar glyph on the summary card looks like a button but does nothing when tapped.",
+      "At the largest text size the row category icons and the card's calendar glyph stay tiny while the text around them grows huge.",
+      "Fun and Health both use near-identical red tints, so their bars and icons are hard to tell apart."
+    ],
+    "scroll": "Slow drags, flings, flinging back to the top and pulling past the top all felt native, with no blank or popping rows, and scroll position survived a tab switch. The one exception was the single torn-text frame captured mid-fling.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first, grouped by day; headers read 'Oct 25, 2026 · $222.02'."},
+      {"n": 2, "status": "pass", "note": "Summary card shows the October total and expense count, and it updates live."},
+      {"n": 3, "status": "pass", "note": "Grouped Form with amount, merchant, a menu Picker for the seven categories, a compact DatePicker defaulting to today, and a note. The checkmark Save stays disabled until the amount is above zero and a merchant is entered, with footer text 'Enter an amount greater than zero.'. 1.234 is accepted and silently rounded to $1.23."},
+      {"n": 4, "status": "pass", "note": "Tap opens a prefilled Edit sheet and saving updates the row. Swipe-left shows the system Delete action, and deleting updates the totals."},
+      {"n": 5, "status": "pass", "note": "Categories tab lists this month largest first with '% of this month’s spending' and a bar. Tapping one pushes its transactions with dates."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. The add, edit and delete all survived relaunch."}
+    ],
+    "bugs": [
+      "An amount with three decimals (1.234) is saved silently rounded to $1.23 instead of being refused.",
+      "Cancelling a half-filled New Expense sheet discards it without asking."
+    ],
+    "tells": [
+      "No category icons or colour anywhere; the rows are plain text, so the lists look sparse next to a typical finance app.",
+      "Day headers repeat the year on every group ('Oct 24, 2026 · $87.47') and are set as grey list rows rather than standard section headers.",
+      "The category detail screen uses a small inline title while the other top-level screens use large titles; this is defensible but inconsistent.",
+      "The category bars are all the same system blue, so they carry no category identity."
+    ],
+    "scroll": "Slow drags, flings, flinging back to the top and pulling past the top all felt native, with no blank or popping rows, and scroll position was kept across tab switches.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements and scroll equally well. B looks more like a stock SwiftUI Form, but it accepts three-decimal amounts and drops unsaved input without asking. A validates amounts strictly, protects unsaved edits, and has clearer category icons, colours and per-category counts, so it is the one I would rather ship despite its more branded, less stock look."
+}

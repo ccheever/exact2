@@ -201,6 +201,8 @@ final class SwipeActionsIOSTests: XCTestCase {
                 let left = leading != rtl
                 apply(p, [paint, side] + (left ? [frame(3, 90, 300, 80), frame(4, 0, 90, 80)] : []))
                 owner.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+                XCTAssertNil(owner.scroll, "no scroll view until a touch lands on the row")
+                p.swipeActions.touch(owner)
                 let scroll = try XCTUnwrap(owner.scroll)
                 var pressed: [UInt32] = []
                 p.onPress = { pressed.append($0) }
@@ -263,6 +265,22 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(body.isDescendant(of: cell.contentView))
         apply(p, geometry(64))
         XCTAssertEqual(p.swipeActions.cell(of: owner)?.frame.height, 64, "and shrinks with it")
+    }
+
+    /// A projected row mounted again with no batch's `prepare` first (as
+    /// VoiceOver starting mounts every row) carries its content into its
+    /// cell, not its table: r28's tasks crashed on a tap with a layer cycle.
+    func testAProjectedRowMountedAgainKeepsItsTableOutOfItsCell() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])
+        p.swipeActions.touch(owner)
+        let cell = try XCTUnwrap(p.swipeActions.cell(of: owner))
+        p.swipeActions.sync()
+        let table = try XCTUnwrap(owner.subviews.first { $0 is UITableView })
+        XCTAssertTrue(table.superview === owner, "the table stays in the row")
+        XCTAssertTrue(row.superview === cell.contentView, "the content is the cell's")
+        turn()
+        XCTAssertTrue(row.superview === owner, "and goes home once released")
     }
 }
 #endif

@@ -1383,7 +1383,8 @@ fn the_sheets_symbol_and_checkmark_take_the_accent() {
     // (The accent, as a raster's tint paints it: a symbol's own tint is its `color`, symbol_ink.rs.)
     let accent = tint("accent");
     assert!(accent.is_some());
-    assert_eq!(tint("check"), accent, "the checkmark: the accent");
+    let colour = |t: &str| k.node(id(&r, t)).unwrap().text_color();
+    assert_eq!(Some(colour("check")), accent, "the checkmark: the accent");
     let profile = k.node(id(&r, "profile")).unwrap();
     let symbol = k.node(profile.children()[0]).unwrap();
     assert_eq!(
@@ -1392,9 +1393,9 @@ fn the_sheets_symbol_and_checkmark_take_the_accent() {
         "the leading symbol: the accent"
     );
     let chevron = k.node(*profile.children().last().unwrap()).unwrap();
-    assert_ne!(
-        chevron.computed_style(StyleMask::ALL).tint_color,
-        accent,
+    assert_eq!(
+        chevron.text_color(),
+        ColorValue::Role(exact_kernel::style::roles::role("-exact-tertiary-label").unwrap()),
         "the chevron: grey"
     );
 }
@@ -1480,8 +1481,8 @@ image "photo.png" color="-exact-system-red" width=20 height=20 testId="photo""#,
             .computed_style(StyleMask::ALL)
             .tint_color
     };
-    assert_eq!(tint("chev-unsaid"), Some(role("-exact-tertiary-label")));
-    assert_eq!(tint("chev-contacts"), Some(role("-exact-tertiary-label")));
+    assert_eq!(colour("chev-unsaid"), role("-exact-tertiary-label"));
+    assert_eq!(colour("chev-contacts"), colour("chev-unsaid"));
     // `currentcolor` is the row's `None`: the symbol paints its `color`.
     let red = role("-exact-system-red");
     assert_eq!(

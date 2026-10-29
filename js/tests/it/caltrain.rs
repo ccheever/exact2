@@ -185,7 +185,7 @@ fn a_call_over_budget_is_unavailable_and_counted() {
     let (lat, lon) = DEFAULT_LOCATION;
     assert!(matches!(
         m.query("stations", &[loc(lat, lon)]),
-        Err(DataError::Unavailable(ref e)) if e.contains("over the 0 ms budget")
+        Err(DataError::Overrun(ref e)) if e.contains("over the 0 ms budget")
     ));
     assert_eq!(m.overruns(), 1);
 }

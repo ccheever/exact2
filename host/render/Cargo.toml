@@ -25,6 +25,8 @@ exact-web-capabilities = { path = "../web-capabilities" }
 # vendored v4 crate gates it behind a default feature (27275f3d4), which
 # default-features = false had turned off.
 ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket", "portable-http"] }
+# The Apple executor's hop check, which this crate compiles, reads a hop's host (LLP 1133.036 D6); a scripted socket transport names the type too.
+url = "2.5"
 serde_json = "1.0"
 # The server's ETags and surrogate keys.
 sha2 = "0.10"
@@ -44,7 +46,7 @@ windows-sys = { version = "0.61.2", features = ["Win32_Networking_WinSock"] }
 test-wait = []
 
 [dev-dependencies]
+# The listener the shared executor's tests install (LLP 1133.005).
+exact-listen = { path = "../listen" }
 exact-render = { path = ".", features = ["test-wait"] }
 contract = { path = "../../contract/cli" }
-# A scripted socket transport names the URL type its trait takes.
-url = "2.5"

@@ -1,0 +1,53 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen with Today (21) and All (135) on top and six lists below, each showing its open count. Counts update after edits."},
+      {"n": 2, "status": "pass", "note": "Open tasks come first, then a 'Completed · 9' footer row with a Show/Hide text link that expands the completed tasks. The circle checkbox completes a task and reopens it, moving it between the sections."},
+      {"n": 3, "status": "pass", "note": "+ opens a sheet with Title (focused, Add disabled until a title is entered), Notes, a Due Date toggle with a compact date picker, a Priority menu (None/Low/Medium/High) and a List picker. Tapping a row opens the same sheet as Details, which saves and has Delete Task."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with an 'Overdue ·' prefix. High priority shows a red '!!!' before the title."},
+      {"n": 5, "status": "pass", "note": "An always-visible grip on each row reorders by dragging, and the order persists. Swiping a row left shows a red Delete button that removes the task."},
+      {"n": 6, "status": "pass", "note": "+ on Lists opens a New List sheet. The list's ••• menu offers Rename List (sheet) and Delete List. Swiping a list left shows Delete, with an alert that says how many tasks it holds."},
+      {"n": 7, "status": "pass", "note": "After relaunch the edited title and priority, the added task, the deletion, the reorder, the renamed list and the deleted list were all kept."}
+    ],
+    "bugs": [
+      "When the large title collapses, the small inline title ('Trip', 'All') sits over the scrolled rows with no bar background, so the two texts overlap ('2026Trip', 'Read the plumbAll').",
+      "Separators are inconsistent: there is a stray hairline above the first row under the large title, and one separator in the Trip list ran full width while the others were inset."
+    ],
+    "tells": [
+      "Task lists are plain white full-bleed lists with a hairline above the first row, unlike the grouped style used on the Lists screen.",
+      "Reorder grips show on every row all the time instead of only in Edit mode.",
+      "The completed section is a 'Completed · 9  Show' row with a blue text link instead of a disclosure header with a chevron.",
+      "Every list has the same generic orange document icon; there are no per-list colours or SF Symbol list glyphs.",
+      "Dates always include the year ('Fri, Oct 30, 2026') even in the current year. All/Today rows run date and list name together with only a space ('Sat, Nov 7, 2026  Work').",
+      "The swiped row's Delete button is a floating red pill and separators do not move with the row, which looks slightly off compared with system swipe actions.",
+      "At the largest text size the task title wraps into a narrow column (Write the / garage) because the checkbox and grip keep a lot of width. Counts on the Lists screen sometimes wrap under the name and sometimes not.",
+      "Rows show as 'Link' elements to accessibility, a web-style tell."
+    ],
+    "scroll": "Slow drags, flings and fling-back to the top were smooth, with no blank or popping rows, and the scroll position was kept after opening and cancelling a task. The only problem was the inline title overlapping content under a bar with no background.",
+    "scores": {"features": 9, "platform": 6, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Reminders-style inset-grouped Lists screen: Today (calendar glyph) and All (tray glyph) with counts, then My Lists with coloured circular list icons and open counts. Counts update."},
+      {"n": 2, "status": "pass", "note": "Open tasks in a grouped section, then a 'Completed (10)' disclosure header with a chevron that collapses and expands the completed tasks (red filled checks). The checkbox completes and reopens; the ••• menu also has Show/Hide Completed."},
+      {"n": 3, "status": "pass", "note": "A bottom-toolbar 'New Task' opens a sheet with Title, Notes, a Date toggle that expands an inline graphical calendar, Priority (None/Low/High) and List, all with Reminders-style icon tiles. Tapping a row opens Details with Save and Delete Task. Edits save."},
+      {"n": 4, "status": "pass", "note": "Overdue tasks show a red exclamation-circle and red 'Sat, Oct 17 · Overdue'. High priority shows an orange '!!!' and low a grey '!'. Today groups tasks under an 'Overdue' header."},
+      {"n": 5, "status": "pass", "note": "Edit mode shows the system delete and reorder controls. Dragging a row reorders it and the order survives relaunch. The system swipe action (trash, Delete) removes a task."},
+      {"n": 6, "status": "pass", "note": "'Add List' in the toolbar opens a New List alert with a text field (Create disabled while empty). Renaming works from the ••• menu or a list swipe (Rename / Delete), and deleting asks for confirmation in an action sheet."},
+      {"n": 7, "status": "pass", "note": "After relaunch the edited task, the added and deleted tasks, the reorder, the renamed list and the created and deleted list were all kept, along with the counts."}
+    ],
+    "bugs": [
+      "At the largest text size the task Details sheet breaks words inside the label column ('Pri' / 'ority', 'L' / 'ist'), and the List value is clipped and overlapping ('Er-' / 'rands' cut off).",
+      "The pinned 'Completed (10)' header slides under the navigation bar while scrolling, where it can't be tapped; a tap there lands on the bar instead."
+    ],
+    "tells": [
+      "The edit form's row labels at accessibility sizes don't switch to a stacked layout the way system cells do, so labels and values fight for width.",
+      "Priority offers only None/Low/High, with no Medium.",
+      "In dark mode the selected day in the calendar is a white disc instead of the accent tint (minor)."
+    ],
+    "scroll": "It felt like a system table: smooth slow drags and flings with no blank rows, the large title collapsing into a proper inline bar with a scroll-edge blur, and a clean bounce back to the large title at the top.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet all seven requirements and persist everything. B looks and behaves like Reminders throughout: grouped lists with coloured icons, a chevron Completed disclosure, system Edit-mode reorder and swipe actions, an inline calendar, and a correct collapsing navigation bar. A works but has clear tells: the inline title overlaps content, grips are always visible, the completed toggle is a text link, and dates always show the year. B's main flaw is its edit sheet at the largest text size."
+}

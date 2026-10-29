@@ -97,6 +97,7 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
   return work(source, args, store, storage, native);
 }
 
+let busyOnceDone = false;
 async function work(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
   if (op === 'later') {
@@ -105,6 +106,10 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch(error:any) { return {text:'refused: ' + error.message}; }
   }
   if (op === 'native-direct') return {text: String(native!.call({value}).text)}; // no bake branch
+  // A turn over its budget the first time, then at once (a load-caused refusal asked again: overrun.rs).
+  if (op === 'busy-once') { if (!busyOnceDone) { busyOnceDone = true; let acc = 0; for (let i = 0; i < 30000000; i++) acc = (acc + i * 7) % 1000003; return {text: String(acc)}; } return {text: 'answered'}; }
+  // A turn of the module's own work, `value` iterations long (the turn budget's test: turn_budget.rs).
+  if (op === 'busy') { let acc = 0; for (let i = 0, n = Number(value); i < n; i++) acc = (acc + i * 7) % 1000003; return {text: String(acc)}; }
   if (op === 'native' || op === 'native-fetch') {
     if (!native?.available) return {text: 'no native module'};
     try {

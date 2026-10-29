@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Whether `name` is fetched rather than read: an `http:` or `https:` URL.
 pub(super) fn is_remote(name: &str) -> bool {
@@ -39,11 +39,15 @@ const ACCEPT: &str = "image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5";
 /// A download's bounds, Apple's (`RasterDownloads.configuration`): 15 s
 /// without a response or a read, 30 s for the whole load from when it is
 /// asked for (waiting for a thread and redirects included), and the
-/// encoded-byte cap.
+/// encoded-byte cap. A picture that fills the screen (a viewer's full-size
+/// original, megabytes on a phone's network) has `urgent` for the whole load
+/// instead: at 3 Mbit/s a 12 MB photo takes 32 s alone. Its per-read bound is
+/// the same 15 s: a connection that sends nothing for that long is gone.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Policy {
     pub request: Duration,
     pub whole: Duration,
+    pub urgent: Duration,
     pub limit: u64,
     /// The bodies kept after their sources go, so a list scrolled back
     /// finds its pictures without fetching them again.
@@ -54,6 +58,7 @@ impl Default for Policy {
         Self {
             request: Duration::from_secs(15),
             whole: Duration::from_secs(30),
+            urgent: Duration::from_secs(120),
             limit: MAX_ENCODED_BYTES,
             cache: SESSION_BYTES,
         }
@@ -62,15 +67,30 @@ impl Default for Policy {
 
 /// Why a source did not load: the refusal the raster pipeline records, and
 /// the words the log gives it (Apple's `error` message).
+/// `transient`: one that asking again may mend (the network, a timeout, the
+/// server's 5xx, 408 or 429), which a picture still on screen asks again for
+/// (`image.rs`); not a 4xx, a bad URL or a body over the cap. `after`: not
+/// asked again before this, a 429's or 503's `Retry-After`.
 #[derive(Clone, Debug)]
 pub(super) struct Failure {
     pub refusal: Refusal,
     pub message: String,
+    pub transient: bool,
+    pub after: Option<Instant>,
 }
 fn failed(message: impl Into<String>) -> Failure {
     Failure {
         refusal: Refusal::DecodeFailed,
         message: message.into(),
+        transient: true,
+        after: None,
+    }
+}
+/// [`failed`], for good: asking again changes nothing.
+fn refused(message: impl Into<String>) -> Failure {
+    Failure {
+        transient: false,
+        ..failed(message)
     }
 }
 
@@ -94,7 +114,11 @@ pub(super) struct Load {
     outcome: Mutex<Option<Outcome>>,
     /// Called once, when the outcome is set (by the download or the clock).
     wake: Box<dyn Fn() + Send + Sync>,
-    whole: Instant,
+    /// When it was asked for: an urgent bound is counted from here.
+    asked: Instant,
+    /// When the whole load times out; moved later once only, by
+    /// [`Downloads::promote`] while it still waits for a thread.
+    whole: Mutex<Instant>,
     /// When it fails for want of a byte: set once a thread takes it, moved
     /// on by each response and read.
     idle: Mutex<Option<Instant>>,
@@ -137,11 +161,15 @@ impl Load {
     fn progress(&self, request: Duration) {
         *self.idle.lock().unwrap() = Some(Instant::now() + request);
     }
+    fn whole(&self) -> Instant {
+        *self.whole.lock().unwrap()
+    }
     fn due(&self) -> Instant {
+        let whole = self.whole();
         self.idle
             .lock()
             .unwrap()
-            .map_or(self.whole, |idle| idle.min(self.whole))
+            .map_or(whole, |idle| idle.min(whole))
     }
 }
 impl Drop for Load {
@@ -154,7 +182,15 @@ impl Drop for Load {
 struct Job {
     load: Weak<Load>,
     url: String,
+    /// A picture that fills the screen: taken first, though not more than
+    /// [`URGENT_STREAK`] in a row while others wait.
+    urgent: bool,
 }
+
+/// How many urgent downloads a thread takes in a row while an ordinary one
+/// waits: then the oldest ordinary one, so a run of screen-filling pictures
+/// never starves the rest.
+const URGENT_STREAK: usize = 2;
 
 /// The process's image downloads.
 pub(super) struct Downloads {
@@ -163,8 +199,14 @@ pub(super) struct Downloads {
     queue: Mutex<VecDeque<Job>>,
     queued: Condvar,
     running: AtomicUsize,
+    /// Urgent downloads taken in a row ([`URGENT_STREAK`]).
+    streak: AtomicUsize,
     started: std::sync::Once,
     cache: Mutex<Cache>,
+    /// URLs whose server said when to ask again (`Retry-After`), until then,
+    /// with its answer: a source asked for meanwhile, however new, has that
+    /// answer at once and asks nothing.
+    cooling: Mutex<HashMap<String, (Instant, String)>>,
     clock: Clock,
     /// Responses asked for, redirects included, for diagnostics.
     pub fetches: AtomicU64,
@@ -181,8 +223,10 @@ impl Downloads {
             queue: Mutex::new(VecDeque::new()),
             queued: Condvar::new(),
             running: AtomicUsize::new(0),
+            streak: AtomicUsize::new(0),
             started: std::sync::Once::new(),
             cache: Mutex::new(Cache::new(policy.cache)),
+            cooling: Mutex::new(HashMap::new()),
             clock: Clock::default(),
             fetches: AtomicU64::new(0),
         })
@@ -190,23 +234,42 @@ impl Downloads {
     /// Load `url`: from the cache at once, else on a download thread, which
     /// calls `wake` once the outcome is set. Refused while as many downloads
     /// wait or run as the raster pipeline lets sources wait for a header.
+    /// An `urgent` one (a picture that fills the screen) goes ahead of the
+    /// ordinary ones waiting, behind any urgent one, and has the longer whole-load
+    /// bound ([`Policy`]).
     pub fn load(
         self: &Arc<Self>,
         url: &str,
+        urgent: bool,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<Arc<Load>, Refusal> {
         let cached = self.cache.lock().unwrap().get(url);
+        let asked = Instant::now();
         let load = |outcome| {
             Arc::new(Load {
                 controller: AbortController::new(),
                 outcome: Mutex::new(outcome),
                 wake: Box::new(wake),
-                whole: Instant::now() + self.policy.whole,
+                asked,
+                whole: Mutex::new(
+                    asked
+                        + if urgent {
+                            self.policy.urgent
+                        } else {
+                            self.policy.whole
+                        },
+                ),
                 idle: Mutex::new(None),
             })
         };
         if let Some(body) = cached {
             return Ok(load(Some(Ok(body))));
+        }
+        if let Some((at, message)) = self.cooling(url) {
+            return Ok(load(Some(Err(Failure {
+                after: Some(at),
+                ..failed(message)
+            }))));
         }
         self.start();
         let mut queue = self.queue.lock().unwrap();
@@ -218,13 +281,67 @@ impl Downloads {
         }
         let load = load(None);
         self.clock.watch(&load);
-        queue.push_back(Job {
+        let job = Job {
             load: Arc::downgrade(&load),
             url: url.to_owned(),
-        });
+            urgent,
+        };
+        if urgent {
+            queue_urgent(&mut queue, job);
+        } else {
+            queue.push_back(job);
+        }
         self.queued.notify_one();
         Ok(load)
     }
+    /// `load`, already asked for, is now a picture that fills the screen:
+    /// while it still waits for a thread it goes ahead of the ordinary ones, and
+    /// its whole-load bound becomes the urgent one counted from its ask (a
+    /// download under way keeps its own; if that fails, the picture asks
+    /// again as urgent). Whether it was moved.
+    pub fn promote(&self, load: &Arc<Load>) -> bool {
+        let mut queue = self.queue.lock().unwrap();
+        let Some(at) = queue.iter().position(|job| {
+            !job.urgent && job.load.upgrade().is_some_and(|l| Arc::ptr_eq(&l, load))
+        }) else {
+            return false;
+        };
+        let mut job = queue.remove(at).expect("found");
+        job.urgent = true;
+        queue_urgent(&mut queue, job);
+        let mut whole = load.whole.lock().unwrap();
+        *whole = (*whole).max(load.asked + self.policy.urgent);
+        drop(whole);
+        self.clock.poke();
+        true
+    }
+
+    /// The deadline `url`'s server set and its answer, while it lasts.
+    fn cooling(&self, url: &str) -> Option<(Instant, String)> {
+        let cooling = self.cooling.lock().unwrap();
+        (cooling.get(url))
+            .filter(|(at, _)| *at > Instant::now())
+            .cloned()
+    }
+    /// Remember that `url`'s server said not before `at`: the expired let go
+    /// of, and at most [`CACHE_ENTRIES`] kept, the others ending soonest
+    /// first to go (never this one).
+    fn cool(&self, url: &str, at: Instant, message: &str) {
+        let mut cooling = self.cooling.lock().unwrap();
+        let now = Instant::now();
+        cooling.retain(|_, (until, _)| *until > now);
+        cooling.insert(url.to_owned(), (at, message.to_owned()));
+        while cooling.len() > CACHE_ENTRIES {
+            // (One already past is no wait to keep.)
+            let others = cooling
+                .iter()
+                .filter(|(other, _)| *other != url || at <= now);
+            let soonest = others.min_by_key(|(_, (until, _))| *until);
+            let soonest = soonest.map(|(url, _)| url.clone()).expect("not empty");
+            cooling.remove(&soonest);
+        }
+    }
+
     /// The bytes the cache holds.
     pub fn cached_bytes(&self) -> u64 {
         self.cache.lock().unwrap().bytes
@@ -262,7 +379,20 @@ impl Downloads {
             let job = {
                 let mut queue = self.queue.lock().unwrap();
                 loop {
-                    if let Some(job) = queue.pop_front() {
+                    // After URGENT_STREAK urgent ones, the oldest ordinary one, if any waits.
+                    let ordinary = (self.streak.load(Ordering::SeqCst) >= URGENT_STREAK)
+                        .then(|| queue.iter().position(|job| !job.urgent))
+                        .flatten();
+                    let taken = match ordinary {
+                        Some(at) => queue.remove(at),
+                        None => queue.pop_front(),
+                    };
+                    if let Some(job) = taken {
+                        if job.urgent {
+                            self.streak.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            self.streak.store(0, Ordering::SeqCst);
+                        }
                         // Under the lock, so admission never sees it in neither.
                         self.running.fetch_add(1, Ordering::SeqCst);
                         break job;
@@ -279,11 +409,19 @@ impl Downloads {
             // The idle deadline may come before the one the clock waits for;
             // later progress only moves it on.
             self.clock.poke();
-            let (signal, whole) = (load.controller.signal(), load.whole);
+            let (signal, whole) = (load.controller.signal(), load.whole());
             // Only the source holds the load while it downloads: dropping it
             // aborts the download.
             drop(load);
             let result = self.fetch(&job, &signal, whole);
+            if let Err(Failure {
+                after: Some(at),
+                message,
+                ..
+            }) = &result
+            {
+                self.cool(&job.url, *at, message);
+            }
             let body = result.as_ref().ok().cloned();
             // Cached under the same lock as it is published, so a worker that
             // rejects it (`SourceOwner::release`) finds it there to forget.
@@ -305,7 +443,7 @@ impl Downloads {
                 load.progress(self.policy.request);
             }
         };
-        let mut url = clean(&job.url).ok_or_else(|| failed("not an http or https URL"))?;
+        let mut url = clean(&job.url).ok_or_else(|| refused("not an http or https URL"))?;
         let mut redirects = 0;
         let mut response = loop {
             self.fetches.fetch_add(1, Ordering::Relaxed);
@@ -329,20 +467,45 @@ impl Downloads {
             };
             redirects += 1;
             if redirects > MAX_REDIRECTS {
-                return Err(failed("too many redirects"));
+                return Err(refused("too many redirects"));
             }
             url = url
                 .join(location)
                 .ok()
                 .and_then(|next| clean(next.as_str()))
-                .ok_or_else(|| failed(format!("a redirect to {location}")))?;
+                .ok_or_else(|| refused(format!("a redirect to {location}")))?;
         };
         if !(200..300).contains(&response.status) {
-            return Err(failed(format!("HTTP {}", response.status)));
+            let message = format!("HTTP {}", response.status);
+            let transient = response.status >= 500 || matches!(response.status, 408 | 429);
+            if !transient {
+                return Err(refused(message));
+            }
+            // Discord's CDN, and the person's own account: never asked again
+            // sooner than the server says.
+            // One that cannot be read waits an hour: past what a picture on
+            // screen waits, so not in this showing (`image.rs`).
+            let after = matches!(response.status, 429 | 503)
+                .then(|| response.headers.get("retry-after"))
+                .flatten()
+                .map(|value| {
+                    let wait =
+                        retry_after(value, SystemTime::now()).unwrap_or(Duration::from_secs(3600));
+                    // The server's number, held to ten years: past that it is never anyway.
+                    let wait = wait.min(Duration::from_secs(10 * 365 * 86_400));
+                    let now = Instant::now();
+                    now.checked_add(wait).unwrap_or(now + MOST_RETRY_AFTER * 2)
+                });
+            return Err(Failure {
+                after,
+                ..failed(message)
+            });
         }
         let over = || Failure {
             refusal: Refusal::EncodedLimit,
             message: format!("over {} encoded bytes", self.policy.limit),
+            transient: false,
+            after: None,
         };
         let declared =
             (response.headers.get("content-length")).and_then(|n| n.trim().parse::<u64>().ok());
@@ -377,6 +540,71 @@ impl Downloads {
         }
         Ok(Arc::new(body))
     }
+}
+
+/// `job` goes after the urgent jobs already waiting and ahead of the
+/// ordinary ones: urgent ones are taken in the order they became so, so a
+/// newer one never starves an older one.
+fn queue_urgent(queue: &mut VecDeque<Job>, job: Job) {
+    let at = queue.iter().position(|j| !j.urgent).unwrap_or(queue.len());
+    queue.insert(at, job);
+}
+
+/// The longest a picture on screen waits to ask again (its retries take about
+/// a minute in all, `image.rs`): one whose server asks for longer is not asked
+/// again in a showing that starts sooner.
+pub(super) const MOST_RETRY_AFTER: Duration = Duration::from_secs(300);
+
+/// How long a `Retry-After` header asks to wait, at `now`: delta-seconds or an
+/// IMF-fixdate (RFC 9110 §10.2.3); `None` when it cannot be read.
+pub(super) fn retry_after(value: &str, now: SystemTime) -> Option<Duration> {
+    let value = value.trim();
+    if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+        return Some(Duration::from_secs(value.parse().ok()?));
+    }
+    Some(imf_fixdate(value)?.duration_since(now).unwrap_or_default())
+}
+
+/// `Sun, 06 Nov 1994 08:49:37 GMT`.
+fn imf_fixdate(value: &str) -> Option<SystemTime> {
+    let parts: Vec<&str> = value.split_ascii_whitespace().collect();
+    let [_, day, month, year, time, "GMT"] = parts[..] else {
+        return None;
+    };
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let month = MONTHS.iter().position(|m| *m == month)? as i64 + 1;
+    let (day, year): (i64, i64) = (day.parse().ok()?, year.parse().ok()?);
+    let hms: Vec<i64> = time
+        .split(':')
+        .map(|n| n.parse().ok())
+        .collect::<Option<_>>()?;
+    let [h, m, s] = hms[..] else {
+        return None;
+    };
+    let fields = [
+        (day, 1, 31),
+        (year, 1970, 9999),
+        (h, 0, 23),
+        (m, 0, 59),
+        (s, 0, 60),
+    ];
+    if fields
+        .iter()
+        .any(|(n, low, high)| !(*low..=*high).contains(n))
+    {
+        return None;
+    }
+    // Days since 1970-01-01 (Howard Hinnant's days_from_civil).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = u64::try_from(days * 86_400 + h * 3600 + m * 60 + s).ok()?;
+    Some(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
 }
 
 /// A download thread's count in `running`, given back however it ends.

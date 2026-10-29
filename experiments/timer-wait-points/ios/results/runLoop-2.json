@@ -1,0 +1,754 @@
+{
+  "environment" : {
+    "deviceName" : "Timer Waits Probe",
+    "driver" : "xctest",
+    "maximumFramesPerSecond" : "60",
+    "model" : "iPhone19,4",
+    "simulator" : "true",
+    "systemVersion" : "27.1"
+  },
+  "repetition" : 2,
+  "scenario" : "runLoop",
+  "summary" : {
+    "phases" : [
+      {
+        "counts" : {
+          "beforeWaiting.common" : 57,
+          "beforeWaiting.default" : 57,
+          "scroll" : 0,
+          "timer.common" : 21,
+          "timer.default" : 21,
+          "touch.moved" : 0
+        },
+        "duration" : 2.0975917916512117,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 15.62,
+          "beforeWaiting.default" : 15.61,
+          "timer.common" : 100.01,
+          "timer.default" : 100
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "kCFRunLoopDefaultMode" : 57
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 57
+          },
+          "timer.common" : {
+            "kCFRunLoopDefaultMode" : 21
+          },
+          "timer.default" : {
+            "kCFRunLoopDefaultMode" : 21
+          }
+        },
+        "name" : "still",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 27.2,
+          "beforeWaiting.default" : 27.2,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 10,
+          "touch.moved" : 0
+        },
+        "start" : 5.6838165416847914
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 27,
+          "beforeWaiting.default" : 27,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 10,
+          "touch.moved" : 0
+        },
+        "duration" : 1.002236666623503,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 10.09,
+          "beforeWaiting.default" : 10.07,
+          "timer.common" : 100.01,
+          "timer.default" : 100.01
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "kCFRunLoopDefaultMode" : 27
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 27
+          },
+          "timer.common" : {
+            "kCFRunLoopDefaultMode" : 10
+          },
+          "timer.default" : {
+            "kCFRunLoopDefaultMode" : 10
+          }
+        },
+        "name" : "animate",
+        "offsetsMs" : {
+          "timer.common" : [
+            36.9,
+            138.7,
+            238.7,
+            338,
+            436.9,
+            536.9,
+            636.9,
+            736.9,
+            837.1,
+            937.4
+          ],
+          "timer.default" : [
+            36.8,
+            138.7,
+            238.7,
+            338,
+            436.9,
+            536.9,
+            636.9,
+            736.9,
+            837.1,
+            937.4
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 26.9,
+          "beforeWaiting.default" : 26.9,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 10,
+          "touch.moved" : 0
+        },
+        "start" : 7.781417458318174
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 25,
+          "beforeWaiting.default" : 25,
+          "scroll" : 0,
+          "timer.common" : 11,
+          "timer.default" : 11,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0492973750224337,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 15.52,
+          "beforeWaiting.default" : 15.51,
+          "timer.common" : 100,
+          "timer.default" : 100
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "kCFRunLoopDefaultMode" : 25
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 25
+          },
+          "timer.common" : {
+            "kCFRunLoopDefaultMode" : 11
+          },
+          "timer.default" : {
+            "kCFRunLoopDefaultMode" : 11
+          }
+        },
+        "name" : "animate.tail",
+        "offsetsMs" : {
+          "timer.common" : [
+            36.5,
+            136.5,
+            236.5,
+            336.5,
+            436.5,
+            536.5,
+            636.5,
+            736.5,
+            836.5,
+            936.5,
+            1036.5
+          ],
+          "timer.default" : [
+            36.5,
+            136.5,
+            236.5,
+            336.5,
+            436.5,
+            536.5,
+            636.5,
+            736.5,
+            836.5,
+            936.5,
+            1036.5
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 23.8,
+          "beforeWaiting.default" : 23.8,
+          "scroll" : 0,
+          "timer.common" : 10.5,
+          "timer.default" : 10.5,
+          "touch.moved" : 0
+        },
+        "start" : 8.783654124941677
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 22,
+          "beforeWaiting.default" : 22,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 10,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0026783749926835,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 16.23,
+          "beforeWaiting.default" : 16.22,
+          "timer.common" : 100.26,
+          "timer.default" : 100.26
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "kCFRunLoopDefaultMode" : 22
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 22
+          },
+          "timer.common" : {
+            "kCFRunLoopDefaultMode" : 10
+          },
+          "timer.default" : {
+            "kCFRunLoopDefaultMode" : 10
+          }
+        },
+        "name" : "animator",
+        "offsetsMs" : {
+          "timer.common" : [
+            87.2,
+            187.2,
+            287.2,
+            387.2,
+            485.2,
+            585.5,
+            685.8,
+            786,
+            886.3,
+            986.6
+          ],
+          "timer.default" : [
+            87.2,
+            187.2,
+            287.2,
+            387.2,
+            485.2,
+            585.5,
+            685.7,
+            786,
+            886.3,
+            986.6
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 21.9,
+          "beforeWaiting.default" : 21.9,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 10,
+          "touch.moved" : 0
+        },
+        "start" : 9.83295149996411
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 23,
+          "beforeWaiting.default" : 23,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 10,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0452494999626651,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 18.23,
+          "beforeWaiting.default" : 18.23,
+          "timer.common" : 100,
+          "timer.default" : 100
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "kCFRunLoopDefaultMode" : 23
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 23
+          },
+          "timer.common" : {
+            "kCFRunLoopDefaultMode" : 10
+          },
+          "timer.default" : {
+            "kCFRunLoopDefaultMode" : 10
+          }
+        },
+        "name" : "animator.tail",
+        "offsetsMs" : {
+          "timer.common" : [
+            84.5,
+            184.6,
+            283.3,
+            384.5,
+            482.6,
+            584.5,
+            684.5,
+            784.5,
+            884.5,
+            984.5
+          ],
+          "timer.default" : [
+            84.5,
+            184.5,
+            283.3,
+            384.5,
+            482.6,
+            584.5,
+            684.5,
+            784.5,
+            884.5,
+            984.5
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 22,
+          "beforeWaiting.default" : 22,
+          "scroll" : 0,
+          "timer.common" : 9.6,
+          "timer.default" : 9.6,
+          "touch.moved" : 0
+        },
+        "start" : 10.835629874956794
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 188,
+          "beforeWaiting.default" : 23,
+          "scroll" : 52,
+          "timer.common" : 10,
+          "timer.default" : 1,
+          "touch.moved" : 54
+        },
+        "duration" : 0.9927308332407847,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 4.88,
+          "beforeWaiting.default" : 4.47,
+          "scroll" : 16.66,
+          "timer.common" : 99.38,
+          "touch.moved" : 16.67
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "UITrackingRunLoopMode" : 165,
+            "kCFRunLoopDefaultMode" : 23
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 23
+          },
+          "scroll" : {
+            "UITrackingRunLoopMode" : 51,
+            "kCFRunLoopDefaultMode" : 1
+          },
+          "timer.common" : {
+            "UITrackingRunLoopMode" : 9,
+            "kCFRunLoopDefaultMode" : 1
+          },
+          "timer.default" : {
+            "kCFRunLoopDefaultMode" : 1
+          },
+          "touch.moved" : {
+            "UITrackingRunLoopMode" : 51,
+            "kCFRunLoopDefaultMode" : 3
+          }
+        },
+        "name" : "heldDrag.moving",
+        "offsetsMs" : {
+          "timer.common" : [
+            64.7,
+            162.9,
+            263.5,
+            362.9,
+            464.7,
+            562.9,
+            664.7,
+            762.9,
+            864.7,
+            962.9
+          ],
+          "timer.default" : [
+            64.7
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 189.4,
+          "beforeWaiting.default" : 23.2,
+          "scroll" : 52.4,
+          "timer.common" : 10.1,
+          "timer.default" : 1,
+          "touch.moved" : 54.4
+        },
+        "start" : 20.555438500014134
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 105,
+          "beforeWaiting.default" : 0,
+          "scroll" : 1,
+          "timer.common" : 5,
+          "timer.default" : 0,
+          "touch.moved" : 1
+        },
+        "duration" : 0.5167721667094156,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 3.67,
+          "timer.common" : 100
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "UITrackingRunLoopMode" : 105
+          },
+          "scroll" : {
+            "UITrackingRunLoopMode" : 1
+          },
+          "timer.common" : {
+            "UITrackingRunLoopMode" : 5
+          },
+          "touch.moved" : {
+            "UITrackingRunLoopMode" : 1
+          }
+        },
+        "name" : "heldDrag.held",
+        "offsetsMs" : {
+          "scroll" : [
+            0.1
+          ],
+          "timer.common" : [
+            71.9,
+            170.2,
+            272,
+            370.2,
+            470.1
+          ],
+          "touch.moved" : [
+            0
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 203.2,
+          "beforeWaiting.default" : 0,
+          "scroll" : 1.9,
+          "timer.common" : 9.7,
+          "timer.default" : 0,
+          "touch.moved" : 1.9
+        },
+        "start" : 21.54816933325492
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 24,
+          "beforeWaiting.default" : 24,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 11,
+          "touch.moved" : 0
+        },
+        "duration" : 1.0013636250514537,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 17.12,
+          "beforeWaiting.default" : 17.11,
+          "timer.common" : 100,
+          "timer.default" : 100
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "kCFRunLoopDefaultMode" : 24
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 24
+          },
+          "timer.common" : {
+            "kCFRunLoopDefaultMode" : 10
+          },
+          "timer.default" : {
+            "kCFRunLoopDefaultMode" : 11
+          }
+        },
+        "name" : "heldDrag.tail",
+        "offsetsMs" : {
+          "timer.common" : [
+            55.2,
+            155.2,
+            255.2,
+            355.2,
+            455.2,
+            555.2,
+            655.2,
+            755.2,
+            855.2,
+            955.3
+          ],
+          "timer.default" : [
+            0.8,
+            55.2,
+            155.2,
+            255.2,
+            355.2,
+            455.2,
+            555.2,
+            655.2,
+            755.2,
+            855.2,
+            955.2
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 24,
+          "beforeWaiting.default" : 24,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 11,
+          "touch.moved" : 0
+        },
+        "start" : 22.064941499964334
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 24,
+          "beforeWaiting.default" : 8,
+          "scroll" : 5,
+          "timer.common" : 1,
+          "timer.default" : 0,
+          "touch.moved" : 7
+        },
+        "duration" : 0.1525842499686405,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 3.17,
+          "beforeWaiting.default" : 2.93,
+          "scroll" : 16.7,
+          "touch.moved" : 16.72
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "UITrackingRunLoopMode" : 16,
+            "kCFRunLoopDefaultMode" : 8
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 8
+          },
+          "scroll" : {
+            "UITrackingRunLoopMode" : 5
+          },
+          "timer.common" : {
+            "UITrackingRunLoopMode" : 1
+          },
+          "touch.moved" : {
+            "UITrackingRunLoopMode" : 5,
+            "kCFRunLoopDefaultMode" : 2
+          }
+        },
+        "name" : "fling.moving",
+        "offsetsMs" : {
+          "beforeWaiting.default" : [
+            0.3,
+            1.8,
+            19.7,
+            32.7,
+            33.7,
+            34.3,
+            37.2,
+            50.3
+          ],
+          "scroll" : [
+            67.1,
+            83.9,
+            100.5,
+            117.2,
+            133.8
+          ],
+          "timer.common" : [
+            87.2
+          ],
+          "touch.moved" : [
+            19.3,
+            33.7,
+            67,
+            83.8,
+            100.4,
+            117.1,
+            133.7
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 157.3,
+          "beforeWaiting.default" : 52.4,
+          "scroll" : 32.8,
+          "timer.common" : 6.6,
+          "timer.default" : 0,
+          "touch.moved" : 45.9
+        },
+        "start" : 30.831104125012644
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 3,
+          "beforeWaiting.default" : 0,
+          "scroll" : 1,
+          "timer.common" : 0,
+          "timer.default" : 0,
+          "touch.moved" : 1
+        },
+        "duration" : 0.014386791619472206,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 13.18
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "UITrackingRunLoopMode" : 3
+          },
+          "scroll" : {
+            "UITrackingRunLoopMode" : 1
+          },
+          "touch.moved" : {
+            "UITrackingRunLoopMode" : 1
+          }
+        },
+        "name" : "fling.held",
+        "offsetsMs" : {
+          "beforeWaiting.common" : [
+            0.4,
+            0.4,
+            13.6
+          ],
+          "scroll" : [
+            0.2
+          ],
+          "touch.moved" : [
+            0
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 208.5,
+          "beforeWaiting.default" : 0,
+          "scroll" : 69.5,
+          "timer.common" : 0,
+          "timer.default" : 0,
+          "touch.moved" : 69.5
+        },
+        "start" : 30.983688374981284
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 445,
+          "beforeWaiting.default" : 0,
+          "scroll" : 140,
+          "timer.common" : 25,
+          "timer.default" : 0,
+          "touch.moved" : 0
+        },
+        "duration" : 2.436074291705154,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 3.36,
+          "scroll" : 16.67,
+          "timer.common" : 100
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "UITrackingRunLoopMode" : 445
+          },
+          "scroll" : {
+            "UITrackingRunLoopMode" : 140
+          },
+          "timer.common" : {
+            "UITrackingRunLoopMode" : 25
+          }
+        },
+        "name" : "fling.deceleration",
+        "offsetsMs" : {
+
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 182.7,
+          "beforeWaiting.default" : 0,
+          "scroll" : 57.5,
+          "timer.common" : 10.3,
+          "timer.default" : 0,
+          "touch.moved" : 0
+        },
+        "start" : 30.998217666638084
+      },
+      {
+        "counts" : {
+          "beforeWaiting.common" : 23,
+          "beforeWaiting.default" : 23,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 11,
+          "touch.moved" : 0
+        },
+        "duration" : 1.000417249975726,
+        "medianIntervalMs" : {
+          "beforeWaiting.common" : 14.14,
+          "beforeWaiting.default" : 14.13,
+          "timer.common" : 100.01,
+          "timer.default" : 100.01
+        },
+        "modes" : {
+          "beforeWaiting.common" : {
+            "kCFRunLoopDefaultMode" : 23
+          },
+          "beforeWaiting.default" : {
+            "kCFRunLoopDefaultMode" : 23
+          },
+          "timer.common" : {
+            "kCFRunLoopDefaultMode" : 10
+          },
+          "timer.default" : {
+            "kCFRunLoopDefaultMode" : 11
+          }
+        },
+        "name" : "fling.tail",
+        "offsetsMs" : {
+          "timer.common" : [
+            84.1,
+            184.1,
+            285.9,
+            385.9,
+            485.8,
+            585.8,
+            685.9,
+            785.8,
+            885.9,
+            985.9
+          ],
+          "timer.default" : [
+            1.2,
+            84,
+            184.1,
+            285.8,
+            385.8,
+            485.8,
+            585.8,
+            685.8,
+            785.8,
+            885.8,
+            985.8
+          ]
+        },
+        "ratesHz" : {
+          "beforeWaiting.common" : 23,
+          "beforeWaiting.default" : 23,
+          "scroll" : 0,
+          "timer.common" : 10,
+          "timer.default" : 11,
+          "touch.moved" : 0
+        },
+        "start" : 33.43429195834324
+      }
+    ]
+  }
+}

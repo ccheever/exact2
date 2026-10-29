@@ -1,0 +1,42 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Large-title list of all 160 recipes: title, category (tinted), clock+time, star+rating, chevron; count header '160 Recipes · By Name'."},
+      {"n": 2, "status": "pass", "note": "Horizontal chip row All + 9 categories; search matches title and ingredient; Desserts + 'lemon' gives 9 results; good 'No Results' state that keeps chips visible."},
+      {"n": 3, "status": "pass", "note": "Sort button opens a native menu (Name A to Z / Time quickest / Rating) with a checkmark; header reflects the sort; the choice survives relaunch."},
+      {"n": 4, "status": "pass", "note": "Header card with time/servings/rating tiles, system stepper scales quantities with proper fractions (2½, ¼), stepper disabled at 1, numbered step badges."},
+      {"n": 5, "status": "pass", "note": "Heart in nav bar toggles; swipe-left Favorite on list rows; heart badge on favorited rows; Favorites tab with swipe-to-Remove and a helpful empty state with a Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "Favorite survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Category filter is a hand-built scrolling chip/capsule row rather than a system control (menu picker or scope bar).",
+      "At the largest text size the pinned search field plus the sticky '160 Recipes · By Rating' header take up almost half the screen and rows scroll underneath a translucent header."
+    ],
+    "scroll": "Smooth slow drags and flings with no blank or popping rows; flinging back to the top and pulling past it rubber-bands normally, and the scroll position is kept after returning from a recipe.",
+    "scores": {"features": 9, "platform": 8, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of 160 recipes with title and a 'Category · time · ★ rating' subtitle, chevron, count header."},
+      {"n": 2, "status": "pass", "note": "Category pop-up menu (All Categories + 9) works together with search across titles and ingredients (Desserts + 'lemon' gives 9). The no-results state has a Clear Search button but hides the category/sort controls."},
+      {"n": 3, "status": "pass", "note": "Segmented control Name/Time/Rating sorts correctly; the choice survives relaunch."},
+      {"n": 4, "status": "pass", "note": "Summary card (time, rating, category), 'Serves' row with stepper, ingredient quantities right-aligned and scaled (4⅔, ⅛ g) with a 'scaled from 6' note, numbered steps. Servings appear only in the stepper row."},
+      {"n": 5, "status": "pass", "note": "Heart in nav bar toggles; Favorites tab lists saved recipes with swipe-to-Delete and a hint; helpful empty state with Browse Recipes. There's no favorite action from the main list."},
+      {"n": 6, "status": "pass", "note": "Favorite survived relaunch."}
+    ],
+    "bugs": [
+      "A horizontal swipe on a recipe row in the main list opens the recipe, as though the drag were a tap (it happened twice)."
+    ],
+    "tells": [
+      "The search keyboard turns Shift back on (uppercase keys) after each typed word mid-entry, so the field seems to be reset on each keystroke.",
+      "The servings value is an editable text field that floats in the middle of the Serves row, away from the stepper.",
+      "Empty-state titles ('No Favorites Yet', 'No Recipes Found') use regular weight, not the bold title of the system ContentUnavailableView.",
+      "The no-results state removes the category and sort controls, so you can't widen the filter without clearing the search."
+    ],
+    "scroll": "Smooth drags and flings with no blank rows or stutter; the search bar collapses under the large title as in a system list, and the position is kept (a small offset) after returning from a recipe.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet every requirement, and B's menu picker and segmented control are very idiomatic. A goes further: swipe-to-favorite in the list, heart badges, a richer recipe header, and a no-results state that keeps the filters. B has a real gesture bug (a horizontal swipe opens the recipe) and small text-field and keyboard oddities that A doesn't have."
+}

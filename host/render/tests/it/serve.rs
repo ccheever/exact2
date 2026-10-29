@@ -293,7 +293,7 @@ fn each_route_answers_by_its_policy() {
     // Beside it, every device the app does not grant is denied (LLP 1069.008 D6).
     assert_eq!(
         header(&headers, "permissions-policy"),
-        Some("microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()")
+        Some("microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=(), serial=(), hid=(), usb=()")
     );
     // The page's one inline script that runs, the capture script, by hash.
     let capture = {

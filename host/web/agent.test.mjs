@@ -440,10 +440,33 @@ test('a jump that stops at its target still fires the other timers due there', a
     f.events.push(`advance ${to}${untilRequest ? ' until a request' : ''} → ${clock}`);
     return JSON.stringify({ ops: [], clock, timers: true, timer_due_ms: due[0] ?? null });
   };
-  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; return { timers: true, batch }; };
+  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; f.flowLanding = !!batch.landing; return { timers: true, batch }; };
   expect(await f.exact.agent({ op: 'clock', to: 300 })).toEqual({ clock: 300, epoch: 2, incarnation: 1 });
   expect(counted).toBe(1);
   expect(f.events).toEqual(['advance 300 until a request → 300', 'advance 300 until a request → 300', 'advance 300 → 300']);
+});
+test("a jump lands a data module's released timer before it goes on, so chained sleeps are due one after another", async () => {
+  const f = fixture();
+  // An answer sleeping 100, 200 and 400 ms in turn: each timer is armed when the last one's continuation lands,
+  // due from the clock then. A released continuation is `landing` until it does, with no timer due meanwhile.
+  const gaps = [200, 400];
+  let now = 0, due = 100, landing = false;
+  f.flowDue = 100;
+  f.wasm.exact_advance = (to, untilRequest) => {
+    let clock = to;
+    if (due !== null && due <= to) {
+      clock = due; due = null; landing = true;
+      const p = new Promise(r => setTimeout(r, 5)).then(() => { landing = false; const gap = gaps.shift(); if (gap !== undefined) due = now + gap; });
+      f.inflight.add(p); p.finally(() => f.inflight.delete(p));
+      if (!untilRequest) clock = to;
+    }
+    now = clock;
+    f.events.push(`advance ${to}${untilRequest ? ' until a request' : ''} → ${clock}`);
+    return JSON.stringify({ ops: [], clock, timers: due !== null, timer_due_ms: due, ...(landing ? { landing: true } : {}) });
+  };
+  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; f.flowLanding = !!batch.landing; return { timers: true, batch }; };
+  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1 });
+  expect(f.events.filter(e => / → (100|300|700)$/.test(e))).toEqual(['advance 1000 until a request → 100', 'advance 1000 until a request → 300', 'advance 1000 until a request → 700']);
 });
 test('a timer whose request never lands cannot hold the clock: past the deadline the rest is one advance', async () => {
   const f = fixture();
@@ -676,7 +699,7 @@ for (const name of ['prompt-glue', 'alert-message']) {
   if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
   inputSource = stripped;
 }
-const inputCode = inputSource.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
+const inputCode = inputSource.replace(/^export (async function|function|const) /gm, '$1 ');
 const inputScript = new vm.Script(inputCode + '\n' + declaration('attach'), { filename: 'input-glue.js' });
 
 function inputFixture() {

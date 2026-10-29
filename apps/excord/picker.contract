@@ -1,0 +1,62 @@
+// The emoji picker's search and grid, for a reaction or the draft, and the delete confirmation. The
+// picker's frame is the caller's: a popover beside what opened it with a pointer, a sheet on touch.
+
+use EmojiChoice from "./shapes.contract"
+
+component EmojiPicker
+  props
+    query: string
+    choices: EmojiChoice[]
+    search: action
+    pick: action
+  view
+    column gap=10 padding=12 width="22rem" max-width="100%"
+      input id="picker-search" type="search" value=query input=search placeholder="Find an emoji" aria-label="Find an emoji" autofocus=true testId="picker-search"
+      scroll height="16rem"
+        view display="grid" grid-template-columns="repeat(auto-fill, minmax(44px, 1fr))" gap=2
+          for e in choices key=e.id
+            button appearance="none" press=pick(e.value, e.text) aria-label=e.label padding=6 border-radius=8 testId=`pick-${e.id}`
+              if e.avatar != ""
+                image e.avatar width=28 height=28 margin="auto"
+              else
+                text e.glyph font-size=26 text-align="center"
+      if choices.length == 0
+        text "No emoji match." font="-exact-footnote" color="-exact-secondary-label" text-align="center"
+
+// Asked before a message is deleted; Delete runs `confirm`.
+component DeleteConfirm
+  props
+    confirm: action
+    keys: action
+  view
+    dialog id="confirm-delete" role="alertdialog" key=keys tabindex=-1 aria-label="Delete Message"
+      text "Are you sure you want to delete this message?"
+      button press=confirm destructive=true commandfor="confirm-delete" command="close" testId="delete-confirm"
+        text "Delete"
+      button commandfor="confirm-delete" command="close" testId="delete-cancel"
+        text "Cancel"
+
+// The picker's two frames: a sheet (reactions, and the draft on a touch screen) and, with a pointer, a
+// popover above the composer's emoji button, as Discord's desktop picker is. Only the open one holds
+// the picker, so its ids are one.
+component PickerFrames
+  props
+    picking: bool
+    forDraft: bool
+    popover: bool
+    touch: bool
+    query: string
+    choices: EmojiChoice[]
+    search: action
+    pick: action
+    closed: action
+    toggled: action
+    keys: action
+  view
+    dialog id="react-picker" aria-label=(forDraft ? "Emoji" : "Add Reaction") close=closed key=keys tabindex=-1 testId="react-picker"
+      if picking and not popover
+        EmojiPicker(query=query, choices=choices, search=search, pick=pick)
+    if not touch
+      column id="draft-picker" popover="auto" role="dialog" position-area="top span-left" aria-label="Emoji" toggle=toggled testId="draft-picker"
+        if picking and popover
+          EmojiPicker(query=query, choices=choices, search=search, pick=pick)

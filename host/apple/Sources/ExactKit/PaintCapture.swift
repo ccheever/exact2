@@ -10,7 +10,8 @@ import UIKit
 #endif
 
 extension Capture {
-    static func paintOrderLayer(of view: PaintView, root: CALayer) -> CALayer {
+    /// `branchProbe` counts membership lookups so tests can bound work without timing.
+    static func paintOrderLayer(of view: PaintView, root: CALayer, branchProbe: (() -> Void)? = nil) -> CALayer {
         var owners: [ObjectIdentifier: PaintView] = [:]
         func index(_ v: PaintView) {
             #if os(macOS)
@@ -22,6 +23,27 @@ extension Capture {
         }
         index(view)
         #if os(macOS)
+        // Route each view branch through its live intermediate layers, once.
+        // They carry geometry and clipping even though no view owns them.
+        var branches: [ObjectIdentifier: [CALayer]] = [:]
+        var seen: [ObjectIdentifier: Set<ObjectIdentifier>] = [:]
+        for owner in owners.values {
+            guard let parent = owner.layer else { continue }
+            for child in NodeView.hitOrder(owner.subviews).reversed().compactMap(\.layer) {
+                var path = [child]
+                while let next = path.last?.superlayer, next !== parent { path.append(next) }
+                if path.last?.superlayer !== parent { path = [child] }
+                var container = parent
+                for branch in path.reversed() {
+                    let key = ObjectIdentifier(container)
+                    branchProbe?()
+                    if seen[key, default: []].insert(ObjectIdentifier(branch)).inserted {
+                        branches[key, default: []].append(branch)
+                    }
+                    container = branch
+                }
+            }
+        }
         func picture(_ image: CGImage, in bounds: CGRect) -> CALayer {
             let layer = CALayer()
             layer.frame = bounds
@@ -41,7 +63,7 @@ extension Capture {
                 layer.setValue(presentation.value(forKeyPath: keyPath), forKeyPath: keyPath)
             }
         }
-        func copy(_ source: CALayer) -> CALayer {
+        func copy(_ source: CALayer, inheritedFlip: Bool = false) -> CALayer {
             source.displayIfNeeded()
             // CALayer(layer:) is the subclass copy initializer used by CA;
             // called directly, it gives an empty layer. Copy values explicitly.
@@ -66,7 +88,15 @@ extension Capture {
             layer.bounds = values.bounds; layer.position = values.position
             layer.anchorPoint = values.anchorPoint; layer.anchorPointZ = values.anchorPointZ
             layer.transform = values.transform; layer.sublayerTransform = values.sublayerTransform
+            #if os(macOS)
+            let flipped = source.contentsAreFlipped()
+            // Contents inherit their orientation through the live ancestors;
+            // the copied branch must preserve it in its new ancestry.
+            layer.isGeometryFlipped = flipped != inheritedFlip
+            #else
+            let flipped = false
             layer.isGeometryFlipped = values.isGeometryFlipped
+            #endif
             layer.opacity = values.opacity; layer.isHidden = values.isHidden
             layer.isDoubleSided = values.isDoubleSided; layer.masksToBounds = values.masksToBounds
             layer.cornerRadius = values.cornerRadius; layer.maskedCorners = values.maskedCorners
@@ -86,12 +116,12 @@ extension Capture {
                     if let animation = source.animation(forKey: key) { overlay(animation, from: presentation, onto: layer) }
                 }
             }
-            layer.mask = source.mask.map(copy)
+            layer.mask = source.mask.map { copy($0) }
             // Order is explicit: negative ranks still follow the parent's
             // own fill/gradient layers. Authored 3D transforms stay intact.
             let owner = owners[ObjectIdentifier(source)]
             #if os(macOS)
-            let children = owner.map { NodeView.hitOrder($0.subviews).reversed().compactMap(\.layer) } ?? []
+            let children = branches[ObjectIdentifier(source)] ?? []
             #else
             // Flat leaves have no UIView: merge their tree slots with the
             // view branches before sorting, so they cover negative ranks.
@@ -104,7 +134,11 @@ extension Capture {
             }.map(\.element)
             #endif
             let childSet = Set(children.map(ObjectIdentifier.init))
-            let replacements = Set((owner?.subviews ?? []).compactMap { ($0 as? NodeView)?.boxFilter?.picture }.map(ObjectIdentifier.init))
+            let replacements = Set(children.compactMap { child -> ObjectIdentifier? in
+                guard let node = owners[ObjectIdentifier(child)] as? NodeView,
+                      let picture = node.boxFilter?.picture, picture.superlayer === source else { return nil }
+                return ObjectIdentifier(picture)
+            })
             // Own contents and decorations first: shadow casters, fills,
             // text rasters, Canvas 2D pictures. Each view branch is below.
             let own = (source.sublayers ?? []).filter { !childSet.contains(ObjectIdentifier($0)) && !replacements.contains(ObjectIdentifier($0)) }
@@ -116,7 +150,7 @@ extension Capture {
             let raised: [CALayer] = []
             #endif
             for sub in own where !raised.contains(where: { $0 === sub }) {
-                layer.addSublayer(copy(sub))
+                layer.addSublayer(copy(sub, inheritedFlip: flipped))
             }
             #if os(macOS)
             if let node = owner as? NodeView {
@@ -135,10 +169,10 @@ extension Capture {
                 // Drawing the masked source too would duplicate it.
                 if let node = owners[ObjectIdentifier(child)] as? NodeView, let filter = node.boxFilter,
                    filter.picture.superlayer === source {
-                    layer.addSublayer(copy(filter.picture))
-                } else { layer.addSublayer(copy(child)) }
+                    layer.addSublayer(copy(filter.picture, inheritedFlip: flipped))
+                } else { layer.addSublayer(copy(child, inheritedFlip: flipped)) }
             }
-            for sub in raised { layer.addSublayer(copy(sub)) }
+            for sub in raised { layer.addSublayer(copy(sub, inheritedFlip: flipped)) }
             return layer
         }
         return copy(root)

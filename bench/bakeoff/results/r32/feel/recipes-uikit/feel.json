@@ -1,0 +1,365 @@
+{
+ "app": "dev.bakeoff.recipes.b42a50f",
+ "verdict": "probed",
+ "smooth": {
+  "frames": 1313,
+  "motionS": 21.93,
+  "fps": 60,
+  "hitchRatio": 2.2,
+  "longestFrameMs": 46.7,
+  "hitches": 2,
+  "hitchAt": [
+   {
+    "gesture": "slow-drag",
+    "ms": 46.7,
+    "mainMs": 19,
+    "late": 30,
+    "where": {
+     "app code · UIKit": 24.4,
+     "app code · text & drawing": 2.7,
+     "app code · Core Animation": 8.1
+    },
+    "via": {
+     "the main queue": 2.7,
+     "display links and ports": 29.8,
+     "run-loop observers (the commit)": 2.7
+    },
+    "cause": "scroll"
+   },
+   {
+    "gesture": "slow-drag",
+    "ms": 35.3,
+    "mainMs": 15.8,
+    "late": 18.7,
+    "where": {
+     "app code · Core Animation": 2.5,
+     "app code · UIKit": 15.1
+    },
+    "via": {
+     "display links and ports": 17.7
+    },
+    "cause": "scroll"
+   }
+  ],
+  "mainMs": 1.41,
+  "mainP95Ms": 4.22,
+  "tickHitchRatio": 0,
+  "scrollHitchRatio": 2.2,
+  "where": [
+   {
+    "gesture": "slow-drag",
+    "frames": 2,
+    "lateMs": 48.7,
+    "ticks": 0,
+    "by": [
+     {
+      "who": "app code",
+      "ms": 52.8,
+      "what": [
+       [
+        "UIKit",
+        39.5
+       ],
+       [
+        "Core Animation",
+        10.6
+       ],
+       [
+        "text & drawing",
+        2.7
+       ]
+      ]
+     }
+    ],
+    "via": {
+     "the main queue": 2.7,
+     "display links and ports": 47.5,
+     "run-loop observers (the commit)": 2.7
+    }
+   }
+  ],
+  "verdict": {
+   "hitch": "ok",
+   "stall": "tell",
+   "main": "ok"
+  }
+ },
+ "tracking": {
+  "ratio": 1.001,
+  "lagFrames": 0,
+  "maxErrorPt": 4.4,
+  "slopPt": 10,
+  "glidePt": 0,
+  "verdict": {
+   "ratio": "ok",
+   "lag": "ok",
+   "glide": "ok"
+  }
+ },
+ "flings": [
+  {
+   "name": "fling-1500",
+   "asked": 1500,
+   "fingerV": 730,
+   "tauMs": 507,
+   "ratePerMs": 0.99803,
+   "r2": 0.9959,
+   "contentV": 1267,
+   "handoff": 0.84,
+   "frames": 91,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 615,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 2.7,
+   "contentSizeChanges": 13,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-4000",
+   "asked": 4000,
+   "fingerV": 2180,
+   "tauMs": 502,
+   "ratePerMs": 0.99801,
+   "r2": 0.999,
+   "contentV": 4161,
+   "handoff": 1.04,
+   "frames": 125,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 2021,
+   "contentSizeChanges": 35,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-6000",
+   "asked": 6000,
+   "fingerV": null,
+   "tauMs": 504,
+   "ratePerMs": 0.99802,
+   "r2": 0.9982,
+   "contentV": 2306,
+   "handoff": 0.38,
+   "frames": 107,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1102,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 9.3,
+   "contentSizeChanges": 19,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-1",
+   "asked": 8000,
+   "fingerV": -4490,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9996,
+   "contentV": -4009,
+   "handoff": 0.5,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1812,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-2",
+   "asked": 8000,
+   "fingerV": -4604,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9794,
+   "contentV": -1815,
+   "handoff": 0.23,
+   "frames": 81,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 827,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-3",
+   "asked": 8000,
+   "fingerV": -4490,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": -4048,
+   "handoff": 0.51,
+   "frames": 64,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1709,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-partway",
+   "asked": 3000,
+   "fingerV": 2129,
+   "tauMs": 503,
+   "ratePerMs": 0.99802,
+   "r2": 0.9978,
+   "contentV": 3527,
+   "handoff": 1.18,
+   "frames": 122,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1725,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 1.3,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-for-tap",
+   "asked": 4000,
+   "fingerV": 2180,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9999,
+   "contentV": 4225,
+   "handoff": 1.06,
+   "frames": 21,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1012,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 2.8,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  }
+ ],
+ "momentum": {
+  "tauMs": 504,
+  "handoff": 1.04,
+  "jumps": 0,
+  "contentSizeChanges": 67,
+  "contentShifts": 0,
+  "liftDrops": 0,
+  "lifts": 4,
+  "liftMainMs": 9.3,
+  "verdict": {
+   "lift": "ok",
+   "tau": "ok",
+   "handoff": "ok",
+   "jumps": "ok"
+  }
+ },
+ "edgeBounce": {
+  "name": "fling-up-3",
+  "overshootPt": 15.3,
+  "entryV": -420,
+  "settleS": 0.57,
+  "verdict": {
+   "settle": "ok"
+  }
+ },
+ "rubberBand": {
+  "overscrollPt": 108,
+  "fingerPt": 217.7,
+  "ratio": 0.5,
+  "settleS": 0.55,
+  "bounces": true,
+  "verdict": {
+   "ratio": "ok",
+   "settle": "ok"
+  }
+ },
+ "scrollToTop": {
+  "fromPt": 1948,
+  "reached": true,
+  "startS": 0.18,
+  "durationS": 0.37,
+  "scrollsToTop": true,
+  "verdict": {
+   "reached": "ok"
+  }
+ },
+ "tapToStop": {
+  "beforeV": 1900,
+  "stopFrames": 1,
+  "travelPt": 0,
+  "activated": false,
+  "verdict": {
+   "stop": "ok"
+  }
+ },
+ "blank": {
+  "samples": 145,
+  "uniformSamples": 0,
+  "checked": 0,
+  "lateChecked": 0,
+  "verified": true,
+  "blankSamples": 0,
+  "share": 0,
+  "maxPt": 0,
+  "sampleMs": 4.22,
+  "verdict": {
+   "blank": "ok"
+  }
+ },
+ "scrub": {
+  "took": true,
+  "crossed": 0.95,
+  "maxStepPt": 192,
+  "smooth": {
+   "frames": 208,
+   "motionS": 3.47,
+   "fps": 60,
+   "hitchRatio": 0,
+   "longestFrameMs": 16.7,
+   "hitches": 0,
+   "hitchAt": [],
+   "mainMs": 1.91,
+   "mainP95Ms": 3.91,
+   "where": []
+  },
+  "blank": {
+   "samples": 50,
+   "uniformSamples": 0,
+   "checked": 0,
+   "lateChecked": 0,
+   "verified": true,
+   "blankSamples": 0,
+   "share": 0,
+   "maxPt": 0,
+   "sampleMs": 2.97,
+   "verdict": {
+    "blank": "ok"
+   }
+  },
+  "heldBlank": {
+   "samples": 6,
+   "uniformSamples": 0,
+   "checked": 0,
+   "lateChecked": 0,
+   "verified": true,
+   "blankSamples": 0,
+   "share": 0,
+   "maxPt": 0,
+   "sampleMs": 4.07,
+   "verdict": {
+    "blank": "ok"
+   }
+  },
+  "verdict": {
+   "hitch": "ok",
+   "stall": "ok",
+   "blank": "ok",
+   "held": "ok"
+  }
+ },
+ "list": {
+  "cls": "UITableView",
+  "decelerationRate": 0.998,
+  "bounces": true,
+  "scrollsToTop": true,
+  "delaysContentTouches": true,
+  "contentHeight": 10181.33333333341
+ }
+}

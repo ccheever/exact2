@@ -276,7 +276,11 @@ pub fn write_desktop_packages(
         return Ok(());
     }
     let plan = exact_plan::Plan::decode(plan).map_err(|e| format!("{e:?}"))?;
-    let text = plan_packages(app_root, &plan, triple)?;
+    // Absolute, so the search for installed packages walks past a relative
+    // root (`..`, as an app's host crate names its app) to the repository's.
+    let app_root =
+        std::fs::canonicalize(app_root).map_err(|e| format!("{}: {e}", app_root.display()))?;
+    let text = plan_packages(&app_root, &plan, triple)?;
     let path = out.join("packages.rs");
     if std::fs::read(&path).ok().as_deref() == Some(text.as_bytes()) {
         return Ok(());

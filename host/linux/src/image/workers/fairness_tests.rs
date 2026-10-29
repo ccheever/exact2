@@ -36,7 +36,7 @@ impl Known {
         let mut demands = Vec::new();
         for id in 1..=2 {
             let source = backend
-                .source(generation, &id.to_string(), &assets)
+                .source(generation, &id.to_string(), &assets, false)
                 .unwrap();
             assert!(backend.prepare());
             let Prepared::Ready(header) = backend.prepared(source.id).unwrap() else {
@@ -107,7 +107,7 @@ fn metadata_arriving_after_the_scan_is_not_lost_before_an_unbounded_wait() {
             workers.turn(&mut turn, || {
                 source = Some(
                     backend
-                        .source(backend.generation(), "new", &assets)
+                        .source(backend.generation(), "new", &assets, false)
                         .unwrap(),
                 );
             });
@@ -137,7 +137,7 @@ fn waited_decode_must_give_the_next_turn_to_metadata() {
     let mut turn = true;
     workers.turn(&mut turn, || {
         // Work arrives after this worker's empty metadata scan, before wait_decode.
-        queued = Some(b.source(b.generation(), "new", &assets).unwrap());
+        queued = Some(b.source(b.generation(), "new", &assets, false).unwrap());
         known.enqueue();
     });
     assert_eq!(*events.lock().unwrap(), ["decode"]);
@@ -153,8 +153,8 @@ fn competing_metadata_turns_still_leave_known_decode_progress() {
     let known = Known::new(&workers, &events, &Arc::new(AtomicUsize::new(0)));
     let (b, ba) = metadata(&workers, &events, "metadata-b");
     let (c, ca) = metadata(&workers, &events, "metadata-c");
-    let _b = b.source(b.generation(), "new", &ba).unwrap();
-    let _c = c.source(c.generation(), "new", &ca).unwrap();
+    let _b = b.source(b.generation(), "new", &ba, false).unwrap();
+    let _c = c.source(c.generation(), "new", &ca, false).unwrap();
     known.enqueue();
     let mut turn = false;
     for _ in 0..4 {
@@ -196,7 +196,7 @@ fn metadata_already_claimed_does_not_block_other_workers_decode_progress() {
             Ok(Some(bytes.clone()))
         }),
     ));
-    let source = b.source(b.generation(), "new", &assets).unwrap();
+    let source = b.source(b.generation(), "new", &assets, false).unwrap();
     std::thread::scope(|scope| {
         let worker = scope.spawn(|| workers.turn(&mut true, || panic!("metadata available")));
         claimed_rx.recv_timeout(Duration::from_secs(5)).unwrap();

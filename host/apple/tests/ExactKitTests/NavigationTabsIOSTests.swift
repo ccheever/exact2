@@ -112,6 +112,31 @@ final class NavigationTabsIOSTests: XCTestCase {
         if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
     }
 
+    /// The root's tablist shown while its stack is in a transition (a sheet
+    /// presenting over the tabs), when the bar cannot move, brings the bar
+    /// back at the next batch after it: the change is not lost, even when a
+    /// modal's own root, outside the tab bar's stacks, changes meanwhile.
+    func testTheRootsTablistShownDuringATransitionBringsTheBarBackAfterIt() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("setTabBarHidden is iOS 18") }
+        guard hostedWindowScene() != nil else { throw missing("scene", "a presentation completes only in a scene's window") }
+        let session = try fixture("basics-roottabbar")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        try tapNode(session, "toggle-choosing")
+        until("the bar left") { tabs.isTabBarHidden }
+        let sheet = UIViewController()
+        tabs.present(sheet, animated: true)
+        XCTAssertNotNil(nav.transitionCoordinator, "the sheet's transition holds the stack")
+        try tapNode(session, "toggle-choosing")
+        until("the sheet is up") { nav.transitionCoordinator == nil }
+        // A modal's root seen for the first time: a change its stack cannot follow either
+        let modal = RouteController(NodeView(id: 9_999, kind: "column", presenter: session.presenter))
+        session.presenter.navigation.followTablistAtRoot(modal, hidden: false, in: UINavigationController(rootViewController: modal))
+        sheet.dismiss(animated: false)
+        try tapNode(session, "bump")
+        until("the bar came back") { !tabs.isTabBarHidden }
+    }
+
     func testAgentActivatesAHiddenRootTabThroughItsVisibleBar() throws {
         let session = try fixture("agent-root-tab")
         let p = session.presenter, tab = try node(session, "tab-second")

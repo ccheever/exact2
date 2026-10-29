@@ -46,10 +46,11 @@ pub fn agent() -> bool {
 /// `app:/data`, `app:/cache`, `app:/tmp`, once storage is configured.
 static ROOTS: Mutex<Option<[PathBuf; 3]>> = Mutex::new(None);
 
-/// Record the app's directories, and empty `app:/tmp/picked/`: what the
-/// last launch picked is gone (D4).
+/// Record the app's directories, and empty `app:/tmp/picked/` and
+/// `app:/tmp/shared/`: what the last launch picked or was shared is gone (D4).
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     let _ = std::fs::remove_dir_all(temporary.join("picked"));
+    let _ = std::fs::remove_dir_all(temporary.join("shared"));
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some([data, cache, temporary]);
 }
 
@@ -380,6 +381,95 @@ pub fn copy_in(source: &Path, app_path: &str, mime: &str) -> Result<exact_runner
         height,
         duration: None,
     })
+}
+
+/// A cold share's claim (LLP 1133.024 D9), whose copies the presenter makes
+/// once storage is configured after first pixel, with the descriptors its
+/// files arrived as ([`Held`]).
+pub(crate) static COLD_SHARE: Mutex<Option<(exact_runner::share_in::Claimed, Held)>> =
+    Mutex::new(None);
+
+/// The files a share from Android's share sheet arrived as: each stream the
+/// intent's grant opened, named to the claim as `/proc/self/fd/<n>` and read
+/// from the descriptor itself, since opening that path again goes through
+/// the sender's storage, which the grant does not open. Dropping them, once
+/// the claim has copied them, closes them. Empty on every other host.
+pub(crate) type Held = Vec<(PathBuf, std::fs::File)>;
+
+/// The descriptors `share`'s files name, taken over: the reader detached
+/// each for this library to close (`Shares.kt`). Only a share the reader
+/// made is passed here, never the driver's.
+#[cfg(target_os = "android")]
+#[allow(unsafe_code)]
+pub(crate) fn hold(share: &exact_runner::share_in::Pending) -> Held {
+    use std::os::fd::FromRawFd;
+    share
+        .files
+        .iter()
+        .filter_map(|f| {
+            let fd = f
+                .source
+                .strip_prefix("/proc/self/fd/")
+                .ok()?
+                .to_str()?
+                .parse::<i32>()
+                .ok()
+                .filter(|fd| *fd > 2)?;
+            // SAFETY: the reader detached each descriptor from its
+            // ParcelFileDescriptor and gave it to this library alone.
+            Some((f.source.clone(), unsafe { std::fs::File::from_raw_fd(fd) }))
+        })
+        .collect()
+}
+
+/// A cold share (LLP 1133.024 D5, D9): on Android the reader's, from the
+/// launching intent (`EXACT_SHARE`), else under the agent the driver's
+/// (`EXACT_AGENT_SHARE`); each `{"target", "share"}`, as the `share` op
+/// carries them. Claimed before the boot, which takes its location and
+/// tokens with the launch's other facts. A host takes a share from the
+/// environment nowhere else.
+pub fn cold_share(seed: f64) -> Option<(String, exact_runner::time::Launch)> {
+    use exact_runner::share_in::{Claims, Pending, ShareTarget};
+    let (variable, value) = match std::env::var("EXACT_SHARE") {
+        Ok(value) if cfg!(target_os = "android") => ("EXACT_SHARE", value),
+        _ if agent() => (
+            "EXACT_AGENT_SHARE",
+            std::env::var("EXACT_AGENT_SHARE").ok()?,
+        ),
+        _ => return None,
+    };
+    let request: serde_json::Value = serde_json::from_str(&value).ok()?;
+    let (Some(target), Some(share)) = (
+        ShareTarget::from_json(&request["target"]),
+        Pending::from_json(&request["share"], None),
+    ) else {
+        eprintln!("exact: {variable} refused: it needs the manifest's share_target and a share");
+        return None;
+    };
+    #[cfg(target_os = "android")]
+    let held = if variable == "EXACT_SHARE" {
+        hold(&share)
+    } else {
+        Held::new()
+    };
+    #[cfg(not(target_os = "android"))]
+    let held = Held::new();
+    let mut claims = Claims::new(seed);
+    let claimed = claims.claim(&target, share);
+    let launch = exact_runner::time::Launch {
+        shared: claimed.tokens.clone(),
+        claims: Some(claims),
+        ..exact_runner::time::Launch::NONE
+    };
+    let location = claimed.location.clone();
+    *COLD_SHARE.lock().unwrap_or_else(|e| e.into_inner()) = Some((claimed, held));
+    Some((location, launch))
+}
+
+/// `app:/tmp/shared/` on this machine, once storage is configured.
+pub(crate) fn shared_dir() -> Option<PathBuf> {
+    resolve(&format!("{}x", exact_runner::share_in::SHARED))
+        .and_then(|p| p.parent().map(Path::to_path_buf))
 }
 
 #[cfg(test)]

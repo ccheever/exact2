@@ -1,0 +1,47 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Mine are blue on the right, Sam's are grey on the left, oldest at top. Centred day headings ('Wed, Jul 1', 'Today'). Opens at the newest message. Spacing groups each sender's run of messages."},
+      {"n": 2, "status": "pass", "note": "Sending appends the message, stays at the bottom and clears the field. The send button is disabled when the field is empty or only spaces. Typing immediately after sending once lost the next message; with a short pause it always worked."},
+      {"n": 3, "status": "pass", "note": "The composer sits right above the keyboard and the newest messages stay visible."},
+      {"n": 4, "status": "pass", "note": "A grey bubble with three dots plus 'Sam is typing…' caption, then a canned reply (Got it / 👍 / On it) about 2 s later. One reply per message."},
+      {"n": 5, "status": "pass", "note": "Native context menu with a lifted preview, Copy and red Delete. Copy puts the text on the clipboard; Delete removes the message and stays deleted after relaunch."},
+      {"n": 6, "status": "pass", "note": "Flinging reaches the first message (Jul 1) with no blank rows. A round arrow.down button appears when far up and returns to the newest message."},
+      {"n": 7, "status": "pass", "note": "Sent messages and Sam's replies survive relaunch."}
+    ],
+    "bugs": [
+      "A message typed immediately after pressing Send was lost once: 'two' never appeared. Could not reproduce with a 300 ms pause.",
+      "VoiceOver reads every history message's time as '1:00 PM', whatever its real time."
+    ],
+    "tells": [
+      "Bubbles have no tails. The custom nav header (avatar plus small name) imitates Messages but is drawn by hand.",
+      "History messages show no time anywhere; day headings have no year or time.",
+      "The jump-to-newest control is a large plain white circle that looks a little home-made."
+    ],
+    "scroll": "Smooth: slow drags, flings and the trip to the top showed no blank rows or jumps, and returning to the bottom is instant. It feels like a native list.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Bubbles on the correct sides, oldest first. Each day starts with a heading such as 'Jul 3, 2026 at 4:20 PM', like iMessage. Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Sends, stays at the bottom and clears. Send is disabled for empty or whitespace input. Quick back-to-back sends both arrived."},
+      {"n": 3, "status": "pass", "note": "The composer moves above the keyboard and the newest messages stay visible."},
+      {"n": 4, "status": "pass", "note": "An italic 'Sam is typing…' bubble, then a reply about 2 s later. Two quick sends got two replies."},
+      {"n": 5, "status": "pass", "note": "Native context menu with Copy and Delete. Both work, and the deletion persists."},
+      {"n": 6, "status": "pass", "note": "Fling reaches message 1 smoothly. A 'Jump to Newest' capsule appears when far up and works. A tap during momentum first stops the scroll, as on iOS."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The composer is an oversized two-line box with a white fill and thin border, unlike the iMessage pill. The send button sits low inside it and is drawn with a thin, large arrow at big text sizes.",
+      "The composer field is see-through, so blurred bubbles show inside the 'Message' box while scrolling.",
+      "The typing indicator is plain italic text in a bubble, not the animated dots.",
+      "Message bubbles are exposed only as plain text to VoiceOver, with no sender.",
+      "Bubbles have no tails, and the plain nav title has no avatar."
+    ],
+    "scroll": "Smooth all the way to the first message with no blank rows or pops, and the jump back is instant. It is just as native-feeling as A.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet every requirement and scroll equally well. A's composer pill, animated typing dots and avatar header are closer to Messages. B's tall see-through composer box and plain-text typing indicator feel less finished. B's day headings with times and its solid rapid sending are real advantages, but they don't outweigh A's more native look."
+}

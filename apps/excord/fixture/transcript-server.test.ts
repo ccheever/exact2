@@ -137,6 +137,27 @@ for (const sockets of [false, true]) describe(sockets ? 'with sockets' : 'withou
     expect(await (await r.request(path, { content: 'first' })).json()).toEqual(first);
   });
 
+  test('--history-delay holds only an older page, which still lands whole', async () => {
+    const r = start({ historyDelayMs: 2000 }), { fixture } = r;
+    const path = `/api/v9/channels/${fixture.world.generalChannelId}/messages`;
+    const order: string[] = [];
+    const timed = async (name: string, query: string) => {
+      const t0 = performance.now(), response = await r.request(`${path}?${query}`), rows = await response.json();
+      order.push(name);
+      return { ms: performance.now() - t0, rows };
+    };
+    const newest = await timed('newest', 'limit=50');
+    // The older page is held; the newest and an around page asked after it are not, so they answer first.
+    const older = timed('older', `limit=50&before=${newest.rows.at(-1).id}`);
+    await timed('newest again', 'limit=50');
+    await timed('around', `limit=50&around=${newest.rows[10].id}`);
+    const held = await older;
+    expect(order).toEqual(['newest', 'newest again', 'around', 'older']);
+    expect(held.ms).toBeGreaterThanOrEqual(1990);
+    expect(held.rows).toHaveLength(50);
+    expect(compareIds(held.rows[0].id, newest.rows.at(-1).id)).toBeLessThan(0);
+  });
+
   test('wall clock can override transcript default and fixed clock also works for the default world', async () => {
     const r = start({ clock: 'wall' });
     const before = Date.now(), state = await r.state(), after = Date.now();

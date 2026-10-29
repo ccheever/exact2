@@ -6,6 +6,11 @@ export const transportSecurity = (section, keys = {}) => {
   return Object.keys(ats).length ? { NSAppTransportSecurity: ats } : {};
 };
 
+/** `NSAllowsLocalNetworking`, which lets `URLSession` load `http:` from a local host: the development client's
+ * `host.ios.localNetworking`, or a `net.fetch local-network` or `net.websocket local-network` line
+ * (`reach.localNetworking`, LLP 1133.036 D5). */
+export const localNetworking = (section, reach) => (section?.localNetworking || reach?.localNetworking ? { NSAllowsLocalNetworking: true } : {});
+
 /** The iOS rows for background work (LLP 1133.017 D14): `UIBackgroundModes`, the manifest's
  * `host.ios.backgroundModes` with the modes the grant lines derive (`reach.backgroundModes`), and
  * `BGTaskSchedulerPermittedIdentifiers`, the identifiers they permit after the bundle id `id`. `fetch` and `processing` come only from a grant line, so a mode has one way to be declared. `only`: the
@@ -17,4 +22,16 @@ export function backgroundKeys(ios, reach, id, only) {
   const modes = [...new Set([...declared, ...(only ? [] : reach?.backgroundModes ?? [])])];
   const tasks = only ? [] : (reach?.tasks ?? []).map((task) => `${id}.${task}`);
   return { ...(modes.length ? { UIBackgroundModes: modes } : {}), ...(tasks.length ? { BGTaskSchedulerPermittedIdentifiers: tasks } : {}) };
+}
+
+/** The tag reader session's lists from `host.ios.nfc` (LLP 1133.035 D11, D16 item 2): the ISO 7816 application
+ * identifiers it selects and the FeliCa system codes it polls for. Core NFC reports no ISO 7816 tag whose identifier
+ * the app does not list ("add the list of the application identifiers supported in your app", NFCTagReaderSession).
+ * Nothing on tvOS, which has no Core NFC. */
+export function nfcKeys(ios, tv) {
+  const nfc = tv ? {} : ios.nfc ?? {};
+  return {
+    ...(nfc.iso7816Identifiers?.length ? { 'com.apple.developer.nfc.readersession.iso7816.select-identifiers': nfc.iso7816Identifiers } : {}),
+    ...(nfc.felicaSystemCodes?.length ? { 'com.apple.developer.nfc.readersession.felica.systemcodes': nfc.felicaSystemCodes } : {}),
+  };
 }

@@ -200,6 +200,64 @@ fn rows_kept_past_the_window_never_outnumber_the_window() {
     assert_eq!(h.snapshot().rows.len(), settled);
 }
 
+#[test]
+fn a_glimpse_builds_its_limit_of_what_shows_nearest_the_middle() {
+    let mut h = Harness::new(1_000, false, false);
+    let rows = |h: &Harness| {
+        h.snapshot()
+            .rows
+            .iter()
+            .map(|r| r.index)
+            .collect::<Vec<_>>()
+    };
+    h.send(h.feedback(3200.0));
+    // A scroll indicator dragged twelve viewports in a frame: three rows of
+    // the ten that show, the middle's, and none past them.
+    let glimpse = CollectionFill {
+        velocity: 240_000.0,
+        limit: Some(3),
+        glimpse: true,
+        ..Default::default()
+    };
+    h.send_filled(h.feedback(7200.0), glimpse);
+    assert_eq!(
+        rows(&h),
+        [228, 229, 230],
+        "the rows nearest the middle, the rows passed retired"
+    );
+    assert!(h.snapshot().pending, "what shows is still owed");
+    // Travel that slows: a rescue builds the rest of what shows.
+    let rescue = CollectionFill {
+        velocity: 1_600.0,
+        limit: Some(0),
+        ..Default::default()
+    };
+    h.send_filled(h.feedback(7200.0), rescue);
+    let now = rows(&h);
+    assert!(
+        (225..235).all(|i| now.contains(&i)),
+        "what shows is built: {now:?}"
+    );
+    // A glimpse is bounded and built where it applies.
+    for refused in [
+        CollectionFill {
+            limit: None,
+            ..glimpse
+        },
+        CollectionFill {
+            create_only: true,
+            ..glimpse
+        },
+    ] {
+        assert!(h.feedback(7200.0).encode_with(refused).is_err());
+    }
+    let wire = h.feedback(7200.0).encode_with(glimpse).unwrap();
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&wire).unwrap().1,
+        glimpse
+    );
+}
+
 /// @ref LLP 1072 §5 — a build-only report then a retire-only one leave the
 /// rows one immediate report leaves, and the build-only one destroys none.
 #[test]
@@ -594,4 +652,52 @@ fn aggregate_preview_matches_binary_sums_and_both_padding_orders() {
                 .is_none_or(|c| c.offset.abs() <= f32::MAX as f64));
         }
     }
+}
+
+#[test]
+fn a_pin_that_changes_while_moving_keeps_the_reports_limit() {
+    let mut h = Harness::new(1_000, false, false);
+    let rows = |h: &Harness| {
+        h.snapshot()
+            .rows
+            .iter()
+            .map(|r| r.index)
+            .collect::<Vec<_>>()
+    };
+    h.send(h.feedback(3200.0));
+    let moving = CollectionFill {
+        velocity: 6_000.0,
+        limit: Some(0),
+        ..Default::default()
+    };
+    // A finger lands on a row of a list in flight, then lifts: each report
+    // changes the interaction pin, and each builds only what it owes.
+    let pinned = h
+        .snapshot()
+        .rows
+        .iter()
+        .find(|r| r.index == 105)
+        .unwrap()
+        .root;
+    let mut down = h.feedback(3360.0);
+    down.interaction_view = Some(pinned);
+    h.send_filled(down, moving);
+    let held = rows(&h);
+    assert!((105..115).all(|i| held.contains(&i)), "{held:?}");
+    assert!(h.snapshot().pending, "the lead waits for a slice");
+    let mut lift = h.feedback(3680.0);
+    lift.interaction_view = None;
+    h.send_filled(lift, moving);
+    let now = rows(&h);
+    assert!(
+        (115..125).all(|i| now.contains(&i)),
+        "the visible rows are owed: {now:?}"
+    );
+    assert!(
+        now.iter().all(|&i| i < 125 || held.contains(&i)),
+        "no lead is built past what shows: {now:?}"
+    );
+    assert!(h.snapshot().pending);
+    // A new pin still retires every row that left the window.
+    assert!(now.iter().all(|&i| i >= 105), "{now:?}");
 }

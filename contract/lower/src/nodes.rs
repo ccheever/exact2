@@ -130,6 +130,7 @@ impl Lowerer<'_> {
         decorations::check_field(tag, expanded)?;
         atoms::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
+        menus::check_menu_keys(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
         crate::alert_parts::check_authored(expanded)?;
@@ -743,7 +744,9 @@ impl Lowerer<'_> {
                 .iter()
                 .filter(|a| native::leftover(tag, a))
                 .collect();
-            if let Err(e) = self.native_bindings(tag, &rest, scope, locals, &mut bindings) {
+            let made =
+                self.native_bindings(tag, &rest, scope, locals, &mut bindings, &mut handlers);
+            if let Err(e) = made {
                 self.errors.push(e);
             }
             if let Some(origins) = &mut origins {
@@ -965,6 +968,7 @@ impl Lowerer<'_> {
             let mut site = sites::node_site(
                 *span,
                 *instance,
+                parent.map(|p| p.0).or(self.site_parent),
                 button,
                 &bindings,
                 origins.as_deref().expect("site origins"),

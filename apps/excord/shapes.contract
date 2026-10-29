@@ -190,7 +190,7 @@ shape Message
   poll: Poll[]
   reply: ReplyRef[]
 
-// One contiguous run of a channel's history, at most 200 rows. `hasBefore`
+// One contiguous run of a channel's history, at most 300 rows. `hasBefore`
 // and `hasAfter` say whether older or newer history exists outside it; a
 // window without `hasAfter` ends at the channel's newest message. `pin` is
 // the anchor that answers this same window while no message arrives.
@@ -238,11 +238,14 @@ shape Channel
   firstUnreadAt: number
   lastRead: string
   arrived: number
-  typing: string
   // Discord's `nsfw`: the channel shows its age gate before it opens (LLP 1133.028 §8.2).
   ageRestricted: bool
 
-fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, private=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, typing="", ageRestricted=false) }
+// Who is typing in a channel: "Ada is typing…", "Ada and Grace are typing…", or "".
+shape Typing
+  line: string
+
+fn channelOf(cs: Channel[], id: string): Channel = match first(cs.filter(c => c.id == id)) { case some(c) => c, case none => Channel(id="", guild="", name="", avatar="", direct=false, private=false, topic="", version=0, unread=0, mentions=0, firstUnread="", firstUnreadAt=0, lastRead="", arrived=0, ageRestricted=false) }
 // The gateway holds a session, or is opening one, so the heartbeat runs.
 fn connected(state: string): bool = state == "awaiting-hello" or state == "identifying" or state == "resuming" or state == "ready"
 
@@ -286,12 +289,19 @@ shape Gateway
   queued: number
   seq: number
   fixture: bool
+  // The lists' versions (`live.ts`): the server list and rail, the direct messages, the servers'
+  // channel lists, and any channel but the one on screen.
   sidebar: number
+  dmList: number
+  channelList: number
+  elsewhere: number
   channel: string
   version: number
   history: number
-  // Moves with the member list of the server on screen (`loadMembers`).
+  // Moves with the member list of the server on screen (`loadMembers`); `memberRows` moves only when its
+  // rows do, not with a presence.
   members: number
+  memberRows: number
   retryIn: number
   attempt: number
 
@@ -307,6 +317,10 @@ shape Session
 
 shape Ack
   ok: bool
+  error: string
+// What the mention light was set to (LLP 1133.037 §12.1).
+shape Lit
+  lit: bool
   error: string
 
 // An explicit edit lookup names one missing page, or the newest own message.
@@ -439,6 +453,7 @@ shape Viewport
 // write, sent as the official client sends it).
 shape Page
   visibilityState: string
+  hasFocus: bool
 
 shape Time
   epochAtZero: number

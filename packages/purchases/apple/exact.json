@@ -1,0 +1,51 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/purchases@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleItemDetails": {
+      "type": "enum<consumable|nonConsumable|autoRenewable|nonRenewable>",
+      "subscriptionGroupID": "option<string>",
+      "isEligibleForIntroOffer": "option<bool>"
+    },
+    "ApplePurchaseDetails": {
+      "jwsRepresentation": "option<string>",
+      "originalID": "string",
+      "ownershipType": "enum<purchased|familyShared>",
+      "environment": "enum<production|sandbox|xcode|agent>",
+      "revocationDate": "option<number>",
+      "isUpgraded": "bool",
+      "appAccountToken": "option<string>"
+    },
+    "ApplePurchasesStatus": {
+      "storefront": "option<string>",
+      "unverified": "string[]"
+    }
+  },
+  "options": {
+    "purchase": {
+      "simulatesAskToBuyInSandbox": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "Purchases.swift",
+      "AgentStore.swift"
+    ]
+  },
+  "frameworks": {
+    "StoreKit": {
+      "ios": "17.0",
+      "macos": "14.0"
+    }
+  },
+  "artifacts": [],
+  "class": "PurchasesModule"
+}

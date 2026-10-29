@@ -1,0 +1,41 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain inset list of all 160 recipes: title, then category (tinted), clock icon + time, star + rating, disclosure chevron."},
+      {"n": 2, "status": "pass", "note": "A horizontal chip row has All plus all nine categories. Search covers titles and ingredients and combines with the chip ('lemon' + Desserts gives 9 results). The empty result says 'No Results for “lemonzzz” – No Desserts recipes match' and offers a 'Search All Categories' button."},
+      {"n": 3, "status": "pass", "note": "A native pull-down menu offers Name A–Z, Time quickest first and Rating highest first, with icons and a checkmark. The choice is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "A large title with a category eyebrow, then Time / Servings / Rating tiles, a native stepper ('Amounts scaled from 8 servings'), and ingredients scaled with fractions (2½ cloves). Steps are numbered with filled number badges. The stepper stops at 1 serving."},
+      {"n": 5, "status": "pass", "note": "A heart in the nav bar toggles Add/Remove from Favorites. The Favorites tab has an Edit button and a native swipe-to-Remove action. The empty state ('No Favorites Yet', what to do, and a Browse Recipes button) is helpful."},
+      {"n": 6, "status": "pass", "note": "A favorite was still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The category filter is a custom capsule chip row rather than a system control (a common pattern, but drawn by hand).",
+      "At the largest text size the ingredient bullet dot stays tiny next to huge text."
+    ],
+    "scroll": "Slow drags, flings, fling-back and pull-past-top all felt like a native table: no blank rows or jumps. The search bar collapses into an inline title properly, and the scroll position is kept after returning from a recipe.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "An inset-grouped list of all 160 recipes, with a '160 recipes' subtitle. Each row shows title, 'Category · time', then star rating and chevron on the right."},
+      {"n": 2, "status": "pass", "note": "The category filter is a native nav-bar menu (All Categories plus nine). The subtitle shows the active filter ('Vegetarian · 14 recipes'). Search covers title and ingredient and combines with the filter. The empty result offers 'Show All Recipes'. While searching, nothing on screen shows that a category filter is still applied."},
+      {"n": 3, "status": "pass", "note": "A native Sort By menu offers Name, Time and Rating with a checkmark. The choice is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "A grouped form shows Time, a Servings stepper with the value, the note 'Quantities scaled from 6 servings to 9 servings', fractional scaling (1½ g), and numbered steps. The stepper stops at 1."},
+      {"n": 5, "status": "pass", "note": "A heart in the nav bar toggles the favorite. The Favorites tab has a swipe-to-Delete action and a hint footer. The empty state ('No Favorites Yet', a hint, and a Browse Recipes button) is helpful."},
+      {"n": 6, "status": "pass", "note": "A favorite was still there after relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Steps are laid out as label/value rows: the number sits on the left and the step text is right-aligned in grey secondary colour, which reads oddly for instructions.",
+      "The recipe title appears twice on the detail screen: as the inline nav title and again as a bold header in the first card.",
+      "At the largest text size, list titles break inside a word ('Muffi / ns') because the trailing rating column squeezes them.",
+      "The detail screen is a plain settings-style form with no visual hierarchy for time, servings and rating.",
+      "The search field auto-capitalises the first letter (the keyboard opens with Shift on)."
+    ],
+    "scroll": "The list scrolls smoothly under slow drags and flings with no blank or popping rows. Pull-past-top bounces natively, and the scroll position is kept after returning from a recipe.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement with native lists, menus, steppers, swipe actions and persistence. A's recipe screen is better designed (summary tiles, numbered step badges, share button) and its empty states are more helpful and context-aware. B has visible tells: right-aligned grey step text, a duplicated title, and a word broken mid-way at large text sizes."
+}

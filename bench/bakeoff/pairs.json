@@ -1,0 +1,17 @@
+{
+  "contacts":    { "stack": "swiftui", "model": "gpt" },
+  "recipes":     { "stack": "uikit",   "model": "claude" },
+  "expenses":    { "stack": "uikit",   "model": "gpt" },
+  "workout-log": { "stack": "swiftui", "model": "claude" },
+  "podcasts":    { "stack": "swiftui", "model": "gpt" },
+  "notes":       { "stack": "uikit",   "model": "claude" },
+  "watchlist":   { "stack": "uikit",   "model": "gpt" },
+  "chat":        { "stack": "swiftui", "model": "claude" },
+  "moodboard":   { "stack": "swiftui", "model": "gpt" },
+  "inbox":       { "stack": "uikit",   "model": "gpt" },
+  "tasks":       { "stack": "uikit",   "model": "claude" },
+  "settings":    { "stack": "swiftui", "model": "claude" },
+  "feed":        { "stack": "swiftui", "model": "gpt" },
+  "photos":      { "stack": "uikit",   "model": "claude" },
+  "timetable":   { "stack": "uikit",   "model": "gpt" }
+}

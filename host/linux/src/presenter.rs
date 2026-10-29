@@ -59,6 +59,8 @@ mod field_pointer;
 mod field_scroll;
 #[cfg(test)]
 mod field_tests;
+#[cfg(test)]
+mod frame_target_tests;
 mod group;
 mod hatch;
 mod history;
@@ -103,6 +105,7 @@ mod scroll_anchor_tests;
 mod scroll_end;
 mod scrollbar;
 mod scrollers;
+pub(crate) mod split;
 mod wheel;
 use scroll_end::Completion;
 #[cfg(all(test, not(windows)))]
@@ -226,6 +229,8 @@ pub struct Presenter<D: DataSource> {
     hover_point: Option<(f32, f32)>,
     /// The node holding the pointer's `pointerdown` until it lifts: the innermost hearing a pointer event, which hears the moves.
     pointer_held: Option<exact_kernel::NodeKey>,
+    /// Where the last pointer press was, its `clientX`/`clientY` (LLP 1021 D2).
+    pub(crate) press_point: Option<(f32, f32)>,
     /// The nodes from the held one up that hear `pointerdown` or
     /// `pointerup`, innermost first: each hears the up.
     pointer_path: Vec<exact_kernel::NodeKey>,
@@ -512,6 +517,7 @@ impl<D: DataSource> Presenter<D> {
             hovered: Vec::new(),
             hover_point: None,
             pointer_held: None,
+            press_point: None,
             pointer_path: Vec::new(),
             pointer_walking: false,
             pointer_buttons: 0,
@@ -718,11 +724,6 @@ impl<D: DataSource> Presenter<D> {
         self.dirty
     }
 
-    /// The last frame's (paint, readback) milliseconds; CPU readback is zero.
-    pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
-        self.brush.last_frame_ms()
-    }
-
     /// Where the pointer is drawn (`None` draws none).
     pub fn set_pointer(&mut self, pointer: Option<(f32, f32)>) {
         if self.pointer != pointer {
@@ -783,14 +784,13 @@ impl<D: DataSource> Presenter<D> {
         self.sync_surface();
         error.or(refined).or(geometry)
     }
-
     // Collection feedback calls this directly: never recurse through refinement.
     fn sync_commit(&mut self) -> Option<String> {
         self.dirty = true;
         self.service_commit()
     }
-
     fn service_commit(&mut self) -> Option<String> {
+        self.sync_split();
         // A resource refused, a request or a send failed (LLP 1142 D4): on
         // stderr as well as in the journal. The runner queues none unless it
         // measures, so a production binary prints none.
@@ -983,13 +983,13 @@ impl<D: DataSource> Presenter<D> {
 
     fn clamp_scroll(&mut self) -> bool {
         self.restore_scroll_anchors();
-        let collection_limits = self.collection_scroll_limits();
+        let (collection_limits, held) = (self.collection_scroll_limits(), self.hidden_scrollers());
         let kernel = self.host.kernel();
         let region = self.host.content_region();
         let mut gone = Vec::new();
         let mut clamped = Vec::new();
         let mut changed = false;
-        for (id, off) in self.scroll.iter_mut() {
+        for (id, off) in self.scroll.iter_mut().filter(|(id, _)| !held.contains(*id)) {
             match kernel.node(*id) {
                 Some(n) => {
                     let next = self
@@ -1033,7 +1033,7 @@ impl<D: DataSource> Presenter<D> {
     /// Every node's painted box, in paint order (a fresh frame when stale).
     pub fn boxes(&mut self) -> &[PaintedBox] {
         if self.dirty && !self.display.attached() {
-            let _ = self.frame();
+            let _ = self.frame_for(crate::paint::FrameTarget::Geometry);
         }
         &self.boxes
     }

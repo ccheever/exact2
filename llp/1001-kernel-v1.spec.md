@@ -502,6 +502,11 @@ the standard AppKit item ids in LLP 1021 §5.3 and §5.3.1. AppKit suppresses th
 and their menu equivalents; all other hosts ignore this non-CSS presentation
 hint. It changes no layout or window capability.
 
+`menuKeys` (292, string) carries root `-exact-menu-keys`: a literal list of
+`id=chord` pairs whose one id is `close-window` (LLP 1021 §5.3.3), each chord
+one `aria-keyshortcuts` chord with `Meta`, or `none`. AppKit gives File ▸
+Close Window the chord, or none; all other hosts ignore this non-CSS presentation hint.
+
 `menuPlacement` (261, string) is `-exact-menu` on a button (LLP 1021 §5.3,
 Charlie, 2026-10-12; §5.3.1, 2026-10-22): a literal `about`, `app`, `file`,
 `edit`, `view`, `go`, `window`, `help` or `none`. AppKit adds the button to
@@ -1251,6 +1256,18 @@ widths for the issue's sentence: 16 px Arial at 180 px on the Mac
 (`TextBalanceTests`), 16 px DejaVu Sans at 240 px on Linux
 (`balance_tests.rs`); the web JS target's conformance fixture carries it
 (`styles.contract`). A terminal entry refuses the row.
+
+**Font smoothing** (2026-10-28, [LLP 1019 D12](1019-fonts.rfc.md)).
+`-webkit-font-smoothing` (bit 222, inherited, `auto | antialiased`) is a paint
+row: a change neither measures nor lays out. AppKit draws an `antialiased`
+paragraph with Core Graphics font smoothing off (UIKit sets the same flag,
+expected to change nothing on iOS, as iOS Safari ignores the property); the
+web writes it with Firefox's `-moz-osx-font-smoothing`; Linux, Windows, a
+terminal and the widget and watch drivers admit it and draw as before.
+Declared: Apple reads it once per paragraph, so an inline run's own value
+gives way to its paragraph's, and text a platform view draws (a text field's,
+a native control's title) and a paragraph the content-region reader holds keep
+the platform's smoothing.
 
 **Book typography** (the reader diary, 2026-10-04). `text-align: justify`
 fills every line but a paragraph's last and one before a forced break, on

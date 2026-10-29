@@ -47,6 +47,14 @@ pub(crate) fn derive(
         }
     };
     privacy_policy(app_dir, platform, &devices)?;
+    // No call transport exists yet, so a call is a test call, and App Review
+    // reads one with no real calls beside it as no intended use of the
+    // `audio` mode (2.5.4): it stays in development builds (LLP 1133.033
+    // §13 question 4).
+    if compat.embedded["trust"] == "production" && devices.iter().any(|g| g.device.name == "calls")
+    {
+        return Err("grant-device: `device.calls` stays out of production builds until exact2 has a call transport: a call is a test call until then (LLP 1133.033 §13 question 4); bake with EXACT_UPDATE_TRUST=development, or leave the line out".into());
+    }
     let strings = if devices.iter().all(|g| !g.device.purpose) {
         None
     } else {
@@ -150,11 +158,19 @@ pub(crate) fn derive(
     // entitlements the platform's signature must carry.
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
+    // An entitlement whose value is no boolean (LLP 1133.035 D16 item 2).
+    let mut values = Map::new();
     let mut flags: Vec<&str> = Vec::new();
     // iOS's background modes and task identifiers (LLP 1133.017 D14).
     let (mut modes, mut tasks): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     // Android's permissions: the Canvas host on Android bakes as Linux.
     let mut android: Vec<&str> = Vec::new();
+    let mut features: Vec<&str> = Vec::new();
+    // The reader's foreground services the lines declare, each with every
+    // type its lines give it and the base locale's purpose text of the first
+    // line naming it, its notification's title and channel name (LLP
+    // 1133.033 D2, D4).
+    let mut services = Map::new();
     let keys_of = |device: &Device| match platform {
         "ios" => device.ios,
         "macos" => device.macos,
@@ -187,11 +203,27 @@ pub(crate) fn derive(
             "macos" => entitlements.extend(grant.device.hardened),
             "ios" => {
                 entitlements.extend(grant.device.ios_entitlements);
+                for (name, value) in grant.device.ios_entitlement_values {
+                    values.insert((*name).into(), json!(value));
+                }
                 flags.extend(grant.device.ios_flags);
                 modes.extend(grant.device.ios_modes);
                 tasks.extend(grant.device.ios_tasks);
             }
-            "linux" => android.extend(grant.device.android),
+            "linux" => {
+                android.extend(grant.device.android);
+                features.extend(grant.device.android_features);
+                for pair in grant.device.android_services {
+                    let (kind, kind_type) = pair.split_once(':').unwrap_or((pair, ""));
+                    let service = services
+                        .entry(kind)
+                        .or_insert_with(|| json!({ "purpose": text(grant.purpose), "types": [] }));
+                    let types = service["types"].as_array_mut().expect("a service's types");
+                    if !types.iter().any(|t| t == kind_type) {
+                        types.push(json!(kind_type));
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -276,9 +308,14 @@ pub(crate) fn derive(
     } else {
         Vec::new()
     };
+    let (bonjour, local_source, multicast) = local_network_reach(&ceiling);
+    if multicast && platform == "linux" {
+        android.push("android.permission.CHANGE_WIFI_MULTICAST_STATE");
+    }
     android.sort_unstable();
     android.dedup();
     let auth = auth(&ceiling, platform, compat)?;
+    let payments = payment_lines(&ceiling)?;
     compat.reach = json!({
         "base": base,
         "locales": strings.as_ref().map(|s| s.tables.keys().cloned().collect::<Vec<_>>()),
@@ -290,6 +327,7 @@ pub(crate) fn derive(
         "helperEntitlements": helpers,
         "tvOmits": tv_omits,
         "auth": auth,
+        "payments": payments,
     });
     if !modes.is_empty() {
         compat.reach["backgroundModes"] = json!(modes);
@@ -297,6 +335,27 @@ pub(crate) fn derive(
     }
     if !shared.is_empty() {
         compat.reach["sharedKeys"] = Value::Object(shared);
+    }
+    if !services.is_empty() {
+        compat.reach["androidServices"] = Value::Object(services);
+    }
+    if !values.is_empty() {
+        compat.reach["entitlementValues"] = Value::Object(values);
+    }
+    features.sort_unstable();
+    features.dedup();
+    if !features.is_empty() {
+        compat.reach["androidFeatures"] = json!(features);
+    }
+    // Apple's: tvOS keeps both, since it bakes the iOS plan and its
+    // `URLSession` is under App Transport Security as iOS's is.
+    if matches!(platform, "ios" | "macos") {
+        if !bonjour.is_empty() {
+            compat.reach["bonjour"] = json!(bonjour);
+        }
+        if local_source {
+            compat.reach["localNetworking"] = json!(true);
+        }
     }
     Ok(())
 }
@@ -339,6 +398,7 @@ pub(crate) fn parsed(
     app_dir: &Path,
     grants: Option<&str>,
     rust: Option<&str>,
+    production: bool,
 ) -> Result<(), String> {
     const RUST: &str = "the Rust source";
     let typescript = rust.is_some() || app_dir.join("app.ts").is_file();
@@ -355,6 +415,7 @@ pub(crate) fn parsed(
                 .map(move |e| format!("grant-parse: {source}: {e}"))
         })
         .chain(presence(app_dir, &sources))
+        .chain(local_network(&sources, production))
         .collect();
     if errors.is_empty() {
         Ok(())
@@ -413,6 +474,79 @@ fn presence(app_dir: &Path, sources: &[(Option<&str>, &str); 2]) -> Vec<String> 
     errors
 }
 
+/// The local network's lines (LLP 1133.036 D5, D7): a `net.dns-sd` type
+/// RFC 6335 does not allow (`grant-parse`); `net.dns-sd` or a
+/// `local-network` source without `device.local-network`, since on Apple a
+/// browse or a reach under them can show the Local Network prompt
+/// (`grant-missing`); and in a production build the `development` word,
+/// which only a development build's bake writes and which admits loopback.
+fn local_network(sources: &[(Option<&str>, &str); 2], production: bool) -> Vec<String> {
+    use exact_runner::grants::{is_service_type, DEVELOPMENT, LOCAL_NETWORK};
+    let mut errors = Vec::new();
+    let (mut device, mut needs) = (false, None);
+    for (spec, source) in sources {
+        let Some(Ok(set)) = spec.map(exact_runner::grants::parse) else {
+            continue;
+        };
+        for line in set.lines() {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            match words[..] {
+                ["device.local-network", ..] => device = true,
+                ["net.dns-sd", kind] if !is_service_type(kind) => errors.push(format!(
+                    "grant-parse: {source}: `{line}`: a DNS-SD service type is `_<name>._tcp` or `_<name>._udp`, the name 1 to 15 letters, digits and hyphens with a letter among them (RFC 6335 §5.1)"
+                )),
+                ["net.dns-sd", ..] => needs = needs.or(Some(*line)),
+                ["net.fetch" | "net.websocket", LOCAL_NETWORK, ..] => {
+                    needs = needs.or(Some(*line));
+                    if production && words.get(2) == Some(&DEVELOPMENT) {
+                        errors.push(format!(
+                            "grant-parse: {source}: `{line}`: a production build admits no loopback by this line; write `{} {LOCAL_NETWORK}`, and name a loopback origin the app serves itself on",
+                            words[0]
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if let (Some(line), false) = (needs, device) {
+        errors.push(format!(
+            "grant-missing: `{line}` needs `device.local-network <purposeKey>` beside it: on Apple a browse or a reach under it can show the Local Network prompt, with that strings key's text"
+        ));
+    }
+    errors
+}
+
+/// What the local network's lines derive (LLP 1133.036 D7): each
+/// `net.dns-sd` type, for `NSBonjourServices` on Apple; whether a
+/// `local-network` source lets `URLSession` load `http:` from local hosts
+/// (`NSAllowsLocalNetworking`); and on Android, with a type, the permission
+/// `WifiManager.MulticastLock` needs where the system does not manage it.
+fn local_network_reach(ceiling: &str) -> (Vec<String>, bool, bool) {
+    let lines = || {
+        ceiling
+            .lines()
+            .map(|l| l.split_whitespace().collect::<Vec<_>>())
+    };
+    let mut types: Vec<String> = lines()
+        .filter_map(|w| (w.len() == 2 && w[0] == "net.dns-sd").then(|| w[1].to_string()))
+        .collect();
+    types.sort_unstable();
+    types.dedup();
+    let source = lines().any(|w| {
+        matches!(
+            w[..],
+            [
+                "net.fetch" | "net.websocket",
+                exact_runner::grants::LOCAL_NETWORK,
+                ..
+            ]
+        )
+    });
+    let multicast = !types.is_empty();
+    (types, source, multicast)
+}
+
 /// `auth.*` through the same table (LLP 1069.006 D2; LLP 1069.008 D2's
 /// `auth` rows): every callback, for the web build's two client-metadata
 /// documents (one per `application_type`, ruled); and on Apple the
@@ -427,15 +561,23 @@ fn auth(ceiling: &str, platform: &str, compat: &Compat) -> Result<Value, String>
     let sessions = ceiling
         .lines()
         .any(|l| l.trim().starts_with("auth.session "));
+    // `@exact/sign-in`'s lines open the same popup (LLP 1133.014 D5).
     let typescript = compat.inputs["javascriptGrants"]
         .as_str()
         .or(compat.inputs["grantCeiling"].as_str())
-        .is_some_and(|g| g.lines().any(|l| l.trim().starts_with("auth.session ")));
+        .is_some_and(|g| {
+            g.lines().any(|l| {
+                let l = l.trim();
+                ["auth.session ", "auth.apple ", "auth.google "]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+            })
+        });
     if platform == "web"
         && typescript
         && compat.inputs["typescriptPlacement"].as_str() == Some("worker")
     {
-        return Err("grant-auth: `auth.session` in a worker-placed TypeScript source: on the web `openAuthSession` opens its popup in the press's call stack, which a worker is not in (LLP 1069.006); place the source on main (`typescript.placement`)".into());
+        return Err("grant-auth: `auth.session`, `auth.apple` or `auth.google` in a worker-placed TypeScript source: on the web the sign-in popup opens in the press's call stack, which a worker is not in (LLP 1069.006, LLP 1133.014 D5); place the source on main (`typescript.placement`)".into());
     }
     let webcredentials: Vec<String> = callbacks
         .iter()
@@ -461,8 +603,48 @@ fn auth(ceiling: &str, platform: &str, compat: &Compat) -> Result<Value, String>
         "sessions": sessions,
         "callbacks": callbacks,
         "passkeys": passkeys,
+        "signIn": sign_in(ceiling, platform)?,
         "associatedDomains": if matches!(platform, "ios" | "macos") { webcredentials } else { Vec::new() },
     }))
+}
+
+/// What `auth.apple <client id>` and `auth.google <client id>` derive (LLP
+/// 1133.014 D8): the clients, the audiences a token from this target
+/// carries, which the app's server must accept, and the build's notes: on
+/// the web each provider's web client registers the server's return route;
+/// on Apple a build with Google and no Apple prints App Review 4.8, never a
+/// refusal. Apple's native audience is the bundle ID, which the Apple build
+/// prints beside these.
+fn sign_in(ceiling: &str, platform: &str) -> Result<Value, String> {
+    let mut apple: Vec<String> = Vec::new();
+    let mut google: Vec<String> = Vec::new();
+    for line in ceiling.lines().map(str::trim) {
+        let mut words = line.split_whitespace();
+        let into = match words.next() {
+            Some("auth.apple") => &mut apple,
+            Some("auth.google") => &mut google,
+            _ => continue,
+        };
+        let (Some(id), None) = (words.next(), words.next()) else {
+            return Err(format!("grant-auth: `{line}`: `auth.apple` and `auth.google` take one client id each (LLP 1133.014 D8)"));
+        };
+        if !into.iter().any(|i| i == id) {
+            into.push(id.to_owned());
+        }
+    }
+    let mut notes: Vec<String> = Vec::new();
+    if platform == "web" && !(apple.is_empty() && google.is_empty()) {
+        notes.push("sign-in: each provider's web client registers the app server's return route (`web.redirectURI`) as its redirect URI, never the page (LLP 1133.014 D3)".into());
+    }
+    if matches!(platform, "ios" | "macos") && apple.is_empty() && !google.is_empty() {
+        notes.push("sign-in: App Review 4.8: an app whose primary account is a third-party login also offers an equivalent that limits data to name and email, keeps the email private if the person asks, and does not track; Sign in with Apple meets it. Exceptions: the company's own accounts, education and enterprise apps, a client for a specific third-party service".into());
+    }
+    let audiences = match platform {
+        "web" => json!({ "apple": apple, "google": google }),
+        "android" => json!({ "google": google }),
+        _ => json!({ "apple": ["<the bundle ID>"], "google": google }),
+    };
+    Ok(json!({ "apple": apple, "google": google, "audiences": audiences, "notes": notes }))
 }
 
 /// The RP IDs `auth.passkey <rp id>` grants (LLP 1133.011 D6): each a
@@ -502,6 +684,40 @@ fn passkey_rp_ids(ceiling: &str) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
+/// The wallets `payment.*` grants (LLP 1133.034 D13): each Apple Pay
+/// merchant ID (`payment.apple-pay merchant.com.example.app`), which the
+/// Apple build lists in `com.apple.developer.in-app-payments`, and whether
+/// Google Pay is granted (`payment.google-pay`, no target), which derives
+/// Android's `wallet.api.enabled` meta-data and the callbacks service.
+fn payment_lines(ceiling: &str) -> Result<Value, String> {
+    let mut merchants: Vec<String> = Vec::new();
+    let mut google = false;
+    for line in ceiling.lines().map(str::trim) {
+        let mut words = line.split_whitespace();
+        match (words.next(), words.next(), words.next()) {
+            (Some("payment.google-pay"), None, _) => google = true,
+            (Some("payment.google-pay"), Some(_), _) => {
+                return Err(format!("grant-payment: `{line}`: `payment.google-pay` names no target (LLP 1133.034 D13)"))
+            }
+            (Some("payment.apple-pay"), Some(id), None)
+                if id.starts_with("merchant.")
+                    && id.split('.').all(|l| {
+                        !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                    }) =>
+            {
+                if !merchants.iter().any(|m| m == id) {
+                    merchants.push(id.to_owned());
+                }
+            }
+            (Some("payment.apple-pay"), _, _) => {
+                return Err(format!("grant-payment: `{line}`: `payment.apple-pay` takes one merchant ID, `merchant.` and a reverse domain, such as `merchant.com.example.app` (LLP 1133.034 D13)"))
+            }
+            _ => {}
+        }
+    }
+    Ok(json!({ "merchantIds": merchants, "googlePay": google }))
+}
+
 /// Who enforces a device line: the OS's prompt (from the key the build
 /// writes), the served web's policy, and which source declared it. No
 /// first-party device capability ships yet, so no row claims the runtime.
@@ -529,6 +745,9 @@ fn family_enforcement(line: &str) -> &'static str {
             "the runner's admission (the RP ID); the platform's association check (Apple, Android)"
         }
         "doc.keep" => "the host's kept documents (macOS; Linux and the web keep nothing yet)",
+        "payment.apple-pay" | "payment.google-pay" => {
+            "the runner's admission (the merchant ID); the wallet's own merchant check (Apple, Google)"
+        }
         _ => "runtime",
     }
 }
@@ -687,6 +906,64 @@ mod tests {
         let mut mac = compat(grants);
         derive(&dir.0, "macos", None, &mut mac).unwrap();
         assert!(mac.reach.get("backgroundModes").is_none());
+    }
+
+    /// LLP 1133.033 D3: one line derives iOS's `audio` mode with the key the
+    /// capture reads, and Android's normal permissions with the `capture`
+    /// service named by its purpose's text.
+    #[test]
+    fn the_background_capture_line_derives_audio_and_the_capture_service() {
+        let dir = app(&[("en", r#"{"mic": "Records.", "bg": "Recording"}"#)]);
+        let grants = "device.microphone mic\ndevice.microphone-background bg";
+        let mut ios = compat(grants);
+        derive(&dir.0, "ios", None, &mut ios).unwrap();
+        assert_eq!(ios.reach["backgroundModes"], json!(["audio"]));
+        assert_eq!(ios.reach["flags"], json!(["ExactCapturesInBackground"]));
+        let mut android = compat(grants);
+        derive(&dir.0, "linux", None, &mut android).unwrap();
+        assert_eq!(
+            android.reach["android"],
+            json!([
+                "android.permission.FOREGROUND_SERVICE",
+                "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+                "android.permission.RECORD_AUDIO"
+            ])
+        );
+        assert_eq!(
+            android.reach["androidServices"],
+            json!({"capture": {"purpose": "Recording", "types": ["microphone"]}})
+        );
+        let mut mac = compat(grants);
+        derive(&dir.0, "macos", None, &mut mac).unwrap();
+        assert!(
+            mac.reach.get("backgroundModes").is_none()
+                && mac.reach.get("androidServices").is_none()
+        );
+        let mut alone = compat("device.microphone-background bg");
+        let refused = derive(&dir.0, "ios", None, &mut alone).unwrap_err();
+        assert!(refused.contains("grant-needs"), "{refused}");
+    }
+
+    #[test]
+    fn calls_stay_out_of_a_production_build() {
+        let dir = app(&[("en", r#"{"mic": "Records.", "calls": "Test calls."}"#)]);
+        let grants = "device.microphone mic\ndevice.calls calls";
+        let mut development = compat(grants);
+        derive(&dir.0, "ios", None, &mut development).unwrap();
+        assert_eq!(
+            development.reach["backgroundModes"],
+            json!(["audio", "voip"])
+        );
+        let mut android = compat(grants);
+        derive(&dir.0, "linux", None, &mut android).unwrap();
+        assert_eq!(
+            android.reach["androidServices"],
+            json!({"call": {"purpose": "Test calls.", "types": ["phoneCall", "microphone"]}})
+        );
+        let mut production = compat(grants);
+        production.embedded = json!({ "trust": "production" });
+        let refused = derive(&dir.0, "ios", None, &mut production).unwrap_err();
+        assert!(refused.contains("§13 question 4"), "{refused}");
     }
 
     #[test]
@@ -852,10 +1129,41 @@ mod tests {
     }
 
     #[test]
+    fn nfc_signs_its_formats_array_on_ios_and_leaves_tvos_out() {
+        // LLP 1133.035 D15, D16 item 2.
+        let dir = app(&[("en", r#"{"nfc": "Reads the tags on your books."}"#)]);
+        let derive_for = |platform: &str| {
+            let mut c = compat("device.nfc nfc");
+            derive(&dir.0, platform, None, &mut c).unwrap();
+            c.reach
+        };
+        let formats = "com.apple.developer.nfc.readersession.formats";
+        let ios = derive_for("ios");
+        assert_eq!(
+            ios["usage"],
+            json!({"NFCReaderUsageDescription": {"en": "Reads the tags on your books."}})
+        );
+        assert_eq!(ios["entitlements"], json!([formats]));
+        assert_eq!(ios["entitlementValues"], json!({formats: ["TAG"]}));
+        assert_eq!(
+            ios["tvOmits"],
+            json!(["NFCReaderUsageDescription", formats])
+        );
+        // Android's bake derives as `linux`.
+        assert_eq!(
+            derive_for("linux")["android"],
+            json!(["android.permission.NFC"])
+        );
+        let mac = derive_for("macos");
+        assert_eq!(mac["entitlements"], json!([]));
+        assert!(mac.get("entitlementValues").is_none());
+    }
+
+    #[test]
     fn a_presence_line_needs_its_permission_line_its_module_and_one_policy() {
         let dir = app(&[("en", r#"{"purpose.lock": "Unlocks your session."}"#)]);
         let line = "secret.keep token user-presence optional";
-        let refused = parsed(&dir.0, Some(line), None).unwrap_err();
+        let refused = parsed(&dir.0, Some(line), None, false).unwrap_err();
         assert!(
             refused.contains("grant-missing: `secret.keep token user-presence optional` needs `device.local-auth"),
             "{refused}"
@@ -867,14 +1175,14 @@ mod tests {
         )
         .unwrap();
         let both = format!("{line}\ndevice.local-auth purpose.lock");
-        parsed(&dir.0, Some(&both), None).unwrap();
+        parsed(&dir.0, Some(&both), None, false).unwrap();
         let rust = "secret.keep token biometry-any\ndevice.local-auth purpose.lock";
-        let conflict = parsed(&dir.0, Some(&both), Some(rust)).unwrap_err();
+        let conflict = parsed(&dir.0, Some(&both), Some(rust), false).unwrap_err();
         assert!(
             conflict.starts_with("grant-policy-conflict: "),
             "{conflict}"
         );
-        let unknown = parsed(&dir.0, Some("secret.keep token face-id"), None).unwrap_err();
+        let unknown = parsed(&dir.0, Some("secret.keep token face-id"), None, false).unwrap_err();
         assert!(unknown.contains("grant-policy-unknown"), "{unknown}");
         // Face ID's usage key on iOS, nothing on macOS, the biometric permission on Android.
         let text = json!({"en": "Unlocks your session."});
@@ -893,6 +1201,56 @@ mod tests {
             android.reach["android"],
             json!(["android.permission.USE_BIOMETRIC"])
         );
+    }
+
+    #[test]
+    fn the_local_network_s_lines_need_their_permission_and_derive_apple_s_and_android_s_keys() {
+        // LLP 1133.036 D5, D7.
+        let dir = app(&[("en", r#"{"lan": "Finds your lights."}"#)]);
+        let lines = "net.dns-sd _wled._tcp\nnet.fetch local-network";
+        let refused = parsed(&dir.0, Some(lines), None, false).unwrap_err();
+        assert!(
+            refused
+                .starts_with("grant-missing: `net.dns-sd _wled._tcp` needs `device.local-network"),
+            "{refused}"
+        );
+        let bad = parsed(
+            &dir.0,
+            Some("net.dns-sd _wled._sctp\ndevice.local-network lan"),
+            None,
+            false,
+        );
+        let bad = bad.unwrap_err();
+        assert!(
+            bad.starts_with("grant-parse: the Rust source: `net.dns-sd _wled._sctp`"),
+            "{bad}"
+        );
+        let grants = format!("{lines}\ndevice.local-network lan");
+        parsed(&dir.0, Some(&grants), None, false).unwrap();
+        let development = format!("{grants}\nnet.websocket local-network development");
+        parsed(&dir.0, Some(&development), None, false).unwrap();
+        let production = parsed(&dir.0, Some(&development), None, true).unwrap_err();
+        assert!(
+            production.contains("a production build admits no loopback"),
+            "{production}"
+        );
+        for platform in ["ios", "macos"] {
+            let mut c = compat(&grants);
+            derive(&dir.0, platform, None, &mut c).unwrap();
+            assert_eq!(c.reach["bonjour"], json!(["_wled._tcp"]), "{platform}");
+            assert_eq!(c.reach["localNetworking"], json!(true), "{platform}");
+        }
+        let mut android = compat(&grants);
+        derive(&dir.0, "linux", None, &mut android).unwrap();
+        assert_eq!(
+            android.reach["android"],
+            json!(["android.permission.CHANGE_WIFI_MULTICAST_STATE"])
+        );
+        assert!(android.reach["bonjour"].is_null());
+        let mut fetch_only = compat("net.fetch local-network\ndevice.local-network lan");
+        derive(&dir.0, "ios", None, &mut fetch_only).unwrap();
+        assert!(fetch_only.reach["bonjour"].is_null());
+        assert_eq!(fetch_only.reach["localNetworking"], json!(true));
     }
 
     #[test]

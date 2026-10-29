@@ -40,11 +40,13 @@ exact-runner = { path = "../../runner" }
 ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket"] }
 
 serde_json = "1.0"
+# The URL type ibex2's hop gate takes (LLP 1133.036 D6).
+url = "2.5"
 
 [dev-dependencies]
+# The listener the executor's tests install in place of the library (LLP 1133.005).
+exact-listen = { path = "../listen" }
 exact-logic = { path = "../../logic" }
 caltrain = { path = "../../apps/caltrain" }
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }
-# A scripted socket transport names the URL type its trait takes.
-url = "2.5"

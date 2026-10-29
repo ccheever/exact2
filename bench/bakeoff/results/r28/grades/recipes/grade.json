@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list of all 160 recipes, each row showing the title in semibold and 'Category · clock time · star rating' underneath, with a chevron. The large title collapses on scroll."},
+      {"n": 2, "status": "pass", "note": "A row of category chips (All plus nine) that scrolls sideways, and a search field. Desserts + 'miso' gives 2 results; 'spinach' matches ingredients and each row adds a 'Contains spinach' line. Searching 'zzzq' shows a 'No Results for “zzzq”' empty state."},
+      {"n": 3, "status": "pass", "note": "The Sort button opens a native menu (Name A–Z, Time quickest, Rating highest) with a checkmark on the current choice. All three orders are correct, and the sort is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "Shows category, a large title, time, rating, a Servings stepper (it stops at 1 and a Reset button appears), ingredients and numbered steps. Quantities scale, with a footer like 'Scaled for 1 serving from the original 5'. Mixes fractions and decimals ('⅜ tbsp' next to '0.2 spinach'), and 2/5 is rounded to ⅜."},
+      {"n": 5, "status": "pass", "note": "Heart button in the nav bar on the recipe screen, plus a swipe action on list rows to favorite. The Favorites tab has an Edit button and swipe-to-remove. The empty state ('No Favorites Yet', a hint and a Browse Recipes button) is helpful."},
+      {"n": 6, "status": "pass", "note": "Two favorites survived a relaunch, newest first."}
+    ],
+    "bugs": [
+      "No functional bugs found."
+    ],
+    "tells": [
+      "Category filter is a row of custom-drawn orange chips rather than a system control (common in real apps, but hand-drawn).",
+      "The recipe title appears twice: in the inline nav bar even when scrolled to the top, and again as a large heading in the content.",
+      "Scaled quantities mix unicode fractions and decimals and round to odd fractions (⅜ for 0.4).",
+      "At the largest text size the Servings stepper drops onto its own line under the label and stays small; otherwise the layout reflows well.",
+      "The empty-state text in Favorites is not exposed to accessibility (the tree shows only 'Empty list'), and the list exposes many ghost off-screen text elements."
+    ],
+    "scroll": "Smooth, native table scrolling: slow drags track the finger, flings decelerate normally, the pull past the top bounces back, and no rows pop in or go blank. Scroll position was kept exactly when returning from a recipe.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of all 160 recipes: title, 'Category · time' underneath, and the star rating with a chevron on the right. A header row shows 'All Categories · 160 recipes · by Name'."},
+      {"n": 2, "status": "pass", "note": "A category menu in the nav bar (All Categories plus nine, with a checkmark on the current one) and a search field. Desserts + 'miso' gives 2 results; 'spinach' matches ingredients (9 desserts). The no-results state names the category and offers 'Search All Categories'. The current category is shown only in the header row, not while typing."},
+      {"n": 3, "status": "pass", "note": "Native sort menu (Name, Time, Rating) in the nav bar. All three orders are correct, and the sort is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "Inset-grouped Category/Time/Rating, a Servings stepper (stops at 1), ingredients with bold quantities, and numbered steps. Scaling is clean (1½, ½), with a footer 'Quantities scaled from 2 servings'. No title in the content, only the inline nav title, with a large empty gap above the first section."},
+      {"n": 5, "status": "pass", "note": "Heart button in the nav bar on the recipe screen to add or remove. The Favorites tab has swipe-to-delete and a hint footer. The empty state has a heart, a message and a Browse Recipes button. No favorite swipe action on the main list."},
+      {"n": 6, "status": "pass", "note": "A favorite survived a relaunch."}
+    ],
+    "bugs": [
+      "A horizontal swipe on a row in the main Recipes list opens that recipe, as if it were a tap, instead of doing nothing or showing swipe actions. Reproduced 2 of 2 times."
+    ],
+    "tells": [
+      "At the largest text size, list rows keep the rating beside the title, so titles break inside words ('Muffin/s', 'Crea/my') and 'Category · time' wraps into a narrow column.",
+      "Recipe screen starts with a blank gap of about 40pt under the nav bar, with no title or header in the content.",
+      "No swipe actions on main-list rows (only in Favorites), and no Edit button in Favorites.",
+      "Empty-state title is regular weight rather than the bold system empty-state style.",
+      "On returning from a recipe the list sometimes moves by about 13pt, and once came back at the top."
+    ],
+    "scroll": "The collection view scrolls smoothly, with normal fling deceleration and bounce, and no blank or popping rows. On returning from a recipe, the position usually holds but moves by about 13pt, and once it reset to the top.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and look native in light and dark mode. A is more complete: swipe-to-favorite on the list, an Edit mode in Favorites, ingredient-match hints in search, and a layout that reflows cleanly at the largest text size. B breaks titles inside words at large text, has a blank gap at the top of the recipe screen, and opens a recipe when a row is swiped sideways."
+}

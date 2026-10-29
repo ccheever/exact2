@@ -59,6 +59,11 @@ pub(super) fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortControll
             FailureKind::Refused,
             format!("outside the app's grants ({capability}): redirected to {origin}"),
         ),
+        // A tool's, a wake's or a package event's reach that could prompt
+        // (LLP 1133.036 D6): never sent.
+        ibex2::boundary::HostError::NotAllowed { reason } => {
+            failed(FailureKind::Refused, format!("NotAllowedError: {reason}"))
+        }
         e => failed(
             FailureKind::Network,
             e.to_string().chars().take(2048).collect::<String>(),

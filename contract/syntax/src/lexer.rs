@@ -140,6 +140,9 @@ impl Lexer {
                             | "atom"
                             | "fn"
                             | "test"
+                            | "always"
+                            | "after"
+                            | "never"
                     )
                 )
             {

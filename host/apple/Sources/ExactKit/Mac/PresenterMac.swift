@@ -130,6 +130,7 @@ package final class Presenter {
     lazy var toolbar = WindowToolbarHost(self)
     /// What native presentations cover of boxes (LLP 1115.002 D8.1, CoversMac.swift).
     lazy var covers = HostCovers(self)
+    lazy var statusItems = StatusItemHost(self)
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
     /// The root tab bar as the window's sidebar (LLP 1115.002 D3), and the kernel's rule for a root's tabs.
     lazy var sidebar = SidebarHost(self)
@@ -618,6 +619,7 @@ package final class Presenter {
         toolbar.reset() // its header's cover goes with `covers.reset()` below, untold
         navigation.reset()
         sidebar.reset()
+        statusItems.reset()
         covers.reset()
         segments.reset()
         controls.reset()
@@ -864,6 +866,15 @@ package final class Presenter {
     var pressHeld = ""
     /// The click being sent as a press, given by the mouse paths only (`pressMount`, FocusMac.swift).
     var pressClick: NSEvent?
+    /// A native button's click being sent as a press (`activateNative`): its
+    /// point only, since its focus is AppKit's button's, not `pressMount`'s.
+    var nativeClick: NSEvent?
+    /// Where that click was in the viewport, its `MouseEvent`'s `clientX`/`clientY`
+    /// (LLP 1021 D2); none for a key's or VoiceOver's press, which DOM puts at 0, 0.
+    var pressPoint: CGPoint? {
+        guard let click = pressClick ?? nativeClick, [.leftMouseDown, .leftMouseUp].contains(click.type) else { return nil }
+        return client(NodeView.point(click, in: viewport.window))
+    }
     package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "", bubbled: Bool = false, outsideModal: Bool = false, click: NSEvent? = nil) {
         pressHeld = held; defer { pressHeld = "" } // `outsideModal`: an app-wide menu item's (ShortcutsMac `enabled`)
         guard let node = textHost(id), !(bubbled || outsideModal ? node.authoredInert : node.inert), !node.disabled,
@@ -1141,6 +1152,7 @@ package final class Presenter {
                 v.handlers = op.handlers
                 v.applyStyle(v.presented(op.style))
                 v.applyProps(set: op.props, clear: [])
+                v.embedFrame(self)
                 views[id] = v
                 elements.created(v)
                 if v.kind == "list" { listViews[id] = v }
@@ -1293,6 +1305,7 @@ package final class Presenter {
         positionContexts()
         if bar { toolbar.sync() }
         shortcuts.sync()
+        statusItems.sync()
         if structureChanged { selection.structureChanged() }
         // The key-view loop is read only by a key event (Tab): it is marked
         // stale here and rebuilt when one arrives (`flushKeyViewLoop`), not
@@ -1413,6 +1426,8 @@ package final class Presenter {
     /// through captures again at the end of the batch — the canvas above
     /// it, and itself for its own `children` op.
     func touched(_ id: UInt32, children: Bool = false, textChanged: Bool = false) {
+        // A filtered box draws again when it or anything in it changes.
+        if !boxFilters.isEmpty, let start = views[id] { boxFilters.touched(start) }
         guard let start = views[id] else { return }
         var paragraph: NodeView? = start
         while let node = paragraph, node.kind == "text" {
@@ -1435,7 +1450,8 @@ package enum Capture {
 
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
-    package static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
+    package static func bitmap(of view: NSView, scale: CGFloat, prepared: Bool = false) -> NSBitmapImageRep? {
+        if !prepared { prepareBackingLayers(of: view) }
         // A subtree painted through its canvas composites at alpha 0; paint
         // it opaque into the bitmap regardless.
         let alpha = view.alphaValue
@@ -1452,7 +1468,7 @@ package enum Capture {
             }
         }
         hide(view)
-        let rep = paintOrderBitmap(of: view, scale: scale)
+        let rep = paintOrderBitmap(of: view, scale: scale, prepared: true)
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep

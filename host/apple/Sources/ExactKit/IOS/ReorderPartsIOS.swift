@@ -104,7 +104,10 @@ struct ReorderScroller {
     }
     func canScroll(toward direction: Double) -> Bool {
         let r = range
-        return direction < 0 ? r.now > r.low : direction > 0 ? r.now < r.high : false
+        // (at an edge within a hundredth of a pixel: UIKit's read-back of the
+        // last pixel is a ULP off the grid's; PixelGrid.same, Astra's audit)
+        if direction < 0 { return r.now > r.low && !PixelGrid.same(r.now, r.low, in: scroll) }
+        return direction > 0 ? r.now < r.high && !PixelGrid.same(r.now, r.high, in: scroll) : false
     }
     func scroll(by delta: Double) -> Bool {
         let r = range

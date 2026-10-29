@@ -270,12 +270,16 @@ final class HoverFollowsLayoutMacTests: XCTestCase {
         p.onHover = { id, over in log.append("\(id) \(over)") }
         p.hoverUnderPointer() // the last batch's frame
         XCTAssertFalse(p.followPending)
+        var last = Date()
         for y in [20.0, 30.0, 45.0, 60.0] {
+            last = Date() // (before the move that schedules the rest: Astra's round 1)
             p.viewport.contentView.scroll(to: NSPoint(x: 0, y: y))
             XCTAssertFalse(p.followPending, "no hit-test while the scroll moves")
             XCTAssertNotNil(p.scrollRestFollow, "one waits for the scroll to rest")
         }
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: Presenter.scrollRestInterval + 0.1))
+        // On its event, not a fixed deadline (a loaded run's rest came later; EventWaits).
+        waitFor("the scroll rested", late: Presenter.scrollRestInterval + 0.1) { p.scrollRestFollow == nil }
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(last), Presenter.scrollRestInterval, "not before it rested for the interval")
         XCTAssertNil(p.scrollRestFollow)
         XCTAssertTrue(p.followPending, "the scroll rested: the hit-test waits for the next frame")
         XCTAssertEqual(log, [], "nothing until the frame")

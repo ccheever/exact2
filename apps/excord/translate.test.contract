@@ -1,0 +1,37 @@
+// Excord's Translate (LLP 1133.027 drives 7 and 8) on the fixture server as app.test.contract runs it (--world
+// transcript --reset-on-identify). Each launch runs `clock settle` (IDENTIFY's task), waits for the gateway's READY
+// with the clock frozen (`clock until state`), then `clock settle` again for what READY armed (the channel list).
+epoch "2026-10-22T18:00:00Z"
+time-zone "America/Los_Angeles"
+
+test "Translate shows a message in the reader's language until Show Original (LLP 1133.027 drive 7)"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "fixture"
+  tap "inject-japanese"
+  clock settle
+  tap "明日の会議は十時からです。" contextmenu
+  clock data
+  tap "menu-translate"
+  clock data
+  expect state translated.0.text == "[en] 明日の会議は十時からです。"
+  expect state translated.0.line == "Translated from Japanese"
+  tap "Show Original"
+  expect state translated == []
+
+test "a message in the reader's own language offers no Translate"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "fixture"
+  tap "inject-message"
+  clock settle
+  tap "The new build is ready to try." contextmenu
+  clock data
+  expect tree has "menu-copy"
+  expect tree missing "menu-translate"

@@ -1,0 +1,12 @@
+{
+  "name": "@exact/usb",
+  "version": "1.0.0",
+  "private": true,
+  "description": "USB devices by WebUSB's names: a chooser or the attached list, configurations and interfaces, and control, bulk and interrupt transfers (LLP 1133.037).",
+  "exports": {
+    ".": "./exact.json",
+    "./web": "./web/exact.json",
+    "./apple": "./apple/exact.json",
+    "./linux": "./linux/exact.json"
+  }
+}

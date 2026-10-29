@@ -10,9 +10,10 @@
   "app": { "id": "com.exact.authfixture", "name": "Auth Fixture", "origin": "https://auth-fixture.exact.test" },
   "auth": { "scope": "atproto" },
   "host": {
-    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"], "team": "CUW59GZ74D" },
     "macos": { "minimumOS": "14.0", "window": { "width": 440, "height": 560, "minWidth": 320, "minHeight": 400 } },
-    "web": {}
+    "web": {},
+    "android": { "certificates": ["3D:1C:53:86:67:34:0C:F4:D3:17:83:76:1D:24:63:B6:0B:17:C3:D7:08:D8:D3:7D:32:F8:AD:8C:DA:8E:78:E9"] }
   },
   "rust": false,
   "deploy": { "store": { "web": "0", "macos": "0", "ios": "0" } }

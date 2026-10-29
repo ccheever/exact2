@@ -48,7 +48,9 @@ export interface TypingUser { user: User; expiresAtMs: number }
 export interface GuildEmoji { id: string; name: string; animated: boolean; available: boolean }
 /** One row of a member list: a group's header (a hoisted role's id, "online" or "offline") or a member. */
 export type MemberItem = { group: { id: string; count: number } } | { member: DiscordObject };
-export interface MemberList { id: string; items: (MemberItem | undefined)[]; revision: number }
+// `rows` is the revision at which the list's rows last changed: any op but UPDATE (a presence), a new list, or a
+// role (a group's name, a name's colour).
+export interface MemberList { id: string; items: (MemberItem | undefined)[]; revision: number; rows: number }
 interface ReadState { lastReadId: string | null; mentionCount: number }
 interface Entry {
   row: MessageRow; sortId: string; tie: number; run: Run; unanchored?: boolean;
@@ -104,6 +106,8 @@ export interface Store {
   // guild's or one a new list id started over, repeats a revision a reader saw.
   memberRevision: number;
   sidebarRevision: number;
+  // Moves when a known user's name, picture or kind changes, which the DM list shows.
+  identityRevision: number;
   sequence: number;
 }
 interface Changes { channels: Set<string>; sidebar: boolean }
@@ -112,7 +116,7 @@ interface Changes { channels: Set<string>; sidebar: boolean }
 export function createStore(opts: { meId?: string } = {}): Store {
   return {
     meId: opts.meId ?? null, users: new Map(), guildMap: new Map(), channelMap: new Map(),
-    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), memberLists: new Map(), memberRevision: 0, sidebarRevision: 0, sequence: 0,
+    histories: new Map(), readStates: new Map(), roles: new Map(), byGuild: null, removals: 0, versions: new Map(), guildOrder: [], folders: [], emojis: new Map(), memberLists: new Map(), memberRevision: 0, sidebarRevision: 0, identityRevision: 0, sequence: 0,
   };
 }
 
@@ -272,6 +276,13 @@ function rememberUser(s: Store, user: DiscordObject | undefined): void {
   if (!user?.id) return;
   const known = s.users.get(user.id);
   if (known && SHOWN.every(key => !(key in user) || known[key] === user[key])) return;
+  if (known) {
+    s.identityRevision++;
+    // A DM is drawn under its recipient's name and picture (`channel`), so its own version moves too.
+    for (const [id, channel] of s.channelMap) {
+      if (channel.recipient_ids?.includes(user.id)) s.versions.set(id, (s.versions.get(id) ?? 0) + 1);
+    }
+  }
   s.users.set(user.id, { ...known, ...user } as User);
 }
 
@@ -433,13 +444,16 @@ function setEmojis(s: Store, guildId: string, emojis: DiscordObject[]): void {
 function updateMemberList(s: Store, d: DiscordObject): void {
   const id = String(d.id ?? '');
   let list = s.memberLists.get(d.guild_id);
-  if (!list || list.id !== id) { list = { id, items: [], revision: 0 }; s.memberLists.set(d.guild_id, list); }
+  const fresh = !list || list.id !== id;
+  if (!list || fresh) { list = { id, items: [], revision: 0, rows: 0 }; s.memberLists.set(d.guild_id, list); }
   const items = list.items.slice();
   const take = (item: any): MemberItem | undefined => {
     if (item?.member) { rememberUser(s, item.member.user); return { member: item.member }; }
     return item?.group ? { group: { id: String(item.group.id), count: Number(item.group.count ?? 0) } } : undefined;
   };
+  let moved = fresh;
   for (const op of Array.isArray(d.ops) ? d.ops : []) {
+    if (op.op !== 'UPDATE') moved = true;
     const [from, to] = Array.isArray(op.range) ? op.range.map(Number) : [0, -1];
     if (op.op === 'SYNC') {
       const given = Array.isArray(op.items) ? op.items : [];
@@ -451,7 +465,8 @@ function updateMemberList(s: Store, d: DiscordObject): void {
     else if (op.op === 'UPDATE' && Number.isInteger(op.index)) items[op.index] = take(op.item);
   }
   // Its own revision, not the lists': a presence moving in a large server would otherwise redraw them.
-  s.memberLists.set(d.guild_id, { id, items: items.slice(0, 200), revision: ++s.memberRevision });
+  const revision = ++s.memberRevision;
+  s.memberLists.set(d.guild_id, { id, items: items.slice(0, 200), revision, rows: moved ? revision : list.rows });
 }
 
 function rememberMember(s: Store, guildId: string, member: DiscordObject, c: Changes): void {
@@ -470,9 +485,9 @@ function setRole(s: Store, guildId: string, role: DiscordObject | null, roleId: 
   const roles = ((guild.roles ?? []) as DiscordObject[]).filter(r => r.id !== roleId);
   s.guildMap.set(guildId, { ...guild, roles: role ? [...roles, role] : roles } as Guild);
   c.sidebar = true;
-  // The member list names its groups and colours its names by these roles.
+  // The member list names its groups and colours its names by these roles, so its rows change too.
   const list = s.memberLists.get(guildId);
-  if (list) s.memberLists.set(guildId, { ...list, revision: ++s.memberRevision });
+  if (list) { const revision = ++s.memberRevision; s.memberLists.set(guildId, { ...list, revision, rows: revision }); }
 }
 
 function unreadSignature(s: Store, id: string): string {
@@ -932,13 +947,14 @@ export function removePending(s: Store, channelId: string, nonce: string): Chang
   return finish(s, { channels: new Set([channelId]), sidebar: false });
 }
 
-/** Expire typing on the caller's clock and invalidate just the affected channels. */
-export function expireTyping(s: Store, nowMs: number): Changed {
-  const c = changes();
-  for (const [id, h] of s.histories) for (const [userId, expiry] of h.typing) {
-    if (expiry <= nowMs) { h.typing.delete(userId); c.channels.add(id); }
+/** Forget typing that has ended on the caller's clock. The typing line reads `typingUsers` at its own time, so
+ * no version moves; the count is of entries dropped. */
+export function expireTyping(s: Store, nowMs: number): number {
+  let dropped = 0;
+  for (const h of s.histories.values()) for (const [userId, expiry] of h.typing) {
+    if (expiry <= nowMs) { h.typing.delete(userId); dropped++; }
   }
-  return finish(s, c);
+  return dropped;
 }
 
 /** Read the version used by a channel's message, typing and read-state resources. */
@@ -947,9 +963,12 @@ export function channelVersion(s: Store, channelId: string): number { return s.v
 /** Read the version used by guild, channel, DM and unread sidebar resources. */
 export function sidebarVersion(s: Store): number { return s.sidebarRevision; }
 
+/** A window's most rows: 200, raised by two pages for a fling's lead (F1), so a page that lands while the reader
+ * is within the lead's 100 rows of the top is never shed from the window it lands in. */
+export const WINDOW_CAP = 300;
 function windowLimit(limit: number): number {
   if (!Number.isFinite(limit) || limit < 1) throw new RangeError('Window limit must be positive');
-  return Math.min(200, Math.floor(limit));
+  return Math.min(WINDOW_CAP, Math.floor(limit));
 }
 
 function sliceWindow(run: Run | undefined, start: number, end: number): MessageWindow {
@@ -982,7 +1001,7 @@ function locate(s: Store, channelId: string, id: string): { run: Run; index: num
   return null;
 }
 
-/** Return up to 200 rows at the live tail; an unloaded tail stays empty and fetchable. */
+/** Return up to WINDOW_CAP rows at the live tail; an unloaded tail stays empty and fetchable. */
 export function latestWindow(s: Store, channelId: string, limit = 50): MessageWindow {
   const count = windowLimit(limit);
   const run = s.histories.get(channelId)?.live;
@@ -1164,6 +1183,12 @@ export function dms(s: Store): Channel[] {
   return [...s.channelMap.values()].filter(channel => channel.type === 1 || channel.type === 3)
     .sort((a, b) => cmpId(b.last_message_id ?? '0', a.last_message_id ?? '0') || cmpId(a.id, b.id))
     .map(value => withRecipients(s, value));
+}
+
+/** Whether a channel is a DM or a group DM. */
+export function isDirect(s: Store, channelId: string): boolean {
+  const type = s.channelMap.get(channelId)?.type;
+  return type === 1 || type === 3;
 }
 
 /** Read one normalized channel, including resolved DM recipients when present. */

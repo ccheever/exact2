@@ -194,6 +194,9 @@ component App
   phone pushes. A row pressed while a detail shows pushes another; to swap the detail instead,
   `open` replaces when one shows: `nav = top(nav).name == "recipe" ? replace(nav,
   path("recipe", name)) : push(nav, path("recipe", name))`.
+- The chevron is the row's last child with no colour or size of yours: UIKit's grey
+  disclosure. A row that wraps (`flex-wrap`) at large text sizes wraps its parts in a `row
+  flex=1 min-width=0 flex-wrap="wrap"` and leaves the chevron after it, at the trailing edge.
 - Each route keeps its own scroll: a pushed screen opens at its top, and Back returns to the
   list where it was left. What an `if` swaps inside one route's scroll keeps that scroll's
   place, as a web page's does, so the stages a person moves through (a quiz's start, its
@@ -490,6 +493,10 @@ component App
               image "symbol:pin"
 ```
 
+- An action is UIKit's grey unless you colour it: `accent-color` on its button (Flag's
+  `-exact-system-orange`, Archive's `-exact-system-indigo`; `destructive=true` is red). Its
+  visible text is the label UIKit draws under the glyph: `image` then `text "Flag"` shows
+  both, as Mail does; an image with only `aria-label` shows no label.
 - UIKit draws its swipe actions itself (rounded on iOS 26 and later), whatever you paint.
   To keep painted actions (flush 76-point rectangles of your own colours), write
   `appearance="none"` on every control the row names: on iOS the row then swipes by its own
@@ -831,7 +838,7 @@ along the gradient line. `background-attachment` takes `scroll` or `fixed`;
 hatch on separate rows does not establish one pattern across the list.
 
 ## menu: a pull-down menu of actions, and a long-press one
-names: menus, popover, dropdown, pulldown, pull-down, popupmenu, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction, menuitemradio, menuitemcheckbox, checkmark
+names: menus, popover, dropdown, pulldown, pull-down, popupmenu, menu at the click, popup at point, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction, menuitemradio, menuitemcheckbox, checkmark
 
 A menu is HTML's: a `column popover="auto" role="menu"` of `button`s, opened by a button's
 `popovertarget` (on iOS a `UIMenu`; in a `header`, the bar item's pull-down). A long-press
@@ -871,6 +878,10 @@ component App
 - A row's second `text`, under the first (a block `button`, or `flex-direction="column"`), is
   its grey subtitle: `text "Name"` then `text "A to Z"`. Side by side they stay one title.
 - An `hr` between rows starts a section; `destructive=true` paints a row red.
+- At the click, as Electron's `Menu.popup({x, y})`: the button's `press` action takes
+  `e: MouseEvent`, keeps `e.clientX`, `e.clientY` (both 0 from a key; then leave the insets
+  `auto`), and calls `showPopover("menu", source="button")`; the popover writes them as `left`
+  and `top` with `margin=0` and no `position-area`. iOS keeps the menu on its invoker (LLP 1021 D2).
 
 A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextmenu`, then
 taps the item. A row whose `popovertarget` names another menu is its submenu.
@@ -958,11 +969,16 @@ component App
 More: docs/recipes/list-rows.md
 
 ## menubar: adding commands to the Mac menu bar
-names: -exact-menu, -exact-menu-remove
+names: -exact-menu, -exact-menu-remove, -exact-menu-keys
 
 On a button, `-exact-menu` is a literal `about` (directly under About), `app`,
 `file`, `edit`, `view`, `go`, `window`, `help` or `none` (no item; the chord
-stays a shortcut). It adds an item even without a chord and overrides
+stays a shortcut). `dock` beside one of them, or alone, also files the button
+in the app's Dock menu (`-exact-menu="file dock"`). `status` alone presents the
+button as the app's status item: a menu bar item on macOS, a notification-area
+icon on Windows; it takes the button's place, its `popovertarget` menu is the
+item's menu, and with another id it fails `lower-menu-status` (LLP 1133.025).
+It adds an item even without a chord and overrides
 `aria-keyshortcuts` chord filing. The item's label is the button's accessible
 label or text; `disabled` disables it. An item in the app menu or Help is the
 app's: enabled with no key window, under a sheet and under a Contract modal dialog.
@@ -974,12 +990,22 @@ standard items and their menu equivalents. The fixed ids are `close-all`, `autof
 `move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `develop` (the
 Develop menu; its chords stay), `paste-and-match-style`, `find`,
 `spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
-*App* Help), `actual-size`, `zoom-in`, `zoom-out`.
+*App* Help), `actual-size`, `zoom-in`, `zoom-out`, and `status-quit` (the
+host's Quit ending a status item's menu).
 The whitespace-separated list must be literal; unknown ids and nested use fail
 with `lower-menu-remove`, naming the set. Empty removes nothing; duplicates
 are harmless. The view’s root is a node, not a conditional. Root replacement and
 window switching restore the appropriate menu. App buttons and other standard
 items remain. Other hosts ignore removal (LLP 1021 §5.3).
+A root `-exact-menu-keys="close-window=none"` keeps File ▸ Close Window with no
+chord, so ⌘W reaches the page; declare `-exact-menu-remove="close-all"` with it,
+or AppKit's Close All ⌥⌘W shows as a row of its own. `close-window=Meta+Shift+W`
+gives it ⇧⌘W. `close-window` is the one id; the chord is one `aria-keyshortcuts`
+chord with `Meta` that is not the host's or the system's own (⌘Q, ⌘W, ⌘H, ⌘M,
+⌘-comma and the like). Another id, an id named twice, a chord without `Meta`, a
+standard chord and nested use fail with `lower-menu-keys`. An app command with
+the chord still takes it; without the declaration Close Window has ⌘W (LLP 1021
+§5.3.3).
 
 ```contract
 component App

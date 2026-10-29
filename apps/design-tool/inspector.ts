@@ -28,6 +28,15 @@ const CSS: Record<string, string> = {
     'symbol_effect', 'press_haptic', 'content_transition', 'scroll_edge_effect', 'hover_effect', 'smart_invert', 'animation_trigger', 'control_size', 'fit', 'mode']
     .map(n => [n, `-exact-${n.replace(/_/g, '-')}`])),
 };
+// The rows lowering writes itself with no source place, at their own defaults (stage 15 D4 batch 1 #5): a symbol's
+// tint as `currentcolor` (contract/lower symbols/ink.rs). Folded with the rows nothing sets, never named as editable.
+const LOWERED: Record<string, string> = { tint_color: 'currentcolor' };
+// (Only a row with no source place: the join's own words for one, scripts/tamber-inspect.mjs `editableOf`; an authored
+// row of the same value, a package's read-only one among them, has a place and another reason.)
+// A class's `color` lowers to the tint too, in its class: "a style's row (Name) the map gives no place for".
+const UNPLACED = /^(a value|a style's row \([^)]*\)) the map gives no place for: the source's to edit$/;
+const lowered = (r: any) => !r.editable?.rung && UNPLACED.test(String(r.editable?.reason ?? '')) && typeof r.value === 'string' && LOWERED[String(r.name)] === r.value.trim().toLowerCase();
+
 /** A row's author-facing name, as its source spells it: a border side's
  * longhand puts the side first (`border-top-left-radius`). */
 export const rowName = (name: string) => CSS[name] ?? name.replace(/^border_(width|style|color|radius)_(.+)$/, 'border_$2_$1').replace(/_/g, '-');
@@ -84,13 +93,15 @@ function libraryOf(library: any, partsOf: (identity: string) => { name: string; 
 /** The selection as the inspector shows it: each row's source, and its edit
  * on the branch that won for the copy (D6: its modes' column and scheme), its
  * token link or why it is read-only; nothing to do while stale. */
-export function selectionView(s: Selected | null, stale: string, axes: Axis[], columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '', partsOf: (identity: string) => { name: string; slot: boolean }[] | null = () => null) {
+export function selectionView(s: Selected | null, stale: string, read: Axis[] | null, columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '', partsOf: (identity: string) => { name: string; slot: boolean }[] | null = () => null) {
   if (!s) return { ...noSelection, inspecting };
-  const e = s.e, dark = s.scheme === 'dark';
+  // (`read`: the app design's axes, null until its first read; a design that declares none has an empty list, and its
+  // copies sit on its light or dark column, stage 15 D4's batch 1 #1.)
+  const axes = read ?? [], e = s.e, dark = s.scheme === 'dark';
   // On a light copy an under-dark axis is its default; any other the copy
   // names. With no axes read yet, or one it does not name, it is not placed.
   const values = axes.map(a => (dark || a.under !== 'dark' ? e.tuple?.[a.name] : a.values[0]));
-  const col = s.scheme && axes.length && values.every(v => v != null) ? columns.find(c => c.dark === dark && c.values.every((v, i) => v === values[i])) : undefined;
+  const col = s.scheme && read && values.every(v => v != null) ? columns.find(c => c.dark === dark && c.values.every((v, i) => v === values[i])) : undefined;
   const at = (x: any, file = String(x?.file)) => x ? `${file}:${x.line} · ${x.component}` : '';
   const usable = !stale && !!col;
   const shown = holdView(e, holding, note, !!stale);
@@ -100,7 +111,7 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
   const partAt = (x: any) => `${String(x.file ?? '').split('/').pop()}:${x.line}`;
   const row = (r: any) => ({
     // Nothing sets it (its initial value): the Inspector folds it behind a count, unless it is the row being edited.
-    initial: r.source === 'initial',
+    initial: r.source === 'initial' || lowered(r),
     name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
     source: r.source && typeof r.source === 'object' ? `${r.state ? `:${r.state} part at ` : ''}${partAt(r.source)}` : `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.fromAt?.line != null ? ` from ${r.fromAt.component ?? 'a node'} (${String(r.fromAt.file).split('/').pop()}:${r.fromAt.line})` : r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
     rung: usable ? String(r.editable?.rung ?? '') : '', token: usable ? String(r.editable?.token ?? r.editable?.link ?? '') : '',
@@ -116,8 +127,8 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     // (Not current for the page itself, latched apart from the rows' staleness: a move up is refused then. The Apple
     // pass's #5, #6.)
     pageStale: s.pageStale ?? '',
-    has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
-    source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: at(x), up: i + 1, component: String(x?.component ?? '') })), component: String(e.source?.component ?? ''), movedUp: Number.isSafeInteger(e.moved?.up) ? e.moved.up : -1, movedStepped: Number.isSafeInteger(e.moved?.stepped) ? e.moved.stepped : -1, modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
+    has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !read ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
+    source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any, i: number) => ({ text: x?.slot === true ? `${x.component}'s slot (${String(x.file).split('/').pop()}:${x.line})` : at(x), up: i + 1, component: String(x?.component ?? ''), slot: x?.slot === true })), component: String(e.source?.component ?? ''), movedUp: Number.isSafeInteger(e.moved?.up) ? e.moved.up : -1, movedStepped: Number.isSafeInteger(e.moved?.stepped) ? e.moved.stepped : -1, modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
     // A node of an exported library component's own view (stage 12 D4, LLP 1139 D5): the component by its declaring
     // identity, the part this node is or none, and its parts as the server lists them, this one and the slot's marked.
     ...libraryOf(e.source?.library, partsOf),

@@ -1,0 +1,24 @@
+dev.bakeoff.moodboard.b31f139: SwiftUI.HostingScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 24.13 s of motion
+  ok    hitch ratio (ms/s)                     0
+  ok    longest frame (ms)                     16.7
+  ok    main thread p95 (ms/frame)             3.86
+  ok    tracking ratio                         0.992
+  tell  touch-to-content lag (frames)          1
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       502
+  ok    momentum hand-off (content/asked)      1.08
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.77
+  ok    rubber band (overscroll/finger)        0.48
+  ok    rubber band settle (s)                 0.54
+  ok    status-bar scroll to top (s)           0.97
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              16.4
+  tell  scrub: longest frame (ms)              52.2
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  17 ok, 2 tell, 1 bad
+  where the scrub's late frames' main-thread time went:
+    scrub: 2 late frames (0 on a timer's tick), 67 ms late; app code 65 ms (in text & drawing 28) · SwiftUI 8 ms; in display links and ports 56 ms, events 8 ms, the main queue 3 ms

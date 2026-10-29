@@ -23,7 +23,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn scrollbar_pointer(&mut self, phase: i32, x: f32, y: f32) -> bool {
-        if self.top_open() || !self.brush.scrollbars.enabled {
+        if self.shape_surface_open() || !self.brush.scrollbars.enabled {
             return false;
         }
         if let Some((key, vertical, grab)) = self.brush.scrollbars.drag {
@@ -43,6 +43,7 @@ impl<D: DataSource> Presenter<D> {
                     .kernel()
                     .node_by_key(key)
                     .is_some_and(|n| n.id == b.id)
+                    && self.alert_allows(b.id)
                     && !self.host.route_visibility(b.id).1
             }) {
                 let mut to = self.scroll_of(bar.id);
@@ -71,7 +72,7 @@ impl<D: DataSource> Presenter<D> {
             .bars
             .iter()
             .rev()
-            .find(|b| contains(b.track, x, y))
+            .find(|b| self.alert_allows(b.id) && contains(b.track, x, y))
             .copied();
         let Some(bar) = bar else {
             return false;

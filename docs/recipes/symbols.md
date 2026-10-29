@@ -25,14 +25,14 @@ component Toolbar
 The roles: `add`, `close`, `back`, `forward-chevron`, `chooser`, `compose`, `pencil`, `delete`,
 `search`, `filter` (narrowing a list: Apple's decreasing lines), `adjust` (sliders), `sort`,
 `more`, `ellipsis`, `menu` (a drawer or sidebar), `share`, `copy`, `link`, `pin`, `refresh`,
-`download`, `download-pending`, `install`, `open-app`, `package`, `mail`,
-`bookmark`, `heart`, `star` (each of these three with `-fill`), `checkmark`, `select`,
+`download`, `download-pending`, `install`, `open-app`, `package`, `mail`, `emoji`, `translate`,
+`bookmark`, `heart`, `star` (each with `-fill`), `checkmark`, `select`,
 `circle`, `minus`, `minus-circle`, `alert`, `info` (each with `-fill`), `lock`, `settings`, `home`,
 `person`, `people`, `follow`, `sign-out`, `messages`, `reply`, `send`, `quote`, `at`,
 `hashtag`, `notifications`, `calendar`, `chart`, `activity`, `book`, `document`,
 `layers`, `photo`, `camera`, `microphone`, `waveform`, `speaker`, `speaker-mute`,
 `play`, `pause`, `stop`, `skip-back-15`, `skip-forward-15`, `repeat`, `reorder` (a drag handle),
-`sparkles`, `moon`, and more `-fill`s (`home-fill`, `person-fill`, `play-fill`…). Unknown literals fail the build; computed sources are checked at runtime.
+`sparkles`, `moon`, and more `-fill`s (`home-fill`, `play-fill`…). Unknown literals fail the build; computed sources are checked at runtime.
 `contract vocab symbol` lists roles. A role also takes SF Symbols names and aliases (`gearshape`, `gear`, `trash`, `chevron-right`, `checkmark.circle.fill`): it builds as
 the role, with a warning that names it (`lower-symbol-alias`).
 

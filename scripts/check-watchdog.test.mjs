@@ -162,6 +162,7 @@ test('a builder that finishes is passed through: its exit status and its output,
 test('js/bake/src/typescript.mjs imports nothing beside it: the native bake copies it alone into its stage', async () => {
   const dir = scratch();
   copyFileSync(resolve(ROOT, 'js/bake/src/typescript.mjs'), join(dir, '__exact_config.mjs'));
+  copyFileSync(resolve(ROOT, 'js/bake/src/__exact_binding.mjs'), join(dir, '__exact_binding.mjs'));
   const { checkBound: staged } = await import(join(dir, '__exact_config.mjs'));
   expect(staged({})).toBe(CHECK_BOUND_MS);
 });

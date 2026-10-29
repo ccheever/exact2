@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers listed with symbol, name, price and % since open, green when up and red when down (system green/red, adapts in dark mode)."},
+      {"n": 2, "status": "pass", "note": "About 20 prices change each second. Rows update in place, also while scrolled mid-list. Under price/change sort, rows re-sort live."},
+      {"n": 3, "status": "pass", "note": "Native pull-down menu: Symbol A–Z, Price highest first, Change highest first (no way to reverse the order). Bottom-toolbar search matches symbol ('hm') and name ('cedar'), with a proper empty state."},
+      {"n": 4, "status": "pass", "note": "Star toggles fill and accessibility label. A native segmented control switches All / My List."},
+      {"n": 5, "status": "pass", "note": "Inset-grouped detail screen shows name, large price, change, open and volume, and a live 60-sample line chart with low/high. History builds up from app launch."},
+      {"n": 6, "status": "pass", "note": "My List (HMX, DXI) and Price sort survived a relaunch."}
+    ],
+    "bugs": [
+      "Under price or change sort, live re-ordering moves rows under the finger: starring two adjacent rows in a row starred HMX instead of the intended RZC because the list had re-sorted between taps."
+    ],
+    "tells": [
+      "Inline title only; no large title on the root list",
+      "No swipe actions on rows (star/unstar by swipe)",
+      "At the largest text size, rows switch to a stacked layout with a very large star sitting alone on its own line above the symbol; it works but looks oversized",
+      "The sort menu cannot reverse the order (e.g. lowest price first)"
+    ],
+    "scroll": "Smooth native collection-view scrolling with system bounce; fling and fling-back worked with no blank rows or pop-in. Live updates and re-sorting kept going during scrolling without visible jumps beyond the expected re-ordering.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All 260 tickers with symbol, name, price and change. Change is shown as a green/red tinted pill badge."},
+      {"n": 2, "status": "pass", "note": "Prices update every second, in place, including while scrolled. Under change sort, rows re-sort live."},
+      {"n": 3, "status": "pass", "note": "Native menu with Symbol/Price/Change plus a Descending-order toggle. In-list search field matches symbol and name, with a 'No matches' empty state and a Clear search button."},
+      {"n": 4, "status": "pass", "note": "Star toggles, and a segmented control switches All / My List."},
+      {"n": 5, "status": "pass", "note": "Detail screen shows price, % and $ change, open, volume (7.73M plus exact share count), window high/low, and a live area chart with a LIVE badge and time axis."},
+      {"n": 6, "status": "pass", "note": "My List (ZEXO) and Change-descending sort survived a relaunch."}
+    ],
+    "bugs": [
+      "A horizontal swipe on a row opens the detail screen as if it were a tap, instead of doing nothing or revealing swipe actions",
+      "Under change sort, live re-ordering moves rows under the finger while browsing"
+    ],
+    "tells": [
+      "Custom-themed look: navy-tinted text, a bespoke green accent and off-white background instead of system label colours and tint; reads more like a web/fintech design than a stock iOS list",
+      "Search is a hand-placed rounded text field inside the list header that scrolls away, not a system search bar or .searchable field (no Cancel button, no toolbar search)",
+      "Change values are drawn as custom tinted pills rather than plain coloured text",
+      "Rows are 83 pt tall, so only about 6 rows fit; the header (status line, segmented control, search, count, sort) uses a third of the screen",
+      "At the largest text size the row star and the search placeholder do not scale, and the 'Every second' label disappears",
+      "On the detail screen, the 'Open' label/value is not baseline-aligned with the 'Volume' block next to it",
+      "No swipe actions on rows"
+    ],
+    "scroll": "Scrolling is smooth with a native bounce and large-title collapse, and no blank rows after a fling. The tall rows mean a lot of flinging to cover 260 tickers, and live re-sorting shuffles rows while browsing.",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all six requirements and persist state. A looks and behaves like a stock iOS 26/27 SwiftUI app: system colours, toolbar search, a native menu, a native segmented control, a dense list and an inset-grouped detail screen. B adds nice extras (a sort-direction toggle, a richer chart, window high/low), but its custom theme, scroll-away hand-placed search field, pill badges, tall rows and swipe-opens-detail behaviour give it away as not hand-built for iOS."
+}

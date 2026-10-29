@@ -34,8 +34,9 @@ import { basename, dirname, resolve } from 'node:path';
 import { HOST_DEV, buildBake, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
-import { androidImplementations } from '../js/bake/src/typescript.mjs';
-import { manifestFragment } from './android-manifest.mjs';
+import { androidImplementations, packageConfig } from '../js/bake/src/typescript.mjs';
+import { configMetaData, fragmentPermissions, manifestFragment, withMetaData } from './android-manifest.mjs';
+import { androidShareActivity } from './share-target.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -174,8 +175,9 @@ function readerDeploy(app, apk, env) {
     run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
   }
   // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
-  // seed, the fetch faults), a pushed plan and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
-  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN' || k === 'EXACT_PLAN'));
+  // seed, the fetch faults), EXACT_STORE (`real`: the platform's stores, a conformance suite's), a pushed plan and a
+  // dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
+  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || ['EXACT_STORE', 'EXACT_DEV_PLAN', 'EXACT_PLAN'].includes(k)));
   return {
     serial, dir, shot,
     spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),
@@ -198,11 +200,14 @@ const SHOT_SETTLE_MS = 400;
 async function relay([serial, id, vars]) {
   const tool = adb(), sh = (...args) => spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
   const name = `exact-agent-${process.pid}`;
-  const extras = Object.entries(JSON.parse(vars)).flatMap(([k, v]) => ['--es', `x_${k.slice('EXACT_'.length).toLowerCase()}`, quote(v)]);
+  // EXACT_AGENT_INTENT: `am start` words the launch carries besides the drive's, for a drive that starts the app
+  // as another app would (a share's `-a android.intent.action.SEND …`, LLP 1133.024 D5).
+  const { EXACT_AGENT_INTENT: intent = '', ...launch } = JSON.parse(vars);
+  const extras = Object.entries(launch).flatMap(([k, v]) => ['--es', `x_${k.slice('EXACT_'.length).toLowerCase()}`, quote(v)]);
   sh('shell', 'am', 'force-stop', id);
   sh('logcat', '-c');
   // `lower=0`: the engine samples every animation, so none plays on the reader's own clock.
-  const started = sh('shell', ['am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras].join(' '));
+  const started = sh('shell', ['am', 'start', '-W', '-n', `${id}/dev.exact.app.MainActivity`, '--es', 'agent', name, '--es', 'lower', '0', ...extras, intent].join(' '));
   if (started.status !== 0 || /Error/.test(started.stdout + started.stderr)) throw new Error(`am start ${id}: ${(started.stderr || started.stdout).trim()}`);
   const port = Number(sh('forward', 'tcp:0', `localabstract:${name}`).stdout.trim());
   if (!port) throw new Error('adb forward gave no port');
@@ -228,13 +233,27 @@ async function relay([serial, id, vars]) {
   socket.on('error', () => done(1));
   const answer = () => ready.length ? Promise.resolve(ready.shift()) : new Promise((r) => waiting.push(r));
   const say = (line) => process.stdout.write(line + '\n');
+  const pollsLanded = async () => {
+    for (const end = Date.now() + 2000; Date.now() < end;) {
+      socket.write('{"op":"polls"}\n');
+      if (!JSON.parse(await answer()).asking) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  };
   say(await answer()); // the app's `ready`
   let pending = '', turn = Promise.resolve();
   const one = async (line) => {
     let req = null;
     try { req = JSON.parse(line); } catch {}
     if (req?.op === 'quit') return done(0);
-    if (req?.op !== 'screenshot') { socket.write(line + '\n'); return say(await answer()); }
+    if (req?.op !== 'screenshot') {
+      socket.write(line + '\n');
+      const reply = await answer();
+      // A jump's asks of polled module sources land before its reply is given (LLP 1133.009 D10 item 7). The
+      // reader's extensions answer on its main thread, which takes their asks between requests, so the wait is here.
+      if (req?.op === 'clock' && !req.settle) await pollsLanded();
+      return say(reply);
+    }
     if (req.film) return say(JSON.stringify({ error: 'the reader carrier films nothing: its picture is a screencap of the device' }));
     await new Promise((r) => setTimeout(r, SHOT_SETTLE_MS));
     const shot = sh('shell', `screencap -p ${quote(req.path)}`);
@@ -284,6 +303,10 @@ function buildApk(app, env, profile, writeLocks = false) {
   const crate = app.crate('android');
   if (!app.manifest.game && !existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
+  // The packages' configuration (LLP 1133.021 §9 item 7), before anything compiles: a required value that is absent
+  // refuses the build by its code (`maps-key-missing` for a release without the Maps key).
+  let config;
+  try { config = packageConfig(app.dir, 'android', { release: profile === 'release' }); } catch (error) { console.error(`${app.name}: ${error.message}`); return null; }
   let gpu = null, out = null;
   if (app.manifest.game || app.hasGpu) {
     try { buildBake(app, 'linux', ANDROID_TARGET, { profile, env, kind: 'android' }); }
@@ -316,7 +339,7 @@ function buildApk(app, env, profile, writeLocks = false) {
   if (!graph) return null;
   let gradle;
   try {
-    gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+    gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
     if (gradle.status === 0) graph.kept();
   } finally {
     graph.done();
@@ -351,14 +374,24 @@ function mavenGraph(app, writeLocks) {
 /** What the modules the app uses add to the APK (LLP 1133.001 D4, D5; LLP 1133.002 D6): each bound implementation's
  * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), and the
  * permissions the app's grant lines derive (the bake's `reach.android`) with those its names derive, and the
- * components its packages' manifest fragments declare, as Gradle properties. */
-function extensionArgs(app, out) {
+ * components its packages' manifest fragments declare with the meta-data `config` (`packageConfig`'s) carries, as
+ * Gradle properties. */
+function extensionArgs(app, out, config) {
   const bound = androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
   rmSync(generated, { recursive: true, force: true });
-  let permissions = [];
-  try { permissions = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).reach?.android ?? []; } catch { /* no bake output: none */ }
+  let permissions = [], services = {}, features = [];
+  try {
+    const reach = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).reach;
+    permissions = reach?.android ?? [];
+    // The reader's foreground services the lines declare, with their purposes' text (LLP 1133.033 D2).
+    services = reach?.androidServices ?? {};
+    // Hardware the lines use where it is present, never required (LLP 1133.037 D17: USB host mode).
+    features = reach?.androidFeatures ?? [];
+  } catch { /* no bake output: none */ }
   // And what the module names the app calls derive beside their lines (`android_entry`'s `permissions.txt`, LLP 1133.018 D11).
   try { permissions = [...new Set([...permissions, ...readFileSync(resolve(out, 'permissions.txt'), 'utf8').split('\n').filter(Boolean)])].sort(); } catch { /* none */ }
+  // And the normal permissions the packages' manifest fragments declare (LLP 1133.031 D12 item 1).
+  permissions = [...new Set([...permissions, ...fragmentPermissions(bound)])].sort();
   if (bound.length) {
     mkdirSync(resolve(generated, 'exact/app'), { recursive: true });
     writeFileSync(resolve(generated, 'exact/app/ExactExtensions.kt'), ['// Written by scripts/agent-android.mjs (LLP 1133.001 D5); never edited.', 'package exact.app', '',
@@ -367,15 +400,24 @@ function extensionArgs(app, out) {
       ...bound.map((b) => `        ${JSON.stringify(b.extension)} to { c -> ${b.className}(c) },`), '    )',
       // Each view a package serves, by the extension that makes it (LLP 1133.001 D1).
       `    override val views: Map<String, String> = mapOf(${bound.flatMap((b) => (b.views ?? []).map((tag) => `${JSON.stringify(tag)} to ${JSON.stringify(b.extension)}`)).join(', ')})`,
+      // The extensions made after the reader's first frame, not at their first call (LLP 1133.015 D16 item 1).
+      `    override val startAtLoad: List<String> = listOf(${bound.filter((b) => b.start).map((b) => JSON.stringify(b.extension)).join(', ')})`,
       '}', ''].join('\n'));
   }
   // The queries and components the packages' manifest fragments declare, under the allow-list (LLP 1133.030 D9), with
   // the app's privacy policy for an activity that shows it (LLP 1133.026 D4).
-  const fragment = manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
+  // And the meta-data the packages' configuration carries (LLP 1133.021 §9 item 7): the Maps key, read from the
+  // variable `app.json` names, never from the repo. A development build without it says so and builds.
+  for (const [name, targets] of Object.entries(app.manifest?.packages ?? {})) for (const [key, value] of Object.entries(targets?.android ?? {})) {
+    if (typeof value?.env === 'string' && !process.env[value.env] && config.has(name.split('/').at(-1))) console.warn(`${app.name}: ${value.env} is unset, so ${name}'s ${key} is absent from this development build (a release build refuses it)`);
+  }
+  // The share target's filters on the app's activity (LLP 1133.024 D5), inside the same `<application>`.
+  const fragment = withMetaData(manifestFragment(bound, { privacyPolicy: app.manifest?.privacy_policy ?? null }), [...configMetaData(config), ...(androidShareActivity(app.manifest?.share_target) ?? [])]), fragmentFile = resolve(READER, 'app/build', app.name, 'manifest-fragment.xml');
   rmSync(fragmentFile, { force: true });
   if (fragment) { mkdirSync(dirname(fragmentFile), { recursive: true }); writeFileSync(fragmentFile, fragment); }
   return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : []),
-    ...(fragment ? [`-PmanifestFragment=${fragmentFile}`] : [])];
+    ...(fragment ? [`-PmanifestFragment=${fragmentFile}`] : []), ...(Object.keys(services).length ? [`-PforegroundServices=${JSON.stringify(services)}`] : []),
+    ...(features.length ? [`-PandroidFeatures=${features.join(',')}`] : [])];
 }
 
 if (import.meta.main && process.argv[2] === 'relay') {

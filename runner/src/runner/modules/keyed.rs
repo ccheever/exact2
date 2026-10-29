@@ -37,6 +37,13 @@ impl<D: DataSource> Runner<D> {
                 map.remove("permission");
             }
         }
+        // A sheet shown on some targets alone (LLP 1133.015 D17: Apple's
+        // restore): elsewhere the call goes on with no ticket.
+        if sub["choose"].is_object() && !here(&sub["choose"]) {
+            if let Some(map) = sub.as_object_mut() {
+                map.remove("choose");
+            }
+        }
         // Kept by name, so no `<prefix>.*` permission stands for one there.
         let elsewhere: Vec<Json> = (sub["permissionList"].as_array().into_iter().flatten())
             .filter(|p| !here(p))
@@ -340,6 +347,8 @@ impl<D: DataSource> Runner<D> {
                     return Err(format!("prefer permission.{n}: denied is not {}'s to say here, which stores `{word}`; prefer shared=false", self.host_target()))
                 }
                 (None, "granted" | "denied" | "prompt", _) => self.set_permission_answered(n, value, None),
+                // A fact the host keeps reads `unknown` until evidence (LLP 1133.036 D8).
+                (None, "unknown", _) if self.host_keeps(n) => self.set_permission_answered(n, value, None),
                 (None, other, _) => {
                     return Err(format!("prefer permission.{n}: granted, denied or prompt, or shared= or since=, not `{other}`"))
                 }

@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first. Each row shows sender, subject, preview and a relative date (time / weekday / M/D/YY). Unread rows have a blue dot. The preview wraps to two lines at default size but isn't capped at two lines at the largest text size."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows Flag and Archive; a full swipe archives. Swiping right toggles read/unread. Archived messages appear on the Archive tab, where a swipe offers Move to Inbox."},
+      {"n": 3, "status": "pass", "note": "Flag from the swipe action or the message view. The native filter pull-down menu (All / Unread / Flagged) works and shows a section caption while active."},
+      {"n": 4, "status": "pass", "note": "A push to the message view marks the message read (the count dropped and it left the Unread filter). There's a flag button and a ⋯ menu with Mark as Unread and Archive."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh (and a refresh button) adds two new unread messages at the top with the current time."},
+      {"n": 6, "status": "pass", "note": "'N unread' subtitle under the large title, also shown inline when the title collapses."},
+      {"n": 7, "status": "pass", "note": "After a relaunch, read, flagged, archived and refreshed messages were all still there."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Swipe-action buttons are plain grey circles with no tint (iOS uses orange Flag and purple/indigo Archive) and no text labels.",
+      "The swiped row turns into a grey rounded card instead of sliding as a flat cell.",
+      "The flag marker in a row is a tiny orange glyph jammed against the left screen edge, partly clipped.",
+      "The row chevron sits right at the screen edge with the separators stopping short of it, so the trailing inset looks wrong.",
+      "Rows are exposed to accessibility as 'Link' elements inside a generic 'app' container, which hints at a web-style view hierarchy.",
+      "At the largest text size the preview isn't limited to two lines, so one message fills most of the screen, and the sender and date stay side by side and wrap awkwardly.",
+      "The search field disappears while a filter is active."
+    ],
+    "scroll": "The list scrolls smoothly at slow-drag and fling speeds, with no blank or popping rows. The large title collapses into an inline title with the unread subtitle under a blurred bar, and scroll position is kept after returning from a message.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first. Rows have an avatar with initials, sender, a bold subject when unread, a two-line preview and a date (time or 'Oct 24'). Unread rows have a dot."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows coloured Flag and Archive actions; a full swipe archives. Swiping right toggles read/unread. The Archive tab lists archived mail, with Flag and Inbox swipe actions."},
+      {"n": 3, "status": "pass", "note": "A flag button on every row, plus swipe and message-view flagging. 'All mail / Unread / Flagged' chips filter correctly, with a '23 FLAGGED MESSAGES' header."},
+      {"n": 4, "status": "pass", "note": "Opening a message marks it read; the message view has buttons for mark unread, flag and archive."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh adds two new unread messages at the top."},
+      {"n": 6, "status": "pass", "note": "'N unread · M messages' under the title, plus a badge on the Inbox tab."},
+      {"n": 7, "status": "pass", "note": "After a relaunch, read, flagged, archived and refreshed messages were all still there."}
+    ],
+    "bugs": [
+      "The accessibility tree exposes hundreds of off-screen row texts stacked at one point (and duplicate filter buttons), so VoiceOver/UI automation sees phantom elements and the tab bar gets buried."
+    ],
+    "tells": [
+      "Custom palette (warm off-white background, navy text, custom blue) instead of system colours; the inbox looks branded rather than like Mail.",
+      "Filters are hand-drawn pill chips instead of a segmented control or a menu.",
+      "The search field is wrapped in a custom bordered capsule with a shadow, not a standard search bar.",
+      "Rows are very tall (about 137 pt) with a large empty band under the preview, and inside an inset card the list shows about 3.5 messages per screen.",
+      "Swipe actions are custom coloured circles with captions below and aren't exposed to accessibility; a swiped row leaves a notch in the card's rounded corner.",
+      "In the message view the inline 'Message' title sits left of centre next to a wide 'Inbox' back capsule.",
+      "The opaque nav bar cuts the scrolling card off with a hard edge instead of a scroll-edge blur."
+    ],
+    "scroll": "Scrolling is smooth with no blank rows or popping, and position is kept after returning from a message. The tall rows mean a lot of scrolling for 320 messages, and content cuts off hard under the opaque top bar.",
+    "scores": {"features": 9, "platform": 5, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet all seven requirements and persist state. A looks and behaves much more like iOS: a system list, large title collapsing to an inline title with the unread count, native filter and actions menus, and a Mail-like dense layout. B is a polished but custom-styled design with chip filters, tall cards and a branded palette, plus an accessibility tree full of phantom elements. B handles the largest text size more gracefully, but A's grey swipe actions and clipped flag glyph are smaller flaws than B's overall non-native look."
+}

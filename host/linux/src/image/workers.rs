@@ -29,6 +29,9 @@ pub(super) struct SourceOwner {
     prepared: Mutex<Prepared>,
     /// A URL's download: the body a worker reads once it is settled.
     remote: Option<Arc<remote::Load>>,
+    /// Its download failed in a way asking again may mend (`Failure::transient`):
+    /// not before this (the server's `Retry-After`, if it gave one).
+    transient: Mutex<Option<std::time::Instant>>,
 }
 impl SourceOwner {
     /// The file it reads, when it is one (not an update's bytes): a URL's
@@ -59,6 +62,8 @@ impl SourceOwner {
         let failure = remote::Failure {
             refusal,
             message: message.clone(),
+            transient: false,
+            after: None,
         };
         let Some(body) = self.remote.as_ref().and_then(|load| load.release(failure)) else {
             return;
@@ -140,11 +145,14 @@ impl Backend {
             .expect("raster generation exhausted");
         generation
     }
+    /// `urgent`: a URL whose picture fills the screen, downloaded first
+    /// (`Downloads::load`).
     pub fn source(
         self: &Arc<Self>,
         generation: u64,
         name: &str,
         assets: &Arc<Assets>,
+        urgent: bool,
     ) -> Result<Arc<SourceOwner>, Refusal> {
         Workers::process().start();
         let mut state = self.state.lock().unwrap();
@@ -157,6 +165,10 @@ impl Backend {
             .iter()
             .find(|s| s.generation == generation && s.name == name)
         {
+            // Now one that fills the screen: its download, still waiting, goes first.
+            if let Some(load) = source.remote.as_ref().filter(|_| urgent) {
+                self.downloads.promote(load);
+            }
             Ok(source.clone())
         } else if state.sources.len() >= SUBSCRIPTIONS + COLD_ENTRIES + 2
             || owners
@@ -179,7 +191,7 @@ impl Backend {
             let remote = if remote::is_remote(name) {
                 let me = self.me.clone();
                 self.downloads
-                    .load(name, move || {
+                    .load(name, urgent, move || {
                         if let Some(backend) = me.upgrade() {
                             backend.session.wake();
                         }
@@ -196,6 +208,7 @@ impl Backend {
                     assets: Arc::downgrade(assets),
                     prepared: Mutex::new(Prepared::Queued),
                     remote,
+                    transient: Default::default(),
                 });
                 state.next_source = next;
                 state.sources.insert(source.id, Arc::downgrade(&source));
@@ -228,6 +241,25 @@ impl Backend {
             .and_then(Weak::upgrade)?;
         let prepared = *source.prepared.lock().unwrap();
         Some(prepared)
+    }
+    /// Whether source `id`'s download failed in a way asking again may mend:
+    /// the earliest it may be asked again, if so.
+    pub fn transient(&self, id: u64) -> Option<std::time::Instant> {
+        let source = (self.state.lock().unwrap().sources.get(&id)).and_then(Weak::upgrade)?;
+        let after = *source.transient.lock().unwrap();
+        after
+    }
+    /// `source`'s download, if it still waits for a thread, goes first: its
+    /// picture now fills the screen ([`remote::Downloads::promote`]).
+    pub fn promote(&self, source: &SourceOwner) {
+        if let Some(load) = &source.remote {
+            self.downloads.promote(load);
+        }
+    }
+    /// Source `id`, failed, is found no more: the next ask for its name
+    /// downloads it again (a picture still on screen, `image.rs`).
+    pub fn evict(&self, id: u64) {
+        self.state.lock().unwrap().sources.remove(&id);
     }
     pub fn retire(&self, generation: u64) {
         self.session.retire_generation(generation);
@@ -331,6 +363,9 @@ impl Backend {
             // log's, once for the source.
             Some(Err(failure)) => {
                 eprintln!("exact: image {}: {}", source.name, failure.message);
+                *source.transient.lock().unwrap() = failure
+                    .transient
+                    .then(|| failure.after.unwrap_or_else(std::time::Instant::now));
                 Err(failure.refusal)
             }
             _ => open(source)
@@ -613,13 +648,15 @@ mod tests {
         let cap = SUBSCRIPTIONS + COLD_ENTRIES + 2;
         let mut owners = Vec::new();
         for n in 0..cap {
-            let owner = backend.source(generation, &n.to_string(), &assets).unwrap();
+            let owner = backend
+                .source(generation, &n.to_string(), &assets, false)
+                .unwrap();
             *owner.prepared.lock().unwrap() = Prepared::Failed(Refusal::DecodeFailed);
             owners.push(owner);
         }
         let next = backend.state.lock().unwrap().next_source;
         assert!(matches!(
-            backend.source(generation, "overflow", &assets),
+            backend.source(generation, "overflow", &assets, false),
             Err(Refusal::QueueFull)
         ));
         assert_eq!(backend.sources(), cap);
@@ -634,7 +671,9 @@ mod tests {
             );
             std::thread::yield_now();
         }
-        let replacement = backend.source(generation, "replacement", &assets).unwrap();
+        let replacement = backend
+            .source(generation, "replacement", &assets, false)
+            .unwrap();
         assert_eq!(replacement.id, next);
         assert_eq!(backend.sources(), cap);
     }

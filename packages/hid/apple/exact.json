@@ -1,0 +1,14 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/hid@^1.0",
+  "platform": "apple",
+  "targets": ["macos"],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "swift": ["HID.swift"] },
+  "artifacts": [],
+  "class": "HIDModule"
+}

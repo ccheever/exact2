@@ -4,6 +4,8 @@
   "private": true,
   "description": "The app's content in the system's search, with the Content Index API's names (LLP 1133.023).",
   "exports": {
-    ".": "./exact.json"
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json"
   }
 }

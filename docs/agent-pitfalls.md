@@ -287,6 +287,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   its action: that misses a return which lands before the hide's timer has fired
   (`prefer visibility-state hidden` then `visible` with no clock step between).
   (Web and iOS simulator, 2026-10-06.)
+- **A jump gated on the tab that shows runs again on every return to it.** A
+  tab's panel and its list stay mounted while another tab shows, so the list
+  keeps the reader's place, as a `UITabBarController`'s tabs and SwiftUI's
+  `TabView` keep theirs. A task gated on the tab (`task reveal when
+  top(nav).name == "board" key=station` with `after(1, jumpNow)`) re-arms when
+  the gate turns true again: switching to another tab and back runs its
+  `scrollIntoView` and throws that place away. Fix: gate the jump on what should
+  move the list (the data loaded, the station or filter chosen: its `key`), not
+  on which tab shows; run a jump the reader asks for (a Now button) from its
+  press. (Bake-off r25, timetable: Saved and back took the board from 07:34 to
+  05:00.)
 
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target
@@ -336,6 +347,21 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   round 30's grader named it. Fix: rows under a screen's own content are a
   `listStyle="plain"` list on the page's white, as the Clock's laps are; keep
   inset-grouped for a list that is the whole screen.
+- **A sideways swipe on a row opens it.** Cause: the row has no swipe actions. A
+  `UITableView` or SwiftUI `List` row with none is selected by a horizontal drag of any
+  length or speed, and one with trailing actions only is selected by a rightward drag;
+  Exact does the same. Graders flag it when the other app's rows swipe (bake-off r28,
+  r29, and r31's podcasts and recipes). Fix: give rows the swipe actions their screen
+  implies, `delete=` or a swipe row (`contract vocab swipe`). (Measured on iOS 27 with
+  the bake-off driver, 2026-10-28.)
+- **A live list hitches once a tick when its data module rebuilds every row.** Cause: an
+  `every(1000, step)` that refreshes a resource answering all 260 tickers, each with
+  `toLocaleString` prices (Hermes makes a new `Intl.NumberFormat` per call) and a
+  60-point chart string. The clock's advance waits for that answer on the main thread:
+  45–60 ms each second, several dropped frames mid-fling. Fix: format with one
+  `Intl.NumberFormat` made at module load, keep what only a detail screen shows (its
+  chart) out of the per-tick answer, and limit each tick's work to the rows that
+  moved. (Round r21 watchlist, measured with the scroll-feel probe, 2026-10-26.)
 
 ## Native presentation and navigation (iOS)
 
@@ -458,6 +484,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
   `navigationPresentation="fullscreen"` route. (Signal Clone, build 10.)
+- **A full-screen route on iOS shows white bands above and below its content.**
+  Cause: the host keeps the route's content clear of the status bar and the home
+  indicator (LLP 1123 D3), so a child at `position="absolute" inset=0` starts
+  below the status bar, and where the route paints nothing its controller shows
+  the system background. Fix: give the route's own column the background
+  (`background-color`, with `color-scheme="dark"` for a photo viewer): the host
+  paints it to the screen's edges. It is painted once, so an animation of it does
+  not show there. (Excord's image viewer, 2026-10-27.)
 - **A Mac glass panel shows sharp content behind a wrapper.** AppKit's
   `backdrop-filter` samples only the parent's subtree, even when every wrapper
   is transparent. Make the glass a direct sibling of what it covers; put a
@@ -827,7 +861,8 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 - **`Date.now()` in a data module passes its Bun tests and fails on the
   device.** Since 2026-10-05 the build refuses a direct use by file and line
-  (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
+  (`Date.now()`, `new Date()`, `Math.random()`, `setInterval` and the frame
+  timers; an answer's own `setTimeout` is allowed since 2026-10-28), including literal
   bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
   from the call's arguments (the Contract's `wallTime.epochAtZero + performanceNow()`), as
@@ -852,6 +887,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   is the data module's, and it is done only when its mutation answers; the reload
   ends the page first. Fix: navigate in the mutation's `then`, which runs once the
   write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
+
+- **A module event's attribute refused as unknown on the root.** `main
+  reading=tagRead` fails `lower-unknown-attr` ("`main` has no attribute
+  `reading`") when the file also declares a derive, state or action named
+  `reading`, even with `reading` in the `use` line: the local name hides the
+  module's event, so the attribute is never bound. Shelf's `derive reading` (the
+  books in progress) did this to `@exact/nfc`'s `reading` event (LLP 1133.035).
+  Fix: rename the local name.
 
 - **Repeating with `pause` mutations.** A `then` cannot send its own mutation
   (`analyze-then-self-send`), and two mutations whose `then`s send each other
@@ -1095,6 +1138,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
+
+- **An HDR gradient samples as 1, or a visible box shadow samples as black.**
+  Apple's agent samples through `CALayer.render(in:)`, which does not reproduce
+  every compositor effect. On iOS 27, a native `CAGradientLayer` from 1× to 4×
+  white also captures as 1, and layer shadows disappear from that capture.
+  Compare the layer's colors and range with Color Gallery's UIKit reference,
+  then inspect the displayed screen through iPhone Mirroring. A float capture
+  alone cannot judge those effects. (Color Gallery, iPhone 16 Pro, 2026-10-27.)
 
 - **A build's refusals do not say "error".** A compile refusal prints as
   `app.contract:5:13 [lower-attr-value] symbol \`warning\` is not a role; …` and the
@@ -1423,6 +1474,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (HID, no accessibility) or have the host press a row itself, and read frames
   from Save Trace or a temporary log, not from a run an accessibility client
   touched. (x2-perf, 2026-10-05.)
+- **A `sample` of an agent-driven Mac app blames the presenter for a scroll.** Twenty
+  wheels in Excord put most of the main thread in `ExactSession.apply` →
+  `Presenter.apply`, about 0.75 ms a batch, over 1,800 batches that carried no ops.
+  Cause: the agent applies a batch for each of its own clock steps (`Agent.clockStep`)
+  and position reports (`tellAgentOffset`): 1,533 of the 1,573 empty batches in that
+  drive, against 13 from the app itself. A real session makes none of them. Fix:
+  measure scrolling from a Save Trace (⌥⌘T) of a real session; in an agent drive's
+  profile, discount every stack under `Agent`. (Excord, the Mac transcript, 2026-10-27.)
 - **`axe` stops delivering taps.** Use `axe` only as a last resort, for native
   chrome only a normal launch presents (bars, `UIMenu`s); drive everything else
   with `agent ios` by `testId`. After `axe touch --down --up --delay` (a long
@@ -1761,6 +1820,13 @@ are in [game-pitfalls.md](game-pitfalls.md).
 
 ## Access hatches
 
+- **Published diagnostics stop gaining keys, or repeated elements overwrite
+  one another.** `element.diagnostics` is scoped to the hatch word. The session
+  keeps 16 published names, with at most 4,096 bytes per value. Group repeated
+  instances under a stable name, for example `publish("gradient", {standard: ..., constrained:
+  ..., noLimit: ...})`, and keep each payload within that bound. (Color Gallery's
+  27 paint probes, 2026-10-27; `HatchDiagnostics.swift`.)
+
 - **A native view's frame ticket left on costs CPU on a still screen.** A
   live `context.frames` ticket keeps the display link running at the
   display's rate, whether or not the view changes: euxy's step strips, beat
@@ -1907,3 +1973,10 @@ its valid bindings disappear and return. Read it with
   `O_RDONLY` can fail under the file’s security scope even though the file itself
   is readable. Verify with a file selected from another app’s Documents folder;
   a simulator fixture in the app’s own container does not exercise this boundary.
+
+- **A module name that fails on one target stops that target's boot as a resource.** A
+  Contract resource that fails at launch refuses the web app's boot, and
+  `attachedPorts`/`attachedDevices` fail `NotSupportedError` on the web by design (LLP
+  1133.037 D3). Read such a name from `app.ts`, choosing it or its other target's name by
+  the status (`attachedList ? attachedPorts({}) : getPorts({})`), as
+  `docs/recipes/usb-hid-serial.md` does.

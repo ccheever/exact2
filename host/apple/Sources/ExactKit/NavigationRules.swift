@@ -62,6 +62,16 @@ enum NavigationRules {
         !modalActive && shownKey != rootKey && (sourceKey == rootKey || sourceReplaced)
     }
 
+    /// Whether the app is behind a pop UIKit finished: the app's top is among the routes the pop took
+    /// from what Exact last wrote to UIKit, and UIKit's top is beneath it in the app's stack. It holds
+    /// whatever became of the source's node or key during the pop. A route the app pushed meanwhile
+    /// was never written to UIKit, so the app keeps it; a route the pop took counts even when the app
+    /// selected it again meanwhile, as the person saw it leave.
+    static func appIsBehind(poppedKeys: [String], uikitTop: String, shownKeys: [String], rootKey: String) -> Bool {
+        guard poppedKeys.contains(rootKey), let top = shownKeys.firstIndex(of: uikitTop), let root = shownKeys.firstIndex(of: rootKey) else { return false }
+        return top < root
+    }
+
     /// What a route shows of the platform's navigation bar.
     enum Bar: Equatable {
         /// The route's `header`, projected: its heading the title, its

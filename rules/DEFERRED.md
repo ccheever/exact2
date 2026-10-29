@@ -429,6 +429,23 @@ with no dock menu, status item or Windows menu bar.
 **Expanded (Charlie, 2026-10-23, Windows at full speed):** Windows presents
 the declared menu bar as a painted Fluent menu row (LLP 1021 §5.3.2). The
 dock menu and status item stay out.
+**Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", waived; LLP
+1133.025 §15 question 8):** a status item and a Dock menu as presentations
+of a `button` (`-exact-menu="status"`, `"dock"`), the window's `focus()`,
+an accessory Mac app and a launch with no window, `keepRunning` and one
+instance on Windows; a login item, global shortcuts and attention as
+`@exact/login-item`, `@exact/global-shortcuts` and `@exact/dock`, on macOS
+and Windows, absent elsewhere. Consumers: the T3 Code clone's SnapShot
+shortcut, Excord on Windows and macOS, Agents' New Conversation. Take:
+waived: no doing-list item is in this area, and the move retires the
+clone's Carbon registration. Still refused: helper daemons, jump lists
+(quick-actions'), Linux cells until a desktop host.
+**Expanded (Daehyeon Mun, 2026-10-28, waived; LLP 1021 §5.3.3; built
+2026-10-28):** File ▸ Close Window's chord, `-exact-menu-keys="close-window=…"`
+on the root, for the T3 Code clone, whose original leaves Close Window without
+⌘W. It amends the 2026-10-12 menubar lane ruling (the root's fixed removal
+ids) with a second root list, of one fixed id. Take: waived (Daehyeon Mun,
+2026-10-28): one fixed id for one consumer, a Mac-only hint other hosts ignore.
 
 ## Surfaces
 
@@ -576,6 +593,14 @@ change can break.
 the tooltips, toasts, empty states and themed fields of
 `issues/closed/20261009-balanced-text-placeholder-color.md`. This
 amends LLP 1104's placeholder refusal. `-webkit-font-smoothing` stays deferred.
+
+**Admitted (Daehyeon Mun, 2026-10-28, waived; LLP 1019 D12):**
+`-webkit-font-smoothing: auto | antialiased`, an inherited paint row. This
+amends the 2026-10-12 textrows ruling above, which kept it deferred. Consumer:
+the T3 Code clone, whose web original sets `antialiased` on its root; drawn
+without it, its labels read a weight heavier than the original's. `none` and
+`subpixel-antialiased` stay refused. Take: waived (Daehyeon Mun, 2026-10-28):
+a paint-only row, no doing-list item in this area.
 
 **Runtime**
 
@@ -932,6 +957,22 @@ reading. Nothing that isn't HTML is added by it.
   conversions as names; `deviceOrientation` and the sensor sources on
   macOS; and the Windows, visionOS and watchOS cells, and Linux through
   IIO.
+- **Expanded (Charlie, 2026-10-26, "Accept all (Recommended)", waived; LLP
+  1133.031 §14 question 8):** the device's battery, network type, data
+  saving and power state (`getBattery`, `connection` and `powerState` from
+  `@exact/device`), by the Battery Status and Network Information APIs'
+  names, on the web, iOS, macOS, tvOS and Android, and on Linux and
+  Windows over the desktop package builder: live facts with no permission,
+  read from any origin. Consumers: Weatherlight's sky, which rests in Low
+  Power Mode and under heat, and its refresh, which waits in Low Power Mode
+  and Low Data Mode; Expose's real battery. Unblocks an app that does what
+  Low Power Mode and Low Data Mode ask without app Swift or Kotlin. Take:
+  none named; the ruling is its own waiver. Still out, each until a
+  consumer asks (LLP 1133.031 §11): device and app identity;
+  `chargingTime` and `dischargingTime`; `effectiveType`, `downlink` and
+  `rtt`; ultra-constrained paths and a path's unsatisfied reason; battery
+  health, cycle count, temperature and voltage; Android's thermal
+  headroom; `prefers-reduced-data`; and a Linux or Windows thermal state.
 - **Expanded (Charlie, 2026-10-23, "Admit all three, no take", on LLP
   1133.014 §13 question 8):** signing in with an identity provider by
   FedCM's names: an `identity` member on `@exact/passkeys`'
@@ -1185,6 +1226,24 @@ reading. Nothing that isn't HTML is added by it.
   Bluetooth Classic; `exclusionFilters` and filters with several
   services; an app's own scan list on Android; and the Linux, visionOS and
   watchOS cells.
+- NFC was never on the doing list. **Expanded (Charlie, 2026-10-26,
+  "Converged: build (Recommended)", waived; LLP 1133.035 §16 question
+  8):** Web NFC's NDEF reading and writing (`nfcStatus`, `scan`,
+  `abortScan`, `write`, `makeReadOnly`, `abortWrite`, `ndefRecords` and
+  the root's `reading` and `readingerror`, imported from `@exact/nfc`) on
+  the web (Chrome on Android), iOS (Core NFC) and Android (reader mode),
+  with tier 2's tag types and commands to a tag a live scan holds: one
+  reader per process, claims per session, and `readerUI` telling the app
+  whether the system's sheet or its own panel shows the wait. With the
+  seam additions of LLP 1133.035 D16. Consumer: Shelf's Tag this book.
+  Unblocks reading and writing a tag from Contract without app Swift or
+  Kotlin. Take: none named; the ruling is its own waiver. Still out, each
+  until a consumer asks (LLP 1133.035 §15): Android card emulation, built
+  (designed in D13), and Apple's `CardSession`; the NDEF message that
+  launched an app from iOS's background reading; payment-card reading and
+  Apple's value-added services; ISO 15693's and FeliCa's own commands as
+  tier 2; writing to the tag just read in one touch; and the Windows and
+  Linux cells.
 - Alarms were never on the doing list. **Expanded (Charlie, 2026-10-26,
   "Accept, tell Daehyeon (Recommended)", waived; LLP 1133.030 §15
   question 9):** alarms (`@exact/alarms`): an alert at a time or after a
@@ -1219,6 +1278,25 @@ reading. Nothing that isn't HTML is added by it.
   type or an unlisted one, subtypes, wide-area DNS-SD and raw TXT bytes;
   a client socket for raw TCP or UDP, SSDP and UPnP; systemd-resolved's
   browse on Linux; and a browse in a wake or the background.
+- USB, HID and serial devices were never on the doing list.
+  **Expanded (Charlie, 2026-10-27, "Accept 037, hold 032 (Recommended)",
+  waived; LLP 1133.037 §17 question 8):** Web Serial, WebHID and WebUSB
+  (`@exact/serial`, `@exact/hid`, `@exact/usb`) on the web, macOS,
+  Android (serial and USB), Windows and Linux: a chooser where the target
+  draws one, the attached list where nothing asks (D3), each web
+  blocklist on every target, one device per process leased to each
+  session, serial input that loses no byte, and HID input reports as a
+  batch. With the seam additions of LLP 1133.037 D19. Consumers: Excord's
+  mention light (a blink(1)) and Bench, a serial monitor and DFU firmware
+  updater. Unblocks a desk light, a board's log and a firmware update
+  without app Swift or Kotlin. Take: none named; the ruling is its own
+  waiver. Still out, each until a consumer asks (LLP 1133.037 §15):
+  isochronous transfers; Bluetooth RFCOMM serial ports; vendor
+  USB-serial bridges on Android below API 37, and launching an app when
+  a device is plugged in; a background serial logger on Android; a
+  chooser on Linux and a presenter-drawn one on Windows; HID report
+  descriptor parsing beyond `collections`; a terminal host's cells; and
+  iOS, iPadOS and tvOS, which have no device API for apps.
 - **Expanded (Charlie, 2026-10-25, "Waive both (Recommended)", on LLP
   1133.027 §13 question 9):** barcodes and QR codes read in a still image
   and live in a camera track a viewfinder shows (`getSupportedFormats`,
@@ -1582,6 +1660,7 @@ node to its source. The take: no new Contract syntax until formatting and naviga
 have landed (1035.005 §1's order), and `contract` blocks as executable assertions
 (LLP 1006 §8) stay off the doing-list. The witness, dataflow and any general
 provenance explorer stay refused.
+**Read (LLP 1148, 2026-10-28; Charlie's confirmation pending):** formatting and navigation have landed; the authored-test grammar's `always`, `after` and `never refuses` blocks (test files, compiled to nothing an app runs) are read as outside this take; executable assertions in a component stay refused.
 **Widened (Charlie, 2026-10-14; LLP 1122 §9 Q2), development builds only:** the Tamber
 server may also read the map, to join a build's inspect report with its source for the
 design tool (LLP 1122 D5). It records each file's source digest and each winning row's

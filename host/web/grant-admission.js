@@ -8,6 +8,7 @@ export {
   createGrantSet,
   grantError,
   hasGrant,
+  isLocalNetwork,
   rawGrantText,
   sameGrantDeclaration,
   scopedGrantSet,

@@ -1,0 +1,78 @@
+{
+  "kind": "interface",
+  "name": "@exact/geocoding",
+  "version": "1.0.0",
+  "grants": [],
+  "shapes": {
+    "Place": {
+      "latitude": "number",
+      "longitude": "number",
+      "name": "option<string>",
+      "fullAddress": "option<string>",
+      "city": "option<string>",
+      "countryCode": "option<string>",
+      "country": "option<string>",
+      "apple": "option<ApplePlace>",
+      "android": "option<AndroidPlace>"
+    },
+    "ApplePlace": {
+      "shortAddress": "option<string>",
+      "cityWithContext": "option<string>"
+    },
+    "AndroidPlace": {
+      "adminArea": "option<string>",
+      "subAdminArea": "option<string>",
+      "subLocality": "option<string>",
+      "thoroughfare": "option<string>",
+      "subThoroughfare": "option<string>",
+      "postalCode": "option<string>"
+    },
+    "GeocodingStatus": {
+      "available": "bool"
+    }
+  },
+  "names": [
+    {
+      "send": "geocode",
+      "permission": "none",
+      "options": {
+        "address": "string"
+      },
+      "answers": "Place[]",
+      "substitute": {
+        "unsupported": ["web", "linux", "windows", "terminal"],
+        "checks": [{ "nonEmpty": ["address"], "error": "TypeError" }],
+        "from": "geocode",
+        "default": []
+      }
+    },
+    {
+      "send": "reverseGeocode",
+      "permission": "none",
+      "options": {
+        "latitude": "number",
+        "longitude": "number"
+      },
+      "answers": "Place[]",
+      "substitute": {
+        "unsupported": ["web", "linux", "windows", "terminal"],
+        "from": "reverseGeocode",
+        "default": []
+      }
+    },
+    {
+      "source": "geocodingStatus",
+      "live": true,
+      "answers": "GeocodingStatus",
+      "substitute": {
+        "default": { "available": true },
+        "targets": {
+          "web": { "available": false },
+          "linux": { "available": false },
+          "windows": { "available": false },
+          "terminal": { "available": false }
+        }
+      }
+    }
+  ]
+}

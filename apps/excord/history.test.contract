@@ -1,0 +1,128 @@
+// Excord's failed history pages on the fixture server (llp/0001 §2, §3.4): a page whose fetch fails, its
+// Retry, and what stays readable meanwhile. The fixture and its launches are app.test.contract's: the run
+// starts it with --world transcript --reset-on-identify, so each launch's IDENTIFY starts from the same world,
+// and each launch runs `clock settle` (IDENTIFY's task), waits for the gateway's READY with the clock frozen
+// (`clock until state`), then `clock settle` again.
+epoch "2026-10-22T18:00:00Z"
+time-zone "America/Los_Angeles"
+
+test "failed history can be retried without reopening the channel"
+  fail fetch "/api/v9/channels/1191168914235588608/messages"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  expect text "history-error" == "Couldn’t load messages."
+  expect tree has "retry-history"
+  expect tree missing "history-loading"
+  expect state pageTries == 3
+  type "composer" "Keep this draft"
+  pass fetch "/api/v9/channels/1191168914235588608/messages"
+  type "retry-history" key " "
+  clock settle
+  expect tree has "message-1562887009075210000"
+  expect tree missing "history-error"
+  expect text "composer" == "Keep this draft"
+
+test "a failed page leaves cached messages readable and another channel loads"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  fail fetch "/api/v9/channels/1191168914235588608/messages"
+  tap "transcript" into "1562732896249194217"
+  clock settle
+  expect text "history-error" == "Couldn’t load more messages."
+  expect tree has "message-1562732896249194217"
+  expect state pageTries == 3
+  back
+  clock settle
+  tap "channel-help"
+  clock settle
+  expect tree missing "history-error"
+  expect state pageTries == 0
+  back
+  clock settle
+  pass fetch "/api/v9/channels/1191168914235588608/messages"
+  tap "channel-general"
+  clock settle
+  expect tree missing "history-error"
+  expect state pageTries == 0
+  expect tree has "message-1562732896249194217"
+
+test "a failed older page does not block a jump to a different history page"
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  fail fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  tap "transcript" into "1562624645306263268"
+  clock settle
+  expect text "history-error" == "Couldn’t load more messages."
+  expect state pageTries == 3
+  // (the jump's own window then reads older pages ahead of its reader, F1: they load)
+  pass fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  tap "reply-to-1562624645306263268"
+  clock settle
+  // (landed: the anchor then follows the lead toward older pages, F1, so it isn't asserted)
+  expect state target == ""
+  expect tree has "message-1518635600276626020"
+  expect tree missing "history-error"
+  expect state pageTries == 0
+
+test "retrying older history at the exact top keeps the first visible message" on web, ios, tvos, android, linux, windows
+  size 1100x760
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  fail fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  // Home reaches the top on the web and Windows; on Apple hosts it goes to the composer, so
+  // a finger's drags follow, as a phone reaches it (on a Mac a drag selects text instead).
+  type "transcript" key "Home"
+  tap "transcript" drag 0 2500
+  tap "transcript" drag 0 2500
+  tap "transcript" drag 0 2500
+  tap "transcript" drag 0 2500
+  clock settle
+  expect state pageTries == 3
+  expect state historyStart == true
+  expect state topKey == "1562618399954052832"
+  pass fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  tap "retry-history"
+  clock settle
+  expect tree has "message-1562618399954052832"
+  expect state target == ""
+  expect state historyStart == false
+
+test "retrying older history at the exact top keeps the first visible message (the Mac, by wheel)" on macos
+  size 1100x760
+  clock settle
+  clock until state gateway.state == "ready" within 10000
+  clock settle
+  tap "channel-general"
+  clock settle
+  tap "mark-read"
+  fail fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  // (On a Mac a drag selects text: the wheel reaches the top, as a person's trackpad does.)
+  tap "transcript" wheel 0 -2500
+  tap "transcript" wheel 0 -2500
+  tap "transcript" wheel 0 -2500
+  tap "transcript" wheel 0 -2500
+  clock settle
+  expect state pageTries == 3
+  expect state historyStart == true
+  expect state topKey == "1562618399954052832"
+  pass fetch "/api/v9/channels/1191168914235588608/messages?limit=50&before="
+  tap "retry-history"
+  clock settle
+  expect tree has "message-1562618399954052832"
+  expect state target == ""
+  expect state historyStart == false

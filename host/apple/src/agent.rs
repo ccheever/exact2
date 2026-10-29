@@ -1,18 +1,37 @@
-//! Read operations over the Apple host's settled layout and runner.
+//! Read operations over the Apple host's settled layout and runner, and
+//! the `then`s an input settled.
 use super::*;
 use std::fmt::Write;
 
 impl<D: DataSource> Host<D> {
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]); `first`, only when one is the
+    /// earliest work due ([`exact_runner::Runner::land_then_first`]).
+    pub fn land_then(&mut self, first: bool) -> String {
+        let a = if first {
+            self.runner.land_then_first()
+        } else {
+            self.runner.land_then()
+        };
+        self.advanced(a)
+    }
+
     /// The agent API's read operations (LLP 1012): `tree`, `state`, and
     /// `logs` from the runner; `settle` — the clock at which the last
     /// transition in flight ends, milliseconds, `null` when quiescent — from
-    /// the engine, which is what the presenter's `clock` advances to.
+    /// the engine (and a resource's re-ask), which is what the presenter's
+    /// `clock` advances to.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
             let engine = self.engine.settle_time().map(|t| t * 1000.0);
             return match engine
                 .into_iter()
                 .chain(self.runner.text_axes_settle_ms())
+                // A re-ask after a turn over its budget: no I/O to wait on, so
+                // the clock goes to it (exact-runner's `overrun.rs`).
+                .chain(self.runner.reask_due_ms())
+                // An answer waiting on its own timer (`data_timers.rs`): the clock goes to it too.
+                .chain(self.runner.data_timer_due_ms())
                 .reduce(f64::max)
             {
                 Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),

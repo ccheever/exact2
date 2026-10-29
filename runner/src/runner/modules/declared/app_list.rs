@@ -16,15 +16,20 @@
 //! - **`"tap": {"choices"}`**: `tap @ref <choice>` on a delivered entry
 //!   does what the platform's button would: `{"retire": true}` takes it
 //!   away; `{"after": <field>, "set": {…}}` makes it due again that field's
-//!   length from now. Such an entry refuses a tap without a choice.
+//!   length from now; `{"when", "set", "event", "args"}` (LLP 1133.033
+//!   D21) is refused by name unless the entry matches `when`, sets `set`
+//!   and leaves it listed, then raises `event` as an activation. Such an
+//!   entry refuses a tap without a choice.
 //! - **`"update": {"state", "key", "when", "else", "set", "pause" |
 //!   "resume"}`** changes the entry with the call's key in place, refusing
-//!   `else` when there is none or its fields do not match `when`. `pause`
+//!   `else` when there is none or its fields do not match `when` (a field's
+//!   value, or an array of the values it may hold). `set`'s values take
+//!   `update.rs`'s forms. `pause`
 //!   names the field that keeps the time left, and clears the due instant;
 //!   `resume` makes it due that long from now and clears the field.
 
 use super::super::super::{DataSource, Runner};
-use super::super::{Json, ModulesRow};
+use super::super::{CallOrigin, Json, ModulesRow};
 use super::Listed;
 use serde_json::{json, Map};
 
@@ -261,7 +266,28 @@ impl<D: DataSource> Runner<D> {
                 entries.remove(at);
                 return (Ok(()), true);
             }
+            if !does["when"].is_null() && !Self::matches(&entries[at].fields, &does["when"]) {
+                let now: Vec<String> = (does["when"].as_object().into_iter().flatten())
+                    .map(|(f, _)| {
+                        format!(
+                            "its {f} is {}",
+                            entries[at].fields.get(f).unwrap_or(&Json::Null)
+                        )
+                    })
+                    .collect();
+                return (
+                    Err(format!(
+                        "@{reference}: `{choice}` is refused: {}",
+                        now.join(", ")
+                    )),
+                    false,
+                );
+            }
             let e = &mut entries[at];
+            if !does["after"].is_string() {
+                Self::set_fields(&mut e.fields, &does["set"], &Map::new(), now);
+                return (Ok(()), true);
+            }
             let after = does["after"]
                 .as_str()
                 .and_then(|f| e.fields.get(f))
@@ -285,7 +311,24 @@ impl<D: DataSource> Runner<D> {
         done?;
         self.log(format!("{state} @{reference}: {choice}"));
         self.announce_listed(state);
-        Ok(json!({ "ref": reference, "choice": choice, "delivery": "substituted" }).to_string())
+        let Some(event) = does["event"].as_str() else {
+            return Ok(
+                json!({ "ref": reference, "choice": choice, "delivery": "substituted" })
+                    .to_string(),
+            );
+        };
+        let entry = (self.entries(extension, state).into_iter())
+            .find(|e| e.reference == reference)
+            .map(|e| Json::Object(e.fields))
+            .unwrap_or_default();
+        let args = super::entry_args(&does, &entry);
+        self.raise_module_event(
+            extension,
+            event,
+            &Json::Array(args).to_string(),
+            CallOrigin::App,
+        )?;
+        Ok(json!({ "ref": reference, "choice": choice, "event": event, "delivery": "substituted" }).to_string())
     }
 
     /// Why an `update` of `row` with `args` is refused now, if it is.
@@ -296,10 +339,7 @@ impl<D: DataSource> Runner<D> {
         let extension = self.plan.str(row.extension);
         let matches = (self.entries(extension, state).iter())
             .find(|e| e.fields.get(key) == args.get(key))
-            .is_some_and(|e| {
-                (update["when"].as_object().into_iter().flatten())
-                    .all(|(k, v)| e.fields.get(k) == Some(v))
-            });
+            .is_some_and(|e| update["when"].is_null() || Self::matches(&e.fields, &update["when"]));
         (!matches).then(|| json!({ "error": update["else"] }))
     }
 
@@ -317,6 +357,7 @@ impl<D: DataSource> Runner<D> {
             .unwrap_or_default()
             .to_owned();
         let now = self.epoch();
+        let given = args.as_object().cloned().unwrap_or_default();
         self.with_list(&extension, &state, |entries| {
             if let Some(e) = entries
                 .iter_mut()
@@ -332,9 +373,7 @@ impl<D: DataSource> Runner<D> {
                     e.fields.insert(into.clone(), ms(now + remaining));
                     e.fields.insert(left.into(), Json::Null);
                 }
-                for (field, value) in update["set"].as_object().into_iter().flatten() {
-                    e.fields.insert(field.clone(), value.clone());
-                }
+                Self::set_fields(&mut e.fields, &update["set"], &given, now);
             }
             ((), true)
         });

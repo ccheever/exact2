@@ -25,6 +25,6 @@ test "refused then"
   clock +5
   tap "poke"
   clock +20
-  expect state ticks == 0
-  clock +20
   expect state ticks == 2
+  clock +20
+  expect state ticks == 4

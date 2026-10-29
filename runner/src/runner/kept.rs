@@ -39,6 +39,24 @@ pub(super) struct Keeping {
     /// Kept answers this boot refused, by resource, with why: journaled
     /// with the ones it shows, so a refusal is never silent.
     pub(super) refused: Vec<(usize, String)>,
+    /// Whether a module source declared `kept` keeps its answers (LLP
+    /// 1133.015 D4): always, but in a private session.
+    pub(super) modules: bool,
+}
+
+/// Whether resource `i` reads a module's live source declared `"kept":
+/// true` (LLP 1133.015 D4): its implementation loads after first pixel
+/// whatever the data source, so its last answer is kept as a TypeScript
+/// source's is.
+pub(super) fn kept_module(plan: &exact_plan::Plan, i: usize) -> bool {
+    let source = plan.resources[i].source;
+    (plan.modules.iter()).any(|m| {
+        m.live
+            && !m.send
+            && plan.sources[m.source.0 as usize].name == source
+            && serde_json::from_str::<serde_json::Value>(plan.str(m.substitute))
+                .is_ok_and(|sub| sub["kept"] == true)
+    })
 }
 
 /// Note that resource `i`'s kept answer, kept for `kept`, was refused
@@ -83,10 +101,10 @@ pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) 
         .iter()
         .filter_map(|(name, _)| {
             let resource = name.strip_prefix(Store::KEPT)?;
-            (!plan
-                .resources
-                .iter()
-                .any(|r| r.reader && plan.str(r.name) == resource))
+            (!(0..plan.resources.len()).any(|i| {
+                (plan.resources[i].reader || kept_module(plan, i))
+                    && plan.str(plan.resources[i].name) == resource
+            }))
             .then(|| name.clone())
         })
         .collect()
@@ -318,10 +336,60 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// The first frame's kept answers: a store reader's while the data
+    /// source is not ready, and a kept module source's always.
+    pub(super) fn seed_at_boot(
+        &mut self,
+        seeded: &[bool],
+        device_state: bool,
+        ready: bool,
+        private: bool,
+    ) {
+        if !ready {
+            self.seed_kept(seeded, device_state);
+        }
+        self.seed_kept_modules(ready, private);
+    }
+
+    /// Each resource reading a kept module source (LLP 1133.015 D4) shows
+    /// the answer kept from the last launch where it still fits, and is
+    /// asked again: at `data_ready` when the data source is not ready yet,
+    /// else at once. The seed is provisional, as any kept answer is. A
+    /// private session keeps none.
+    pub(super) fn seed_kept_modules(&mut self, ready: bool, private: bool) {
+        self.keeping.modules = !private;
+        if private || self.store.opened_locked() {
+            return;
+        }
+        for i in 0..self.plan.resources.len() {
+            if !kept_module(&self.plan, i) || self.resources[i].is_some() {
+                continue;
+            }
+            let Some((args, value)) = self.kept_seed(i) else {
+                continue;
+            };
+            self.resources[i] = Some(ResourceState {
+                inspection_generation: 0,
+                args,
+                value: crate::held::Held::new(value),
+                store_revision: self.store.revision(),
+                placeholder: false,
+                kept_seed: true,
+                answered_for: None,
+                origin: 0,
+            });
+            match ready {
+                true => self.refresh_next.push(i),
+                false => self.stale[i] = true,
+            }
+        }
+    }
+
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
-        if !self.keeping.on || !self.store_readers[i] {
+        let module = self.keeping.modules && kept_module(&self.plan, i);
+        if !module && (!self.keeping.on || !self.store_readers[i]) {
             return;
         }
         // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
@@ -656,6 +724,7 @@ impl<D: DataSource> Runner<D> {
             let answer = if Self::activity_send(&source) {
                 self.activity_request(&source, &args)
             } else {
+                self.store.set_clock_ms(self.now_ms);
                 let answer = self
                     .data
                     .answer_for(target, &mut self.store, &source, &args);

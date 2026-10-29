@@ -1,0 +1,52 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first. Each row shows an initials avatar, sender, subject, a two-line preview clamped with an ellipsis, and a date (time for today, 'Oct 24' otherwise). Unread rows get a red dot on the avatar and a bolder sender."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows round Flag and Archive buttons. Archive removes the row and the count drops from 318 to 317. Swiping right (full swipe works) toggles read/unread. The Archive tab lists archived mail and offers a 'To Inbox' swipe."},
+      {"n": 3, "status": "pass", "note": "Flag button on each row and on swipe; flag in the message view. An All mail / Unread / Flagged segmented control filters both Inbox and Archive correctly."},
+      {"n": 4, "status": "pass", "note": "Tapping pushes a message view with subject, sender, date and body. Opening an unread message marks it read (count went from 109 to 108). Mark unread and archive buttons sit at the bottom."},
+      {"n": 5, "status": "pass", "note": "Pulling down adds two new locally generated unread messages at the top, timestamped now. Unread count +2."},
+      {"n": 6, "status": "pass", "note": "'N unread' below the title and a red badge on the Inbox tab, both update live."},
+      {"n": 7, "status": "pass", "note": "After relaunch the read state, flags, archived messages and even refreshed messages were all kept."}
+    ],
+    "bugs": [
+      "In some rows the date label jumps from the right edge to sit right after the sender name (e.g. 'Lucas Ito  Oct 24', 'Rafael Diaz Oct 23', 'Ada Castro Oct 24'). The frame becomes [159,323 223x14] instead of right-aligned, and which rows are affected changes after state changes.",
+      "At the largest text size the '320 messages' count disappears and the section header truncates to 'LATEST'.",
+      "Offscreen row texts are left in the accessibility tree as stray StaticTexts stacked at the list origin."
+    ],
+    "tells": [
+      "Custom cream/paper background and a terracotta accent everywhere instead of system backgrounds and tint; reads as a themed, web-like design.",
+      "The header (large title, unread/total line, segmented control, 'LATEST MESSAGES / Newest first' caption) is fixed above an inset list. The large title never collapses into the nav bar on scroll.",
+      "Hand-styled pill segmented control and a small, centred, custom floating tab bar (Inbox/Archive) rather than the system iOS 27 tab bar.",
+      "At the largest text the 'Inbox' title gets smaller rather than larger, and the segmented control and tab bar do not scale.",
+      "A permanent flag button on every row takes width from the preview, so previews wrap at about 254pt. That is not Mail-like.",
+      "Circular search button alone in the nav bar; no system searchable bar.",
+      "The message view uses a custom bottom capsule 'Mark unread' button and a round archive button instead of a toolbar."
+    ],
+    "scroll": "The list scrolls smoothly with no blank rows or popping, and scroll position is roughly kept after opening a message and coming back. But only the region under the fixed header scrolls, so the title never collapses and the visible list area is small (about 4 rows).",
+    "scores": {"features": 9, "platform": 5, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest first. Mail-style rows: bold sender, subject, a grey preview of up to two lines, and a relative date (time, weekday, then M/D/YY). Unread shown with a blue dot."},
+      {"n": 2, "status": "pass", "note": "Swiping left shows Flag and Archive (purple) as system swipe actions. Archive removes the row. A full swipe right toggles read/unread with a blue Read/Unread action. The Archive screen (toolbar button) lists archived mail with a swipe to move back to Inbox."},
+      {"n": 3, "status": "pass", "note": "Flag by swipe and in the message view; flagged rows show a small orange flag. A filter menu (system pull-down: All Messages / Unread / Flagged) works, and the subtitle shows '108 unread · Flagged'."},
+      {"n": 4, "status": "pass", "note": "Pushes a message view with subject, sender, date, time and flagged status. Opening marks read (108 to 107). Toolbar has mark unread, flag and archive."},
+      {"n": 5, "status": "pass", "note": "Pull to refresh (and a refresh toolbar button) adds two new unread messages at the top with the current time."},
+      {"n": 6, "status": "pass", "note": "'N unread' subtitle under the large title, updated live."},
+      {"n": 7, "status": "pass", "note": "Read state, flags, archived messages and refreshed messages all survived relaunch."}
+    ],
+    "bugs": [
+      "At the largest text size the preview is no longer limited to two lines (wraps to 4–5 lines)."
+    ],
+    "tells": [
+      "The sender name is equally bold for read and unread rows, so only the blue dot tells them apart.",
+      "The redundant refresh button in the nav bar next to Archive and Filter; the Archive screen is reached by a toolbar button rather than a mailbox list.",
+      "The message view's 'Message' title is squeezed left beside the back button by three trailing buttons."
+    ],
+    "scroll": "Feels like a native iPhone list: the large title collapses to an inline title, content scrolls under the glass toolbar and bottom search field, flings decelerate naturally with no blank or popping rows, pull past the top rubber-bands and refreshes, and scroll position is kept exactly after opening a message.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps implement every requirement and persist state correctly. B looks and behaves like a native iOS 27 Mail-style app: system swipe actions, a collapsing large title, a glass toolbar, a bottom search field, a pull-down filter menu and Dynamic Type that scales. A is a themed, custom-chrome design with a fixed non-collapsing header, a hand-styled tab bar and segmented control, a date label that sometimes jumps next to the sender name, and chrome that does not scale at large text."
+}

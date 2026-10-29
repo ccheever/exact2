@@ -398,7 +398,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.exact-contract",
-          "match": "(?<![A-Za-z0-9_\\-])(?:blur|captureScreenshot|close|closeNotification|copyText|deliveryActivate|deliveryCheck|fastSeek|focus|format|haptic|hidePopover|load|navigate|openURL|playSound|playSounds|requestMIDIAccess|requestPermission|postMessage|preventDefault|relaunch|reload|removeAllRanges|requestFullscreen|saveFile|scrollBy|scrollIntoView|selectText|sendMIDI|setMode|setRangeText|setRootFontSize|setScheme|setSelectionRange|share|showDirectoryPicker|showModal|showNotification|showOpenFilePicker|showPicker|showPopover|showSaveFilePicker|stopLoading|stopPropagation|stopSounds|togglePopover|traverseHistory)(?=\\s*\\()"
+          "match": "(?<![A-Za-z0-9_\\-])(?:blur|captureScreenshot|close|copyText|deliveryActivate|deliveryCheck|fastSeek|focus|format|haptic|hidePopover|load|navigate|openURL|playSound|playSounds|requestMIDIAccess|requestPermission|postMessage|preventDefault|relaunch|reload|removeAllRanges|requestFullscreen|saveFile|scrollBy|scrollIntoView|selectText|sendMIDI|setMode|setRangeText|setRootFontSize|setScheme|setSelectionRange|share|showDirectoryPicker|showModal|showOpenFilePicker|showPicker|showPopover|showSaveFilePicker|startTrace_EXPERIMENTAL|stopLoading|stopPropagation|stopSounds|stopTrace_EXPERIMENTAL|togglePopover|traverseHistory)(?=\\s*\\()"
         }
       ]
     }

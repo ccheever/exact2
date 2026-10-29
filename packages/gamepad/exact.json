@@ -9,6 +9,12 @@
       "playstation": ["Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "Create", "Options", "L3", "R3", "Up", "Down", "Left", "Right", "PS"],
       "nintendo": ["B", "A", "Y", "X", "L", "R", "ZL", "ZR", "−", "+", "LS", "RS", "Up", "Down", "Left", "Right", "Home"],
       "generic": ["A", "B", "X", "Y", "L1", "R1", "L2", "R2", "Select", "Start", "L3", "R3", "Up", "Down", "Left", "Right", "Home"]
+    },
+    "apple": {
+      "xbox": { "productCategory": "Agent pad", "vendorName": "Agent pad", "symbols": ["a.circle", "b.circle", "x.circle", "y.circle", "lb.rectangle.roundedbottom", "rb.rectangle.roundedbottom", "lt.rectangle.roundedtop", "rt.rectangle.roundedtop", "rectangle.fill.on.rectangle.fill", "line.3.horizontal.circle", "l.joystick.press.down", "r.joystick.press.down", "dpad.up.filled", "dpad.down.filled", "dpad.left.filled", "dpad.right.filled", "logo.xbox"] },
+      "playstation": { "productCategory": "Agent pad", "vendorName": "Agent pad", "symbols": ["xmark.circle", "circle.circle", "square.circle", "triangle.circle", "l1.rectangle.roundedbottom", "r1.rectangle.roundedbottom", "l2.rectangle.roundedtop", "r2.rectangle.roundedtop", "", "line.3.horizontal.circle", "l.joystick.press.down", "r.joystick.press.down", "dpad.up.filled", "dpad.down.filled", "dpad.left.filled", "dpad.right.filled", "logo.playstation"] },
+      "nintendo": { "productCategory": "Agent pad", "vendorName": "Agent pad", "symbols": ["b.circle", "a.circle", "y.circle", "x.circle", "l.rectangle.roundedbottom", "r.rectangle.roundedbottom", "zl.rectangle.roundedtop", "zr.rectangle.roundedtop", "minus.circle", "plus.circle", "l.joystick.press.down", "r.joystick.press.down", "dpad.up.filled", "dpad.down.filled", "dpad.left.filled", "dpad.right.filled", "house.circle"] },
+      "generic": { "productCategory": "Agent pad", "vendorName": "Agent pad", "symbols": ["a.circle", "b.circle", "x.circle", "y.circle", "l1.rectangle.roundedbottom", "r1.rectangle.roundedbottom", "l2.rectangle.roundedtop", "r2.rectangle.roundedtop", "", "line.3.horizontal.circle", "l.joystick.press.down", "r.joystick.press.down", "dpad.up.filled", "dpad.down.filled", "dpad.left.filled", "dpad.right.filled", "house.circle"] }
     }
   },
   "shapes": {
@@ -28,6 +34,8 @@
       "buttons": "option<GamepadButton[]>",
       "axes": "option<number[]>",
       "timestamp": "option<number>",
+      "apple": "option<AppleGamepad>",
+      "android": "option<AndroidGamepad>",
       "windows": "option<WindowsGamepad>",
       "linux": "option<LinuxGamepad>"
     },
@@ -58,7 +66,8 @@
           "gamepads[].family": "generic",
           "gamepads[].labels": { "table": "labels", "by": "family" },
           "gamepads[].effects": ["dual-rumble"],
-          "gamepads[].light": true
+          "gamepads[].light": true,
+          "gamepads[].apple": { "on": ["ios", "macos", "tvos"], "table": "apple", "by": "family" }
         },
         "changes": {
           "list": "gamepads",
@@ -74,6 +83,7 @@
       "send": "playEffect",
       "origin": "app",
       "foreground": true,
+      "derives": { "android": ["android.permission.VIBRATE"] },
       "options": {
         "index": "option<number>",
         "type": "enum<dual-rumble|trigger-rumble>",

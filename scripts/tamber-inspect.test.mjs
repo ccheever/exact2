@@ -1031,3 +1031,29 @@ test('tamber/1.17: a polled stream keeps a plan\'s copies past the inspect frame
   expect(got.filter(f => 'on' in f).at(-1).on).toBe(true);
   expect(got.every(f => !(f.copies && 'on' in f))).toBe(true);
 });
+
+test("a selection's chain is its walk where the map writes one (a slot's host, tamber/1.18), and a file only its walk names moving makes it read-only (stage 15 D3)", () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-walk-'));
+  try {
+    const app = joinPath(dir, 'app.contract'), panel = joinPath(dir, 'panel.contract');
+    writeFileSync(app, 'app'); writeFileSync(panel, 'panel');
+    const host = { file: panel, line: 4, col: 5, end_col: 10, component: 'Frame', slot: true };
+    const map = { digest: 'p1', sources: [{ file: app, sha256: sha('app') }, { file: panel, sha256: sha('panel') }], nodes: [
+      { file: app, line: 3, col: 5, end_col: 9, component: 'App', chain: [], bindings: [] },
+      // An App fill forwarded through Panel into Frame's slot: no call-site chain, a walk to Frame.
+      { file: app, line: 6, col: 9, end_col: 13, component: 'App', chain: [], walk: 0, bindings: [] },
+    ], walk_steps: [host], walks: [[0]] };
+    const selected = { node: 7, site: 1, instance: [], tuple: {}, rows: [] }, walks = { id: 'web-1', capabilities: ['inspect', 'copies'] };
+    const s = join(walks, selected, map);
+    expect(s.readOnly).toBe(null);
+    expect(s.source.chain).toEqual([host]);
+    // A page before 1.17's copies moves by call-site levels: its chain is the call-site chain.
+    expect(join({ id: 'web-1', capabilities: ['inspect'] }, selected, map).source.chain).toEqual([]);
+    // A map before the walks (or a walk index it lacks): the call-site chain.
+    expect(join(walks, selected, { ...map, walks: undefined }).source.chain).toEqual([]);
+    expect(join(walks, selected, { ...map, nodes: [map.nodes[0], { ...map.nodes[1], walk: 9 }] }).source.chain).toEqual([]);
+    // The host's file moved since this build: read-only, though no call-site chain names it.
+    writeFileSync(panel, 'panel, edited');
+    expect(join(walks, selected, map).readOnly).toContain('panel.contract changed since this build');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

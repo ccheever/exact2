@@ -133,6 +133,33 @@ impl ControlKind {
     }
 }
 
+/// The kind and font size of a mark its host draws one size for every node
+/// of a font size: a checkbox's, a radio's and a switch's, shown natively.
+pub(crate) fn mark_key(arena: &crate::arena::NodeArena, slot: u32) -> Option<(ControlKind, u32)> {
+    let kind = ControlKind::of(arena.node_type(slot), arena.props(slot))?;
+    let mark = matches!(
+        kind,
+        ControlKind::Checkbox | ControlKind::Radio | ControlKind::Switch
+    );
+    let font = arena.computed_source(slot, StyleId::FontSize).font_size;
+    (mark && arena.style(slot).appearance != crate::Appearance::None)
+        .then(|| (kind, font.to_bits()))
+}
+
+/// The size `slot`'s host last reported for a mark of its kind and font
+/// size, which stands for it until it reports its own. The kind's default
+/// (LLP 1069.001 D3) is the look's, and an Apple host's checkbox is not:
+/// every new list row with one was laid out at 13 points, reported 22 and
+/// laid out again, in a batch of its own.
+pub(crate) fn shared_size(arena: &crate::arena::NodeArena, slot: u32) -> Option<(f32, f32)> {
+    let key = mark_key(arena, slot)?;
+    arena
+        .mark_sizes
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|&(_, size)| size)
+}
+
 fn digits(s: &str, n: usize) -> Option<u32> {
     (s.len() == n && s.bytes().all(|b| b.is_ascii_digit()))
         .then(|| s.parse().ok())

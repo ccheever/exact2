@@ -1,7 +1,7 @@
 # LLP 1142: What a development build tells an agent — late frames, portable traces, failed resources
 
 **Type:** RFC
-**Status:** Draft r5, panel-reviewed; 2026-10-26. §12 records what r3 built; §13 specifies the next tooling increment after the r4 panel. Implementation is authorized by Charlie’s 2026-10-26 instruction below; completion evidence is recorded separately. The r1 and r2 blind reviews by GPT-6 Astra and Grok are in `llp/reviews/rfc-2026-10-25-1142-r{1,2}.{astra,grok}.md`; §R and §12 record their disposition. §13.8 lists the new decisions requested.
+**Status:** Draft r5, panel-reviewed; 2026-10-26. §12 records what r3 built, and D3 as built on 2026-10-27; §13 specifies the next tooling increment after the r4 panel. Implementation is authorized by Charlie’s 2026-10-26 instruction below; completion evidence is recorded separately. The r1 and r2 blind reviews by GPT-6 Astra and Grok are in `llp/reviews/rfc-2026-10-25-1142-r{1,2}.{astra,grok}.md`; §R and §12 record their disposition. §13.8 lists the new decisions requested.
 **Systems:**
 - Apple host:
   - the frame sampler and its trace (`host/apple/Sources/ExactKit/FrameSampler.swift`);
@@ -410,6 +410,23 @@ The reader prints the record's hatches too. Linux phases are not built.
 - A 123-event fling with momentum moved nothing.
 
 This matches what `ChainingScrollView`'s comment and the fill-policy entry in `QUEUE.md` record: AppKit's tracking of a trackpad gesture reads the window server's events, not the application's. An agent cannot hold a rubber band or fling this way. What would is an event the window server delivers: `CGEvent.post` to the app's process, which needs the session's Accessibility permission (see the `session-tcc-limits` memory). `QUEUE.md` has the entry. `perf frames live` on Apple was not built, since it would measure a fling the driver cannot make.
+
+**D3, the second probe (2026-10-27): built.** Events posted to the app's process with `CGEvent.postToPid` arrive as the window server's, and AppKit tracks their gesture whole. Three things the first attempt lacked make it work:
+
+- **A window and a point in it.** Without the window number in field 51 and `CGEventSetWindowLocation`, the window server gives a posted scroll event the pointer's position, outside the app's window, and nothing takes it. These are the undocumented calls the agent's own wheel already uses (`AgentMouseMac.swift`).
+- **The driver's process posts.** Posting needs the Accessibility grant of the terminal the driver runs in. An ad hoc signed app has none.
+- **The app's routing knows the gesture.** The helper marks each event in `kCGEventSourceUserData`. `ChainingScrollView` hands a marked event to AppKit under the agent too, and counts it, so the driver can tell a delivered gesture from one that reached nothing.
+
+The window need not be active. A plain `NSScrollView` and Caltrain's page both glide on the posted momentum, band past their end and spring back. A pull held past the end stays stretched across a separate `layout` and `screenshot` until `release`.
+
+As built, `tap <s> wheel dx dy fling`, `… hold` and `tap <s> wheel 0 0 release` are §5's forms. The driver asks the app where to post (`platform: true` on the `tap`, which synthesizes nothing), and `host/apple/wheel.swift` posts the events one display period apart. It is compiled once per source and Xcode into `target/wheel-helper/`. A fling's reply waits up to 4 s for the scroller to rest and gives its `offset`. A drive that ends with a hold open releases it. The other carriers answer `unsupported`. `fling.mjs macos` flings this way unless `--person` asks for a person's flings. The session's clock does not move during AppKit's motion, as §5 has it.
+
+Two limits remain:
+
+- A pull that starts at a scroller's end chains to the scroller around it, and the outermost one has none, so nothing bands. This is `ChainingScrollView`'s routing for a person's gesture too. `QUEUE.md` has the entry.
+- The Mac's scroll probe reports only `b` (past an end) or `-`, because `NSScrollView` exposes no deceleration state. So `fling.mjs`'s motion section counts no gliding frames on the Mac.
+
+`perf frames live` on Apple was built separately, in §14.
 
 ## 13. The remaining Excord development-loop work
 

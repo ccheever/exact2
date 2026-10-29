@@ -244,7 +244,8 @@ platform's implementation declares (`contract-module-positional`,
 `contract-module-argument`, `call-argument-twice`). The device answers it, never
 the build: its placeholder is `else empty()` (`contract-module-placeholder`).
 A send that answers nothing (`"answers": null`, LLP 1133.004 D5) is a statement
-in an action, as a host command is (`showNotification(title="Done", tag=t)`);
+in an action, as a host command is (`showNotification(title="Done", tag=t)`,
+from `@exact/notifications`: [notifications](reference.md#notifications));
 a `send` to one is refused (`contract-module-answers`), and so is a statement
 calling a send that answers something (`contract-module-kind`). A module's
 event (D6) is heard with an attribute on the root component's outermost node,
@@ -643,7 +644,8 @@ special typing; it is not a source-language type annotation.
 
 ```ebnf
 test-file     = { launch | test } ;                   (* a top-level launch line: every test's *)
-test          = "test" STRING block( { launch } { step } ) ;
+test          = "test" STRING [ "on" HOST { "," HOST } ] block( { launch } { step } ) ;
+HOST          = "web" | "macos" | "ios" | "tvos" | "linux" | "windows" | "android" ;
 launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "epoch" ( STRING | NUMBER | "now" ) NL (* "2026-09-21T12:00:00Z", Unix ms, or now *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
@@ -655,6 +657,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
                   | "pinch" NUMBER [ "at" NUMBER NUMBER ]
+                  | "wheel" [ "-" ] NUMBER [ "-" ] NUMBER
                   | "into" STRING
                   | "modifiers" STRING | "mediasession" STRING [ NUMBER ] ] NL
               | "tap" STRING "drag" ( "to" STRING [ "at" NUMBER NUMBER ]
@@ -679,6 +682,10 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "close" NL                           (* the window's close button *)
               | "back" NL                            (* the platform's Back *)
               | "screenshot" STRING NL
+              | "perf" NL block( step { step } )       (* counts its steps' work; no launch line, `clock … real` or `perf` in it *)
+              | "expect" "perf" ( "query" IDENT | ( "built" | "evaluated" ) STRING ) ( "==" | "<=" ) NUMBER NL
+                                                     (* a count of the last `perf` block *)
+              | "expect" "no" "failures" NL           (* nothing failed that the test did not arrange *)
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" ( "disabled" | "enabled" ) STRING NL  (* a control's `disabled` (LLP 1116.010 D3) *)
               | "expect" "refusal" STRING NL          (* one observed refusal of the named mutation slot *)
@@ -695,6 +702,103 @@ json          = "{" [ STRING ":" json { "," STRING ":" json } ] "}"   (* strict 
               | "[" [ json { "," json } ] "]"                         (* trailing comma; brackets may *)
               | STRING | [ "-" ] NUMBER | "true" | "false" | "null" ; (* span lines *)
 ```
+
+`on web` runs a test on the hosts it names and skips it on the others, saying so (LLP 1146 D7):
+a test of something only one host has, such as the browser's history after a reload.
+
+`perf` runs its indented steps and counts the work they did (LLP 1146 D3), for the `expect
+perf` lines after it. `query channelList` is how often the resource's data source was asked;
+`built "MemberList"` the views created and virtual rows constructed at that component's plan
+sites (a component the plan declares and never built counts 0), else under the view with that
+`testId`; `evaluated` the bindings evaluated there. The counts repeat when the steps and the
+answers are the test's, on the agent's clock, so `clock … real` is refused in a block and the
+block in a run under platform timing. `query` and `built` read the same on every host;
+`evaluated` is each runtime's own, so a test that compares it names one host. The development
+source map names components; a host without one says so. A drive's `perf <target> during "…"`
+shows the same counts while a test is being written.
+
+`expect no failures` fails when, since the test launched or its last `expect no failures`, a
+resource was refused while no `fail fetch` fired, a send failed that no `expect refusal` names,
+or the runner said a resource was asked again and again (LLP 1146 D4). Without it, a test
+still prints those as `unarranged:` notes, and verify counts them as findings.
+
+Properties live beside the scripts in a test file; a file declaring a component
+cannot declare a property. They compile to nothing an app runs. `contract verify`
+checks them against each script's observations on the runner and Lean.
+
+```
+always "the phone is on one of its five screens"
+  expect state screen in "lock" "home" "settings" "display" "messages"
+
+always "the counter is a whole number of at least one"
+  expect state counter whole
+  expect state counter >= 1
+
+always "a probe's result is absent or an answer"
+  expect state tsResult in none some
+
+always "once the photo has loaded it stays loaded"
+  expect state ready stays true
+
+after "increment" "increment adds one"
+  expect state counter == old + 1
+
+after "reset" "reset puts the turns back and counts itself"
+  expect state turns == 0
+  expect state resets == old + 1
+
+after "rotate" "rotating touches nothing but the turns"
+  only writes turns
+
+after "done" "done writes nothing and focuses the button"
+  writes none
+  command focus "done"
+
+after clock "the probe never touches what the user set"
+  only writes tsResult rustResult rustExecutorResult
+
+never refuses "reset"
+```
+
+```ebnf
+property      = "always" STRING block( { hold } )
+              | "after" ( STRING | "clock" ) STRING block( { hold | frame } )
+              | "never" "refuses" STRING NL ;
+hold          = "expect" "state" IDENT ( "==" ( test-value | "old" [ ( "+" | "-" ) NUMBER ] | "not" "old" )
+                                      | "in" { test-value | "none" | "some" }
+                                      | ( ">=" | "<=" ) [ "-" ] NUMBER
+                                      | "whole"
+                                      | "stays" test-value ) NL ;
+frame         = "only" "writes" { IDENT } NL          (* no other root slot changes *)
+              | "writes" "none" NL
+              | "command" IDENT { test-value } NL ;    (* the commit issued this host command *)
+```
+
+`old` is admitted only in `after`, `stays` only in `always`, and frame lines only in
+`after`. The braces in the EBNF mean repetition, not written braces. A read names a
+whole root state or derive by its bare identifier; fields and indices are stage 2.
+Before any script runs, verify rejects a derive whose body, dependencies or called
+functions reach a resource, mutation status, clock or geometry read. A mutation's
+result slot is a state and may be named.
+
+`always` checks every printed configuration, including boot. `stays v` means that a
+previous observation equal to `v` must remain `v`. `after "action"` reads the value
+before an input and after its following `land`; the input must have only that
+successful handler commit, and its landing only `then` and `queue` commits. Other
+commits, including a commit omitted from the trace, make the pair counted only.
+`after clock` checks clock advances and landings not paired with inputs, over all
+their commits. `only writes` compares every root slot, including queue results.
+`never refuses` reads the action on each commit line; an action never run is
+reported as not exercised. Poisoned configurations are counted, not checked.
+Numbers use binary64 arithmetic and IEEE comparisons; other values compare by
+their whole printed text. These checks cover observed steps, not every commit
+inside a step, and are not proofs.
+
+`contract test <file>` emits an object with `tests` and `properties` arrays. Each
+property carries `kind`, `name`, its declaration `line` and parsed `lines`; each
+line has its source `line` and an `op` (`expect-state`, `only-writes`, `command`).
+Values carry a `kind` and, for numbers, strings and bools, a `value`. The device
+runner currently reads the scripts; property checking on a device is a later lane.
 
 `expect refusal "saved"` names a mutation slot, after `clock data` or `clock settle`
 lands its send. It asserts one observed refusal since the previous such assertion for
@@ -775,6 +879,11 @@ virtual clock by those milliseconds (a game's ticks), except under
 `--timing platform`, where the platform's own clock owns the gesture.
 `tap "id" pinch <scale> [at x y]` is the driver's pinch: `scale` greater than 0,
 about the node's middle or about `at` in its box.
+`tap "id" wheel <dx> <dy>` is the driver's wheel (the agent's `tap <t> wheel
+dx dy`) at the node's middle, in points (CSS pixels on the web): a positive `dy`
+scrolls on toward the content's end, so its offset grows, and a negative one back
+toward its start; a positive `dx` scrolls right. It lands at once, with no
+momentum, so a Mac's scroll can be tested where a drag selects text instead.
 `tap "id" dblclick` and `contextmenu` are the driver's forms of the same names
 (no Linux carrier double-clicks). `tap "list" into "key"` brings a virtualized
 list's row into view by its key, so a row outside the rendered window can be
@@ -932,6 +1041,7 @@ says. Every roster function has a row and an example, and each example written
 | `depth(router)` | Number | `depth(nav)` is `1` |
 | `params(router, parameterName)` | `string[]`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
+| `sharedFiles(entry, name)` | `SharedFiles`: `{files: Picked[], dropped, pending}`, the files a received share carried, by the token in the entry's `name` parameter; `pending` counts those still being copied, and a token the host did not set this launch answers no files ([receiving shares](../llp/1133.024-share-browser-compose-print.rfc.md), D3) | `sharedFiles(top(nav), "files").files.length` is the count of shared files that have landed |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
 | `rangeFrame(id, start, end)` | `Geometry`, actions only; a textarea's UTF-16 range as `Range.getBoundingClientRect()` (on a `text markup="markdown"`, the union of the atom pills the range meets, [inline atoms](#inline-atoms-atom-atoms-atomfaces-atompress)): collapsed, the caret's rectangle; unavailable past the text, while composing, or with no host reader ([decorations](#plain-textarea-decorations), LLP 1114.007) | `rangeFrame("composer", caret, caret)`, in an action, is where a mention popover goes |
@@ -963,7 +1073,7 @@ For `querySelectorAll`, a closed popover or dialog is hidden by its presenter;
 an open one is included when it matches. A wide split list is included only
 where the host presents it (on the web); native hosts hide the unselected route.
 
-The router functions (`open` through `searchParam`) and `encodeRouteSegment`
+The router functions (`open` through `sharedFiles`) and `encodeRouteSegment`
 exist only in an app with a `routes` declaration.
 
 `<`, `<=`, `>` and `>=` take two numbers or two strings. Two strings compare as
@@ -1106,6 +1216,9 @@ props retain their declared spelling.
 inherited; `auto` restores ordinary greedy wrapping. `pretty` and `stable` are refused with the supported values, `auto | balance`. Every host balances the
 lines before a paragraph's first forced break, up to six, at the narrowest
 width that keeps their count, as Chrome does (LLP 1001 §6).
+`-webkit-font-smoothing` takes `auto` or `antialiased` and is inherited; `none`
+and `subpixel-antialiased` are refused. It changes how glyphs paint, never how
+text measures (LLP 1019 D12).
 
 `-exact-hairline` is a length every length row takes but a font's size and line
 height ([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md) D10.3): one
@@ -1455,7 +1568,7 @@ host.
 | Zero or one `InputEvent` | `selectionchange` and `beforeinput`, on a plain text field |
 | Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MIDIMessageEvent` (the action takes it or leaves it) | `midimessage`, on an element with `midiinputs=` ([MIDI](#midi-exactmidi-sendmidi-midimessage)) |
-| Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
+| Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation), and where the pointer was, `clientX`, `clientY`, from the viewport (0, 0 from a keyboard or assistive activation, as Chrome's; a popover's `left`/`top` can open it there, LLP 1021 D2) |
 | None | `beforeunload`, `cancel`, `close`, `scrollend`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 On text fields and textareas, `input` reports every edit. An `input` handler
@@ -1525,6 +1638,15 @@ after mounting the list with `scrollIntoView("feed", key, offset=within)`.
 `offset=` is a finite number and belongs only to the list form. It places the
 port that many pixels into the keyed row wrapper, overriding that list's
 `block`/`inline` alignment and scroll-padding, clamped to the scroll range.
+
+A virtualized list mounts the rows near its port and unmounts the rest.
+`keep-mounted=` names rows that stay mounted wherever the window is: a list of
+up to 64 keys as the `for`'s `key=` gives them, each possibly an `option`
+(`none` names no row), computed or literal. A screen reader moves only through
+mounted rows, so a transcript keeps its first and last message,
+`keep-mounted=[first(ids), ids.at(-1)]`; a row playing audio keeps its player.
+A key the list does not hold is passed over; another value keeps none and
+says so in the journal (LLP 1010 §6.11).
 
 `scroll-padding` (or its four physical sides) insets any scroll container’s
 alignment port. `scroll-margin` expands the target element’s border box for
@@ -1654,7 +1776,15 @@ focused node's centre, after `key` handlers run, with `buttons=0` and
 is sufficient. A text field keeps its editing menu. Drive it with
 `type "row" key "ContextMenu"` or `type "row" key "Shift+F10"`. UIKit presents
 keyboard-invoked actions through its native menu without the long-press preview.
-Disabled controls and inert nodes do not open menus.
+Disabled controls and inert nodes do not open menus. On macOS a request that
+no node answers, from the key or from VoiceOver's show menu, gets the menu a
+right-click at that point would show, as Chrome shows its own menu then: the
+menu of the view drawn there or above it (selected text's), else whatever
+answers past the session's view (an embedder's or an app's responder). No
+`pointerdown` or `contextmenu` fires, and selected text keeps its selection.
+With nothing focused and text selected, the key opens at the selection's first
+line, as Chrome's does. The web shows the browser's own menu; the other hosts
+have no page menu to show.
 
 `wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
 every node from it up that declares it, innermost first. Its `WheelEvent` is
@@ -1774,6 +1904,18 @@ action pasteAt(cell: string, e: ClipboardEvent)
   send pasted = pasteCells(cell, e.text)
 column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 ```
+
+To write an image, data code imports `@exact/clipboard` (LLP 1133.006): the
+Clipboard API's `write([new ClipboardItem({"image/png": path, "text/plain":
+text})])`, with an `app:/` path to a PNG (or at most 2 MiB of PNG bytes)
+and `writeText(text)`. The host writes a new PNG of the image's pixels, frame
+0 of an animation; convert another format first with
+`storage.fs.compressImage(…, {type: "image/png"})`. Web, macOS and iOS. The
+app's Contract names the package with a `use` (`use ClipboardItem from
+"@exact/clipboard"`), which links it. Under the agent neither this nor
+`copyText` touches the person's clipboard: the write lands on the session's
+own pasteboard (in memory on the web), and `state.extensions.clipboard.implementation`
+shows the last one (`EXACT_DEVICE=real` writes the real one on Apple).
 
 ### Text selection
 
@@ -2221,7 +2363,8 @@ the virtual clock).
   `merge-all-windows`, `back` (Go ▸ Back), `develop` (the Develop menu),
   `paste-and-match-style`, `find`, `spelling-and-grammar`, `substitutions`,
   `transformations`, `app-help` (Help ▸ *App* Help), `actual-size`, `zoom-in`
-  and `zoom-out`. A removed submenu (`find`) takes its items' chords with it,
+  and `zoom-out`, and `status-quit` (the host's Quit ending a status item's
+  menu, LLP 1133.025 D7). A removed submenu (`find`) takes its items' chords with it,
   and an app command that would stand in there follows Select All instead.
   Empty removes nothing; duplicates are harmless. Unknown ids, expressions and
   non-root use fail with `lower-menu-remove`, which names the accepted set.
@@ -2229,6 +2372,34 @@ the virtual clock).
   active window. It never removes an app button; `develop` takes the Develop
   menu off the bar and leaves its chords (Save Trace's ⌥⌘T among them);
   other hosts ignore it ([LLP 1021 §5.3](../llp/1021-menus.rfc.md#53-contract-extensions-to-the-mac-menu-bar-2026-10-12)).
+
+  On a top-level root, `-exact-menu-keys="close-window=none"` keeps File ▸
+  Close Window (built with ⌘W) in its place with no chord, so ⌘W reaches the
+  page, and `close-window=Meta+Shift+W` gives it ⇧⌘W. `close-window` is the
+  one id; the chord is one `aria-keyshortcuts` chord with `Meta` that is not
+  one of the host's or the system's own (⌘Q, ⌘W, ⌘H, ⌘M, ⌘-comma and the like).
+  Another id, an id named twice, a chord without `Meta`, a standard chord,
+  expressions and non-root use fail with `lower-menu-keys`. With nothing
+  holding ⌘W, AppKit's Close All ⌥⌘W shows as a row of its own: an app that
+  removes ⌘W declares `-exact-menu-remove="close-all"` too. An app command
+  with the same chord still takes it from the item; removing the declaration
+  gives it ⌘W back. Other hosts ignore it
+  ([LLP 1021 §5.3.3](../llp/1021-menus.rfc.md#533-close-windows-chord-2026-10-28)).
+
+  The Dock menu and the status item ([LLP 1133.025](../llp/1133.025-desktop.rfc.md)
+  D4, D5): `dock` beside one menu id, or alone, files the button in the Dock
+  menu too, above AppKit's own items, in declaration order, from the key
+  window's session. `-exact-menu="status"` stands alone (with another id it
+  fails `lower-menu-status`) and presents the button as the app's
+  `NSStatusItem` on macOS and its notification-area icon on Windows, taking
+  its place in the page; its `popovertarget` menu is the item's menu. A click
+  on macOS opens the menu when there is one and runs `press` when there is
+  none; on Windows the left button runs `press` (or opens the menu with no
+  `press`) and the right one opens the menu. With
+  `host.macos.activationPolicy: "accessory"` the app has no Dock tile and
+  opens no window at launch. Bare `focus()` is the window's, as the web's
+  `window.focus()`: it shows the session's window if hidden, brings it
+  forward and activates the app; `focus(id)` stays an element's.
 
   View holds Actual Size ⌘0, Zoom In ⌘+ (⌘= too) and Zoom Out ⌘-, as Safari's
   and Preview's View does, stepping through Safari's zoom levels (50% to 300%)
@@ -2313,8 +2484,8 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
 `load`, `openURL`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `requestPermission`, `scrollIntoView`, `scrollBy`, `showModal`,
-`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `relaunch`, `close`,
-`playSound`, `playSounds`, `stopSounds`, `requestMIDIAccess`, `sendMIDI`
+`haptic`, `postMessage`, `reload`, `relaunch`, `close`,
+`playSound`, `playSounds`, `stopSounds`, `requestMIDIAccess`, `sendMIDI`, `startTrace_EXPERIMENTAL`, `stopTrace_EXPERIMENTAL`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` ([keys](#keys)) and
 `stopPropagation` ([events](#events)).
 
@@ -2333,11 +2504,11 @@ argument validation. Use the working implementation when selecting arguments:
 | `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; no undo step on a plain field, one on the Markdown editor ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
+| `startTrace_EXPERIMENTAL()`, `stopTrace_EXPERIMENTAL()`: experimental, so named while the trace's fields may still change; a recording of each display-link callback, from which it estimates the frames the display showed again, from an app's own control and in any build, a production one included; `stopTrace_EXPERIMENTAL()` puts the trace on the clipboard as compact JSON and in a `trace-recording-*.json` file in the app's temporary directory; `stopTrace_EXPERIMENTAL(maxBytes)` copies it cut to that many bytes (its totals and scroll segments as rows, then the frames late the longest first, as many as fit), for a conversation that limits a message (a budget too small for its totals gets a note naming the size that fits them), and still saves the whole trace. On iOS it splits each scroll a person makes of an element's scroller, a route's page or the document into its drag and its glide, with an estimate, from the display link's callbacks, of the hitch time ratio Apple's scroll metrics report; a Mac recording follows no scroller. It lists each late frame with the main thread's busy time, overrun, batches and host phases. Apple hosts (tvOS, with no clipboard, only saves the file); the web and Linux refuse it in the journal | [`TraceRecording.swift`](../host/apple/Sources/ExactKit/TraceRecording.swift) |
 | `openURL(url)`: an absolute `http`, `https`, `mailto` or `tel` URL, or one of a scheme app.json's `open_url.schemes` declares (`"open_url": {"schemes": ["vscode", "zed"]}`, an editor's deep link), opened by whatever the system registered for it; the web's JS target, macOS and iOS open declared schemes (a browser asks first) and journal one nothing could open, and under the agent journal them instead (`openURL vscode: …`). A link's `href` of a declared scheme opens on macOS and iOS, which hand followed links to `openURL`; the web writes no such `href` (its link policy keeps the four schemes). `file`, `javascript`, `data` and the other schemes that run or read content cannot be declared. Any other scheme is refused in the journal ([LLP 1133.000](../llp/1133.000-the-roster.rfc.md) §2) | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js), [`OpenURL.swift`](../host/apple/Sources/ExactKit/OpenURL.swift) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. The Mac's View ▸ Zoom In multiplies whichever size stands ([The Mac's menu bar](#keys)). A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`, each its own item of the sheet (pass a picture alone to share only it, as a Share Card button does; `contract vocab share`); `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
-| `showNotification(title=, body=, tag=, showTrigger=, navigate=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a click opens `navigate=` through the navigation root, cold or warm. A newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
@@ -2355,8 +2526,7 @@ argument validation. Use the working implementation when selecting arguments:
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, editor or dev menu: its
 `openURL`, `copyText`, `format`, `reload`, `close`, `fastSeek` and `load` are
-journaled as unsupported there (it has no media player), `haptic` does nothing, and `showNotification` is refused
-(`showNotification: refused: unavailable`). Its `selectText` focuses the field
+journaled as unsupported there (it has no media player), and `haptic` does nothing. Its `selectText` focuses the field
 with its whole text selected, which the next typed key or Backspace replaces.
 On Android the same host has the platform behind it (LLP 1115.001 D5): `openURL` and a
 link out open the browser, the mail app or the dialer, `copyText` writes the clipboard,

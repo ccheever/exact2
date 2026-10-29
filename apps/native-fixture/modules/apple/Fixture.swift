@@ -21,8 +21,10 @@
 // reach `element`: the `badge` gets a context menu, an interaction Exact
 // leaves to the app; each list row's `dot` hatch does nothing, so what a
 // hatched node costs is the cost of being hatched; with `data-violate` the
-// detail's scroller (`detail-list`) gets an inset Exact owns.
+// detail's scroller (`detail-list`) gets an inset Exact owns; the `frame`
+// hatch names the app in its web view's user agent before the view is made.
 import Foundation
+import WebKit
 #if os(macOS)
 import AppKit
 #else
@@ -189,6 +191,13 @@ final class FixtureModule: ExactModule {
         #else
         view.menu = NSMenu(title: "Badge \(element.data[.tone] ?? "")")
         #endif
+    }
+
+    /// The frame's configuration before its web view is made (LLP 1020.002 §9).
+    override func elementConfiguration(_ element: ExactElement, _ configuration: AnyObject) {
+        guard element.hatch == .frame, let configuration = configuration as? WKWebViewConfiguration else { return }
+        element.diagnostics.count("configuring")
+        configuration.applicationNameForUserAgent = "NativeFixture/1"
     }
 
     override func elementEnded(_ element: ExactElement) {

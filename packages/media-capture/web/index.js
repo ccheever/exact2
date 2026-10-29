@@ -155,13 +155,22 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
     // No kind asked for is Media Capture's TypeError, before anything opens.
     if (!audio && !camera) return { error: 'TypeError' };
     if (!camera) return openAudio(args);
+    // Both kinds are one platform request, so the browser asks once (LLP 1133.008 D3).
+    let given = {};
+    if (audio && !agent && media?.getUserMedia) {
+      if (tracks.held?.('audio')) return { error: 'NotReadableError' };
+      try {
+        const both = await media.getUserMedia({ audio: constraints(args), video: cameras.asked(args) });
+        given = { audio: both.getAudioTracks()[0], video: both.getVideoTracks()[0] };
+      } catch (e) { return failure(e); }
+    }
     const stream = `stream-${++next}`, made = [];
     if (audio) {
-      const a = await openAudio(args, stream);
-      if (a.error) return a;
+      const a = await openAudio(args, stream, given.audio);
+      if (a.error) { given.video?.stop(); return a; }
       made.push(...a.tracks);
     }
-    const v = await cameras.open(args, stream);
+    const v = await cameras.open(args, stream, given.video);
     // What opened first is let go when the camera fails (LLP 1133.009 D3).
     if (v.error) { for (const t of made) own.has(t.id) && end(own.get(t.id), 'the camera failed'); return v; }
     made.push(v);
@@ -169,11 +178,11 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
     return { id: stream, active: true, tracks: made };
   }
 
-  async function openAudio(args, inStream) {
+  async function openAudio(args, inStream, given) {
       if (!agent && !media?.getUserMedia) return { error: 'NotSupportedError' };
       if (tracks.held?.('audio')) return { error: 'NotReadableError' };
-      let source = null;
-      if (!agent) {
+      let source = given ?? null;
+      if (!agent && !source) {
         try { source = (await media.getUserMedia({ audio: constraints(args) })).getAudioTracks()[0]; }
         catch (e) { return failure(e); }
       }
@@ -277,5 +286,7 @@ export function implementation({ changed, agent, log, tracks, audioSession, fore
       }
     },
     foreground: visible => cameras.foreground(visible),
+    /** What `state.extensions` lists as this implementation's (LLP 1133.008 D8 item 9). */
+    state: () => ({ videoTracks: cameras.disclosed() }),
   };
 }

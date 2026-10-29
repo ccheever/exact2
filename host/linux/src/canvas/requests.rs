@@ -101,6 +101,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
     }
 
+    /// A package's call of the app's handler (`ExtensionContext.invoke`, LLP
+    /// 1133.016 D15 item 1): its number, whose answer `Native.invoked` reads.
+    pub fn module_invoke(&mut self, body: &str) -> i32 {
+        let (id, answer) = crate::canvas::jni::jni_extensions::invoking();
+        self.p.host_mut().runner_mut().invoke_module(body, answer);
+        self.force = true;
+        id
+    }
+
     /// A topic the reader's extensions announced (`ExtensionContext.changed`,
     /// LLP 1016.002): its readers are asked again.
     pub fn extension_changed(&mut self, topic: &str) {

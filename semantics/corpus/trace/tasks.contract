@@ -1,0 +1,37 @@
+component App
+  state n = 0
+  state bad = 0
+  state count = -1
+  action refuse
+    bad = 1 / 0
+  action add
+    n = n + 1
+  task first mount
+    after(1, refuse)
+  task second mount
+    after(1, refuse)
+  task beat mount
+    every(10, add)
+  view
+    column
+      text `${n}` testId="label"
+      button "add" testId="add" press=add
+      button "argument" testId="argument" press=take(range(count))
+  action take(xs: number[])
+    n = xs.length
+
+test "due task refuses and the handler commits"
+  clock +1
+  tap "add"
+  expect state n == 1
+
+test "two firings in one clock step"
+  clock +1
+  clock +0
+  clock +19
+  expect state n == 2
+
+test "no handler and a refused curried argument"
+  tap "label"
+  tap "argument"
+  expect state n == 0

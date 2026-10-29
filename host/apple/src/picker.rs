@@ -177,10 +177,12 @@ pub fn know_roots(app_id: &str) {
 }
 
 /// Record the app's directories, as storage is configured, and empty
-/// `app:/tmp/picked/`: the last launch's picks are gone (D4). Their handles
-/// are pinned here for a share's reads ([`pin`]).
+/// `app:/tmp/picked/` and `app:/tmp/shared/`: the last launch's picks and
+/// received shares are gone (D4; LLP 1133.024 D3). Their handles are pinned
+/// here for a share's reads ([`pin`]).
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     let _ = std::fs::remove_dir_all(temporary.join("picked"));
+    let _ = std::fs::remove_dir_all(temporary.join("shared"));
     let roots = [data, cache, temporary];
     pin(&roots);
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);

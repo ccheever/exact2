@@ -27,6 +27,6 @@ test "chain"
   expect state log == "ad"
   tap "start"
   tap "start"
-  expect state log == "adad"
+  expect state log == "adadad"
   clock +0
   expect state log == "adadad"

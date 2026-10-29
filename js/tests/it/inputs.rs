@@ -48,9 +48,8 @@ const FORMS: &[(&str, &str)] = &[
         "intl-parts-prototype",
         "Intl.DateTimeFormat.formatToParts()",
     ),
-    ("timeout", "setTimeout()"),
     ("interval", "setInterval()"),
-    ("computed-timeout", "setTimeout()"),
+    ("computed-interval", "setInterval()"),
     ("frame", "requestAnimationFrame()"),
     ("performance", "performance.now()"),
 ];
@@ -457,11 +456,11 @@ fn refused_answer_keeps_typed_input_and_fails_the_resource() {
     let mut r = refusal_runner(false);
     let key = r.kernel().find_by_test_id("query")[0];
     let view = r.kernel().node_by_key(key).unwrap().id;
-    r.dispatch(view, exact_runner::Event::Input("computed-timeout".into()))
+    r.dispatch(view, exact_runner::Event::Input("computed-interval".into()))
         .unwrap();
-    assert_eq!(r.slot("query"), Some(&Value::str("computed-timeout")));
+    assert_eq!(r.slot("query"), Some(&Value::str("computed-interval")));
     assert_eq!(r.resource("resolved"), Some(&Value::str("idle")));
-    assert!(r.failed_resources()[0].1.contains("setTimeout()"));
+    assert!(r.failed_resources()[0].1.contains("setInterval()"));
     let status = r.kernel().find_by_test_id("status")[0];
     assert_eq!(
         r.kernel()
@@ -481,7 +480,8 @@ fn refused_send_keeps_state_and_ends_unsent() {
     let mut r = refusal_runner(false);
     r.act("later", vec![]).unwrap();
     let older = r.take_requests()[0].ticket;
-    r.act("send", vec![Value::str("computed-timeout")]).unwrap();
+    r.act("send", vec![Value::str("computed-interval")])
+        .unwrap();
     assert_eq!(r.slot("edits"), Some(&Value::Number(1.)));
     assert_eq!(r.slot("result"), Some(&Value::NONE));
     assert_eq!(r.slot("landed"), Some(&Value::Number(0.)));
@@ -497,7 +497,7 @@ fn refused_queued_send_ends_and_the_next_send_runs() {
     let mut r = refusal_runner(true);
     r.act("later", vec![]).unwrap();
     let first = r.take_requests()[0].ticket;
-    for form in ["computed-timeout", "idle"] {
+    for form in ["computed-interval", "idle"] {
         r.act("send", vec![Value::str(form)]).unwrap();
     }
     assert_eq!(r.queued(), vec![("result".into(), 2)]);
@@ -517,7 +517,7 @@ fn refused_queued_send_ends_and_the_next_send_runs() {
 fn runtime_failure_uses_placeholder_but_bake_and_validation_refuse() {
     let plan = contract::compile(
         r#"component App
-  resource result = ambient("computed-timeout") as shape string else empty()
+  resource result = ambient("computed-interval") as shape string else empty()
   view
     text result
 "#,

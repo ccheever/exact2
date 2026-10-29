@@ -294,9 +294,32 @@ pub struct SymbolPath<'a> {
     pub view_box: &'a str,
 }
 
+/// Whose shapes a host that draws paths gives the roles (LLP 1115.001 D14):
+/// the schema's `symbolGlyphs`, where a platform's own symbols draw a role
+/// differently from the table's path.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SymbolSet {
+    /// The table's own paths: the web's, and the Linux desktop's neutral
+    /// look (LLP 1115.000 D17).
+    #[default]
+    Web,
+    /// Windows: Segoe Fluent Icons' shapes.
+    Fluent,
+    /// Android: Material Symbols' shapes.
+    Material,
+}
+
 /// The path a name after `symbol:` draws: a role, an icon token's form, or
 /// `sf/<name>` that is a role's Apple name; `None` for a name no path draws.
 pub fn symbol_path(name: &str) -> Option<SymbolPath<'_>> {
+    symbol_path_in(name, SymbolSet::Web)
+}
+
+/// [`symbol_path`] for a host that draws `set`'s shapes: a role that set
+/// draws as its own takes that shape, by any of its spellings, as the
+/// lowering reads a literal (`sf/chevron.backward` is `back`). An icon
+/// token is the author's own image and draws as written.
+pub fn symbol_path_in(name: &str, set: SymbolSet) -> Option<SymbolPath<'_>> {
     if let Some(icon) = Icon::parse(name) {
         return (!icon.path.is_empty()).then_some(SymbolPath {
             d: icon.path,
@@ -312,7 +335,16 @@ pub fn symbol_path(name: &str) -> Option<SymbolPath<'_>> {
             .find(|r| crate::generated::symbol(r).is_some_and(|s| s.0 == sf))?,
         None => portable_role(name),
     };
-    crate::generated::symbol(role).map(|(_, d, filled)| SymbolPath {
+    let platform = match set {
+        SymbolSet::Web => None,
+        SymbolSet::Fluent => Some("fluent"),
+        SymbolSet::Material => Some("material"),
+    };
+    let (d, filled) = match platform.and_then(|p| crate::generated::symbol_glyph(role, p)) {
+        Some(glyph) => glyph,
+        None => crate::generated::symbol(role).map(|(_, d, filled)| (d, filled))?,
+    };
+    Some(SymbolPath {
         d,
         filled,
         even_odd: filled,
@@ -402,6 +434,41 @@ mod tests {
             apple_symbol_name("icon|heart|0 0 24 24|evenodd:M0 0h1Z|x.svg"),
             "heart"
         );
+    }
+
+    /// LLP 1115.001 D14: Windows and Android draw `back` as an arrow and
+    /// `more` as bare dots, Android `share` as its own mark; the web keeps
+    /// the table's chevron and circled ellipsis. A role spelled another way
+    /// (Apple's name, `sf/` it) is the role; an icon is kept.
+    #[test]
+    fn a_platform_draws_its_own_back_and_more() {
+        use super::{symbol_path_in, SymbolSet};
+        let web = |name| symbol_path(name).unwrap();
+        for name in ["back", "more", "share", "close"] {
+            assert_eq!(symbol_path_in(name, SymbolSet::Web), Some(web(name)));
+        }
+        let fluent = |name| symbol_path_in(name, SymbolSet::Fluent).unwrap();
+        let material = |name| symbol_path_in(name, SymbolSet::Material).unwrap();
+        // Fluent's arrow is stroked as the table's roles are; Material's is
+        // its published silhouette. Both platforms' dots are filled.
+        assert!(!fluent("back").filled && fluent("back").d != web("back").d);
+        assert!(material("back").filled && material("back").d != web("back").d);
+        for more in [fluent("more"), material("more")] {
+            assert!(more.filled && more.even_odd && more.d != web("more").d);
+        }
+        assert_ne!(fluent("more"), material("more"), "a row, and a column");
+        assert_ne!(material("share"), web("share"));
+        assert_eq!(
+            fluent("share"),
+            web("share"),
+            "Windows keeps the table's share"
+        );
+        assert_eq!(fluent("close"), web("close"));
+        assert_eq!(fluent("chevron-backward"), fluent("back"));
+        let sf = format!("sf/{}", crate::generated::symbol("back").unwrap().0);
+        assert_eq!(symbol_path_in(&sf, SymbolSet::Fluent), Some(fluent("back")));
+        let icon = "icon|chevron.backward|0 0 24 24|M0 0h1Z|icons/back.svg";
+        assert_eq!(symbol_path_in(icon, SymbolSet::Material), symbol_path(icon));
     }
 
     /// A computed source spells a role as a literal may: by Apple's name or

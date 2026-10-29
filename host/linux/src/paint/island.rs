@@ -50,6 +50,7 @@ impl Painter {
             Box::new(crate::raster::Raster::transparent()),
         );
         child.dark = self.dark;
+        child.symbols = self.symbols;
         child.viewport = (rect.2, rect.3);
         child.backend.begin(rect.2, rect.3, scale);
         paint(&mut child, Transform::from_translate(-rect.0, -rect.1));

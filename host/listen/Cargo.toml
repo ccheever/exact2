@@ -1,0 +1,22 @@
+# The local listener (LLP 1133.005): `unix:` sockets bound under D4's rules,
+# their connections read as lines within D3's bounds, and each address held
+# by one listener of the process at a time (D2). A loaded capability on Apple
+# — `libexact_listen.dylib`, opened by the executor on the first listener and
+# carried only by a build whose grants can listen (D13) — and a plain
+# dependency of the Linux host, as `exact-svg-raster` is.
+[package]
+name = "exact-listen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A local listener: unix sockets read as lines"
+publish = false
+
+[lib]
+name = "exact_listen"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+libc = "0.2"
+# The receiver's socket: SO_NOSIGPIPE on Apple and an atomic CLOEXEC.
+socket2 = "0.6"

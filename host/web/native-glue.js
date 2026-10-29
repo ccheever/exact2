@@ -134,6 +134,9 @@ globalThis.exact.nativeHost = ({ dispatch, log, packages = null }) => {
     st.nonce = mine;
     const { live, event } = events(el, st, mine);
     const handlers = Object.fromEntries(NAMES.map((name, kind) => [name, (payload) => event(kind, payload)]));
+    // An event the package declares beyond the nine (LLP 1133.021 §9 item 2)
+    // rides the message kind; the plan's handler decodes its arguments.
+    handlers.emit = (name, ...args) => event(8, JSON.stringify({ 'exact:event': String(name), args }));
     const props = el.getAttribute('data-nativeviewprops') ?? '{}';
     return Promise.resolve().then(() => packages.make(st.name, { element: el, props: JSON.parse(props), events: handlers, view: st.id })).then((handle) => {
       if (!live()) { handle?.destroy?.(); return; }

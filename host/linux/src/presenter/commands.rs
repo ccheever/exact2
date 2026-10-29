@@ -37,6 +37,8 @@ impl<D: DataSource> Presenter<D> {
         for line in crate::pads::take_recorded() {
             self.host.log(line);
         }
+        // A hot key's press, the host's to raise (LLP 1133.025 D11 item 3).
+        crate::desktop::raise(self.host.runner_mut());
         self.modules_in();
     }
 
@@ -95,9 +97,6 @@ impl<D: DataSource> Presenter<D> {
                 // The shell's share sheet; with no shell, refused into the
                 // journal. Held for the agent like every host (LLP 1069.003 D6).
                 "share" => self.share(&c.args, c.source),
-                // No request carries a notification yet: refused, or listed
-                // for the agent.
-                "showNotification" | "closeNotification" => self.notify(&c.name, &c.args),
                 "blur" => self.blur_command(&c.args),
                 "focus" => {
                     self.focus_command(&c.args);
@@ -164,6 +163,10 @@ impl<D: DataSource> Presenter<D> {
                 | "load") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
+                // Recording a trace is the Apple hosts'
+                name @ ("startTrace_EXPERIMENTAL" | "stopTrace_EXPERIMENTAL") => self
+                    .host
+                    .log(format!("{name} refused: trace recording is on Apple hosts only")),
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
@@ -172,3 +175,7 @@ impl<D: DataSource> Presenter<D> {
         self.dispatch_toggles();
     }
 }
+
+#[cfg(test)]
+#[path = "commands_tests.rs"]
+mod tests;

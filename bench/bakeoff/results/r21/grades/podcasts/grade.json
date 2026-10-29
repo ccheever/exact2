@@ -1,0 +1,54 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "The list is newest first and shows show, title, date, length, and Played/Unplayed text plus a circle/check icon."},
+      {"n": 2, "status": "pass", "note": "The 'Unplayed only' switch filters to 295 episodes, and the summary line updates."},
+      {"n": 3, "status": "pass", "note": "The Shows tab lists 12 shows with episode and unplayed counts; tapping one pushes that show's episodes."},
+      {"n": 4, "status": "pass", "note": "The detail screen has the summary, date and length. Play turns into Pause, the status reads 'Playing', and the episode is marked played."},
+      {"n": 5, "status": "pass", "note": "A circle/check button on each row toggles played; the counts update."},
+      {"n": 6, "status": "pass", "note": "Each row has a + button (it turns into a grey check once queued). Up Next supports swipe-to-Delete; in Edit mode, reordering uses Earlier/Later buttons and a trash button."},
+      {"n": 7, "status": "pass", "note": "Played state, queue contents and queue order all survived a relaunch."}
+    ],
+    "bugs": [
+      "A quick horizontal swipe on an episode row in the Episodes list opens the episode instead of revealing actions.",
+      "In the detail screen's accessibility tree, the 'Mark as Played' cell is flagged selected while the episode is unplayed."
+    ],
+    "tells": [
+      "The episode lists have no swipe actions. Mark-played and add-to-queue are two stacked hand-placed icon buttons on every row.",
+      "Up Next reordering uses 'Earlier'/'Later' pill buttons instead of the system drag handles of an editing List.",
+      "Every show has the same magenta microphone tile, so the artwork is generic placeholder art. Show names are magenta, and on a show's own page every row repeats the show name.",
+      "Pushed screens use an opaque white inline bar with a hard hairline rather than a transparent bar that scrolls under. The detail screen is titled just 'Episode'.",
+      "A swiped Up Next row turns into a grey rounded card that detaches from the grouped section, not the stock look.",
+      "In dark mode the microphone glyph flips from white to black on the magenta tile.",
+      "Rows are exposed to accessibility as 'Link' elements, which feels web-like."
+    ],
+    "scroll": "The 420-row list drags and flings smoothly with no blank rows or pop-in. The large title collapses properly, and scroll position is kept when switching tabs. Rubber-banding at the top felt slight.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "The list is newest first with artwork, show, title, date, length, and an Unplayed dot or Played check. A featured newest-episode card sits on top."},
+      {"n": 2, "status": "pass", "note": "A segmented control offers All episodes / Unplayed (count). At the largest text size it adapts to an 'Unplayed only' switch."},
+      {"n": 3, "status": "pass", "note": "The Shows tab is a grid of 12 distinct artworks with episode and unplayed counts; tapping one opens a show page listing its episodes."},
+      {"n": 4, "status": "pass", "note": "The detail screen has large art, title, date, length and summary. Play marks the episode played, the button reads 'Playing — tap to pause', and a mini-player appears above the tab bar."},
+      {"n": 5, "status": "pass", "note": "A trailing swipe (full swipe works) toggles played, and the ••• context menu has Mark as Played/Unplayed and Add to Up Next."},
+      {"n": 6, "status": "partial", "note": "Adding works from the menu, the detail screen and the featured card, and Edit mode gives system drag handles that reorder correctly. But the red delete control in Edit mode reveals a 'Played' action instead of Delete, and swiping a queue row also offers only Played/Unplayed. Removing only works through the ••• menu ('Remove from Up Next') or the detail button."},
+      {"n": 7, "status": "pass", "note": "Played state, queue contents and reordered order all survived a relaunch."}
+    ],
+    "bugs": [
+      "In Up Next's Edit mode, tapping the red minus control reveals a 'Played' swipe action, not Delete, so the standard delete gesture doesn't remove the item.",
+      "Up Next rows offer no swipe-to-remove, only the played toggle."
+    ],
+    "tells": [
+      "At the largest text size, the featured card's buttons break inside words ('Pl/ay episod/e', 'U/p Next').",
+      "The custom warm palette, hand-drawn artwork tiles and editorial taglines ('GOOD STORIES, ANYTIME', 'A PLAYLIST FOR YOUR CURIOSITY') read as a designed brand app rather than stock UIKit; well done, but not system-default.",
+      "Rows show both a disclosure chevron and a ••• button, and leave a lot of empty space below the text.",
+      "On the Episodes screen a search button and a full search field sometimes appear at the same time.",
+      "In dark mode, the light-orange Play button with white text has low contrast."
+    ],
+    "scroll": "The long list scrolls and flings smoothly with the large title collapsing into a blurred bar, and there are no blank rows or jumps. Returning to the top restores the header cleanly.",
+    "scores": {"features": 8, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet nearly every requirement and persist state correctly. B uses more real iOS machinery: swipe actions with full-swipe, context menus, system reorder handles, a tab badge and a now-playing mini-player, all in a polished, distinctive design. A is plainer, with identical placeholder art, hand-placed row buttons instead of swipe actions, and Earlier/Later reordering. B's flaws (the Edit-mode delete control revealing 'Played', and mid-word breaks in the hero card at the largest text size) are smaller than A's overall lack of native interaction."
+}

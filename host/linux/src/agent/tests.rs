@@ -5,6 +5,8 @@ use exact_runner::{DataError, Value};
 
 // The clipboard, keys, modifiers and mouse contacts.
 mod input;
+// A re-ask after a turn over its budget, which `clock settle` waits for.
+mod overrun;
 
 /// A source whose one request is handed to work that never replies: the
 /// reply is leaked, so neither an outcome nor the drop's abort arrives.
@@ -634,7 +636,8 @@ fn a_picker_is_held_and_answered_by_ticket() {
         &format!(r#"{{"op":"type","ticket":{t},"text":"/x/a.jpg"}}"#),
     );
     assert!(wrong.contains("not among accept"), "{wrong}");
-    let text = serde_json::Value::from(fixture.to_string_lossy().into_owned());
+    // One path a line, as the driver writes it: a path may hold a space.
+    let text = serde_json::Value::from(format!("{}\n", fixture.to_string_lossy()));
     let answered = json(handle(
         &mut p,
         &format!(r#"{{"op":"type","ticket":{t},"text":{text}}}"#),
@@ -709,7 +712,7 @@ fn an_unrestricted_picker_copies_an_unknown_file_under_the_agent() {
         &mut p,
         &format!(
             r#"{{"op":"type","ticket":{ticket},"text":{}}}"#,
-            serde_json::Value::from(file.to_string_lossy().into_owned())
+            serde_json::Value::from(format!("{}\n", file.to_string_lossy()))
         ),
     );
     let state: serde_json::Value =

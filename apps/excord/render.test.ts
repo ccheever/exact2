@@ -238,7 +238,7 @@ test('join rows use the author directory and expose their system text as plain t
     source: '', grouped: false, blocks: [] });
 });
 
-test('grouping stops at seven minutes, a different author, replies and system rows', () => {
+test('grouping stops at seven minutes, a different author, a reply and system rows', () => {
   const first = message(0), near = message(7 * 60000 - 1), boundary = message(7 * 60000);
   const reply = message(1000, { type: 19, message_reference: reference(first.id), referenced_message: first });
   const join = message(2000, { type: 7 }), other = message(3000, { author: me });
@@ -246,7 +246,8 @@ test('grouping stops at seven minutes, a different author, replies and system ro
   expect(f.render(f.row(near.id), previous)).toMatchObject({ grouped: true, prevAt: NOW });
   expect(f.render(f.row(boundary.id), previous)).toMatchObject({ grouped: false, prevAt: NOW });
   for (const m of [reply, join, other]) expect(f.render(f.row(m.id), previous).grouped).toBe(false);
-  for (const m of [reply, join]) expect(f.render(f.row(near.id), f.row(m.id)).grouped).toBe(false);
+  expect(f.render(f.row(near.id), f.row(reply.id)).grouped).toBe(true);
+  expect(f.render(f.row(near.id), f.row(join.id)).grouped).toBe(false);
   expect(f.render(previous, f.row(near.id)).grouped).toBe(false);
   expect(f.render(previous)).toMatchObject({ grouped: false, prevAt: 0 });
 });
@@ -302,7 +303,7 @@ test('unloaded replies distinguish a wire snapshot, an unknown original and a nu
   const f = fixture(replies);
   expect(S.message(f.store, cid, original.id)).toBeNull();
   expect(f.view().rows.map(r => r.reply[0])).toEqual([
-    { id: original.id, author: 'Ada', avatar: `${cdn}/embed/avatars/0.png`, color: '', preview: `preview ${'x'.repeat(92)}`, state: 'present' },
+    { id: original.id, author: 'Ada', avatar: `${cdn}/embed/avatars/0.png`, color: '', preview: `preview ${'x'.repeat(92)}…`, state: 'present' },
     { id: missing, author: '', avatar: '', color: '', preview: '', state: 'unknown' },
     { id: missing, author: '', avatar: '', color: '', preview: '', state: 'deleted' },
   ]);
@@ -562,6 +563,6 @@ test('a reply preview cut at its length never splits an emoji', () => {
   const original = message(0, { content: `${'a'.repeat(99)}😀 and more` });
   const reply = message(1000, { content: 'ok', type: 19, message_reference: reference(original.id) } as Partial<Message>);
   const preview = fixture([original, reply]).view().rows[1].reply[0].preview;
-  expect(preview).toBe(`${'a'.repeat(99)}😀`);
+  expect(preview).toBe(`${'a'.repeat(99)}😀…`);
   expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(preview)).toBe(false);
 });

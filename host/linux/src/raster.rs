@@ -9,6 +9,9 @@ mod border;
 mod canvas;
 mod geometry;
 mod image;
+mod image_area;
+#[cfg(test)]
+mod image_area_tests;
 #[cfg(target_arch = "x86_64")]
 mod image_sample;
 pub use geometry::rounded_rect;
@@ -16,6 +19,7 @@ pub use geometry::rounded_rect;
 mod geometry_tests;
 mod mask;
 use mask::intersect_mask;
+mod opacity;
 mod reach;
 #[cfg(target_arch = "x86_64")]
 mod solid_rect;
@@ -62,12 +66,15 @@ pub struct Raster {
     height: u32,
     clips: Vec<Option<Rc<Mask>>>,
     text_clips: Vec<Rect4>,
-    rectangular_damage: Option<(usize, Rect)>,
+    // Only this depth has proven binary rectangular coverage; other depths use the mask.
+    rectangular_clip: Option<(usize, Rect)>,
     layers: Vec<(Pixmap, f32)>,
     first_clip_used: bool,
     cached_clip: Option<(ClipKey, Rc<Mask>)>,
+    spare_clip: std::cell::RefCell<Option<Mask>>,
     #[cfg(target_arch = "x86_64")]
     image_samples: Vec<image_sample::Sample>,
+    image_area: image_area::Scratch,
     #[cfg(test)]
     pub(crate) clip_allocations: std::cell::Cell<usize>,
     #[cfg(test)]
@@ -102,9 +109,17 @@ impl Raster {
         self.scale = scale;
         self.width = ((width * scale).round() as u32).max(1);
         self.height = ((height * scale).round() as u32).max(1);
+        if self
+            .spare_clip
+            .get_mut()
+            .as_ref()
+            .is_some_and(|mask| mask.width() != self.width || mask.height() != self.height)
+        {
+            *self.spare_clip.get_mut() = None;
+        }
         self.clips.clear();
         self.text_clips.clear();
-        self.rectangular_damage = None;
+        self.rectangular_clip = None;
         self.layers.clear();
         self.first_clip_used = false;
         if self.cached_clip.as_ref().is_some_and(|(key, _)| {
@@ -116,9 +131,9 @@ impl Raster {
     }
 
     // A rounded box has two solid central strips. If the complete binary
-    // damage rectangle lies inside either strip, no curved edge is painted.
-    fn covered_damage(&self, shape: &Shape, dev: Transform) -> Option<Rect> {
-        let (depth, damage) = self.rectangular_damage?;
+    // clip rectangle lies inside either strip, no curved edge is painted.
+    fn covered_clip(&self, shape: &Shape, dev: Transform) -> Option<Rect> {
+        let (depth, damage) = self.rectangular_clip?;
         let (x, y, w, h) = shape.rect;
         if depth != self.clips.len()
             || self.width > 8191
@@ -211,6 +226,10 @@ impl Raster {
     }
 
     fn new_clip_mask(&self) -> Option<Mask> {
+        if let Some(mut mask) = self.spare_clip.borrow_mut().take() {
+            mask.data_mut().fill(0);
+            return Some(mask);
+        }
         // Count this backend's actual Mask::new calls, not tiny-skia's
         // internal intersection scratch or parent-mask clones.
         #[cfg(test)]
@@ -303,6 +322,9 @@ fn tiny_path(ops: &[PathOp]) -> Option<Path> {
 pub(crate) const MAX_FRAME_SIDE: u32 = 16384;
 
 impl Backend for Raster {
+    fn needs_geometry_paint(&self) -> bool {
+        false
+    }
     fn name(&self) -> &'static str {
         "cpu"
     }
@@ -400,7 +422,7 @@ impl Backend for Raster {
         // A containing input rectangle proves the binary union is rectangular.
         // Integer device edges allow opaque integer fills to use that rectangle
         // directly, without changing antialiasing or alpha rounding at an edge.
-        self.rectangular_damage = None;
+        self.rectangular_clip = None;
         let edges = [bounds.0, bounds.1, bounds.2, bounds.3].map(|v| v * self.scale);
         if direct_clear
             && edges.iter().all(|v| v.fract() == 0.0)
@@ -408,7 +430,7 @@ impl Backend for Raster {
                 x == bounds.0 && y == bounds.1 && x + w == bounds.2 && y + h == bounds.3
             })
         {
-            self.rectangular_damage = Rect::from_ltrb(
+            self.rectangular_clip = Rect::from_ltrb(
                 edges[0].max(0.0),
                 edges[1].max(0.0),
                 edges[2].min(self.width as f32),
@@ -452,10 +474,11 @@ impl Backend for Raster {
             return;
         }
         if shape.rounded() && color[3] == 255 {
-            if let Some(rect) = self.covered_damage(shape, dev) {
-                if let Some(target) = self.target.pixels() {
+            if let Some(rect) = self.covered_clip(shape, dev) {
+                let path = PathBuilder::from_rect(rect);
+                if let Some(target) = self.target.path_pixels(&path, Transform::identity()) {
                     target.fill_path(
-                        &PathBuilder::from_rect(rect),
+                        &path,
                         &solid(color),
                         FillRule::Winding,
                         Transform::identity(),
@@ -499,7 +522,7 @@ impl Backend for Raster {
                 ];
                 if dev.is_finite() && edges.iter().all(|v| v.is_finite() && v.abs() <= 8191.0) {
                     if color[3] == 255 && original.iter().all(|v| v.fract() == 0.0) {
-                        if let Some((depth, damage)) = self.rectangular_damage {
+                        if let Some((depth, damage)) = self.rectangular_clip {
                             if depth == self.clips.len() {
                                 if let Some(rect) = Rect::from_ltrb(
                                     original[0].max(damage.left()),
@@ -507,15 +530,22 @@ impl Backend for Raster {
                                     original[2].min(damage.right()),
                                     original[3].min(damage.bottom()),
                                 ) {
-                                    if let Some(target) = self.target.pixels() {
-                                        target.fill_path(
-                                            &PathBuilder::from_rect(rect),
-                                            &solid(color),
-                                            FillRule::Winding,
-                                            Transform::identity(),
-                                            None,
-                                        );
-                                    }
+                                    let pixel =
+                                        Color::from_rgba8(color[0], color[1], color[2], 255)
+                                            .premultiply()
+                                            .to_color_u8();
+                                    self.target.draw_rows(|target| {
+                                        let width = target.width() as usize;
+                                        let top = rect.top() as usize;
+                                        let bottom = rect.bottom() as usize;
+                                        for row in target.pixels_mut()[top * width..bottom * width]
+                                            .chunks_exact_mut(width)
+                                        {
+                                            row[rect.left() as usize..rect.right() as usize]
+                                                .fill(pixel);
+                                        }
+                                        top as u32..bottom as u32
+                                    });
                                 }
                                 return;
                             }
@@ -569,7 +599,12 @@ impl Backend for Raster {
         };
         let dev = self.device(ts);
         let mask = self.active_clip().cloned();
-        let Some(t) = self.target.pixels() else {
+        let target = if s.stroke.is_none() {
+            self.target.path_pixels(&path, dev)
+        } else {
+            self.target.pixels()
+        };
+        let Some(t) = target else {
             return;
         };
         // @ref LLP 1055.000 D7 — a gradient is a tiny-skia shader in the
@@ -836,16 +871,22 @@ impl Backend for Raster {
             }
         }
         if let Some(t) = self.target.pixels() {
-            #[cfg(target_arch = "x86_64")]
-            let drawn = image_sample::draw(
+            let drawn = image_area::draw(
                 t,
                 image.pixels(),
                 dev,
                 mask.as_deref(),
-                &mut self.image_samples,
+                &mut self.image_area,
             );
-            #[cfg(not(target_arch = "x86_64"))]
-            let drawn = false;
+            #[cfg(target_arch = "x86_64")]
+            let drawn = drawn
+                || image_sample::draw(
+                    t,
+                    image.pixels(),
+                    dev,
+                    mask.as_deref(),
+                    &mut self.image_samples,
+                );
             if !drawn {
                 t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_deref());
             }
@@ -859,6 +900,7 @@ impl Backend for Raster {
         if tint.is_some() {
             self.pop_opacity();
         }
+        self.recycle_clip_mask(mask);
     }
 
     // @ref LLP 1055.000 D14 — an island in its element's user space.
@@ -983,9 +1025,11 @@ impl Backend for Raster {
 
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {
         let bounds = self.text_clip(shape, ts);
+        let rectangular = self.integer_clip(shape, ts);
         if self.viewport_clip(shape, ts) {
             self.clips.push(self.active_clip().cloned());
             self.text_clips.push(bounds);
+            self.remember_integer_clip(rectangular);
             return;
         }
         let first = self.clips.is_empty() && !self.first_clip_used;
@@ -997,6 +1041,7 @@ impl Backend for Raster {
                 if Some(*old) == key {
                     self.clips.push(Some(mask.clone()));
                     self.text_clips.push(bounds);
+                    self.remember_integer_clip(rectangular);
                     return;
                 }
             }
@@ -1015,6 +1060,7 @@ impl Backend for Raster {
                 }
                 self.clips.push(Some(mask));
                 self.text_clips.push(bounds);
+                self.remember_integer_clip(rectangular);
             }
             None => {
                 // Nothing can show inside an empty box; an empty mask says so.
@@ -1119,12 +1165,13 @@ impl Backend for Raster {
 
     fn pop_clip(&mut self) {
         if self
-            .rectangular_damage
+            .rectangular_clip
             .is_some_and(|(depth, _)| depth == self.clips.len())
         {
-            self.rectangular_damage = None;
+            self.rectangular_clip = None;
         }
-        self.clips.pop();
+        let mask = self.clips.pop().flatten();
+        self.recycle_clip_mask(mask);
         self.text_clips.pop();
     }
 
@@ -1132,7 +1179,7 @@ impl Backend for Raster {
         let Some(fresh) = Pixmap::new(self.width, self.height) else {
             return;
         };
-        if let Some(old) = self.target.replace(fresh) {
+        if let Some(old) = self.target.replace_empty(fresh) {
             self.layers.push((old, alpha));
         }
     }
@@ -1149,12 +1196,9 @@ impl Backend for Raster {
         let Some((mut below, alpha)) = self.layers.pop() else {
             return;
         };
+        let rows = self.target.rows();
         if let Some(layer) = self.target.take() {
-            let paint = PixmapPaint {
-                opacity: alpha,
-                ..PixmapPaint::default()
-            };
-            below.draw_pixmap(0, 0, layer.as_ref(), &paint, Transform::identity(), None);
+            opacity::composite(&mut below, &layer, alpha, rows);
         }
         self.target = Target::painted(below);
     }
@@ -1231,14 +1275,10 @@ fn rounded_damage_proof_rejects_invalid_radii() {
         radii: [(4.0, 4.0); 4],
         corners: None,
     };
-    assert!(raster
-        .covered_damage(&shape, Transform::identity())
-        .is_some());
+    assert!(raster.covered_clip(&shape, Transform::identity()).is_some());
     for radius in [f32::NAN, f32::INFINITY, -1.0, 41.0] {
         shape.radii[1] = (radius, radius);
-        assert!(raster
-            .covered_damage(&shape, Transform::identity())
-            .is_none());
+        assert!(raster.covered_clip(&shape, Transform::identity()).is_none());
     }
 }
 

@@ -217,6 +217,8 @@ final class MouseChain {
     /// The click last asked for its `dblclick`: one a view passes up its
     /// superviews is one double click (`NodeView.dblclickTarget`).
     weak var doubled: NSEvent?
+    /// The press an editor's tracking loop reports (`NodeView.tracksPointer`).
+    weak var tracked: NSEvent?
     private(set) var order: [MouseRecognizer] = []
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -324,6 +326,32 @@ extension NodeView {
                 if presenter.propagationStopped { break }
             }
         }
+    }
+    /// `pointerdown` and `pointerup` around the tracking loop of a text
+    /// area or an input's editor, which keeps the button's drags and up from
+    /// the node, as a native button's loop does (NativeButtonsMac.swift). An
+    /// input's field hands its down to its editor, which reports nothing
+    /// again. A press that moves the focus has delivered the old field's
+    /// `change` and `blur` and the new one's `focus` by now: NSWindow
+    /// focuses the hit view before its `mouseDown` (LLP 1005). The press a
+    /// nested event loop inside a handler tracks (an alert's, a menu's) is
+    /// its own, and the outer one is kept.
+    func tracksPointer(_ event: NSEvent, _ track: () -> Void) {
+        guard let chain = presenter?.mouseChain, chain.tracked !== event else { return track() }
+        let outer = chain.tracked
+        chain.tracked = event
+        defer { chain.tracked = outer }
+        pointerPressed(event)
+        track()
+        pointerReleased(nil)
+    }
+    /// A press an editor does not track (disabled, or not selectable) goes
+    /// the node's way, as a disabled box's does: its `mouseUp` reaches the
+    /// node through the responder chain.
+    func pressesUntracked(_ editor: NSView, _ event: NSEvent) -> Bool {
+        let tracks = !disabled && ((editor as? NSTextView)?.isSelectable ?? true) && ((editor as? NSControl)?.isEnabled ?? true)
+        if !tracks { mouseDown(with: event) }
+        return !tracks
     }
     /// `pointerup` for every node the button's down was held by, innermost first.
     func pointerReleased(_ event: NSEvent?) {
@@ -440,6 +468,13 @@ extension Presenter {
         let clip = viewport.contentView, p = clip.convert(windowPoint, from: nil)
         return NSPoint(x: p.x - clip.bounds.minX, y: p.y - clip.bounds.minY)
     }
+    /// A viewport point, `client`'s answer, in `view`'s coordinates.
+    func point(fromClient p: NSPoint, in view: NSView) -> NSPoint {
+        let clip = viewport.contentView
+        return view.convert(NSPoint(x: p.x + clip.bounds.minX, y: p.y + clip.bounds.minY), from: clip)
+    }
+    /// The viewport's size, what an inset's percentage is of.
+    var clientSize: CGSize { viewport.contentView.bounds.size }
     /// Keep each node's latest free move and send them at the next display
     /// frame: a pointer crossing two `pointermove` nodes in one frame leaves
     /// each its own last move.

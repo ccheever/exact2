@@ -24,6 +24,7 @@ mod names;
 pub use names::is_reserved;
 mod params;
 mod parts;
+mod properties;
 #[path = "routes.rs"]
 mod routes;
 mod sequence;
@@ -398,6 +399,13 @@ impl Parser {
                             });
                         }
                     }
+                    if !file.components.is_empty() {
+                        errors.extend(file.properties.iter().map(|p| SyntaxError {
+                            id: "syntax-property-component",
+                            message: "a property lives in the test file beside the app".into(),
+                            span: p.span,
+                        }));
+                    }
                     file.deferred = deferred;
                     file.names = std::mem::take(&mut self.names);
                     if errors.is_empty() {
@@ -528,6 +536,9 @@ impl Parser {
                 TokenKind::Ident(w) if w == "theme" => self.theme(file)?,
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
+                TokenKind::Ident(w) if matches!(w.as_str(), "always" | "after" | "never") => {
+                    file.properties.push(self.property_decl()?);
+                }
                 TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
                     let line = self.step()?;
                     if !is_launch(&line) {

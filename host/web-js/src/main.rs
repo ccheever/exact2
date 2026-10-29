@@ -14,6 +14,7 @@ mod base_scale;
 mod base_scale_tests;
 #[cfg(test)]
 mod budget_tests;
+mod calls;
 mod code;
 mod emit;
 #[cfg(test)]
@@ -512,11 +513,6 @@ fn main() -> ExitCode {
                     .any(|c| u.has(c))
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
-                }
-                // `showNotification`/`closeNotification` (notify.js).
-                let _ = std::fs::remove_file(dir.join("notify.flag"));
-                if u.has(Capability::Notifications) {
-                    let _ = std::fs::write(dir.join("notify.flag"), "");
                 }
                 // A declared sound or a sound command (sounds.js, LLP 1096
                 // D5): the flag holds the table, `[src, frames, rate]` each.

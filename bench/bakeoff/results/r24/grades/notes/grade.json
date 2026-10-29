@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list, Pinned section then Notes, newest first; bold title, date + one-line preview; time today, weekday this week, short date older."},
+      {"n": 2, "status": "pass", "note": "Search field under the large title filters by title and body as you type ('dent' matches body text); toolbar shows 'N Found'; proper 'No Results' empty state."},
+      {"n": 3, "status": "pass", "note": "Editor with title and body text views, no Save needed; edited note jumps to top of Notes with a fresh time, and the edit survives relaunch. Tap below the text puts the cursor at the end."},
+      {"n": 4, "status": "pass", "note": "Compose button in the bottom toolbar opens an empty note with the keyboard up; leaving it empty discards it (count stays 90); a filled note appears at top and count goes to 91."},
+      {"n": 5, "status": "pass", "note": "Native swipe actions: leading Pin/Unpin (full swipe pins), trailing Unpin/Pin + Delete; long-press context menu with Pin Note / Delete too."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' in the bottom toolbar like Apple Notes; updates on add/delete; becomes 'N Found' while searching."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins, unpins and deletes all survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The note count in the bottom toolbar doesn't grow at the largest text size (small caption next to huge list text).",
+      "When scrolled, the search field stays pinned under the inline title, floating over the rows, instead of collapsing into the bar."
+    ],
+    "scroll": "Smooth native table scrolling: slow drags, flings and fling back to the top behave normally, with sticky section headers, no blank or popping rows, and the scroll position is kept when you come back from a note.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, newest first, title + date + preview, relative dates. Preview shows only the first sentence and long titles wrap to two lines."},
+      {"n": 2, "status": "partial", "note": "Filtering by title and body works, with a 'No Results for …' state, but the search field sits in the bottom bar and stays hidden behind the keyboard while you type, so you can't see your query. No result count while searching."},
+      {"n": 3, "status": "partial", "note": "Edits save automatically, move the note to the top, and persist. But keys typed right after moving from title to body landed in the wrong field (a 't' went into the title, the Return was lost, and the text ended up at the start of the body)."},
+      {"n": 4, "status": "pass", "note": "Compose button (top right) opens an empty note; leaving it empty discards it; a filled note shows at top and count goes 90→91."},
+      {"n": 5, "status": "partial", "note": "Trailing swipe shows Delete and works; pin/unpin only via long-press context menu (or a pin button in the editor). There is no leading swipe action, and a horizontal swipe on a row opens the note instead."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' shown under the large title and in the inline title when scrolled; updates on add/delete."},
+      {"n": 7, "status": "pass", "note": "New notes, edits, pins and deletes survive relaunch."}
+    ],
+    "bugs": [
+      "The search field in the bottom bar doesn't move up with the keyboard: while typing a search it is hidden behind the keyboard.",
+      "Swiping right on a row opens the note (the drag counts as a tap) instead of doing nothing or showing a pin action.",
+      "Keys typed just after moving from title to body went to the wrong place: a character went into the title, the Return was lost, and the text was inserted at the start of the body.",
+      "Tapping in the empty area below a note's body sometimes put the cursor at the start of the body, not the end."
+    ],
+    "tells": [
+      "No leading swipe-to-pin like Notes/Mail; pin only through long-press menu.",
+      "The note count is a tiny caption tucked under the large title, not in the toolbar.",
+      "Previews are cut at the first sentence and truncated at a word ('Ask about podcast…') with space left on the line.",
+      "At the largest text size the editor body breaks a word mid-word with no hyphen ('recommendatio / ns.').",
+      "The editor's title and body are crammed together, and descenders in a wrapped large title look clipped.",
+      "While a row is swiped open its grey highlight bleeds past the inset card's left edge."
+    ],
+    "scroll": "Scrolling feels native: smooth flings, no blank rows or stutter, and the position is kept when returning from a note. Rows are taller and long titles wrap, so the list is less dense.",
+    "scores": {"features": 8, "platform": 6, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "A meets every requirement with system behaviour throughout: leading and trailing swipe actions, a context menu, a search field under the title, a toolbar count, and a Notes-like editor. B covers the features, but its search field is hidden behind the keyboard, a swipe right opens the note instead of pinning it, typing after a field switch goes to the wrong place, and it breaks a word mid-word at large text."
+}

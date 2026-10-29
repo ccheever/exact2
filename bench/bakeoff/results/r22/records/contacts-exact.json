@@ -1,0 +1,26 @@
+{
+  "spec": "contacts",
+  "arm": "exact",
+  "model": "gpt",
+  "appId": "dev.bakeoff.contacts.b15c0fb",
+  "assignedId": "dev.bakeoff.contacts.b15c0fb",
+  "appName": "Contacts",
+  "sim": "486FD498-0E3E-4B64-8E4B-152BD8265EE7",
+  "pin": "37b662fc24",
+  "minutes": 25.66,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 7925802,
+    "fresh": 229828,
+    "input": 7893444,
+    "cached": 7663616,
+    "output": 32358,
+    "cost": null,
+    "calls": 15,
+    "toolCalls": 80
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r22/built/contacts-exact.app",
+  "notes": true,
+  "finished": "2026-10-26T17:35:32.046Z"
+}

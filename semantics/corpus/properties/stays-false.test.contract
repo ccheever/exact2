@@ -1,0 +1,2 @@
+always "once ready"
+  expect state ready stays true

@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import UIKit
 import XCTest
 @testable import ExactKit
 
@@ -104,6 +105,29 @@ final class AudioSessionIOSTests: XCTestCase {
         XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
         AudioSession.release(ObjectIdentifier(a))
         XCTAssertEqual(AVAudioSession.sharedInstance().category, .ambient)
+    }
+
+    /// LLP 1133.009 D7: the owner observes the session once for the process
+    /// and tells each listening holder of sound before the claims.
+    func testAListeningHolderHearsAResetAndTheAppBecomingActiveThroughTheOwner() {
+        final class Holder {}
+        let holder = Holder()
+        var heard: [String] = []
+        AudioSession.listen(ObjectIdentifier(holder)) { event in
+            switch event {
+            case .interruption(let began, _): heard.append(began ? "began" : "ended")
+            case .appActive: heard.append("active")
+            case .reset: heard.append("reset")
+            }
+        }
+        var told: [UInt32] = []
+        let claim = AudioSession.claimCapture(mode: .default, options: [.defaultToSpeaker], background: false) { told.append($0) }
+        NotificationCenter.default.post(name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        XCTAssertEqual(heard, ["reset", "active"])
+        XCTAssertEqual(told, [3], "the capture hears the reset; the app's activity is the sound arm's")
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playAndRecord, "a reset restores the capture's configuration")
+        AudioSession.releaseCapture(claim)
     }
 }
 #endif

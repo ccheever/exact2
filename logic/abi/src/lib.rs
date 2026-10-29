@@ -425,9 +425,11 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 DataError::BadArguments(s) => (3, s),
                 // A coded failure's class is the TypeScript seam's and the
                 // runner's (LLP 1109 D3): a Rust source's own is `error`.
+                // (an overrun is exact-js's; a Rust module's seam never makes one)
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
                 | DataError::DeferredAtBake(s)
+                | DataError::Overrun(s)
                 | DataError::Failed(_, s, _) => (4, s),
             };
             w.u8(tag);
@@ -492,6 +494,10 @@ fn read_http(r: &mut Reader<'_>, tag: u8) -> Result<Request, String> {
         body_to: None,
         redirect: Redirect::Follow,
         held: false,
+        reach: Default::default(),
+        listen: None,
+        due_ms: None,
+        wake_ms: None,
         http: if tag != 1 {
             let limit = r.u32().map_err(error)?;
             if limit == 0 || limit > 64 << 20 {

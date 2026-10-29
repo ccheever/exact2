@@ -227,6 +227,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         fns,
         modules,
         tests,
+        properties: _,
         launch: _,
         components,
         members,

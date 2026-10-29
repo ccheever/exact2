@@ -1,9 +1,11 @@
 // The Android manifest fragment's allow-list (LLP 1133.030 D9): what a package may add, and each refusal by name.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { manifestFragment } from './android-manifest.mjs';
+import { fragmentPermissions, manifestFragment } from './android-manifest.mjs';
+import { androidImplementations } from '../js/bake/src/typescript.mjs';
 
 const impl = (manifest) => [{ extension: 'alarms', className: 'exact.alarms.AlarmsModule', manifest }];
 
@@ -21,6 +23,62 @@ test("alarms' fragment is allowed, unexported, and nothing beyond what it names"
 test('an implementation with no fragment adds nothing', () => {
   assert.equal(manifestFragment(impl(undefined)), '');
   assert.equal(manifestFragment([]), '');
+});
+
+test('speech action queries and package queries share one element and deduplicate across implementations', () => {
+  const queries = [
+    { action: 'android.speech.RecognitionService' },
+    { package: 'com.google.android.apps.healthdata' },
+    { action: 'android.intent.action.TTS_SERVICE' },
+  ];
+  const xml = manifestFragment([...impl({ queries: [...queries, ...queries] }), ...impl({ queries })]);
+  assert.equal(xml, [
+    '    <queries>',
+    '        <intent><action android:name="android.speech.RecognitionService" /></intent>',
+    '        <package android:name="com.google.android.apps.healthdata" />',
+    '        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>',
+    '    </queries>',
+  ].join('\n'));
+});
+
+test('an unlisted query action is refused with the package and action named', () => {
+  assert.throws(() => manifestFragment([{
+    extension: 'speech-recognition', className: 'exact.speechrecognition.SpeechRecognitionModule',
+    manifest: { queries: [{ action: 'android.intent.action.MAIN' }] },
+  }]), (e) => e.message.includes("speech-recognition's Android implementation") &&
+    e.message.includes('android.intent.action.MAIN') && e.message.includes('not on the list'));
+});
+
+test('a query names exactly one package or action', () => {
+  for (const query of [{}, null, { package: 'com.google.android.apps.healthdata', action: 'android.intent.action.TTS_SERVICE' }]) {
+    assert.throws(() => manifestFragment(impl({ queries: [query] })),
+      (e) => e.message.includes("alarms's Android implementation") && e.message.includes('exactly one of package or action'));
+  }
+});
+
+test('androidImplementations carries the bound speech packages through manifest fragments', () => {
+  const app = mkdtempSync(resolve(tmpdir(), 'exact-speech-manifest-'));
+  const packages = ['speech-recognition', 'speech-synthesis'];
+  try {
+    mkdirSync(resolve(app, 'node_modules/@exact'), { recursive: true });
+    for (const name of packages) symlinkSync(resolve(import.meta.dir, '../packages', name), resolve(app, 'node_modules/@exact', name), 'dir');
+    writeFileSync(resolve(app, 'app.ts'), 'import { startSpeechRecognition } from "@exact/speech-recognition";\nimport { speak } from "@exact/speech-synthesis";\n');
+    const bound = androidImplementations(app).sort((a, b) => a.extension.localeCompare(b.extension));
+    assert.deepEqual(bound.map((b) => b.extension), packages);
+    assert.deepEqual(bound.map((b) => b.manifest), [
+      { queries: [{ action: 'android.speech.RecognitionService' }] },
+      { queries: [{ action: 'android.intent.action.TTS_SERVICE' }] },
+    ]);
+    assert.ok(bound.every((b) => !Object.hasOwn(b, 'queries')));
+    assert.equal(manifestFragment(bound), [
+      '    <queries>',
+      '        <intent><action android:name="android.speech.RecognitionService" /></intent>',
+      '        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>',
+      '    </queries>',
+    ].join('\n'));
+    writeFileSync(resolve(app, 'app.ts'), 'export const unused = true;\n');
+    assert.deepEqual(androidImplementations(app), []);
+  } finally { rmSync(app, { recursive: true, force: true }); }
 });
 
 test('the allow-list refuses, naming what', () => {
@@ -53,4 +111,34 @@ test("health's fragment: Health Connect queried, the rationale and the usage ali
   assert.doesNotMatch(xml, /<provider|<uses-permission|android:process/);
   // No activity, no policy carried.
   assert.doesNotMatch(manifestFragment([{ ...health[0], manifest: { queries: json.manifest.queries } }], { privacyPolicy: 'https://example.com/privacy' }), /meta-data|<application/);
+});
+
+test("device's normal permission is declared, and a runtime one refused", () => {
+  const json = JSON.parse(readFileSync(resolve(import.meta.dir, '../packages/device/android/exact.json'), 'utf8'));
+  const bound = [{ extension: 'device', className: 'exact.device.DeviceModule', manifest: json.manifest }];
+  assert.deepEqual(fragmentPermissions(bound), ['android.permission.ACCESS_NETWORK_STATE']);
+  assert.equal(manifestFragment(bound), '', 'a permission adds no component');
+  assert.deepEqual(fragmentPermissions(impl(undefined)), []);
+  assert.throws(() => fragmentPermissions(impl({ permissions: ['android.permission.ACCESS_FINE_LOCATION'] })), (e) => e.message.includes('ACCESS_FINE_LOCATION') && e.message.includes('normal permissions only'));
+});
+
+test('a query with a data scheme: SENDTO mailto: and smsto: only (LLP 1133.024 D22 item 6)', () => {
+  const xml = manifestFragment(impl({ queries: [{ action: 'android.intent.action.SENDTO', scheme: 'mailto' }, { action: 'android.intent.action.SENDTO', scheme: 'smsto' }] }));
+  assert.match(xml, /<intent><action android:name="android\.intent\.action\.SENDTO" \/><data android:scheme="mailto" \/><\/intent>/);
+  assert.match(xml, /<data android:scheme="smsto" \/>/);
+  assert.throws(() => manifestFragment(impl({ queries: [{ action: 'android.intent.action.SENDTO', scheme: 'https' }] })), /not on the list/);
+  assert.throws(() => manifestFragment(impl({ queries: [{ action: 'android.intent.action.VIEW', scheme: 'mailto' }] })), /not on the list/);
+});
+
+test("payments' callbacks service is exported only to Play services' binder, with Google Pay's switch", () => {
+  const json = JSON.parse(readFileSync(resolve(import.meta.dir, '../packages/payments/android/exact.json'), 'utf8'));
+  const payments = (manifest) => manifestFragment([{ extension: 'payments', className: 'exact.payments.PaymentsModule', manifest }]);
+  const xml = payments(json.manifest);
+  assert.match(xml, /<service android:name="exact\.payments\.PaymentCallbacks" android:exported="true" android:permission="com\.google\.android\.gms\.permission\.BIND_PAYMENTS_CALLBACK_SERVICE">/);
+  assert.match(xml, /<action android:name="com\.google\.android\.gms\.wallet\.callback\.PAYMENT_DATA_CALLBACKS" \/>/);
+  assert.match(xml, /<meta-data android:name="com\.google\.android\.gms\.wallet\.api\.enabled" android:value="true" \/>/);
+  const refuses = (manifest, what) => assert.throws(() => payments(manifest), (e) => e.message.includes(what));
+  refuses({ services: [{ name: 'exact.payments.S', permission: 'android.permission.BIND_JOB_SERVICE', actions: ['x'] }] }, 'BIND_JOB_SERVICE');
+  refuses({ services: [{ name: 'exact.payments.S', permission: 'com.google.android.gms.permission.BIND_PAYMENTS_CALLBACK_SERVICE', actions: ['android.intent.action.MAIN'] }] }, 'does not bind');
+  refuses({ metadata: [{ name: 'com.google.android.geo.API_KEY', value: 'k' }] }, 'API_KEY');
 });

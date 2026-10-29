@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list with Pinned and Notes sections, sorted newest first; title, a date that is relative for recent notes (10:04 AM, Monday, Thursday) and short otherwise (9/4/26), and a one-line preview. The preview cuts off at a word boundary early, leaving visible empty space before the ellipsis."},
+      {"n": 2, "status": "pass", "note": "The system search field in the bottom toolbar filters by title and body as you type; the empty state reads 'No Results for “zzq”' in the system style."},
+      {"n": 3, "status": "pass", "note": "Tapping a row pushes an editor with the title and body editable. Edits save with no Save button, the date changes to 'Today at 10:04 AM', the note moves to the top of its section, and the list keeps its scroll position."},
+      {"n": 4, "status": "pass", "note": "The compose button opens an empty editor with the title focused and Return moves to the body. Leaving an empty or whitespace-only note discards it (count stays at 90); a note with content is kept (91)."},
+      {"n": 5, "status": "pass", "note": "Swipe left offers Delete and long press offers Pin/Unpin Note and Delete (system context menu). There is no leading swipe to pin: swiping a row to the right opens the note instead."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' appears as a subtitle under the large title and moves into the inline title when scrolled; it updates on add and delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pin/unpin and deletes all survived relaunch."}
+    ],
+    "bugs": [
+      "A horizontal swipe to the right on a list row opens the note, as if it were a tap (reproduced 3 times at different speeds and start points), instead of doing nothing or showing a leading action."
+    ],
+    "tells": [
+      "No leading swipe action for Pin; pinning is only in the long-press menu or the editor, where Apple Notes puts Pin on swipe right.",
+      "The body placeholder 'Note' in a new note uses a smaller, wide-tracked font that does not match the body text.",
+      "The title is a single-line text field, so at the largest text size a long title truncates with '…' while you edit it.",
+      "The row preview truncates at a word boundary well before the trailing edge, leaving uneven gaps ('Ask about podcast…').",
+      "The editor's Unpin button shows the same pin glyph as Pin (no pin.slash or filled state).",
+      "Rows have disclosure chevrons, which Apple Notes does not use (acceptable, but less like Notes)."
+    ],
+    "scroll": "Smooth native scrolling: slow drags track the finger, flings decelerate naturally, there are no blank or popping rows, the top bounces and the large title collapses correctly, and the scroll position is kept when coming back from a note.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Pinned and Notes sections, sorted newest first; title, a relative or short date (10:05 AM, Monday, 9/4/2026) in primary colour, and a one-line preview that uses the full row width, as Apple Notes does."},
+      {"n": 2, "status": "pass", "note": "The search bar under the large title (stays docked when scrolled) filters by title and body as you type; the empty state shows 'No Results — No notes match “…”'."},
+      {"n": 3, "status": "pass", "note": "Editor with title and body text views, a Done checkmark while typing and a More menu. Edits autosave and move the note to the top of its section, and the list keeps its scroll position."},
+      {"n": 4, "status": "pass", "note": "The compose button in the bottom toolbar opens a new note with the title focused and Return moves to the body. Empty and whitespace-only notes are discarded; a note with content is kept."},
+      {"n": 5, "status": "pass", "note": "A full swipe right pins or unpins (leading Pin action); swipe left deletes; long press shows Pin/Unpin (pin.slash icon) and Delete. The editor's More menu also has these actions."},
+      {"n": 6, "status": "pass", "note": "'90 Notes' is centred in the bottom toolbar, as in Apple Notes, and updates on add and delete."},
+      {"n": 7, "status": "pass", "note": "Edits, new notes, pins and deletes all survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The bottom toolbar's '90 Notes' label and the compose button do not grow at the largest text size (a minor gap, close to system toolbar behaviour).",
+      "Long titles in the list truncate to one line ('Ideas for the garden: tomatoes, basil, m…') where the system might wrap; this is acceptable and matches Notes."
+    ],
+    "scroll": "Native and smooth: drags track the finger, flings carry and decelerate naturally, there are no blank rows or jumps, the top bounces, the search bar docks under the inline title, and the scroll position is kept after returning from a note.",
+    "scores": {"features": 10, "platform": 9, "polish": 9, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet every requirement and scroll natively. B matches Apple Notes more closely: a leading swipe to pin, a Done checkmark and More menu in the editor, the count in the bottom toolbar, full-width previews, and a title that wraps at large text. A's right swipe on a row opens the note, its body placeholder uses a mismatched font, and its single-line title truncates at large text."
+}

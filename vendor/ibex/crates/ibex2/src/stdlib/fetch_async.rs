@@ -226,6 +226,8 @@ pub struct FetchTask {
     state: Mutex<TaskState>,
     transport: Arc<dyn AsyncTransport>,
     grants: Arc<GrantSet>,
+    /// The host's check beside the grant at each hop (Exact patch).
+    gate: Option<Arc<dyn crate::boundary::HopGate>>,
     events: Arc<dyn FetchEvents>,
     caps: HeaderCaps,
 }
@@ -270,6 +272,24 @@ impl FetchTask {
         caps: HeaderCaps,
         events: Arc<dyn FetchEvents>,
     ) -> Arc<FetchTask> {
+        Self::start_gated(
+            transport, grants, None, request, upload, signal, caps, events,
+        )
+    }
+
+    /// [`FetchTask::start`], with the host's `gate` checked beside the grant
+    /// at every hop (Exact patch, LLP 1133.036 D6).
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_gated(
+        transport: Arc<dyn AsyncTransport>,
+        grants: Arc<GrantSet>,
+        gate: Option<Arc<dyn crate::boundary::HopGate>>,
+        request: Request,
+        upload: Option<Arc<Upload>>,
+        signal: AbortSignal,
+        caps: HeaderCaps,
+        events: Arc<dyn FetchEvents>,
+    ) -> Arc<FetchTask> {
         let prepared = if request.body_limit() > isize::MAX as usize
             || caps.bytes > isize::MAX as usize
             || caps.entries > isize::MAX as usize
@@ -302,6 +322,7 @@ impl FetchTask {
             }),
             transport,
             grants,
+            gate,
             events,
             caps,
         });
@@ -364,7 +385,8 @@ impl FetchTask {
                 drop(state);
                 return self.finish(Err(aborted()));
             }
-            if let Err(e) = admit_hop(&self.grants, &state.current.url, state.redirected) {
+            let gate = self.gate.as_deref();
+            if let Err(e) = admit_hop(&self.grants, gate, &state.current.url, state.redirected) {
                 drop(state);
                 return self.finish(Err(e));
             }

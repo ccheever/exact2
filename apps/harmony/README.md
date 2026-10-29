@@ -65,7 +65,8 @@ does while the person is not looking:
   hours. A round that fails registers
   the tag again and waits out the backoff (5 minutes, doubling to an hour).
 - **A mention while Harmony is closed is a notification.** Under You,
-  Notify Me of Mentions registers `periodicsync` every 30 minutes; each
+  Notify Me of Mentions asks for notification permission
+  (`@exact/notifications`) and registers `periodicsync` every 30 minutes; each
   catch-up runs one round, finds the persona's mentions newer than the mark
   it keeps in `app:/data`, and shows the newest room's as one notification
   that opens the room. The platform decides when, or whether, a catch-up

@@ -49,6 +49,11 @@ impl<D: DataSource> Presenter<D> {
     /// this (the Android reader's canvas host).
     pub fn turn_due_ms(&self, now: f64) -> Option<f64> {
         let timer = self.timer_due_ms().map(|due| (due - now).max(0.0));
+        // (A load to send, or a picture asking again for a failed download, as soon.)
+        let timer = timer
+            .into_iter()
+            .chain(self.image_turn_due_in_ms())
+            .reduce(f64::min);
         let dev = self.dev.as_ref().filter(|_| self.painted);
         let poll = dev
             .and_then(|d| d.due_in())

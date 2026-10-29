@@ -98,11 +98,36 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         },
         redirect: Redirect::parse(j.get("redirect").and_then(Json::as_str))?,
         held: j.get("held").and_then(Json::as_bool).unwrap_or(false),
+        reach: Default::default(),
+        // `exactListen`'s options (LLP 1133.005 D1); the defaults where unsaid.
+        listen: match j.get("listen") {
+            None | Some(Json::Null) => None,
+            Some(l) => {
+                let number = |k: &str, default: u32| match l.get(k) {
+                    None | Some(Json::Null) => Ok(default),
+                    Some(v) => (v.as_u64().and_then(|n| u32::try_from(n).ok()))
+                        .ok_or(format!("exactListen: {k} is not a number")),
+                };
+                let defaults = exact_runner::listen::Listen::default();
+                Some(Box::new(exact_runner::listen::Listen {
+                    takeover: l.get("takeover").and_then(Json::as_bool).unwrap_or(false),
+                    first_line_timeout_ms: Some(number("first_line_timeout_ms", 0)?)
+                        .filter(|ms| *ms > 0),
+                    max_line_bytes: number("max_line_bytes", defaults.max_line_bytes)?,
+                    max_connections: number("max_connections", defaults.max_connections)?,
+                }))
+            }
+        },
+        due_ms: None,
+        wake_ms: None,
     };
     // A long poll's terms, checked as every host checks them (LLP 1016.000 D8).
     match request.long_poll_refusal().or(request.ceiling_refusal()) {
         Some(why) => Err(why.into()),
-        None => Ok(request),
+        None => match request.listen_refusal() {
+            Some(why) => Err(why),
+            None => Ok(request),
+        },
     }
 }
 

@@ -53,7 +53,10 @@ pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError>
         });
     }
     for s in &file.shapes {
-        if matches!(s.name.as_str(), "Router" | "Tab" | "Entry" | "Params") {
+        if matches!(
+            s.name.as_str(),
+            "Router" | "Tab" | "Entry" | "Params" | "SharedFiles"
+        ) {
             return err(
                 "type-shape-reserved",
                 format!("`{}` is declared by `routes`", s.name),
@@ -84,6 +87,15 @@ pub(super) fn declare(file: &File, shapes: &mut Shapes) -> Result<(), TypeError>
                 ("url", Ty::String),
                 ("tab", Ty::String),
                 ("params", record("Params")),
+            ],
+        ),
+        // @ref LLP 1133.024 D3 — what `sharedFiles(entry, name)` answers.
+        (
+            "SharedFiles",
+            vec![
+                ("files", list(record("Picked"))),
+                ("dropped", Ty::Number),
+                ("pending", Ty::Number),
             ],
         ),
         (

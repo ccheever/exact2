@@ -1,0 +1,12 @@
+{
+  "name": "@exact/payments",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Payment for physical goods and services with the device's wallet, by the Payment Request API's names: Apple Pay and Google Pay (LLP 1133.034). Digital goods are @exact/purchases.",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

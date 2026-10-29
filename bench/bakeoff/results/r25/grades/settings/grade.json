@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present in an inset grouped list. Account has editable Name/Email and a red Sign Out that confirms with an action sheet. Reading has a stepped slider with A/A icons, a Font row, a segmented spacing control and a preview. Appearance has a Theme row with four options, and Sepia/Dark re-theme the whole app. Library has Sort By and two switches. Notifications has a master switch that reveals a compact time picker plus three switches. Storage shows a used-space bar with a legend, and Clear Cache confirms and then disables itself. About has the version, pushed Privacy/Terms pages, and Rate the App shows the system review prompt."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort By push a checkmark list, like the iOS Settings app, and pop back on selection. The reminder time uses the native compact DatePicker popover."},
+      {"n": 3, "status": "pass", "note": "The preview updates live for font (Palatino etc.), size (18→30 pt) and spacing; Compact vs Relaxed clearly changes the paragraph height."},
+      {"n": 4, "status": "pass", "note": "Font, size, spacing, theme, sort, cellular, notifications and their sub-toggles, and the signed-out state all survived a relaunch."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings is at the bottom, confirms with an action sheet, and restores the defaults (18 pt, New York, Normal, System, Recently Read, toggles), which persist across a relaunch."}
+    ],
+    "bugs": [
+      "After Sign Out, the 'Sign In' button does nothing, so the user can never get back to a signed-in account with name/email (Reset All Settings doesn't restore it either).",
+      "Once, after picking Sepia in the pushed Theme list, the main list came back scrolled to the top instead of where it was; picking Dark and Sort By kept the position."
+    ],
+    "tells": [
+      "At the largest text size the segmented control's labels stay small while everything around them grows (the same in B).",
+      "The store review prompt names the app 'Settings' rather than 'Paperback' (the app's display name)."
+    ],
+    "scroll": "Feels native: slow drags, flings to the end and back, and the rubber-band at the top are smooth, with the large title collapsing into a blurred inline bar. Scroll position is kept when returning from pushed pickers.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "All sections are present with good footers. Account has editable fields that persist, and Sign Out confirms with an alert; Sign In restores the account. Theme is an inline checkmark list; Dark re-themes the whole app, but Sepia only tints the preview text brown (the page and the rest of the app stay white), despite the footer promising a 'warm paper tone'. Storage shows Used/Books/Cache rows, and Clear Cache confirms and zeroes the cache. Privacy and Terms are pushed pages. Rate the App leaves the app for Safari, which shows 'Safari cannot open the page because the address is invalid'."},
+      {"n": 2, "status": "pass", "note": "Font and Sort By push checkmark lists (selection stays on the list, as in iOS Settings); Theme is an inline checkmark group; the reminder time uses the native compact DatePicker."},
+      {"n": 3, "status": "partial", "note": "Font and size update the preview live, but Line Spacing has no effect: Compact, Normal and Relaxed render identically (the preview stays 253 pt tall at 29 pt in every mode, and also after a relaunch)."},
+      {"n": 4, "status": "pass", "note": "Size, font, spacing, theme, sort, notifications, the reminder time and the edited name all survive a relaunch."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings (with an alert confirmation) restores the reading, appearance, library and notification defaults and leaves the account alone, as its footer says."}
+    ],
+    "bugs": [
+      "The Line Spacing segmented control does nothing to the preview paragraph.",
+      "Sepia theme does not give a sepia page: only the preview's text colour changes.",
+      "Rate the App throws the user out to Safari with an 'address is invalid' error instead of showing the in-app review prompt."
+    ],
+    "tells": [
+      "The inline nav-bar title sits over scrolled content with little or no blur, so 'Settings' visibly collides with the text underneath (most obvious at large text and in dark mode).",
+      "The Font Size value and the slider are split across two separate rows, unlike the usual single slider cell.",
+      "At the largest text size, labels hyphenate a lot ('Poli-cy', 'Set-tings', 'Re-leases'); this is syllable hyphenation, so excused, but it looks busier than A.",
+      "The accessibility tree shows a horizontal scroll bar on the vertical list (the content does not actually move sideways)."
+    ],
+    "scroll": "Smooth and native-feeling: flings, bounce at both ends and push/pop all behave, and scroll position is kept when coming back from Sort By. The only visible difference from A is the weak edge blur under the collapsed title.",
+    "scores": {"features": 7, "platform": 8, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "The two look nearly identical and both are convincingly native, but A's preview really reflects all three reading settings, Sepia re-themes the whole app, and Rate the App shows the system prompt. In B, Line Spacing does nothing, Sepia only tints the preview text, and Rate the App bounces to a Safari error. A's one real flaw, a dead Sign In after signing out, is outside the spec and smaller than B's spec failures."
+}

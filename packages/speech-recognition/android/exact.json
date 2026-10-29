@@ -33,7 +33,11 @@
   },
   "artifacts": [],
   "class": "exact.speechrecognition.SpeechRecognitionModule",
-  "queries": [
-    "android.speech.RecognitionService"
-  ]
+  "manifest": {
+    "queries": [
+      {
+        "action": "android.speech.RecognitionService"
+      }
+    ]
+  }
 }

@@ -270,8 +270,8 @@ function commit(op) {
       if (written[j]?.id === op.top) {
         const from = cursor;
         cursor = j;
-        go(j, from);
-        return;
+        // The entry gone back to takes the top's url when that changed in the same commit (`replace(back(r), u)`).
+        return go(j, from, () => written[j].url === op.url || history.replaceState(written[j] = stamp(j, op), "", historyURL(op.url)));
       }
     }
     for (const index of Object.keys(written)) if (Number(index) > cursor) delete written[index];
@@ -288,7 +288,7 @@ function popped({ j, state, url }) {
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
   // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
   // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationBack.way): the route's
-  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3).
+  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3). An entry given to `navigate` at the URL already shown, which this page did not write or which holds the visit shown, is accepted though nothing changed: a `replace` can give the only entry a reload wrote the URL of the one beneath it, and refusing would hold Back there. An earlier visit at that URL is still refused: accepting it would leave the visits after it on the stack.
   const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   let back = beneath && !!backControl(nav), own = false, why = null;
   pop = {};
@@ -298,7 +298,7 @@ function popped({ j, state, url }) {
       own = true; back = step && (!!backControl(nav) || closedNone(selectedRoute(nav)));
       if (back) why = pressBack(nav); else if (step) hostBack?.(written[cursor].id); else hostGo?.(target);
     }
-    const accepted = back ? last?.top === entry.id : pop.op?.url === target;
+    const accepted = back ? last?.top === entry.id : (pop.op ?? (!owned || entry.id === last?.top ? last : null))?.url === target;
     if (accepted) {
       cursor = j ?? cursor;
       first = Math.min(first, cursor);
@@ -436,7 +436,7 @@ export const navigation = {
         const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", beneath = routes.findLastIndex((r, i) => i < selected && r.getAttribute("navigationPresentation") !== "modal");
         detailRows(routes, found);
         if (stack === at && list) setInert(list, sheet(routes[selected]) || !!list.authoredInert); // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
-        // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column.
+        // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column, else (a detail the app opened itself, at launch or after Back) the row the app says is current.
         const detail = split ? routes.findLastIndex((r, i) => i > 0 && i <= selected && !sheet(r)) : -1;
         for (const [index, route] of routes.entries()) {
           const active = index === selected || (live && index === 0);
@@ -450,7 +450,7 @@ export const navigation = {
           route.style.setProperty("--exact-split", column ? `${split}px` : "");
           appBarBack(nav, routes, index, split > 0, active || covered); if (stack === at && index === selected) freshPath(route);
         }
-        let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
+        let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null; if (!row && detail > 0) row = found.rows.find(r => !["false", "", null].includes(r.el.getAttribute("aria-current")))?.el ?? null;
         for (const el of routes[0]?.querySelectorAll("[data-exact-split-row]") ?? []) if (el !== row) el.removeAttribute("data-exact-split-row");
         row?.toggleAttribute("data-exact-split-row", true);
         // @ref LLP 1116.006 D2 — a split showing no detail fills the detail pane, as an iPad's split view does: the platform's placeholder (the shell draws `data-exact-split-empty`), or the author's, a box of the root route marked `navigationSplit="placeholder"` (which the lowerer hides everywhere else), at the pane's width.
@@ -1230,20 +1230,27 @@ export function grantOrigins(memory) {
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
-const grantFNV = text => {
-  let hash = 0xcbf29ce484222325n;
-  for (const byte of new TextEncoder().encode(text)) {
-    hash ^= BigInt(byte);
-    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
-  }
-  return hash.toString(16).padStart(16, '0');
-};
+const grantFNV = text => new TextEncoder().encode(text).reduce((hash, byte) => BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n), 0xcbf29ce484222325n).toString(16).padStart(16, '0');
 // Rust's JSON writer and JavaScript's serializer use this one spelling for the
 // two ECMAScript line separators before the seal is calculated.
 const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, error: set.error })
   .replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
 const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket', 'websocket-subdomains']);
 const schemeGrants = { 'fetch-scheme': ['http', 'https'], 'websocket-scheme': ['ws', 'wss'] };
+// `local-network` (LLP 1133.036 D5): a host on the local network as the URL writes it; with `development`, loopback too.
+const localGrants = new Set(['fetch-local-network', 'websocket-local-network']);
+const localV4 = (a, b, loopback) => a === 10 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 169 && b === 254 || loopback && a === 127;
+const hextets = text => { const [head, tail] = text.split('::'), h = head?.match(/[^:]+/g) ?? [], t = tail?.match(/[^:]+/g) ?? []; return [...h, ...Array(tail === undefined ? 0 : 8 - h.length - t.length).fill('0'), ...t].map(x => parseInt(x, 16)); };
+export const isLocalNetwork = (host, loopback) => {
+  host = String(host).toLowerCase();
+  if (host.startsWith('[')) {
+    const s = hextets(host.slice(1, -1)), zeros = n => s.slice(0, n).every(x => x === 0);
+    if (zeros(5) && s[5] === 0xffff) return localV4(s[6] >> 8, s[6] & 255, loopback);
+    return (s[0] & 0xfe00) === 0xfc00 || (s[0] & 0xffc0) === 0xfe80 || loopback && zeros(7) && s[7] === 1;
+  }
+  const v4 = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/), name = host.replace(/\.$/, '');
+  return v4 ? localV4(+v4[1], +v4[2], loopback) : /.\.local$/.test(name) || loopback && name === 'localhost';
+};
 const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
 const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
 const validGrantName = name => typeof name === 'string' && name.length >= 1 && name.length <= 64
@@ -1274,8 +1281,9 @@ const grantTupleValid = grant => {
     && (!grant[0].endsWith('-subdomains') || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (Object.hasOwn(schemeGrants, grant[0])) return grant.length === 2 && schemeGrants[grant[0]].includes(grant[1]);
+  if (localGrants.has(grant[0])) return grant.length === 1 || grant.length === 2 && grant[1] === 'development';
   if (pathGrants.has(grant[0])) return grant.length >= 2
-    && (['', 'app:', 'doc:'].includes(grant[1]) || nativeNamespace(grant[1]))
+    && (['', 'app:', 'doc:', 'home:', 'bundle:'].includes(grant[1]) || nativeNamespace(grant[1]))
     && grant.slice(2).every(component => nativeNamespace(grant[1]) ? nativeLeaf(component)
       : typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
@@ -1289,7 +1297,7 @@ const pathTuple = (kind, target) => {
   }
   const at = target.indexOf(':/');
   const namespace = at < 0 ? target.startsWith('/') ? '' : null : target.slice(0, at) + ':';
-  if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
+  if (namespace == null || !['', 'app:', 'doc:', 'home:', 'bundle:'].includes(namespace)) return null;
   const rest = at < 0 ? target.slice(1) : target.slice(at + 2);
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..') ? null : [kind, namespace, ...parts];
@@ -1322,6 +1330,8 @@ const sourceTuple = source => {
       } catch { return null; }
     }
   }
+  if ((capability === 'net.fetch' || capability === 'net.websocket') && words[1] === 'local-network')
+    return words.length === 2 || words.length === 3 && words[2] === 'development' ? [capability === 'net.fetch' ? 'fetch-local-network' : 'websocket-local-network', ...words.slice(2)] : null;
   if (words.length !== 2 && !(capability === 'secret.keep' && /^(user-presence|biometry-any|biometry-current-set|device-credential)( optional)?( (apple\.accessible=when(PasscodeSet|Unlocked)ThisDeviceOnly|apple\.or(Watch|Companion)|android\.strongBox))*$/.test(words.slice(2).join(' ')))) return null; // a presence policy (LLP 1133.010 D4), which Rust's parser checks whole
   const target = words[1];
   const scheme = (capability === 'net.fetch' || capability === 'net.websocket') && /^[a-z][a-z0-9+.-]*:$/i.test(target) ? target.slice(0, -1).toLowerCase() : null;
@@ -1339,7 +1349,7 @@ const sourceTuple = source => {
   if (capability === 'storage.kv') return ['storage-kv', target];
   return null;
 };
-const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|doc\.keep$|browser\.automation$)/.test(source);
+const exactOnly = source => /^(#|surface\.read |surface\.write |device\.|runtime\.|auth\.|net\.dns-sd |process\.spawn |secret\.hold |env\.read login:|doc\.keep$|browser\.automation$|payment\.google-pay$|payment\.apple-pay )/.test(source);
 const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);
@@ -1358,28 +1368,15 @@ function validateGrantSet(set) {
   }
   return (!hasError || set.error !== null) && grantFNV(grantBody(set)) === set.seal;
 }
-const freezeGrantSet = set => {
-  for (const entry of set.entries) {
-    if (entry[2]) Object.freeze(entry[2]);
-    Object.freeze(entry);
-  }
-  Object.freeze(set.entries);
-  return Object.freeze(set);
-};
+const freezeGrantSet = set => { for (const entry of set.entries) { if (entry[2]) Object.freeze(entry[2]); Object.freeze(entry); } Object.freeze(set.entries); return Object.freeze(set); };
 // The Rust parser is the only producer. Admission validates an incoming JSON value in full before making its authority
 // immutable; a prior validation is never a reason to trust a mutable or branded object.
 export function createGrantSet(value) {
   if (!validateGrantSet(value)) return freezeGrantSet(makeGrantSet([], INVALID_GRANTS));
   return freezeGrantSet(value);
 }
-function makeGrantSet(entries, error) {
-  const set = { version: 1, entries, error, seal: '' };
-  set.seal = grantFNV(grantBody(set));
-  return freezeGrantSet(set);
-}
-export function grantError(set) {
-  return validateGrantSet(set) ? set.error : INVALID_GRANTS;
-}
+function makeGrantSet(entries, error) { const set = { version: 1, entries, error, seal: '' }; set.seal = grantFNV(grantBody(set)); return freezeGrantSet(set); }
+export function grantError(set) { return validateGrantSet(set) ? set.error : INVALID_GRANTS; }
 export const rawGrantText = set => validateGrantSet(set) ? set.entries.map(entry => entry[1]).join('\n') : '';
 export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && set.entries.some(entry => entry[2]?.[0] === kind);
 const normalizedDeclaration = set => validateGrantSet(set)
@@ -1425,7 +1422,8 @@ export function admittingGrant(set, value, operation = 'fetch') {
   try { target = new URL(value); } catch { return null; }
   const kind = operation === 'websocket' ? 'websocket' : 'fetch';
   const scheme = target.protocol.slice(0, -1).toLowerCase(), host = target.hostname.toLowerCase(), port = grantPort(target);
-  return set.entries.find(([, , grant]) => grant && grant[1] === scheme && (grant[0] === kind + '-scheme' || grant[3] === port && (
+  return set.entries.find(([, , grant]) => grant?.[0] === kind + '-local-network' && schemeGrants[kind + '-scheme'].includes(scheme) && isLocalNetwork(host, grant[1] === 'development')
+    || grant && grant[1] === scheme && (grant[0] === kind + '-scheme' || grant[3] === port && (
     grant[0] === kind && grant[2] === host
     || grant[0] === kind + '-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
   )))?.[1] ?? null;
@@ -1439,7 +1437,7 @@ function grantPathParts(path) {
   if (typeof path !== 'string') return null;
   const at = path.indexOf(':/');
   const namespace = at < 0 ? path.startsWith('/') ? '' : null : path.slice(0, at) + ':';
-  if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
+  if (namespace == null || !['', 'app:', 'doc:', 'home:', 'bundle:'].includes(namespace)) return null;
   const rest = at < 0 ? path.slice(1) : path.slice(at + 2);
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..' || part.includes('\0')) ? null : [namespace, ...parts];
@@ -1488,9 +1486,11 @@ export function popoverCommand(method, id, source, say) {
   try { pop[method](method === "hidePopover" || !anchor ? undefined : { source: anchor }); }
   catch (e) { say(`${method} "${id}" refused: ${e.name}`); }
 }
+/** LLP 1021 D2: a popover whose author wrote `left` or `top`, and no `position-area` (which CSS lets win, the insets then offsetting it in its cell), opens at that point, not at its invoker. Its insets are left on it as `--exact-inset-x`, `-y` while it is open (`auto` for an axis with none), and again as they change; written away while it is open, or overruled by a `position-area`, `right` or `bottom`, they go, and its invoker places it again. They are for the page's sheet to place it by and to flip it the other way from the point where it does not fit, as a context menu at the pointer (neutral.css). Only where that sheet's `inset: auto` holds its other sides is a `left` or `top` the author's: the user agent's `inset: 0` writes all four, as does an author's `right` or `bottom`. */
+function insetAt(p, open) { const set = (axis, v) => { if (p.style.getPropertyValue(`--exact-inset-${axis}`) !== v) v ? p.style.setProperty(`--exact-inset-${axis}`, v) : p.style.removeProperty(`--exact-inset-${axis}`); }, has = v => !!v && v !== "auto", area = p.style.getPropertyValue("position-area"); /* open, an anchored box's computed insets are where it was placed, so its author's are read from its own style; closed, the computed ones are what was written, the sheet's `inset: auto` among them */ if (open) { if (!p.exactInsetOn) return; const { left, top, right, bottom } = p.style, on = !has(right) && !has(bottom) && (has(left) || has(top)) && !(area && area !== "none"); set("x", on ? left || "auto" : ""); set("y", on ? top || "auto" : ""); return; } const { left, top, right, bottom } = getComputedStyle(p); p.exactInsetOn = !(right !== "auto" || bottom !== "auto" || left === "auto" && top === "auto" || area && area !== "none"); set("x", p.exactInsetOn ? left : ""); set("y", p.exactInsetOn ? top : ""); p.exactInset ??= (p.addEventListener("toggle", t => { if (t.newState === "closed") { p.exactInsetOn = false; set("x", ""); set("y", ""); } }), new MutationObserver(() => { if (p.matches(":popover-open")) insetAt(p, true); }).observe(p, { attributes: true, attributeFilter: ["style"] }), true); }
 const popoverSources = new WeakMap(); /** What opened popover `pop` last (its `beforetoggle`'s source): a menu's invoker, for menu-rows.js. */ export const popoverSource = pop => popoverSources.get(pop) ?? null;
 globalThis.document?.addEventListener?.("beforetoggle", e => {
-  if (e.target.hasAttribute("popover") && e.newState === "open") { popoverSources.set(e.target, e.source ?? null); e.target.toggleAttribute("data-exact-chooser", !!e.source?.checkVisibility() && e.target.getAttribute("role") === "alertdialog" && !e.target.querySelector(":scope > [data-exact-text], input")); } // a chooser (LLP 1021) its invoker opened, the invoker still shown: neutral.css draws it there, as a menu
+  if (e.target.hasAttribute("popover") && e.newState === "open") { popoverSources.set(e.target, e.source ?? null); e.target.toggleAttribute("data-exact-chooser", !!e.source?.checkVisibility() && e.target.getAttribute("role") === "alertdialog" && !e.target.querySelector(":scope > [data-exact-text], input")); insetAt(e.target); } // a chooser (LLP 1021) its invoker opened, the invoker still shown: neutral.css draws it there, as a menu
 }, true);
 function popoverObservation(root) {
   const pop = [...root.querySelectorAll("[popover]:popover-open")].at(-1), source = pop && popoverSources.get(pop);

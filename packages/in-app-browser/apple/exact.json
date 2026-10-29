@@ -1,0 +1,29 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/in-app-browser@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {
+    "openBrowser": {
+      "entersReaderIfAvailable": "bool",
+      "barCollapsingEnabled": "bool",
+      "dismissButtonStyle": "enum<done|close|cancel>"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "safariViewController"
+  ],
+  "sources": {
+    "swift": [
+      "InAppBrowser.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "InAppBrowserModule"
+}

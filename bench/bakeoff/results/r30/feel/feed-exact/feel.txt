@@ -1,0 +1,32 @@
+dev.bakeoff.feed.bf3c9f5: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 16.67 s of motion
+  ok    hitch ratio (ms/s)                     0
+  ok    longest frame (ms)                     16.7
+  ok    main thread p95 (ms/frame)             4.94
+  ok    tracking ratio                         1.005
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       505
+  ok    momentum hand-off (content/asked)      1.04
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.77
+  n/a   rubber band (overscroll/finger)        –
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.52
+  ok    tap while decelerating: travel (pt)    0
+  n/a   blank samples (share)                  –
+  bad   scrub: hitch ratio (ms/s)              43.2
+  bad   scrub: longest frame (ms)              114.3
+  ok    scrub: blank samples (share)           0
+  ok    scrub: blanks while held (share)       0
+  ok    carousel: hitch ratio (ms/s)           0
+  ok    carousel: longest frame (ms)           16.7
+  ok    carousel: tracking ratio               1
+  ok    carousel: deceleration τ (ms; .normal 500) 502
+  ok    carousel: momentum hand-off (content/asked) 0.95
+  ok    carousel: edge bounce settle (s)       0.63
+  ok    carousel: a mostly-horizontal drag (carousel/finger, list pt) 0.95, 0
+  ok    carousel: a mostly-vertical drag (list/finger, carousel pt) 0.95, 0
+  24 ok, 0 tell, 2 bad
+  where the scrub's late frames' main-thread time went:
+    scrub: 3 late frames (0 on a timer's tick), 148 ms late; Exact host 180 ms (in UIKit 153) · Exact host (main waits on exact.owner) 11 ms · Exact runtime (main waits on exact.owner) 8 ms; in display links and ports 102 ms, events 97 ms

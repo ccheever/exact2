@@ -25,6 +25,8 @@ public struct Batch {
     public var held = false
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
+    /// A data module's timer continuation an advance released is still out: the agent's jump waits for it.
+    public var landing = false
     /// Store refresh acknowledged no runner commit; keep the current timers.
     public var unchanged = false
     public var storeReadPending = false
@@ -363,8 +365,13 @@ package final class Runtime {
             return read(exact_fulfill_surface(rt, ticket, kind, n, now))
         }
     }
-    /// A press, with the modifiers held as a chord prefix (`KeyCodes.held`).
-    package func press(_ view: UInt32, held: String = "", now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, write(held), now)) } }
+    /// A press, with the modifiers held as a chord prefix (`KeyCodes.held`),
+    /// after a pointer's point from the viewport where it had one: its
+    /// `MouseEvent`'s `clientX`/`clientY` (LLP 1021 D2).
+    package func press(_ view: UInt32, held: String = "", at client: CGPoint? = nil, now: Double) -> Batch {
+        let line = client.map { "\(Double($0.x)),\(Double($0.y)),\(held)" } ?? held
+        return on { read(exact_dispatch(rt, view, 0, write(line), now)) }
+    }
     /// The pointer over the view (`true`) or gone from it.
     package func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
     package func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
@@ -454,6 +461,14 @@ package final class Runtime {
         return on {
             let n = write(key + "\n" + block + "\n" + inline)
             return read(exact_into_view(rt, view, n))
+        }
+    }
+    /// What UIKit covers of list `view`'s port at its start and end, on the
+    /// owner before the reports after it, not waited for.
+    package func listCovered(_ view: UInt32, start: Double, end: Double) {
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            exact_list_covered(rt, view, start, end)
         }
     }
     /// A build-only report on the owner, not waited for (LLP 1072 §3):
@@ -658,6 +673,10 @@ package final class Runtime {
     package func hostGo(_ location: String, now: Double) -> Batch {
         on { read(exact_host_go(rt, write(location), now)) }
     }
+    /// A received share, `{"root", "target", "share", "inbox"?}` (LLP 1133.024 D2–D4).
+    package func share(_ json: String, now: Double) -> Batch { on { read(exact_share(rt, write(json), now)) } }
+    /// The files of a share claimed before the boot, once storage is configured.
+    package func landShare() -> Batch { on { read(exact_share_land(rt)) } }
     /// A package's call of the app's handler (LLP 1133.016 D15 item 1),
     /// `{"extension", "handle", "handler", "args"}`: the runner's answer,
     /// JSON, goes to `reply(ctx, …)` once, now or when the handler's work lands.
@@ -671,6 +690,17 @@ package final class Runtime {
     package func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
     package func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
+    /// Those `then`s only when one is the earliest work due (LLP 1072.000 §4 B).
+    package func landThenFirst() -> Batch { on { read(exact_advance(rt, 0, 3)) } }
+    /// A timer advance on the owner, not waited for (LLP 1072.000): what is
+    /// due by `now`, or with `frame` that display frame's (`frame(now:wall:)`).
+    package func advanceAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
+        if holds() { Owner.shared.post { done(Runtime.heldBatch) }; return }
+        Owner.shared.post { [self] in
+            guard !destroyed else { return }
+            done(read(frame.map { exact_frame_at(rt, $0, now) } ?? exact_advance(rt, now, 0)))
+        }
+    }
     package func frame(now: Double, wall: Double? = nil) -> Batch { on { read(wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }
     /// Whether motion a commit begins waits for the first presented frame
     /// (LLP 1003.001 D7); off, what waits starts at `at`.
