@@ -1,6 +1,6 @@
 # T3 Code clone handoff
 
-Updated October 28, 2026, Toronto time. Finish the one-to-one clone with pstack
+Updated October 29, 2026, Toronto time. Finish the one-to-one clone with pstack
 handling routine execution and review. The legacy scheduled coordinator stays
 disabled. Use this handoff when taking over the work.
 
@@ -326,10 +326,27 @@ suites pass 76 tests; all 3,903 mobile tests, strict TypeScript, boot and the no
 native build pass. Picker dispatch, durable finish proof and native editor
 activation remain separate work. This reducer is outside the TestFlight build.
 
+The native NewTask owner now reserves a captured Photos or Files operation,
+freezes its source, persists it and acknowledges the exact receipt. Saved frozen
+work and its disabled native node remain owned after acknowledgment. Root retries
+uncertain work with fresh IO; confirmed slot release replaces an unacknowledged
+factory seed once. Review found superseded request failures could disable another
+editor. Regressions reproduce both allocation and freeze failures; guards now
+ignore them after newer work has succeeded. All 3,927 mobile tests, strict
+TypeScript, boot and the normal native build pass. Intake, holds, attachment
+publication, finish, explicit resume and actual host recreation remain open.
+The textarea remains active. This checkpoint is outside the TestFlight build.
+The normal build receives `FROZEN_CHECKPOINT_OK` from the real provider and
+restores that reply and an empty composer after restart.
+
 Two normal NewTask Files drives return to Choose project after selection or
 Cancel. The typed draft survives in Unsent, but the selected file is not retained.
 An instrumented Cancel drive returns correctly with the authored route and native
-stack unchanged. The cause remains open; no navigation fix has been accepted.
+stack unchanged. A later normal drive imports and previews the file, restores it
+through Unsent after restart, opens it again, and removes it. Its test text is
+cleared. The chooser also transiently reported an offline environment while later
+checks found both descriptor addresses healthy and the saved connection Connected.
+The cause remains open; no navigation fix has been accepted.
 
 A large-catalogue cold launch exposed a blank transcript, unready Send and a
 Hermes allocation failure. Composer preparation copied and fingerprinted command

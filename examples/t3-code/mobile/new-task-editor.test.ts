@@ -3,7 +3,7 @@ import { MobileDraftClient, mobileDraftRecoveryHandles, mobileDraftRecoveryHydra
 import { mobileNewTaskEditorAction as action, mobileNewTaskEditorRefresh as refresh, mobileNewTaskEditorView as view,
   type NewTaskEditorRoute, type NewTaskEditorView } from './new-task-editor';
 import { mobileNewTaskFlowView, mobileNewTaskFlowAction } from './new-task-flow';
-import { mobileNewTaskDraftLookup, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftChoicesUpdate, mobileNewTaskDraftLookup, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileNewTaskContextGuard, mobileNewTaskContextWrite } from './mobile-new-task-context';
 import type { ComposerEditorEvent, ComposerMountedIdentity } from './composer-editor-state';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
@@ -43,6 +43,8 @@ async function fixture() {
   let writeHook: (() => Promise<void>) | null = null;
   let readHook: (() => Promise<unknown>) | null = null;
   let ackHook: (() => Promise<unknown>) | null = null;
+  let idsHook: (() => Promise<string[]>) | null = null;
+  let handoffHook: ((request: Obj) => Promise<unknown>) | null = null;
   const storage: Files = { fs: {
     async mkdir() {}, async readFile() { order.push('load'); return new TextEncoder().encode(disk).buffer; },
     async atomicWriteFile(_path, bytes) {
@@ -54,6 +56,8 @@ async function fixture() {
   const native: Native = { available: true, watch(topic) { order.push(`watch:${topic}`); }, async later(input) {
     const request = obj(input); calls.push(request); order.push(`${request.op}:${request.action ?? ''}`);
     const generation = client.generation;
+    if (request.op === 'ids' && idsHook) return { ok: true, generation, value: await idsHook() };
+    if (request.op === 'composerEditorHandoff' && handoffHook) return handoffHook(request);
     if (request.op === 'composerEditorFinalizations') {
       if (request.action === 'read') return readHook ? readHook() : { ok: true, generation, value: { receipts } };
       if (ackHook) return ackHook();
@@ -114,7 +118,8 @@ async function fixture() {
   return { client, native, storage, route, key, identity, order, writes, calls, open, resume, detach, reread, writeText,
     disk: () => obj(JSON.parse(disk)), receipts: (next: unknown[]) => { receipts = next; },
     writeHook: (next: typeof writeHook) => { writeHook = next; }, readHook: (next: typeof readHook) => { readHook = next; },
-    ackHook: (next: typeof ackHook) => { ackHook = next; } };
+    ackHook: (next: typeof ackHook) => { ackHook = next; }, idsHook: (next: typeof idsHook) => { idsHook = next; },
+    handoffHook: (next: typeof handoffHook) => { handoffHook = next; } };
 }
 
 test('Root watches before exactly one real refresh, then saves detached source across transport generations', async () => {
@@ -351,4 +356,256 @@ test('source identity changes during persistence retain the receipt without ackn
   gate.resolve(); await saving;
   expect(f.calls.some(call => call.action === 'acknowledge')).toBe(false);
   expect(view(f.client, await f.resume('replacement-incarnation')).kind).toBe('mounting');
+});
+
+const operationId = '22222222-2222-4222-8222-222222222222';
+type Fixture = Awaited<ReturnType<typeof fixture>>;
+function frozenSource(f: Fixture, request: Obj, value = '🙂 picked here') {
+  return { receiptId, identity: f.identity, retired: false, event: {
+    ...event(f.identity, value, 4, 'text'), kind: 'frozen', selection: { start: 3, end: 9 },
+    operationId: request.operationId, operationRevision: request.operationRevision,
+  } };
+}
+function picker(f: Fixture) {
+  f.idsHook(async () => [operationId]);
+  f.handoffHook(async request => {
+    const source = frozenSource(f, request); f.receipts([source]);
+    return { ok: true, generation: request.generation, value: { receipt: source } };
+  });
+  return () => action(f.client, f.route, { kind: 'pick', source: 'files' }, f.native, f.storage);
+}
+function config(projection: NewTaskEditorView) {
+  if (!projection.node) throw Error(projection.message);
+  return obj(JSON.parse(projection.node.configuration));
+}
+
+for (const source of ['photos', 'files'] as const) {
+  test(`${source} saves the exact frozen source and keeps the same disabled node after ACK`, async () => {
+    const f = await fixture(); picker(f); const before = view(f.client, f.route);
+    const result = await action(f.client, f.route, { kind: 'pick', source }, f.native, f.storage);
+    expect(result.accepted).toBe(true);
+    expect(f.calls.filter(call => call.op === 'composerEditorHandoff')).toEqual([{
+      op: 'composerEditorHandoff', generation: 3, identity: f.identity, action: 'freeze',
+      operationId, operationRevision: 1, retireUndo: false,
+    }]);
+    expect(f.order.indexOf('save')).toBeLessThan(f.order.indexOf('composerEditorFinalizations:acknowledge'));
+    expect(obj(f.disk().drafts)[f.key]).toBe('🙂 picked here');
+    expect(mobileNewTaskDraftLookup(f.client, f.key)?.revision).toBe(1);
+    const frozen = view(f.client, f.route);
+    expect(frozen).toMatchObject({ kind: 'frozen', editable: false, node: { key: before.node?.key } });
+    expect(config(frozen)).toMatchObject({ active: true, editable: false, readOnly: false,
+      document: { value: '🙂 picked here', selection: { start: 3, end: 9 } } });
+    expect(f.calls.filter(call => call.action === 'acknowledge').map(call => call.receiptId)).toEqual([receiptId]);
+    await f.reread(); await f.reread();
+    expect(view(f.client, f.route).kind).toBe('frozen'); expect(f.writes).toHaveLength(1);
+    expect(f.calls.filter(call => call.op === 'composerEditorHandoff')).toHaveLength(1);
+    expect(f.calls.some(call => call.op === 'composerPickerIntake' || call.action === 'resume')).toBe(false);
+    expect(await action(f.client, f.route, { kind: 'pick', source }, f.native, f.storage)).toMatchObject({ accepted: false });
+    expect(await action(f.client, f.route, { kind: 'observe', payload: event(f.identity, 'late text', 5, 'text') }, f.native, f.storage))
+      .toMatchObject({ accepted: false });
+    expect(f.client.local.drafts[f.key]).toBe('🙂 picked here');
+  });
+}
+
+test('reserves one operation before UUID allocation while keeping freeze-eligible props', async () => {
+  const f = await fixture(), pick = picker(f), gate = deferred<string[]>(), entered = deferred<void>();
+  f.idsHook(async () => { entered.resolve(); return gate.promise; });
+  const pending = pick(); await entered.promise;
+  expect(config(view(f.client, f.route))).toMatchObject({ active: true, editable: true, readOnly: false });
+  expect(await pick()).toMatchObject({ accepted: false });
+  expect(f.calls.filter(call => call.op === 'ids')).toHaveLength(1);
+  expect(f.calls.some(call => call.op === 'composerEditorHandoff')).toBe(false);
+  gate.resolve([operationId]); await pending;
+  expect(view(f.client, f.route).kind).toBe('frozen');
+});
+
+test('a fresh Root allocation supersedes a late UUID reply without allocating a second operation', async () => {
+  const f = await fixture(), pick = picker(f), gate = deferred<string[]>(), entered = deferred<void>();
+  f.idsHook(async () => { entered.resolve(); return gate.promise; });
+  const pending = pick(); await entered.promise;
+  f.idsHook(async () => [operationId]); await f.reread();
+  gate.resolve(['33333333-3333-4333-8333-333333333333']); await pending;
+  expect(f.calls.filter(call => call.op === 'composerEditorHandoff')).toHaveLength(1);
+  expect(view(f.client, f.route).kind).toBe('frozen'); expect(f.writes).toHaveLength(1);
+});
+
+for (const stage of ['allocation', 'freeze'] as const) {
+  test(`superseded ${stage} failure leaves another acknowledged editor usable`, async () => {
+    const f = await fixture(), pick = picker(f), gate = deferred<never>(), entered = deferred<void>();
+    if (stage === 'allocation') f.idsHook(async () => { entered.resolve(); return gate.promise; });
+    else f.handoffHook(async () => { entered.resolve(); return gate.promise; });
+    const pending = pick(); await entered.promise;
+    picker(f); await f.reread();
+    const route = await f.open('unrelated-editor'), seed = view(f.client, route);
+    const identity = { ...mounted(seed), mountId: 'unrelated-mount' };
+    expect(view(f.client, route, event(identity, '')).kind).toBe('editing');
+    gate.reject(new Error('old request failed')); await pending;
+    expect(view(f.client, route)).toMatchObject({ kind: 'editing', node: { key: seed.node?.key } });
+    expect(await action(f.client, route, { kind: 'observe', payload: event(identity, 'still editable', 2, 'text') }, f.native, f.storage))
+      .toMatchObject({ accepted: true, message: '' });
+    expect(f.client.local.drafts[f.client.draftKey]).toBe('still editable');
+  });
+}
+
+test('allocation failure after departure leaves the newly selected draft usable', async () => {
+  const f = await fixture(), pick = picker(f), gate = deferred<string[]>(), entered = deferred<void>();
+  f.idsHook(async () => { entered.resolve(); return gate.promise; });
+  const pending = pick(); await entered.promise;
+  f.idsHook(async () => [operationId]);
+  const route = await f.open('departed-allocation'), seed = view(f.client, route);
+  const identity = { ...mounted(seed), mountId: 'departed-allocation-mount' };
+  expect(view(f.client, route, event(identity, '')).kind).toBe('editing');
+  gate.reject(new Error('departed request failed')); await pending;
+  expect(view(f.client, route)).toMatchObject({ kind: 'editing', node: { key: seed.node?.key } });
+  expect(f.calls.some(call => call.op === 'composerEditorHandoff')).toBe(false);
+});
+
+test('source save failure retries actual persistence with fresh IO and preserves latest draft settings', async () => {
+  const f = await fixture(), pick = picker(f); f.writeHook(async () => { throw Error('disk unavailable'); });
+  await pick();
+  expect(f.client.local.drafts[f.key]).toBe('🙂 picked here');
+  expect(view(f.client, f.route).kind).toBe('frozen');
+  expect(f.calls.some(call => call.action === 'acknowledge')).toBe(false);
+  const choices = { providerId: 'codex', modelId: 'latest-choice', modelOptions: [] };
+  expect(mobileNewTaskDraftChoicesUpdate(f.client, f.key, choices)).toBe(true);
+  f.writeHook(null);
+  const calls: Obj[] = [], fresh: Native = { available: true, watch() {}, async later(input) {
+    calls.push(obj(input)); return f.native.later(input);
+  } };
+  await action(f.client, f.route, { kind: 'retry' }, fresh, f.storage);
+  expect(calls.map(call => call.action)).toEqual(['read', 'acknowledge']);
+  const saved = obj(obj(f.disk().mobileNewTaskDrafts).records)[f.key];
+  expect(obj(saved).choices).toEqual(choices);
+  expect(mobileNewTaskDraftLookup(f.client, f.key)?.revision).toBe(1);
+  expect(f.writes).toHaveLength(2); expect(view(f.client, f.route).kind).toBe('frozen');
+});
+
+test('lost freeze reply recovers captured source after navigation and transport replacement', async () => {
+  const f = await fixture(), pick = picker(f);
+  f.handoffHook(async request => {
+    const source = frozenSource(f, request); f.receipts([{ ...source, retired: true }]);
+    f.detach(); throw new ClientError('answer let go', 'superseded');
+  });
+  await expect(pick()).rejects.toThrow('answer let go'); await f.reread();
+  expect(obj(f.disk().drafts)[f.key]).toBe('🙂 picked here');
+  expect(f.client.local.drafts['other:other-thread']).toBe('unrelated');
+  expect(f.calls.filter(call => call.op === 'composerEditorHandoff')).toHaveLength(1);
+  expect(f.calls.filter(call => call.action === 'acknowledge').map(call => call.generation)).toEqual([4]);
+  const reopened = await f.resume('captured-operation');
+  expect(view(f.client, reopened).kind).toBe('held');
+  expect(f.calls.some(call => call.action === 'resume')).toBe(false);
+});
+
+test('an uncertain freeze retries only the exact request when a complete read has no receipt', async () => {
+  const f = await fixture(), pick = picker(f); let first = true;
+  f.handoffHook(async request => {
+    if (first) { first = false; throw Error('reply lost before native dispatch'); }
+    const source = frozenSource(f, request); f.receipts([source]);
+    return { ok: true, generation: request.generation, value: { receipt: source } };
+  });
+  await pick(); await f.reread();
+  const freezes = f.calls.filter(call => call.op === 'composerEditorHandoff');
+  expect(freezes).toHaveLength(2); expect(freezes[0]).toEqual(freezes[1]);
+  expect(f.calls.filter(call => call.op === 'ids')).toHaveLength(1);
+  expect(f.writes).toHaveLength(1); expect(view(f.client, f.route).kind).toBe('frozen');
+});
+
+test('an uncertain ACK is reconciled by absence without releasing or replaying known work', async () => {
+  const f = await fixture(), pick = picker(f);
+  f.ackHook(async () => { f.receipts([]); throw new ClientError('ack let go', 'superseded'); });
+  await expect(pick()).rejects.toThrow('ack let go');
+  f.writeText('newer owned content'); f.ackHook(null); await f.reread();
+  expect(f.client.local.drafts[f.key]).toBe('newer owned content'); expect(f.writes).toHaveLength(1);
+  expect(view(f.client, f.route).kind).toBe('frozen');
+  expect(f.calls.filter(call => call.action === 'acknowledge')).toHaveLength(1);
+  expect(f.calls.filter(call => call.op === 'composerEditorHandoff')).toHaveLength(1);
+});
+
+test('retirement only advances a known frozen receipt and cannot resurrect it after ACK', async () => {
+  const f = await fixture(), pick = picker(f), sources: ReturnType<typeof frozenSource>[] = [];
+  f.handoffHook(async request => {
+    const source = frozenSource(f, request); sources.push(source); f.receipts([source]);
+    return { ok: true, generation: request.generation, value: { receipt: source } };
+  });
+  f.writeHook(async () => { throw Error('disk unavailable'); }); await pick();
+  const captured = sources[0];
+  if (!captured) throw Error('missing source');
+  f.receipts([{ ...captured, retired: true }]); f.writeHook(null); await f.reread();
+  expect(view(f.client, f.route).kind).toBe('held');
+  expect(mobileNewTaskDraftLookup(f.client, f.key)?.revision).toBe(1);
+  const writes = f.writes.length;
+  f.receipts([captured]); await f.reread();
+  expect(view(f.client, f.route).kind).toBe('held'); expect(f.writes).toHaveLength(writes);
+  expect(f.calls.filter(call => call.action === 'acknowledge')).toHaveLength(1);
+});
+
+for (const changed of ['route', 'generation', 'threadEpoch', 'revision']) {
+  test(`${changed} change before UUID return revokes the undispatched producer`, async () => {
+    const f = await fixture(), pick = picker(f), gate = deferred<string[]>(), entered = deferred<void>();
+    f.idsHook(async () => { entered.resolve(); return gate.promise; });
+    const pending = pick(); await entered.promise;
+    if (changed === 'route') f.detach();
+    if (changed === 'generation') f.client.generation++;
+    if (changed === 'threadEpoch') f.client.threadEpoch++;
+    if (changed === 'revision') f.writeText('newer owned content');
+    gate.resolve([operationId]); await pending;
+    expect(f.calls.some(call => call.op === 'composerEditorHandoff')).toBe(false);
+    expect(f.calls.some(call => call.action === 'acknowledge')).toBe(false); expect(f.writes).toHaveLength(0);
+  });
+}
+
+for (const invalid of ['operationId', 'operationRevision', 'identity', 'eventCount', 'generation']) {
+  test(`rejects a frozen reply with mismatched ${invalid}`, async () => {
+    const f = await fixture(), pick = picker(f);
+    f.handoffHook(async request => {
+      const source = frozenSource(f, request);
+      if (invalid === 'operationId') source.event.operationId = receiptId;
+      if (invalid === 'operationRevision') source.event.operationRevision = 42;
+      if (invalid === 'identity') source.identity = { ...source.identity, mountId: 'foreign-mount' };
+      if (invalid === 'eventCount') source.event.eventCount = 1;
+      return { ok: true, generation: invalid === 'generation' ? 99 : request.generation, value: { receipt: source } };
+    });
+    await pick();
+    expect(f.client.local.drafts[f.key]).toBeUndefined(); expect(f.writes).toHaveLength(0);
+    expect(f.calls.some(call => call.action === 'acknowledge')).toBe(false);
+  });
+}
+
+test('confirmed predecessor release replaces one unacknowledged factory seed and rejects its late ready', async () => {
+  const f = await fixture(), route = await f.open('blocked-factory'), seed = view(f.client, route);
+  expect(seed.kind).toBe('mounting');
+  const oldIdentity = mounted(seed);
+  f.receipts([receipt(f.identity)]); await f.reread();
+  const replacement = view(f.client, route);
+  expect(replacement.kind).toBe('mounting'); expect(replacement.node?.key).not.toBe(seed.node?.key);
+  await f.reread(); expect(view(f.client, route).node?.key).toBe(replacement.node?.key);
+  expect(await action(f.client, route, { kind: 'observe', payload: event(oldIdentity, '') }, f.native, f.storage))
+    .toMatchObject({ accepted: false });
+  const replacementIdentity = { ...mounted(replacement), mountId: 'replacement-mount' };
+  expect(view(f.client, route, event(replacementIdentity, '')).kind).toBe('editing');
+  f.receipts([receipt(f.identity)]); await f.reread();
+  expect(view(f.client, route).node?.key).toBe(replacement.node?.key);
+});
+
+test('uncertain predecessor ACK replaces a pending seed only after a newer complete absent read', async () => {
+  const f = await fixture(), route = await f.open('blocked-factory'), seed = view(f.client, route);
+  f.receipts([receipt(f.identity)]);
+  f.ackHook(async () => { throw new ClientError('ack let go', 'superseded'); });
+  await expect(f.reread()).rejects.toThrow('ack let go');
+  expect(view(f.client, route).node?.key).toBe(seed.node?.key);
+  f.receipts([]); f.ackHook(null); await f.reread();
+  const replacement = view(f.client, route);
+  expect(replacement.node?.key).not.toBe(seed.node?.key);
+  await f.reread(); expect(view(f.client, route).node?.key).toBe(replacement.node?.key);
+});
+
+test('ACK of a live frozen slot does not invalidate another pending factory seed', async () => {
+  const f = await fixture(), pick = picker(f), gate = deferred<void>(), entered = deferred<void>();
+  let first = true;
+  f.writeHook(async () => { if (first) { first = false; entered.resolve(); await gate.promise; } });
+  const pending = pick(); await entered.promise;
+  const route = await f.open('other-factory'), seed = view(f.client, route);
+  gate.resolve(); await pending; f.writeHook(null);
+  expect(view(f.client, route).node?.key).toBe(seed.node?.key);
+  await f.reread(); expect(view(f.client, route).node?.key).toBe(seed.node?.key);
 });
