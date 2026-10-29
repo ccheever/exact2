@@ -226,7 +226,12 @@ fn font_smoothing_draws_the_window_antialiased_until_it_is_turned_off() {
         runner.set_time(EPOCH, 0.0).unwrap();
         runner.advance(1250.0).unwrap();
         let id = node(runner, "t3-code").expect("the window's root is rendered");
-        match runner.kernel().node(id).unwrap().computed(StyleId::FontSmoothing) {
+        match runner
+            .kernel()
+            .node(id)
+            .unwrap()
+            .computed(StyleId::FontSmoothing)
+        {
             RowValue::Enum(value) => value,
             other => panic!("font smoothing is an enum row: {other:?}"),
         }
