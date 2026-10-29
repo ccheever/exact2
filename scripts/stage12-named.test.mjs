@@ -120,6 +120,9 @@ test("option B's body shape on the map: one PersonRow call site, at most one Fol
     // In the slot of another PersonRow call than the binding's one.
     [map(rowNode(10), followNode(12, 2)), "outside its PersonRow's slot"],
     [map(), 'from 0 sites'],
+    // Content forwarded into the row's slot through a slot of the binding's own: the caller's node, its chain not
+    // naming the binding, renders in that PersonRow call's slot (Astra's re-check).
+    [map(rowNode(10), followNode(12, 0), { component: 'Caller', file: '/copy/c.contract', line: 40, chain: [], walk: 0 }), "slot holds Caller (the app's)"],
   ]) expect(bindingShape(m, b)).toMatchObject({ ok: false, said: expect.stringContaining(why) });
 });
 

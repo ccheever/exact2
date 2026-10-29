@@ -183,5 +183,10 @@ export function bindingShape(map, { component, allowed }) {
   if (followSites.length > 1) return { ok: false, said: `calls FollowButton from ${followSites.length} sites, not at most one` };
   const outside = follows.filter(n => { const first = steps[walks[n.walk]?.[0]]; return !(first?.slot && first.component === rowId.split('#')[1] && site(first) === rows[0]); });
   if (outside.length) return { ok: false, said: `draws a FollowButton outside its PersonRow's slot (${outside.length} node(s))` };
+  // And the slot holds nothing else: no node renders there but that FollowButton, so content forwarded through a
+  // slot of the binding's own (its caller's nodes, whose chains don't name it) fails too (Astra's re-check).
+  const inSlot = nodes.filter(n => { const first = steps[walks[n.walk]?.[0]]; return first?.slot && site(first) === rows[0]; });
+  const strangers = inSlot.filter(n => !follows.includes(n));
+  if (strangers.length) return { ok: false, said: `its PersonRow's slot holds ${[...new Set(strangers.map(n => n.library ?? `${n.component} (the app's)`))].join(', ')}` };
   return { ok: true, said: `one PersonRow call${followSites.length ? ', its one FollowButton call in its slot' : ''}` };
 }
