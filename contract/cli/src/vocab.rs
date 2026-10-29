@@ -853,7 +853,7 @@ fn prop_type(p: PropId) -> String {
         return "a literal list of `atom` names: `atoms=\"citation mention\"`".into();
     }
     if p == PropId::AtomFaces {
-        return "AtomFace[]: AtomFace(source, label, icon, title, color, backgroundColor), keyed by each atom's whole source text; `color` and `backgroundColor` paint that one atom over its kind's paint: each a colour as a bound `color` takes one, but not in a profile the app declares, nor a cascade keyword, nor a `var()`, `env()` or `attr()` but a role's web form, or empty to keep the kind's".into();
+        return "AtomFace[]: AtomFace(source, label, icon, title, color, backgroundColor), keyed by each atom's whole source text; `color` and `backgroundColor` paint that one atom over its kind's paint: each a colour as a bound `color` takes one, but not in a profile the app declares and with no cascade keyword or substitution function (`var()`, `env()`, `attr()`, `if()`, `inherit()`) outside a role's web form, or empty to keep the kind's".into();
     }
     if p == PropId::Decorations {
         return "TextDecorations(value, spans): the text the spans were computed for, and TextDecorationSpan(name, start, end) in UTF-16 offsets".into();

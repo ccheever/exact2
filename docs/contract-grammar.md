@@ -1452,13 +1452,17 @@ component Composer
   every host with pills draws in that space. A colour in a standard space the
   platforms ship (`color(--dci-p3 …)`) is drawn by Apple and refused on the web,
   and one in a profile the app declares with `color-profile` is refused on every
-  host. One that names a token follows `setMode`, a pin and a token's new value,
-  as a themed row does. A colour that is none leaves the kind's paint, and the
-  journal says so. On every host that is `currentcolor`, `inherit` or another
-  cascade keyword anywhere in the value, and any `var()`, `env()` or `attr()`
-  but a role's web form (`var(--exact-separator, …)`), which is that role; and,
-  on the native hosts and the web's wasm target, a colour the kernel does not
-  read, or on the JS target one the build's colour map or the browser refuses.
+  host. One that names a token follows `setMode`, a pin and a token's new value;
+  when that value is no colour, faces the token painted stay as they were, where
+  a themed row would be unset, and the journal says so. A role's web form
+  (`var(--exact-separator, …)`) is that role, whatever its fallback holds but an
+  unadmitted `-exact-platform-color()`. Any other value that holds
+  `currentcolor`, `inherit` or another cascade keyword, or a substitution
+  function (`var()`, `env()`, `attr()`, `if()`, `inherit()`), is no colour on
+  every host. So is a colour the kernel does not read, on the native hosts and
+  the web's wasm target, and one the build's colour map or the browser refuses,
+  on the JS target. A colour that is none leaves the kind's paint, and the
+  journal says so.
 - `atompress` hands its action an optional `AtomEvent`: `kind`, `source`,
   `href` (a link's destination as written), `start`, `end` (UTF-16) and the
   modifiers. It never navigates. In the reader an atom is a tab stop that

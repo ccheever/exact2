@@ -256,11 +256,19 @@ mod tests {
             "var(--x, #fff)",
             "env(safe-area-inset-top)",
             "attr(data-c type(<color>))",
+            "if(media(print): red)",
+            "light-dark(if(style(--x: 1): red), #000)",
+            "inherit(--x)",
             "v\\61r(--exact-separator)",
+            "var(--exact-lin\u{212A}text)",
         ] {
             assert_eq!(face_color(none), None, "{none:?}");
         }
-        for role in ["var(--exact-separator)", "VAR(--exact-separator, inherit)"] {
+        for role in [
+            "var(--exact-separator)",
+            "VAR(--exact-separator, inherit)",
+            "var(--exact-accent, var(--exact-linktext))",
+        ] {
             assert!(
                 matches!(face_color(role), Some(ColorValue::Role(_))),
                 "{role:?}"

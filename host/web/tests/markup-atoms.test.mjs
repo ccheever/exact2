@@ -339,8 +339,8 @@ for (const engine of engines) {
       return new Response(`<!doctype html><meta charset="utf-8"><script type="module">
         const journal = []; globalThis.exact = { journal, now: () => 0 };
         const { atomFacesRecord } = await import('./shape.js');
-        const colours = ['color(display-p3 1 0 0)', 'oklch(70% 0.1 200)', 'var(--exact-separator)', 'var(--x)', 'env(safe-area-inset-top)', 'color(--dci-p3 1 0 0)', 'notacolour', 'light-dark(currentcolor, #000)', 'inh\\\\65rit'];
-        const roles = { n: { separator: '-exact-separator' }, a: {} }, cm = c => c === '-exact-separator' ? 'var(--exact-separator, #c6c6c8ff)' : c;
+        const colours = ['color(display-p3 1 0 0)', 'oklch(70% 0.1 200)', 'var(--exact-separator)', 'var(--x)', 'env(safe-area-inset-top)', 'if(media(print): red)', 'color(--dci-p3 1 0 0)', 'notacolour', 'light-dark(currentcolor, #000)', 'inh\\\\65rit'];
+        const roles = [['separator', '', false, false, '-exact-separator']], cm = c => c === '-exact-separator' ? 'var(--exact-separator, #c6c6c8ff)' : c;
         const out = JSON.parse(atomFacesRecord(colours.map(c => ['@a', '', '', '', c, '']), cm, () => 9, roles));
         window.result = { kept: out.map(f => f.color), journal };
       </script>`, { headers: { 'content-type': 'text/html' } });
@@ -351,8 +351,8 @@ for (const engine of engines) {
       await page.goto(`http://127.0.0.1:${server.port}/`);
       await page.waitForFunction(() => window.result);
       const { kept, journal } = await page.evaluate(() => window.result);
-      expect(kept).toEqual(['color(display-p3 1 0 0)', 'oklch(70% 0.1 200)', 'var(--exact-separator, #c6c6c8ff)', '', '', '', '', '', '']);
-      expect(journal).toEqual(['var(--x)', 'env(safe-area-inset-top)', 'color(--dci-p3 1 0 0)', 'notacolour', 'light-dark(currentcolor, #000)', 'inh\\65rit']
+      expect(kept).toEqual(['color(display-p3 1 0 0)', 'oklch(70% 0.1 200)', 'var(--exact-separator, #c6c6c8ff)', '', '', '', '', '', '', '']);
+      expect(journal).toEqual(['var(--x)', 'env(safe-area-inset-top)', 'if(media(print): red)', 'color(--dci-p3 1 0 0)', 'notacolour', 'light-dark(currentcolor, #000)', 'inh\\65rit']
         .map(c => `t=0 view 9: invalid atomFaces colour ${JSON.stringify(c)}; its kind's paint stands`));
     } finally { await context.close(); server.stop(true); }
   }, 60000);

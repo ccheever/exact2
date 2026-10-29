@@ -63,20 +63,22 @@ pub struct ThemedFaces {
     pub tuple: u32,
     /// The tokens they read, as `theme::name_bit`s.
     pub tokens: u64,
-    /// The colours their first read refused, as written: none of them
-    /// keeps the faces as they were when they are read again.
+    /// The colours the faces as last set refused, as written. A read again
+    /// that refuses one of these sets the faces anyway; one that refuses
+    /// any other colour, which the faces as set took, keeps them.
     pub refused: Vec<String>,
 }
 
-/// What a refusal leaves: on a first read, the kind's paint; on a read
-/// again, the faces as they were.
+/// The end of a refused colour's journal line. A first read sets the faces
+/// with the colour empty, so its kind's paint stands; a read again that
+/// refuses a colour the faces as set took keeps those faces.
 pub(crate) const KIND: &str = "its kind's paint stands";
 pub(crate) const KEPT: &str = "its faces stay as they were";
 
-/// Of `now`, the colours a read again refused that the first read, which
-/// refused `first`, took: any keeps the faces as they were.
-pub(crate) fn newly_refused(now: Vec<String>, first: &[String]) -> Vec<String> {
-    now.into_iter().filter(|t| !first.contains(t)).collect()
+/// The colours a read again refused (`now`) that the faces as set took:
+/// those faces refused only `set`. Any such colour keeps them.
+pub(crate) fn newly_refused(now: &[String], set: &[String]) -> Vec<String> {
+    now.iter().filter(|t| !set.contains(t)).cloned().collect()
 }
 
 /// Every row that read a token, by view and row (D7's index): what a
@@ -134,6 +136,13 @@ impl ThemeIndex {
     pub(crate) fn faces_read(&mut self, view: ViewId, tokens: u64) {
         if let Some(f) = self.faces.get_mut(&view) {
             f.tokens |= tokens;
+        }
+    }
+
+    /// `view`'s faces, set again, refuse `refused`.
+    pub(crate) fn faces_set(&mut self, view: ViewId, refused: Vec<String>) {
+        if let Some(f) = self.faces.get_mut(&view) {
+            f.refused = refused;
         }
     }
 
@@ -307,12 +316,12 @@ impl super::NodeInst {
     /// as a bound colour row's are, in this node's tuple
     /// (`bridge::atom_face_paint`): the value to set, or `None` to leave the
     /// faces as they are. A first read journals each colour that is none,
-    /// which leaves its kind's paint; the same faces read again, when the
-    /// tuple moves, stay as they were if a colour the first read took is
-    /// none now, as a token's edit leaves them (`Runner::set_tokens`), and
-    /// say only that. Faces that read a token are kept in the index, read
-    /// again when the token changes, and their binding is set again when
-    /// the tuple moves, as a themed row's is.
+    /// which then leaves its kind's paint. A read again of the same faces,
+    /// when the tuple moves, leaves them as they were if it refuses a colour
+    /// the faces as set took, and journals that colour; one they already
+    /// refused is refused again without a line. Faces that read a token are
+    /// kept in the index, read again when the token changes, and their
+    /// binding is set again when the tuple moves, as a themed row's is.
     pub(super) fn faces(
         &mut self,
         u: &mut super::Update<'_>,
@@ -332,14 +341,17 @@ impl super::NodeInst {
         );
         let mut tokens = exact_kernel::style::theme::take_named();
         let view = self.view;
-        let (value, first) = match again {
-            Some((first, read)) => {
+        let (value, refused) = match again {
+            Some((set, read)) => {
                 tokens |= read;
-                let now = newly_refused(refused, &first);
-                for text in &now {
+                let newly = newly_refused(&refused, &set);
+                for text in &newly {
                     u.notes.push(super::invalid_face(view, text.clone(), KEPT));
                 }
-                (now.is_empty().then_some(painted), first)
+                match newly.is_empty() {
+                    true => (Some(painted), refused),
+                    false => (None, set),
+                }
             }
             None => {
                 for text in &refused {
@@ -359,7 +371,7 @@ impl super::NodeInst {
                     text,
                     tuple,
                     tokens,
-                    refused: first,
+                    refused,
                 };
                 u.ids.theme.faces.insert(view, faces);
             }

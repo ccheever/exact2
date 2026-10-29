@@ -106,7 +106,7 @@ atom mention prefix="@"
 component App
   state draft = "@a @b @c "
   state name = "systemRedColor"
-  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brandRed", backgroundColor="-exact-platform-color(macos systemBlueColor, #0000ff)"), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(macos ${name}, #ff0000)`, backgroundColor="light-dark(#d52c36 #ff6762)"), AtomFace(source="@c", label="", icon="", title="", color="", backgroundColor="")]
+  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brandRed", backgroundColor="-exact-platform-color(macos systemBlueColor, #0000ff)"), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(macos ${name}, #ff0000)`, backgroundColor="light-dark(#d52c36 #ff6762)"), AtomFace(source="@c", label="", icon="", title="", color=`var(--exact-separator, -exact-platform-color(macos ${name}, #ff0000))`, backgroundColor="")]
   view
     textarea value=draft markup="markdown" atoms="mention" atomFaces=faces testId="editor"
 "##,
@@ -125,9 +125,13 @@ component App
         .journal()
         .filter(|l| l.contains("invalid atomFaces colour"))
         .collect();
-    assert_eq!(refused.len(), 2, "{refused:?}");
+    assert_eq!(refused.len(), 3, "{refused:?}");
     assert!(refused[0].contains(r#""-exact-platform-color(macos systemRedColor, #ff0000)""#));
     assert!(refused[1].contains(r#""light-dark(#d52c36 #ff6762)""#));
+    // A role's web form with such a platform colour in its fallback, too.
+    assert!(refused[2].contains(
+        r#""var(--exact-separator, -exact-platform-color(macos systemRedColor, #ff0000))""#
+    ));
 }
 
 /// A design with a token whose slice the `dark-style` axis picks, and one

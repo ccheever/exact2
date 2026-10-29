@@ -175,6 +175,61 @@ fn a_refused_colour_beside_a_token_blocks_no_edit() {
     }
 }
 
+/// `test`'s faces' `key` colour.
+fn paint_of(r: &Runner<NoData>, test: &str, key: &str) -> String {
+    let k = r.kernel();
+    let node = k.node_by_key(k.find_by_test_id(test)[0]).unwrap();
+    let faces: serde_json::Value =
+        serde_json::from_str(node.props.str(PropId::AtomFaces).unwrap()).unwrap();
+    faces[0][key].as_str().unwrap().to_string()
+}
+
+/// What the faces as last set refused decides a read again: a colour they
+/// took that is none now keeps them, wherever they were first read. Here
+/// B's first read refuses `brand`, a later edit sets B with it green, and
+/// the next edit to no colour keeps B green and says so, as it keeps A.
+#[test]
+fn a_read_again_weighs_the_faces_as_last_set() {
+    let mut r = boot(plan(
+        "as-set",
+        &format!("atom mention prefix=\"@\"\ncomponent App\n  state shown = false\n  derive faces = [{FACE}, color=\"ink\", backgroundColor=\"brand\")]\n  action show\n    shown = true\n  view\n    column\n      button press=show testId=\"show\"\n        text \"show\"\n      textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"a\"\n      if shown\n        textarea value=\"@a \" markup=\"markdown\" atoms=\"mention\" atomFaces=faces testId=\"b\"\n"),
+    ));
+    r.set_token("brand", "12px", &[]).unwrap();
+    press(&mut r, "show");
+    assert_eq!(
+        paint_of(&r, "b", "backgroundColor"),
+        "",
+        "B's first read refuses it"
+    );
+    let (_, set) = r.set_token("brand", "#00ff00", &[]).unwrap();
+    assert_eq!(set, 2);
+    for test in ["a", "b"] {
+        assert_eq!(paint_of(&r, test, "backgroundColor"), "#00ff00ff", "{test}");
+    }
+    let before = said(&r).len();
+    let (_, set) = r.set_token("brand", "12px", &[]).unwrap();
+    assert_eq!(set, 0);
+    for test in ["a", "b"] {
+        assert_eq!(
+            paint_of(&r, test, "backgroundColor"),
+            "#00ff00ff",
+            "{test} stays"
+        );
+    }
+    let lines = said(&r);
+    assert_eq!(lines.len(), before + 2, "{lines:?}");
+    for test in ["a", "b"] {
+        let line = format!(
+            "view {}: invalid atomFaces colour \"brand\"; its faces stay as they were",
+            view(&r, test).unwrap()
+        );
+        assert!(
+            lines[before..].iter().any(|l| l.ends_with(&line)),
+            "{test}: {lines:?}"
+        );
+    }
+}
+
 /// Faces whose colours read no token now, here a colour from state, leave
 /// the index, and a token's edit sets nothing; reading one again puts them
 /// back.
