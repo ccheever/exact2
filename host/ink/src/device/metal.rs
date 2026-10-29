@@ -29,6 +29,12 @@ struct Texture {
     last: Submission,
 }
 
+struct Pending {
+    command: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
+    #[cfg(target_os = "macos")]
+    receipt: Option<std::sync::mpsc::Receiver<Result<()>>>,
+}
+
 #[derive(Clone)]
 pub struct Buffer {
     raw: Retained<ProtocolObject<dyn MTLBuffer>>,
@@ -51,12 +57,14 @@ pub struct Metal {
     next_texture: u64,
     submitted: Submission,
     done: Submission,
-    pending: BTreeMap<u64, Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>>,
+    pending: BTreeMap<u64, Pending>,
     retired_textures: Vec<Texture>,
     retired_buffers: Vec<Buffer>,
     owner: Rc<()>,
-    error: Option<String>,
+    error: Option<Error>,
     info: Info,
+    #[cfg(target_os = "macos")]
+    thread: Option<Rc<crate::present::Thread>>,
     #[cfg(target_os = "macos")]
     window: Option<present::Window>,
 }
@@ -124,6 +132,8 @@ impl Metal {
                     cached: pipelines.cached,
                 },
                 #[cfg(target_os = "macos")]
+                thread: None,
+                #[cfg(target_os = "macos")]
                 window: None,
             })
         })
@@ -169,7 +179,7 @@ impl Metal {
 
     fn commands(&self) -> Result<Retained<ProtocolObject<dyn MTLCommandBuffer>>> {
         if let Some(e) = &self.error {
-            return Err(Error::Device(e.clone()));
+            return Err(e.clone());
         }
         self.queue
             .commandBuffer()
@@ -180,12 +190,18 @@ impl Metal {
         &mut self,
         commands: Option<Retained<ProtocolObject<dyn MTLCommandBuffer>>>,
     ) -> Submission {
+        #[cfg(target_os = "macos")]
+        let mut receipt = None;
         if let Some(commands) = &commands {
             #[cfg(target_os = "macos")]
-            if let Some(window) = &self.window {
+            if let Some(thread) = &self.thread {
                 let command = present::Command(commands.clone());
-                if let Err(e) = window.thread.send(move || command.commit()) {
-                    self.error = Some(e.to_string());
+                match thread.send(move || {
+                    command.commit();
+                    Ok(())
+                }) {
+                    Ok(sent) => receipt = Some(sent),
+                    Err(e) => self.error = Some(e),
                 }
             } else {
                 commands.commit();
@@ -194,8 +210,45 @@ impl Metal {
             commands.commit();
         }
         self.submitted.0 += 1;
-        self.pending.insert(self.submitted.0, commands);
+        self.pending.insert(
+            self.submitted.0,
+            Pending {
+                command: commands,
+                #[cfg(target_os = "macos")]
+                receipt,
+            },
+        );
         self.submitted
+    }
+
+    #[cfg(target_os = "macos")]
+    fn committed(&mut self, id: u64, wait: bool) -> Result<bool> {
+        use std::sync::mpsc::TryRecvError;
+        let pending = self.pending.get_mut(&id).expect("pending submission");
+        let Some(receipt) = &pending.receipt else {
+            return Ok(true);
+        };
+        let result = if wait {
+            receipt
+                .recv()
+                .unwrap_or_else(|_| Err(Error::DeviceLost("Metal worker stopped".into())))
+        } else {
+            match receipt.try_recv() {
+                Ok(result) => result,
+                Err(TryRecvError::Empty) => return Ok(false),
+                Err(TryRecvError::Disconnected) => {
+                    Err(Error::DeviceLost("Metal worker stopped".into()))
+                }
+            }
+        };
+        // Consume the receipt before reporting its error; later polls retain the
+        // original failure rather than replacing it with a disconnected channel.
+        pending.receipt = None;
+        if let Err(error) = result {
+            self.error = Some(error.clone());
+            return Err(error);
+        }
+        Ok(true)
     }
 
     /// CPU access follows GPU completion, including managed-memory synchronization.
@@ -321,13 +374,13 @@ impl Device for Metal {
         #[cfg(target_os = "macos")]
         if let Some(window) = &mut self.window {
             if let Some(error) = &self.error {
-                return Err(Error::Device(error.clone()));
+                return Err(error.clone());
             }
             let command = self
                 .queue
                 .commandBuffer()
                 .ok_or_else(|| Error::Device("upload command buffer allocation".into()))?;
-            window.upload(
+            let receipt = window.upload(
                 self.textures.get(&id).unwrap(),
                 command.clone(),
                 origin,
@@ -335,7 +388,13 @@ impl Device for Metal {
                 data,
             )?;
             self.submitted.0 += 1;
-            self.pending.insert(self.submitted.0, Some(command));
+            self.pending.insert(
+                self.submitted.0,
+                Pending {
+                    command: Some(command),
+                    receipt: Some(receipt),
+                },
+            );
             self.textures.get_mut(&id).unwrap().last = self.submitted;
             return Ok(self.submitted);
         }
@@ -582,30 +641,40 @@ impl Device for Metal {
         if s <= self.completed()? {
             return Ok(());
         }
-        if s > self.done {
+        while s > self.done {
+            #[cfg(target_os = "macos")]
+            for id in self
+                .pending
+                .range(..=s.0)
+                .map(|(&id, _)| id)
+                .collect::<Vec<_>>()
+            {
+                self.committed(id, true)?;
+            }
             // A CPU upload has no command buffer. Waiting on the latest earlier
             // command still covers it because uploads waited on their resource.
             if let Some(command) = self
                 .pending
                 .range(..=s.0)
                 .rev()
-                .find_map(|(_, c)| c.as_ref())
+                .find_map(|(_, pending)| pending.command.as_ref())
             {
                 command.waitUntilCompleted();
             }
+            self.completed()?;
         }
-        self.completed().map(|_| ())
+        Ok(())
     }
     fn completed(&mut self) -> Result<Submission> {
-        #[cfg(target_os = "macos")]
-        if let Some(window) = &mut self.window {
-            window.collect()?;
-        }
         if let Some(e) = &self.error {
-            return Err(Error::Device(e.clone()));
+            return Err(e.clone());
         }
-        while let Some((&id, command)) = self.pending.first_key_value() {
-            if let Some(command) = command {
+        while let Some((&id, _)) = self.pending.first_key_value() {
+            #[cfg(target_os = "macos")]
+            if !self.committed(id, false)? {
+                break;
+            }
+            if let Some(command) = &self.pending[&id].command {
                 match command.status() {
                     MTLCommandBufferStatus::Completed => {
                         #[cfg(target_os = "macos")]
@@ -621,7 +690,7 @@ impl Device for Metal {
                             .error()
                             .map(|e| e.to_string())
                             .unwrap_or_else(|| "Metal command failed".into());
-                        self.error = Some(message.clone());
+                        self.error = Some(Error::Device(message.clone()));
                         return Err(Error::Device(message));
                     }
                     _ => break,

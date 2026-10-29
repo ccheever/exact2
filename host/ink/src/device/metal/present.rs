@@ -76,8 +76,7 @@ impl Work {
 }
 
 pub(super) struct Window {
-    pub thread: Thread,
-    pending: std::collections::VecDeque<Receiver<Result<()>>>,
+    pub thread: Rc<Thread>,
     uploads: std::sync::Arc<std::sync::Mutex<Uploads>>,
     renderer: std::sync::Arc<std::sync::Mutex<Renderer>>,
     _layer: Layer,
@@ -95,28 +94,6 @@ struct Renderer {
 unsafe impl Send for Renderer {}
 
 impl Window {
-    pub fn collect(&mut self) -> Result<()> {
-        while let Some(pending) = self.pending.front() {
-            match pending.try_recv() {
-                Ok(result) => {
-                    result?;
-                    self.pending.pop_front();
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                Err(_) => return Err(Error::DeviceLost("Metal presentation stopped".into())),
-            }
-        }
-        Ok(())
-    }
-    pub fn wait(&mut self) -> Result<()> {
-        while let Some(pending) = self.pending.pop_front() {
-            pending
-                .recv()
-                .map_err(|_| Error::DeviceLost("Metal presentation stopped".into()))??;
-        }
-        self.thread.drain()
-    }
-
     pub fn upload(
         &mut self,
         texture: &Texture,
@@ -124,7 +101,7 @@ impl Window {
         origin: [u32; 2],
         size: [u32; 2],
         bytes: &[u8],
-    ) -> Result<()> {
+    ) -> Result<Receiver<Result<()>>> {
         let work = Upload {
             ring: self.uploads.clone(),
             command,
@@ -134,9 +111,7 @@ impl Window {
             size,
             bytes: bytes.to_vec(),
         };
-        self.pending
-            .push_back(self.thread.send(move || work.run())?);
-        Ok(())
+        self.thread.send(move || work.run())
     }
 }
 
@@ -231,9 +206,10 @@ impl Metal {
         pipelines.save();
         let render_layer = layer.render_layer();
         render_layer.raw.setDevice(Some(&self.device));
+        let thread = Rc::new(Thread::new()?);
+        self.thread = Some(thread.clone());
         self.window = Some(Window {
-            thread: Thread::new()?,
-            pending: Default::default(),
+            thread,
             uploads: std::sync::Arc::new(std::sync::Mutex::new(Uploads {
                 device: self.device.clone(),
                 slots: Default::default(),
@@ -257,6 +233,7 @@ impl Metal {
 
     pub fn present(&mut self, source: TextureId) -> Result<f64> {
         autoreleasepool(|_| {
+            self.completed()?;
             let start = Instant::now();
             let texture = self.texture(source)?.raw.clone();
             let command = self.commands()?;
@@ -264,7 +241,6 @@ impl Metal {
                 .window
                 .as_mut()
                 .ok_or(Error::Unsupported("no Metal layer"))?;
-            window.collect()?;
             let work = Work {
                 renderer: window.renderer.clone(),
                 texture,
@@ -272,11 +248,15 @@ impl Metal {
                 benchmark: crate::device::apple::benchmark_scene(),
                 queued: trace_time(),
             };
-            window
-                .pending
-                .push_back(window.thread.frame(move |show| work.run(show))?);
+            let receipt = window.thread.frame(move |show| work.run(show))?;
             self.submitted.0 += 1;
-            self.pending.insert(self.submitted.0, Some(command));
+            self.pending.insert(
+                self.submitted.0,
+                Pending {
+                    command: Some(command),
+                    receipt: Some(receipt),
+                },
+            );
             self.textures.get_mut(&source).unwrap().last = self.submitted;
             Ok(start.elapsed().as_secs_f64() * 1000.)
         })
@@ -424,7 +404,7 @@ impl Ring {
 
 impl Drop for Window {
     fn drop(&mut self) {
-        let _ = self.wait();
+        let _ = self.thread.drain();
         self._layer.update();
     }
 }
