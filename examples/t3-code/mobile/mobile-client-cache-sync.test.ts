@@ -28,9 +28,27 @@ function fixture() {
   const thread = { projection, sequence: 20, historyCursor: 'opaque', hasMore: true, latestLocalTurnOrdinal: 100 };
   const payloads: Record<string, string> = { shell: encodeMobileShellCache(environmentId, shell),
     'server-config': encodeMobileConfigCache(environmentId, config), thread: encodeMobileThreadCache(environmentId, 'thread', thread) };
+  const transfers = new Map<string, { target: Obj; pieces: string[] }>();
   const good = (value: unknown) => ({ ok: true, generation: 1, value });
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
+    if (request.action === 'textBegin') {
+      const id = `upload-${transfers.size}`;
+      transfers.set(id, { target: obj(request.target), pieces: [] });
+      return good({ transfer: { kind: 'upload', id } });
+    }
+    if (request.action === 'textAppend') {
+      const transfer = transfers.get(String(request.id));
+      if (!transfer || request.index !== transfer.pieces.length || typeof request.text !== 'string') throw new Error('Invalid cache upload');
+      transfer.pieces.push(request.text);
+      return good({ next: transfer.pieces.length });
+    }
+    if (request.action === 'textFinish') {
+      const transfer = transfers.get(String(request.id));
+      if (!transfer) throw new Error('Unknown cache upload');
+      return native.later({ op: 'mobileClientCache', ...transfer.target, payload: transfer.pieces.join('') });
+    }
+    if (request.action === 'textRelease') { transfers.delete(String(request.id)); return good({}); }
     if (request.action === 'read') return good({ record: payloads[String(request.kind)] === undefined ? null : { environmentId, kind: request.kind, key: request.key,
       schemaVersion: 1, payload: payloads[String(request.kind)], updatedAt: 100 } });
     if (request.action === 'remove') {
@@ -397,7 +415,7 @@ test('expanded history stays lossless in memory, skips disk publication across l
     historyCursor: 'new-boundary', hasMoreHistory: true, latestLocalTurnOrdinal: 100 });
   expect(f.client.thread.historyExpanded).toBeUndefined(); expect(f.client.thread.projection).toBe(fullProjection);
   await f.sync(); expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
-  const wire = JSON.parse(String(f.calls.at(-1)!.payload)).payload.snapshot;
+  const wire = JSON.parse(String(f.calls.findLast(call => call.action === 'write')!.payload)).payload.snapshot;
   expect(wire.projection.turnItems[0].output).toBe(output); expect(wire.historyCursor).toBe('new-boundary');
 });
 

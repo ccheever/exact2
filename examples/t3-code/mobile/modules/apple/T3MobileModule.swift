@@ -141,7 +141,7 @@ final class T3MobileModule: ExactModule {
     private var shareForegroundObserver: NSObjectProtocol?
     private var questionObserver: UUID?
     private let homePreferences: T3MobilePreferences
-    private let clientCache: T3MobileClientCache
+    private let clientCache: T3MobileCacheTransport
     private var faviconDownload: T3MobileFaviconDownload?
     private let clientCacheQueue = DispatchQueue(label: "t3.mobile-client-cache-bridge", qos: .utility)
 
@@ -158,7 +158,8 @@ final class T3MobileModule: ExactModule {
         let queuedEdits = T3MobileQueuedEdit.shared(root: directory)
         self.queuedEdits = queuedEdits
         documentRoot = directory
-        clientCache = T3MobileClientCache(directory: directory.appendingPathComponent("mobile-client-cache", isDirectory: true))
+        clientCache = T3MobileCacheTransport(store: T3MobileClientCache(
+            directory: directory.appendingPathComponent("mobile-client-cache", isDirectory: true)))
         document = T3MobileDocument(dataRoot: directory)
         media = T3MobileMedia(dataRoot: directory, audioSession: audioSession, changed: context.changed)
         attachments = T3MobileAttachments(dataRoot: directory, agent: context.agent)
@@ -626,7 +627,7 @@ final class T3MobileModule: ExactModule {
             queue.async {
                 let response: [String: Any]
                 do {
-                    _ = try owner.request(["action": "clear", "environmentId": environmentId])
+                    try owner.clearForgottenEnvironment(environmentId)
                     response = result
                 } catch {
                     response = ["ok": false, "generation": result["generation"] ?? 0,
@@ -641,6 +642,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        clientCache.close()
         if let questionObserver { queuedEdits.unobserveQuestions(questionObserver) }; questionObserver = nil
         composerFileHolds.destroy()
         composerOperations.destroy()

@@ -35,9 +35,8 @@ require them.
   tester. External distribution was not extended.
 - An intermittent ordinary Send remains in Sending/Pending before server
   admission. Restart recovers the original saved message without resubmission.
-  The cause remains unresolved. A normal-app trace also records repeated
-  4 MiB native-request refusals during snapshot reads; their relationship to
-  the Send stall is not established.
+  The cause remains unresolved. Bounded cache transfers now address the observed
+  4 MiB native-request refusals, but the normal app still reproduces the Send stall.
 
 Application tests, technical drafts and local build evidence are retained.
 Consult them for specific implementation questions rather than as a task queue.
@@ -147,16 +146,21 @@ serialization of about 3.77 million characters. Outbox rendering now computes
 that stamp only for waiting tasks that need it; those tasks retain the complete
 comparison. Its regression fails the previous source, and all 40 outbox tests pass.
 Strict TypeScript, boot and the normal native build pass.
-The oversized server-config cache write now carries a structured format-2 catalog
-payload, removing one JSON escape layer without filtering display data. The live
-native host accepts the complete 3,958,101-byte request; SQLite reports a successful,
-nonstale write. Catalog provenance, storage tickets, conditional removal and native
-size limits remain unchanged. Old disposable wrappers use existing conditional
-cleanup. All 157 cache tests and 86 native cache checks pass. The full mobile suite
-passes 3,722 tests. Temporary probes are removed; the normal build restores the
-saved environment, conversation and photo reply after restart. Actual delivery
-still compares complete server configurations. No phone parity or new TestFlight
-checkpoint is claimed.
+The cache preserves complete format-2 catalogs and their exact encoded text.
+Private transfers now bound large writes, reads and conditional removal without
+changing caller APIs, SQLite, tickets, CAS or the store's 4/16 MiB payload limits.
+Transfers are atomic, scoped to their owner, bounded in memory and expired while
+idle. Clears retire matching transfers; admitted forget cleanup still finishes
+after module teardown. The real TypeScript-to-Foundation path round-trips exact
+4 MiB shell and 16 MiB thread values, preserves duplicate-write timestamps and
+replacement-safe deletion, and returns all 128 metadata rows above 1 MiB. The
+native transport fixture passes 9,559 checks; the unchanged store passes 86.
+All 3,868 mobile tests, strict TypeScript, boot and the normal native build pass.
+Independent review finds no introduced blocker. The normal iPhone app freshly
+stores its complete 4,096,034-byte configuration. Its captured trace has no 4 MiB
+request refusal, but Send still stalls. That trace's short journal window misses
+the delivery attempt. Actual delivery still compares complete configurations.
+No phone parity or new TestFlight checkpoint is claimed.
 The catalog reader distinguishes unread from successfully loaded empty state and
 retains readiness through later failures. A native launch trace found restored
 reader readiness from the previous session reaching a cold JavaScript client.
@@ -193,7 +197,7 @@ earlier streaming checks. The pinned server filters streaming output by complete
 blocks in paragraph mode. No environment setting changed during these drives.
 All temporary probes are removed. The clean build contains none of their
 diagnostic strings across its eight Mach-O artifacts. The ordinary Send stall
-and complete large-cache transport remain open.
+remains open after the cache transport correction.
 Signed archive `1.0.0 (20261028202307)` contains pushed source `7c1a11570` and
 excludes the later native editor changes. Signature, store provisioning, identity, version and
 source-stamp checks pass. The held files and original Git index restore exactly.

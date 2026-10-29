@@ -1,5 +1,5 @@
 // @ref examples/t3-code/mobile/docs/1130.009-mobile-settings.decision.md#offline-cache-storage
-import { obj, str } from './shared/domain';
+import { obj, str, type Obj } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 
@@ -69,11 +69,107 @@ function compareText(a: string, b: string): number {
 export const mobileCacheCompareMetadata = (a: MobileCacheMetadata, b: MobileCacheMetadata): number =>
   a.updatedAt - b.updatedAt || compareText(a.environmentId, b.environmentId) || compareText(a.key, b.key);
 
-/** No native handle or pending promise is retained beyond its calling answer. */
-async function request(nativeInput: Native, fields: object) {
-  const reply = await bridgeReply(letGoAware(nativeInput), { op: 'mobileClientCache', ...fields });
+const cachePieceUnits = 48 * 1_024;
+const cacheTransferBytes = 32 * 1_024 * 1_024;
+type CacheDownload = { id: string; units: number; bytes: number; parts: number } &
+  ({ kind: 'json' } | { kind: 'payload'; metadata: MobileCacheMetadata });
+
+function download(raw: unknown): CacheDownload {
+  const value = obj(raw);
+  if (typeof value.id !== 'string' || !value.id || value.id.length > 128
+    || !natural(value.units) || value.units > cacheTransferBytes
+    || !natural(value.bytes) || value.bytes > cacheTransferBytes || value.bytes < value.units
+    || !natural(value.parts) || value.parts < 1 || value.parts > 1_024) throw invalid();
+  const counts = { id: value.id, units: value.units, bytes: value.bytes, parts: value.parts };
+  if (value.kind === 'json') return { ...counts, kind: 'json' };
+  const row = obj(value.metadata);
+  if (value.kind !== 'payload' || !str(row.environmentId) || !kind(row.kind) || !str(row.key)
+    || row.schemaVersion !== 1 || !natural(row.updatedAt) || 'payload' in row) throw invalid();
+  return { ...counts, kind: 'payload', metadata: { environmentId: str(row.environmentId), kind: row.kind,
+    key: str(row.key), schemaVersion: 1, updatedAt: row.updatedAt } };
+}
+function textPiece(text: string, start: number) {
+  let end = Math.min(start + cachePieceUnits, text.length), bytes = 0;
+  if (end < text.length && text.charCodeAt(end - 1) >= 0xd800 && text.charCodeAt(end - 1) <= 0xdbff) end--;
+  for (let index = start; index < end; index++) {
+    const unit = text.charCodeAt(index);
+    if (unit < 0x80) bytes++;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit <= 0xdbff) {
+      const low = text.charCodeAt(++index);
+      if (index >= end || low < 0xdc00 || low > 0xdfff) throw invalid();
+      bytes += 4;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) throw invalid();
+    else bytes += 3;
+  }
+  return { text: text.slice(start, end), end, bytes };
+}
+async function cacheFrame(native: Native, fields: object) {
+  const reply = await bridgeReply(native, { op: 'mobileClientCache', ...fields });
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
   return obj(reply.value);
+}
+async function releaseTransfer(native: Native, id: string, abandoned: boolean) {
+  if (abandoned) return;
+  try { await cacheFrame(native, { action: 'textRelease', id }); }
+  catch (error) { if (letGo(error)) throw error; }
+}
+async function upload(native: Native, fields: Record<string, unknown>, text: string, field: 'payload' | 'expectedPayload') {
+  if (text.length > 16 * 1_024 * 1_024) throw invalid();
+  const target = { ...fields };
+  delete target[field];
+  const opened = await cacheFrame(native, { action: 'textBegin', target, units: text.length });
+  if (opened.written === false && opened.stale === true) return opened;
+  const transfer = obj(opened.transfer);
+  if (transfer.kind !== 'upload' || typeof transfer.id !== 'string' || !transfer.id || transfer.id.length > 128) throw invalid();
+  const id = transfer.id;
+  let abandoned = false;
+  try {
+    let offset = 0, bytes = 0, index = 0;
+    while (offset < text.length) {
+      const piece = textPiece(text, offset);
+      const value = await cacheFrame(native, { action: 'textAppend', id, index, text: piece.text });
+      if (value.written === false && value.stale === true) return value;
+      if (value.next !== index + 1) throw invalid();
+      offset = piece.end; bytes += piece.bytes; index++;
+    }
+    return await cacheFrame(native, { action: 'textFinish', id, bytes });
+  } catch (error) { abandoned = letGo(error); throw error; }
+  finally { await releaseTransfer(native, id, abandoned); }
+}
+async function receive(native: Native, transfer: CacheDownload): Promise<Obj> {
+  let abandoned = false;
+  try {
+    const pieces: string[] = [];
+    let units = 0, bytes = 0;
+    for (let index = 0; index < transfer.parts; index++) {
+      const value = await cacheFrame(native, { action: 'textPart', id: transfer.id, index });
+      if (value.index !== index || typeof value.text !== 'string' || !value.text || value.text.length > cachePieceUnits) throw invalid();
+      const piece = textPiece(value.text, 0);
+      if (piece.end !== value.text.length) throw invalid();
+      units += value.text.length; bytes += piece.bytes;
+      if (units > transfer.units || bytes > transfer.bytes) throw invalid();
+      pieces.push(value.text);
+    }
+    if (units !== transfer.units || bytes !== transfer.bytes) throw invalid();
+    const finished = await cacheFrame(native, { action: 'textReadFinish', id: transfer.id });
+    if (finished.complete !== true) throw invalid();
+    const text = pieces.join('');
+    if (transfer.kind === 'payload') return { record: { ...transfer.metadata, payload: text } };
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { throw invalid(); }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw invalid();
+    return obj(parsed);
+  } catch (error) { abandoned = letGo(error); throw error; }
+  finally { await releaseTransfer(native, transfer.id, abandoned); }
+}
+async function request(nativeInput: Native, fields: Record<string, unknown>) {
+  const native = letGoAware(nativeInput);
+  const field = fields.action === 'write' ? 'payload' : 'expectedPayload';
+  const text = fields.action === 'write' || fields.action === 'remove' ? fields[field] : undefined;
+  const value = typeof text === 'string' && text.length > cachePieceUnits
+    ? await upload(native, fields, text, field) : await cacheFrame(native, fields);
+  return 'transfer' in value ? receive(native, download(value.transfer)) : value;
 }
 export async function mobileCacheTicket(native: Native, key: MobileCacheKey): Promise<string> {
   const value = await request(native, { action: 'ticket', ...key });
