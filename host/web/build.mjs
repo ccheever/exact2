@@ -243,6 +243,11 @@ planBytes = Buffer.from(new Uint8Array(exports.memory.buffer, planPtr, planLen))
 }
 if (planBytes.length < 36 || planBytes.subarray(0, 4).toString() !== 'EXPL') throw new Error('the web wasm returned an invalid baked plan');
 writeFileSync(planOut, planBytes);
+// A development build's source map for that plan, for the agent driver only
+// (LLP 1012.001.000 D6), as the JS target writes it: the bake's, and only
+// when it maps these bytes; never in a production build, never a stale one.
+const planMap = resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-wasm32-unknown-unknown.plan.map.json');
+if (!production && existsSync(planMap) && JSON.parse(readFileSync(planMap, 'utf8')).digest === createHash('sha256').update(planBytes).digest('hex')) copyFileSync(planMap, resolve(stage, 'app.plan.map.json'));
 let pairedModule = null;
 // A module client's build script emits paired artifacts beside its receipt.
 // Extract the exact embedded receipt/JS rather than rebaking moving sources.
