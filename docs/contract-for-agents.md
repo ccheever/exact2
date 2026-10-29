@@ -2104,7 +2104,8 @@ component Editor
 
 Mentions, tags and citations drawn as pills in that editor and reader are
 inline atoms: declare `atom` kinds by their source form, list them in `atoms=`,
-give each source a face with `atomFaces=` and hear `atompress=`
+give each source a face with `atomFaces=` (its label, icon and tooltip, and its
+colours when one chip is not coloured as its kind is) and hear `atompress=`
 ([inline atoms](contract-grammar.md#inline-atoms-atom-atoms-atomfaces-atompress)).
 Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
 editor keeps a caret out of an atom and deletes it whole. An editor where

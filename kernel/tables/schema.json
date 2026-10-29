@@ -1731,7 +1731,7 @@
       "name": "atomFaces",
       "kind": "str",
       "measure": true,
-      "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title}]`, keyed by each atom's whole source text. Measured: a label changes a pill's width."
+      "_comment": "@ref LLP 1045.000 D2: the app's `AtomFace` records as named JSON `[{source, label, icon, title, color, backgroundColor}]`, keyed by each atom's whole source text, each colour the runner's wire text (`bridge::atom_face_paint`; on the JS target, what `atomFacesRecord` takes), empty where the kind's paint stands. Measured: a label changes a pill's width."
     },
     {
       "id": 289,

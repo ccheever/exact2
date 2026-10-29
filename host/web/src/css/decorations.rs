@@ -41,6 +41,28 @@ pub fn decoration_styles(json: &str, fonts: &[String]) -> String {
     Value::Object(result).to_string()
 }
 
+/// A Markdown node's `atomFaces` (LLP 1045.000 D2) with each face's `color`
+/// and `backgroundColor`, which the runner wrote as the wire's text, as the
+/// CSS the page sets on its pill; else empty, so the kind's paint stands.
+/// The rest stays as the runner wrote it.
+pub fn atom_faces(json: &str) -> String {
+    let Ok(Value::Array(mut faces)) = serde_json::from_str(json) else {
+        return json.to_string();
+    };
+    for face in faces.iter_mut().filter_map(Value::as_object_mut) {
+        for key in ["color", "backgroundColor"] {
+            if let Some(Value::String(text)) = face.get_mut(key) {
+                let mut css = String::new();
+                if let Some(color) = exact_runner::decorations::face_color(text) {
+                    exact_kernel::gradient::color_css(&mut css, color);
+                }
+                *text = css;
+            }
+        }
+    }
+    Value::Array(faces).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,5 +80,24 @@ mod tests {
         assert!(css.contains("color:"), "{css}");
         assert!(css.contains("background-color:"), "{css}");
         assert!(css.contains("text-decoration-line:underline"), "{css}");
+    }
+
+    #[test]
+    fn a_faces_paint_becomes_css_and_anything_else_empty() {
+        let faces = serde_json::json!([
+            {"source": "@a", "label": "A", "icon": "", "title": "",
+             "color": "light-dark(#D52C36, #ff6762)", "backgroundColor": ""},
+            {"source": "@b", "label": "", "icon": "", "title": "",
+             "color": "not a colour", "backgroundColor": "-exact-platform-color(web Highlight, #fff)"},
+        ]);
+        let out: Value = serde_json::from_str(&atom_faces(&faces.to_string())).unwrap();
+        assert_eq!(out[0]["color"], "light-dark(#d52c36ff, #ff6762ff)");
+        assert_eq!(out[0]["backgroundColor"], "");
+        assert_eq!(out[0]["label"], "A");
+        // Not a colour; and a platform colour, which the runner admitted as one
+        // of the plan's literals (LLP 1095 D3), as its web colour.
+        assert_eq!(out[1]["color"], "");
+        assert_eq!(out[1]["backgroundColor"], "Highlight");
+        assert_eq!(atom_faces("not json"), "not json");
     }
 }

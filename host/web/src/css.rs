@@ -10,7 +10,7 @@ mod decorations;
 mod fonts;
 mod selection;
 pub mod text_style;
-pub use decorations::decoration_styles;
+pub use decorations::{atom_faces, decoration_styles};
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
 use exact_kernel::style::ColorValue;

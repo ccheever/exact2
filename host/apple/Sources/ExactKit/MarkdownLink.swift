@@ -106,7 +106,10 @@ package struct MarkdownAtoms: Hashable {
 /// it reports. A new object each restyle, so equal neighbours stay two runs.
 package final class MarkupAtom: NSObject {
     package let kind: String, label: String, icon: String, title: String, role: String, href: String
-    /// Its paint: the kind's `color` and `background-color`, as RGBA, if declared.
+    /// Its paint, as `TextEngine.color` reads it (RGBA, and a face's colour
+    /// in its own space after them): its face's `color` and
+    /// `backgroundColor`, else its kind's `color` and `background-color`;
+    /// nil where neither says.
     package let ink: [Double]?, background: [Double]?
     /// The selection covers it: drawn in the selection's colour (D4),
     /// emphasized or not.
