@@ -101,10 +101,12 @@ impl OwnerQueue {
         }
     }
 
-    fn turn(&mut self, job: Job) {
+    /// The job back if the owner is gone: its reply is the caller's to drop,
+    /// outside this queue's lock.
+    fn turn(&mut self, job: Job) -> Option<Job> {
         // A later view cannot pass this turn, even if its marker is still queued.
         self.pending = None;
-        let _ = self.sender.send(job);
+        self.sender.send(job).err().map(|e| e.0)
     }
 }
 
@@ -904,15 +906,15 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                 },
             };
             // A closed channel drops the reply, which reports `Aborted`; so
-            // does a call let go before its job was handed over.
+            // does a call let go before its job was handed over. Either reply
+            // reports to the host after the queue's lock is released.
             let mut queue = owner.lock().unwrap();
-            if queue.unqueued.remove(&token).is_some() {
-                queue.turn(job);
-            } else {
-                // Its reply reports to the host: not under the queue's lock.
-                drop(queue);
-                drop(job);
-            }
+            let unsent = match queue.unqueued.remove(&token) {
+                Some(_) => queue.turn(job),
+                None => Some(job),
+            };
+            drop(queue);
+            drop(unsent);
         })))
     }
 
@@ -1496,6 +1498,12 @@ mod tests {
         let handler_turn = turn(placed.dispatch(handler, &empty));
         let read_turn = turn(placed.dispatch(read, &empty));
         drop(turn(placed.dispatch(abandoned, &empty)));
+        let queue = placed.owner.as_ref().unwrap().lock().unwrap();
+        assert!(
+            !queue.unqueued.contains_key(&abandoned),
+            "an abandoned turn's entry stayed"
+        );
+        drop(queue);
         let in_flight = [InFlight {
             target: Target::Resource(0),
             source: "read",
@@ -1611,8 +1619,8 @@ mod tests {
                             clock: 0.0,
                             reply,
                         };
-                        coalesced.turn(job(Reply::new(|_| {})));
-                        ordered.turn(job(Reply::new(|_| {})));
+                        let _ = coalesced.turn(job(Reply::new(|_| {})));
+                        let _ = ordered.turn(job(Reply::new(|_| {})));
                     }
                     _ => {
                         drain(&coalesce_rx, &mut parked_c, &mut gone_c, &mut ids_c);
