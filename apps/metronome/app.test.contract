@@ -123,3 +123,12 @@ test "following an input's clock, it waits for Start and plays at the device's t
   expect state transport.state == "waiting"
   expect state transport.reason == "clock"
   expect text "beat" == "Waiting for clock"
+
+after "faster" "faster writes only bpm"
+  only writes bpm
+
+after "slower" "slower writes only bpm"
+  only writes bpm
+
+always "bpm is a whole number"
+  expect state bpm whole
