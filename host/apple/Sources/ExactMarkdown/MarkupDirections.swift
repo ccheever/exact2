@@ -1,7 +1,9 @@
 // Each line's base direction in a Markdown editor (LLP 1045 D11), as the web
 // editor gives it: the app's `paragraphDirs` words by line number when they
-// change, then each word kept with its line through edits; `auto` and lines
-// without a word resolved by the same rules as `markup-editor.js`.
+// change, then each word kept with its line through edits, and a source shown
+// again (undo, redo) given back its words. `auto` is decided for both by the
+// editor crate (`exact_markup_auto`); a line without a word, or an `auto`
+// line without a strong letter, takes the field's direction.
 #if canImport(UIKit)
 import UIKit
 #else
@@ -20,6 +22,9 @@ struct MarkupDirections {
     /// The source drawn, and its lines, each with its line feed.
     private var source = ""
     private var lines = [NSRange(location: 0, length: 0)]
+    /// The words drawn for the last 64 sources shown, by the source's hash and
+    /// length, most recent last: undo and redo show one again.
+    private var seen: [(key: Int, length: Int, words: [String?])] = []
     /// What the directions were resolved for besides the source and words.
     private var resolvedFor: (rtl: Bool, kinds: String, faces: String)?
     private var directions: [NSWritingDirection] = [.leftToRight]
@@ -28,14 +33,19 @@ struct MarkupDirections {
     private(set) var runs: [(range: NSRange, direction: NSWritingDirection)] = []
 
     /// Bring the lines up to `text` and `said`. `rtl` is the field's own
-    /// direction, which a line without a word takes; `syntax` gives the
-    /// ranges `auto` passes over, asked only when a line says `auto`.
-    mutating func update(text: String, said: String, rtl: Bool, atoms: MarkdownAtoms, syntax: () -> [NSRange]) {
+    /// direction, which a line without a word takes; `auto` gives each
+    /// line's direction under `auto` (`MarkupCommands.auto`), asked only
+    /// when a line says `auto`.
+    mutating func update(text: String, said: String, rtl: Bool, atoms: MarkdownAtoms, auto: () -> [UInt8]) {
         var changed = false
         if text != source {
             let old = source as NSString, oldLines = lines, new = text as NSString
             lines = Self.lines(new)
-            words = Self.carry(words, from: oldLines, in: old, to: lines, in: new)
+            if let known = seen.last(where: { $0.key == text.hashValue && $0.length == new.length }), known.words.count == lines.count {
+                words = known.words
+            } else {
+                words = Self.carry(words, from: oldLines, in: old, to: lines, in: new)
+            }
             source = text
             changed = true
         }
@@ -45,9 +55,14 @@ struct MarkupDirections {
             words = lines.indices.map { list.isEmpty ? nil : String(list[min($0, list.count - 1)]) }
             changed = true
         }
+        if changed {
+            seen.removeAll { $0.key == text.hashValue }
+            seen.append((text.hashValue, (text as NSString).length, words))
+            if seen.count > 64 { seen.removeFirst() }
+        }
         if !changed, let r = resolvedFor, r.rtl == rtl, r.kinds == atoms.kinds, r.faces == atoms.faces { return }
         resolvedFor = (rtl, atoms.kinds, atoms.faces)
-        resolve(text as NSString, rtl: rtl, skip: words.contains("auto") ? syntax().sorted { $0.location < $1.location } : [])
+        resolve(rtl: rtl, auto: words.contains("auto") ? auto() : [])
     }
 
     /// The direction of the line holding `caret`, which typing takes.
@@ -57,13 +72,14 @@ struct MarkupDirections {
         return directions[lo]
     }
 
-    private mutating func resolve(_ text: NSString, rtl: Bool, skip: [NSRange]) {
+    private mutating func resolve(rtl: Bool, auto: [UInt8]) {
         let field: NSWritingDirection = rtl ? .rightToLeft : .leftToRight
-        directions = zip(lines, words).map { line, word in
+        directions = words.enumerated().map { i, word in
             switch word {
             case "ltr"?: .leftToRight
             case "rtl"?: .rightToLeft
-            case "auto"?: Self.firstStrong(text, line, skipping: skip) ?? field
+            case "auto"? where i < auto.count && auto[i] == 1: .leftToRight
+            case "auto"? where i < auto.count && auto[i] == 2: .rightToLeft
             default: field
             }
         }
@@ -111,44 +127,5 @@ struct MarkupDirections {
             else { next.append(head + kept < words.count ? words[head + kept] : nil) }
         }
         return next + words.suffix(tail)
-    }
-
-    /// `auto`'s direction for `line`: its first strong letter outside
-    /// `skip` (sorted: syntax and atoms), as `firstStrong` in
-    /// `markup-editor.js`; nil for none.
-    static func firstStrong(_ text: NSString, _ line: NSRange, skipping skip: [NSRange]) -> NSWritingDirection? {
-        var i = line.location, k = 0
-        let end = NSMaxRange(line)
-        while i < end {
-            while k < skip.count, NSMaxRange(skip[k]) <= i { k += 1 }
-            if k < skip.count, skip[k].location <= i { i = NSMaxRange(skip[k]); continue }
-            let unit = text.character(at: i)
-            var value = UInt32(unit), width = 1
-            if UTF16.isLeadSurrogate(unit), i + 1 < end, UTF16.isTrailSurrogate(text.character(at: i + 1)) {
-                value = 0x10000 + ((value - 0xD800) << 10) + (UInt32(text.character(at: i + 1)) - 0xDC00)
-                width = 2
-            }
-            if let scalar = Unicode.Scalar(value), let direction = strong(scalar) { return direction }
-            i += width
-        }
-        return nil
-    }
-
-    /// A strong letter's direction (a letter, or an explicit mark), and the
-    /// right-to-left scripts' as UAX #9's R and AL; nil for any other.
-    static func strong(_ s: Unicode.Scalar) -> NSWritingDirection? {
-        switch s.value {
-        case 0x200E: return .leftToRight
-        case 0x200F, 0x061C: return .rightToLeft
-        default: break
-        }
-        switch s.properties.generalCategory {
-        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter: break
-        default: return nil
-        }
-        switch s.value {
-        case 0x0590...0x08FF, 0xFB1D...0xFDFF, 0xFE70...0xFEFF, 0x10800...0x10FFF, 0x1E800...0x1EFFF: return .rightToLeft
-        default: return .leftToRight
-        }
     }
 }

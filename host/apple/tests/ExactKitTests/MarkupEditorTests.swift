@@ -610,6 +610,50 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, starts), [.rightToLeft, .leftToRight, .rightToLeft, .leftToRight])
     }
 
+    /// LLP 1045 D11: undo and redo give back the words of the lines they
+    /// restore. Each step restyles, as the next keystroke would.
+    func testUndoAndRedoGiveBackTheWordsOfTheLinesTheyRestore() throws {
+        let (node, field, window, presenter, session) = styled("A\nب\nC", caret: 1)
+        defer { window.close(); session.destroy(); _ = presenter }
+        node.props["paragraphDirs"] = "ltr rtl ltr"
+        node.applyTextArea()
+        let manager = try XCTUnwrap(field.undoManager)
+        manager.removeAllActions()
+        field.setSelectedRange(NSRange(location: 1, length: 4))
+        field.deleteBackward(nil)
+        node.restyleMarkup()
+        XCTAssertEqual(field.string, "A")
+        XCTAssertEqual(directions(field, [0]), [.leftToRight])
+        field.breakUndoCoalescing()
+        manager.undo()
+        node.restyleMarkup()
+        XCTAssertEqual(field.string, "A\nب\nC")
+        XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        manager.redo()
+        node.restyleMarkup()
+        XCTAssertEqual(field.string, "A")
+        manager.undo()
+        node.restyleMarkup()
+        XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+    }
+
+    /// LLP 1045 D11: `auto` reads a footnote mark's label as text, as the web
+    /// shows it, wherever the caret is (a caret on a line reveals its syntax);
+    /// in a right-to-left field, a line with no strong letter takes the
+    /// field's direction.
+    func testAutoReadsAFootnoteMarksLabelAsText() {
+        let (node, field, window, presenter, session) = styled("[^n] مرحبا\n\n[^note]: ملاحظة")
+        defer { window.close(); session.destroy(); _ = presenter }
+        node.applyStyle(["direction": .string("rtl")])
+        node.props["paragraphDirs"] = "auto"
+        node.applyTextArea()
+        for caret in [20, 2] {
+            field.setSelectedRange(NSRange(location: caret, length: 0))
+            node.restyleMarkup()
+            XCTAssertEqual(directions(field, [0, 11, 12]), [.leftToRight, .rightToLeft, .leftToRight], "caret at \(caret)")
+        }
+    }
+
     /// LLP 1045 D11: a word stays with its line through typing, Return, undo
     /// and a composition, until the app's next words.
     func testAWordStaysWithItsLineThroughTypingReturnUndoAndComposition() throws {
@@ -793,6 +837,57 @@ final class MarkupEditorIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["direction": "rtl"]]]))
         XCTAssertEqual(directions(f, [0, 4]), [.rightToLeft, .rightToLeft])
         XCTAssertEqual(f.text, source)
+    }
+
+    /// LLP 1045 D11 on UIKit: undo and redo give back the words of the lines
+    /// they restore. Each step restyles, as the next keystroke would.
+    func testUndoAndRedoGiveBackTheWordsOfTheLinesTheyRestore() throws {
+        let (p, node, f, session) = styledField("A\nب\nC")
+        defer { session.destroy() }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl ltr"]]]))
+        XCTAssertTrue(f.becomeFirstResponder())
+        let manager = try XCTUnwrap(f.undoManager)
+        manager.removeAllActions()
+        f.selectedRange = NSRange(location: 1, length: 4)
+        f.deleteBackward()
+        node.restyleMarkup()
+        XCTAssertEqual(f.text, "A")
+        XCTAssertEqual(directions(f, [0]), [.leftToRight])
+        // UIKit closes the edit's undo group at the end of the run loop turn.
+        let deadline = Date().addingTimeInterval(2)
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        manager.undo()
+        node.restyleMarkup()
+        XCTAssertEqual(f.text, "A\nب\nC")
+        XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        manager.redo()
+        node.restyleMarkup()
+        XCTAssertEqual(f.text, "A")
+        manager.undo()
+        node.restyleMarkup()
+        XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+    }
+
+    /// LLP 1045 D11 on UIKit: `auto` is a line's first strong letter outside
+    /// its syntax and atoms, a footnote mark's label being text; with none,
+    /// the field's direction.
+    func testAutoTakesTheFirstStrongLetterOutsideSyntaxAndAtoms() {
+        let (p, node, f, session) = styledField("@src/a.ts اشرح هذا \n@x اكتب\n[1](https://example.test) مرحبا\n42\n[^n] مرحبا\n\n[^note]: ملاحظة")
+        defer { session.destroy() }
+        p.apply(wireBatch([["op": "props", "id": 2, "set": [
+            "atoms": #"[{"name":"mention","prefix":"@"}]"#,
+            "atomFaces": #"[{"source":"@src/a.ts","label":"a.ts","icon":"","title":""}]"#,
+            "paragraphDirs": "auto",
+        ]]]))
+        XCTAssertEqual(directions(f, [0, 20, 28, 60, 63, 74, 75]), [.rightToLeft, .leftToRight, .rightToLeft, .leftToRight, .leftToRight, .leftToRight, .leftToRight])
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["direction": "rtl"]]]))
+        XCTAssertEqual(directions(f, [0, 20, 28, 60, 63, 74, 75]), [.rightToLeft, .leftToRight, .rightToLeft, .rightToLeft, .leftToRight, .rightToLeft, .leftToRight])
+        // A caret on a footnote's line reveals its syntax; the answer stays.
+        for caret in [65, 80] {
+            f.selectedRange = NSRange(location: caret, length: 0)
+            node.restyleMarkup()
+            XCTAssertEqual(directions(f, [63, 75]), [.leftToRight, .leftToRight], "caret at \(caret)")
+        }
     }
 
     /// LLP 1045 D11 on UIKit: a word stays with its line through typing,

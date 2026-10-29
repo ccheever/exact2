@@ -999,7 +999,8 @@ pub(crate) fn check_prop_value(
             }
         }
     }
-    // @ref LLP 1045 D11 — HTML's `dir` words, one for each line of the source.
+    // @ref LLP 1045 D11 — HTML's `dir` words, one per source line; a literal,
+    // which never sends new words, says one for every line.
     if prop == PropId::ParagraphDirs {
         if let Expr::Str(s, _) = value {
             if let Some(word) = s
@@ -1012,6 +1013,13 @@ pub(crate) fn check_prop_value(
                         "`paragraphDirs` accepts {}; given \"{word}\"",
                         vocab::accepts(prop).unwrap()
                     ),
+                    span,
+                );
+            }
+            if s.split_ascii_whitespace().nth(1).is_some() {
+                return err(
+                    "lower-paragraph-dirs-literal",
+                    format!("a literal `paragraphDirs` says one word, which every line takes: it never sends new words, so a list written here drifts from its lines with the first edit; bind a list the app derives from the value, `paragraphDirs=dirs`, one word per source line (LLP 1045 D11); given \"{s}\""),
                     span,
                 );
             }

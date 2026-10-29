@@ -1404,16 +1404,20 @@ reads back there ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D6).
 `paragraphDirs` gives the editor's lines their base direction: one word per
 source line, HTML's `dir` (`ltr`, `rtl` or `auto`), the first word the first
 line's. A line feed ends a line, so a Markdown paragraph broken over three
-source lines takes three words. `paragraphDirs="ltr rtl"` draws the first line
-left to right and every line after it right to left, since a line past the
-last word takes the last. An editor where Arabic or Hebrew sits beside English
-derives the words from its value (one per `value.split("\n")`), by whatever
-rule the app keeps. Until the app's next words, each word stays with its line
-through edits, and a line an edit adds takes the word above it. A line without
-a word takes the field's `direction`; `auto` is the line's first strong letter
-outside its syntax and atoms. The web, macOS and iOS draw it, a right-to-left
-line's list marker and quote bar on its right; Linux, Windows and Android,
-which show the source, ignore it
+source lines takes three words. A line past the last word takes the last, so
+`dirs = "ltr rtl"` draws the first line left to right and every line after it
+right to left. An editor where Arabic or Hebrew sits beside English binds the
+words to what it derives from its value (one per `value.split("\n")`), by
+whatever rule the app keeps, and so sends the next ones with each change. A
+literal says one word, which every line takes: it never changes, so the
+compiler refuses a list written there (`lower-paragraph-dirs-literal`). Until
+the app's next words, each word stays with its line through edits, undo and
+redo give back the words of the lines they restore, and a line an edit adds
+takes the word above it. A line without a word takes the field's `direction`;
+`auto` is the line's first strong letter outside its syntax and atoms. The
+web, macOS and iOS draw it, a right-to-left line's list marker and quote on
+its right (the web's quote bar; on Apple the quote's indent and its dimmed
+`>`); Linux, Windows and Android, which show the source, ignore it
 ([LLP 1045](../llp/1045-markdown-editor.rfc.md) D11).
 
 ### Inline atoms: `atom`, `atoms`, `atomFaces`, `atompress`

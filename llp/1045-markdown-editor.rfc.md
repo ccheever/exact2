@@ -530,7 +530,10 @@ bidirectional algorithm ([UAX #9](https://www.unicode.org/reports/tr9/) P1),
 and the one each host draws. It is not the styler's block, so a Markdown
 paragraph broken over three source lines takes three words, as do a list's
 items and a fenced block's lines. A line past the last word takes the last,
-so one word sets every line.
+so one word sets every line. A literal says one word, which every line takes:
+a literal never sends new words, so a list written there would drift with the
+first edit, and the compiler refuses one (`lower-paragraph-dirs-literal`). A
+list is bound, so the app sends the next one with each change.
 
 The words are the app's because the rule is policy. T3 Code gives each
 composer block the direction of most of its words
@@ -547,18 +550,29 @@ all its items, and a code block stays left to right.
   the top, the one below). Return at the end of the first line of `A\nب\nC`
   under `ltr rtl ltr` draws the new line left to right and ب still right to
   left. Both hosts compare the source's lines before and after the edit
-  (`carry` in `markup-editor.js`, `MarkupDirections.carry` on Apple). New
-  words that arrive in the same batch as a new value are placed after it.
-- **A line without a word** (no attribute, or a word other than the three,
-  which the compiler refuses when it can see it) takes the field's own
-  `direction`, the author's or else the document's, on every host. No first
-  strong letter selects it, as for Apple text (LLP 1001 §1).
+  (`carry` in `markup-editor.js`, `MarkupDirections.carry` on Apple). Undo
+  and redo restore the words of the lines they restore: each host remembers
+  the words it drew for the last 64 sources it showed, and a source it shows
+  again takes them back. New words that arrive in the same batch as a new
+  value are placed after it.
+- **A line without a word** (no attribute, or a word other than the three)
+  takes the field's own `direction`, the author's or else the document's, on
+  every host. No first strong letter selects it, as none has for Apple text
+  since `0cb3cfbda0`; LLP 1001 §1 declares where one still does, Linux and
+  Apple's plain text fields. So on macOS `مرحبا Hello` in an `ltr` Markdown
+  editor draws left to right, while the same field with `markup="none"` draws
+  right to left (`QUEUE.md`).
 - **`auto`** is the line's first strong letter (a letter, or an explicit
-  mark) outside its Markdown syntax, shown dimmed or hidden, and its atoms;
-  a line with none takes the field's direction. Both hosts resolve it by that
-  rule from the styler's own ranges (`firstStrong` in `markup-editor.js`,
-  `MarkupDirections.firstStrong`), not by the platform's `dir="auto"` or
-  natural direction, which differ over hidden syntax.
+  mark) outside its Markdown syntax and its atoms; a line with none takes the
+  field's direction. The syntax passed over is the markers the styler dims or
+  hides, a list's, a task's or a rule's marker at the line's start, a link's
+  brackets and destination, and a code fence; a footnote mark's label is
+  text, as the web draws it. The editor crate decides it for both hosts
+  (`exact_markdown_editor::auto_directions`: `mde_auto` on the web,
+  `exact_markup_auto` on Apple) from the styling with nothing revealed, so
+  the caret, which reveals the syntax of its line, changes no line's answer.
+  The platform's `dir="auto"` and natural direction are not used: they read
+  hidden syntax.
 - **Web.** Each line's block takes its resolved direction as `dir`, set in
   place, so new words redraw no line and keep a native keystroke's DOM.
   List indents and markers are `padding-inline-start` and
@@ -566,8 +580,7 @@ all its items, and a code block stays left to right.
   image keeps one bar per depth, so all of them follow a line's `dir` and a
   field's CSS `direction` alike; a task box's press area and an empty line's
   caret (`rangeFrame`) follow too. An empty editor's placeholder is drawn on
-  its first line, in that line's direction. An atom's pill reads left to
-  right in any line, icon first, as Apple draws one.
+  its first line, in that line's direction.
 - **Apple.** The restyle sets each line's
   `NSParagraphStyle.baseWritingDirection` (TextKit 2, AppKit and UIKit) over
   the paragraph rows' styles: the most common direction once, in the base

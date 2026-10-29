@@ -216,8 +216,8 @@ fn the_editors_text_events_carry_the_source_selection() {
 }
 
 /// `paragraphDirs` is the editor's (LLP 1045 D11): HTML's `dir` words, one
-/// for each line of its source, reach its node as written and follow a bound
-/// value. Another word, a list, and any other node are refused.
+/// per source line, reach its node and follow a bound value. Another word, a
+/// `string[]`, a literal of more than one word and any other node are refused.
 #[test]
 fn paragraph_dirs_reach_the_editor_and_are_refused_elsewhere() {
     let source = r#"component App
@@ -276,8 +276,18 @@ fn paragraph_dirs_reach_the_editor_and_are_refused_elsewhere() {
             field("textarea value=\"\" markup=\"markdown\"").replace("=\"rtl\"\n", "=dirs\n"),
             "lower-attr-type",
         ),
+        // A literal never sends new words: a list of them is bound.
+        (
+            field("textarea value=\"\" markup=\"markdown\"").replace("\"rtl\"\n", "\"ltr rtl\"\n"),
+            "lower-paragraph-dirs-literal",
+        ),
     ] {
         let error = contract::compile(&source).unwrap_err();
         assert_eq!(error.id, code, "{source}\n{error}");
     }
+    let error = contract::compile(
+        &field("textarea value=\"\" markup=\"markdown\"").replace("\"rtl\"\n", "\"ltr rtl\"\n"),
+    )
+    .unwrap_err();
+    assert!(error.message.contains("paragraphDirs=dirs"), "{error}");
 }

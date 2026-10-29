@@ -89,12 +89,9 @@ function lineAtoms(v, at, faces, styles) {
   }
   return out;
 }
-/** An island: the atom's pill, in the formats around it, contributing no
- * source. It reads left to right in a right-to-left line too, icon first, as
- * Apple draws a pill (LLP 1045 D11). */
+/** An island: the atom's pill, in the formats around it, contributing no source. */
 function island(a) {
   const box = atomBox(a, a.css, true);
-  box.dir = 'ltr';
   box.dataset.atomAt = a.at; box.dataset.atomKey = a.key;
   if (a.style & 1) box.style.fontWeight = '700'; if (a.style & 2) box.style.fontStyle = 'italic'; if (a.style & 8) box.style.textDecoration = 'line-through';
   return box;
@@ -133,22 +130,13 @@ function matches(line, d) {
   return !d.empty || kids[kids.length - 1].nodeName === 'BR';
 }
 
-// A strong letter, and those of the right-to-left scripts (UAX #9's R and AL),
-// as Apple's MarkupEditor classifies them for `auto` (LLP 1045 D11).
-const STRONG = /[\p{L}‎‏؜]/u;
-const RTL = /[֐-ࣿ‏יִ-﷿ﹰ-﻿\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u;
-/** `auto`'s direction for a line: its first strong letter outside Markdown
- * syntax (hidden or dimmed) and atoms; null for none. */
-function firstStrong(line) {
-  const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
-    if (t.parentElement.closest('.md-hide, .md-m, .md-collapsed, .exact-atom')) continue;
-    const c = STRONG.exec(t.data)?.[0];
-    if (c) return RTL.test(c) ? 'rtl' : 'ltr';
-  }
-  return null;
+/** A source's key in the words remembered for it: its length and two 32-bit
+ * hashes of its code units, so the memory holds no text. */
+function sourceKey(s) {
+  let a = 0x811c9dc5, b = s.length;
+  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193); b = Math.imul(b ^ c, 0x5bd1e995) ^ (b >>> 13); }
+  return `${s.length}:${a >>> 0}:${b >>> 0}`;
 }
-
 /** A line's inline-start border and padding, where its text starts. */
 const gutter = css => (parseFloat(css.borderInlineStartWidth) || 0) + (parseFloat(css.paddingInlineStart) || 0);
 
@@ -163,8 +151,12 @@ function installMarkupEditor(textarea, host) {
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
   let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false, reread = false, atomStyles = {}, atomed = null;
   // The app's `paragraphDirs` words; whether they still wait to be placed by
-  // line number; and each line's text and word as drawn (LLP 1045 D11).
+  // line number; each line's text and word as drawn; and the words drawn for
+  // the last sources shown, which undo and redo show again (LLP 1045 D11).
   let words = [], wordsSaid = null, placeWords = true, drawnTexts = [], drawnWords = [];
+  const seen = new Map();
+  // Each line's direction under `auto` and what it was decided for (`mde_auto`).
+  let autoFor = null, autoDirs = [];
   let tabIndex = el.getAttribute('tabindex');
   const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !inertAncestor(el);
   const now = () => performance.now();
@@ -207,7 +199,7 @@ function installMarkupEditor(textarea, host) {
     records = next;
     mutations = []; observer.takeRecords();
     carry(next.map(r => r.line));
-    lines.forEach((line, i) => { index.set(line, i); direct(line, drawnWords[i], i >= head && i < head + added.length); });
+    lines.forEach((line, i) => { index.set(line, i); direct(line, i); });
     el.classList.toggle('md-empty', source === '');
     showPlaceholder();
   }
@@ -237,11 +229,15 @@ function installMarkupEditor(textarea, host) {
   /** Each line's word as drawn: new words by line number, a line past the
    * last word taking the last; then each word stays with its line through
    * edits, and a line an edit adds takes the word of the line above it (at
-   * the top, below it) until the app's next words. */
+   * the top, below it) until the app's next words. A source shown before,
+   * as undo and redo show one, takes back the words it was drawn with. */
   function carry(texts) {
+    const key = sourceKey(source), known = seen.get(key);
     if (placeWords) {
       placeWords = false;
       drawnWords = texts.map((_, i) => words[Math.min(i, words.length - 1)]);
+    } else if (known?.length === texts.length) {
+      drawnWords = known.slice();
     } else {
       const old = drawnTexts, was = drawnWords;
       let head = 0, tail = 0;
@@ -252,21 +248,31 @@ function installMarkupEditor(textarea, host) {
       drawnWords = next.concat(was.slice(was.length - tail));
     }
     drawnTexts = texts;
+    seen.delete(key); seen.set(key, drawnWords.slice());
+    if (seen.size > 64) seen.delete(seen.keys().next().value);
   }
   /** New words from the app, by line number, once the batch that brought them
    * has drawn its value too (a render in between places them itself). */
   function placeNewWords() {
     if (destroyed || !placeWords) return;
     carry(drawnTexts);
-    lines.forEach((line, i) => direct(line, drawnWords[i]));
+    lines.forEach((line, i) => direct(line, i));
   }
-  /** A line's `dir` from its word: `ltr` or `rtl`, or for `auto` its first
-   * strong letter outside syntax and atoms. With none it inherits the field's. */
-  function direct(line, word, force) {
-    if (!force && line.exactWord === word) return;
-    line.exactWord = word;
-    const dir = word === 'ltr' || word === 'rtl' ? word : word === 'auto' ? firstStrong(line) : null;
-    if (dir) { if (line.getAttribute('dir') !== dir) line.setAttribute('dir', dir); } else line.removeAttribute('dir');
+  /** Line `i`'s `dir` from its word: `ltr` or `rtl`, or for `auto` its first
+   * strong letter outside syntax and atoms, as the editor crate decides it for
+   * Apple too (`mde_auto`). With none it inherits the field's. */
+  function direct(line, i) {
+    const word = drawnWords[i];
+    let dir = word === 'ltr' || word === 'rtl' ? word : null;
+    if (word === 'auto') {
+      if (autoFor?.[0] !== source || autoFor[1] !== atomed) {
+        const n = wasm.mde_auto(h);
+        autoDirs = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), n).slice();
+        autoFor = [source, atomed];
+      }
+      dir = autoDirs[i] === 2 ? 'rtl' : autoDirs[i] === 1 ? 'ltr' : null;
+    }
+    if (dir) { if (line.getAttribute('dir') !== dir) line.setAttribute('dir', dir); } else if (line.hasAttribute('dir')) line.removeAttribute('dir');
   }
   /** An empty editor's placeholder, on its line, so it takes that line's
    * direction, as UIKit draws it in the first line's paragraph style. */

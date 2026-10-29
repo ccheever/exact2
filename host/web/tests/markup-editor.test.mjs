@@ -325,6 +325,21 @@ for (const engine of engines) for (const runtime of [false, true]) {
     }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
   }, 60000);
 
+  engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: undo and redo give back the words of the lines they restore`, async () => {
+    await editor(engine, 'A\nب\nC', async (page, field) => {
+      const dirs = () => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+      await field.evaluate(el => { el.focus(); el.setSelectionRange(1, el.value.length); });
+      await page.keyboard.press('Delete'); await settle(page);
+      expect([await field.evaluate(el => el.value), await dirs()]).toEqual(['A', ['ltr']]);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await field.evaluate(el => el.value), await dirs()]).toEqual(['A\nب\nC', ['ltr', 'rtl', 'ltr']]);
+      await page.keyboard.press('ControlOrMeta+Shift+Z'); await settle(page);
+      expect([await field.evaluate(el => el.value), await dirs()]).toEqual(['A', ['ltr']]);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect(await dirs()).toEqual(['ltr', 'rtl', 'ltr']);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+  }, 60000);
+
   engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: quote bars, list markers and the placeholder sit at each line's start`, async () => {
     await editor(engine, '> اقتباس\n- عنصر', async (page, field) => {
       // Each line's start border and padding, physical: [left border, right border, left padding, right padding].
@@ -332,10 +347,14 @@ for (const engine of engines) for (const runtime of [false, true]) {
         const css = getComputedStyle(line);
         return [css.borderLeftWidth, css.borderRightWidth, css.paddingLeft, css.paddingRight];
       }));
+      // The list marker's own box, its resolved left and right insets: at the start side, 0.
+      const marker = () => field.evaluate(el => { const css = getComputedStyle(el.children[1], '::before'); return [css.left === '0px', css.right === '0px']; });
       expect(await sides()).toEqual([['18px', '0px', '0px', '0px'], ['0px', '0px', '28px', '0px']]);
+      expect(await marker()).toEqual([true, false]);
       // A field whose own direction is right to left, with no words: CSS direction alone.
       await field.evaluate(el => { el.style.direction = 'rtl'; });
       expect(await sides()).toEqual([['0px', '18px', '0px', '0px'], ['0px', '0px', '0px', '28px']]);
+      expect(await marker()).toEqual([false, true]);
       await field.evaluate(el => { el.style.direction = ''; });
       await page.evaluate(runtime => {
         (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'rtl');
@@ -343,6 +362,7 @@ for (const engine of engines) for (const runtime of [false, true]) {
       }, runtime);
       await settle(page);
       expect(await sides()).toEqual([['0px', '18px', '0px', '0px'], ['0px', '0px', '0px', '28px']]);
+      expect(await marker()).toEqual([false, true]);
       // Emptied, the placeholder is drawn on the first line, in that line's direction.
       await field.evaluate(el => { el.value = ''; });
       await settle(page);

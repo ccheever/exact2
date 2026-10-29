@@ -57,18 +57,6 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         return attributes
     }
 
-    /// The ranges `auto` passes over: Markdown syntax, dimmed or hidden (the
-    /// styler's revealed markers, hidden syntax and replaced marks), each
-    /// link's `[` and `](target)`, and atoms; the web editor's hidden and
-    /// dimmed spans and islands.
-    static func syntax(_ object: [String: [[Any]]], _ clamp: (Any, Any) -> NSRange) -> [NSRange] {
-        var out: [NSRange] = []
-        for s in object["s"] ?? [] where s.count >= 3 && ((s[2] as? Int) ?? 0) & 64 != 0 { out.append(clamp(s[0], s[1])) }
-        for row in (object["h"] ?? []) + (object["r"] ?? []) + (object["a"] ?? []) where row.count >= 2 { out.append(clamp(row[0], row[1])) }
-        for l in object["l"] ?? [] where l.count >= 4 { out.append(clamp(l[0], l[1])); out.append(clamp(l[2], l[3])) }
-        return out
-    }
-
     /// Remove all Markdown attributes when the authored row becomes `none`.
     func detach(_ storage: NSTextStorage) {
         styling = true; defer { styling = false }
@@ -98,7 +86,7 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         let baseFont = base[.font] as! PlatformFont
         // Each line's base direction (LLP 1045 D11): the most common one is
         // every paragraph's, in the base style; runs that differ follow the rows.
-        directions.update(text: text, said: look.paragraphDirs, rtl: look.rtl, atoms: look.atoms) { Self.syntax(object, clamp) }
+        directions.update(text: text, said: look.paragraphDirs, rtl: look.rtl, atoms: look.atoms) { MarkupCommands.auto(text, atoms: AtomHandle.of(look.atoms)) }
         let paragraph = (base[.paragraphStyle] as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
         paragraph.baseWritingDirection = directions.base
         var directed = base

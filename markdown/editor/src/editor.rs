@@ -299,6 +299,12 @@ impl Editor {
         self.atoms.face(source)
     }
 
+    /// Each source line's direction under `paragraphDirs`' `auto`
+    /// ([`crate::auto_directions`], LLP 1045 D11).
+    pub fn auto_directions(&self) -> Vec<u8> {
+        crate::direction::auto_of(&self.utf8, &self.styled)
+    }
+
     /// A field's declared kinds and the app's faces changed (`atoms`,
     /// `atomFaces`, LLP 1045.000 D2): restyle. The source and its history
     /// stay; a selection now inside an atom moves by the caret and range rules.

@@ -271,15 +271,16 @@ for (const engine of engines) {
     });
   }, 60000);
 
-  // @ref LLP 1045 D11 — a pill reads left to right in any line, as Apple draws one.
-  engineTest[engine](`${engine}: in a line paragraphDirs makes right to left, a pill keeps its content left to right`, async () => {
+  // @ref LLP 1045 D11 — a line `paragraphDirs` makes right to left is one for an atom's edges.
+  engineTest[engine](`${engine}: in a line paragraphDirs makes right to left, an atom's start is its right edge`, async () => {
     await editor(engine, `שלום ${CITE} עולם`, async (page, field) => {
       await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'rtl'); el.exactMarkup.sync(); });
-      const [line, pill, start, right] = await field.evaluate((el, a) => {
+      await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+      const [line, start, right] = await field.evaluate((el, a) => {
         const island = el.querySelector('.exact-atom');
-        return [getComputedStyle(el.firstChild).direction, getComputedStyle(island).direction, Math.round(el.exactMarkup.rangeFrame(a, a).left), Math.round(island.getBoundingClientRect().right)];
+        return [getComputedStyle(el.firstChild).direction, Math.round(el.exactMarkup.rangeFrame(a, a).left), Math.round(island.getBoundingClientRect().right)];
       }, 5);
-      expect([line, pill]).toEqual(['rtl', 'ltr']);
+      expect(line).toBe('rtl');
       expect(start).toBe(right);
     });
   }, 60000);
@@ -292,6 +293,21 @@ for (const engine of engines) {
       // The atom and the link's destination are left out; `@x` has no face, so it is text; 42 has no strong letter.
       expect(await field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')))).toEqual(['rtl', 'ltr', 'rtl', null]);
     }, { faceList: [['@src/a.ts', 'a.ts']] });
+  }, 60000);
+
+  engineTest[engine](`${engine}: auto reads a footnote mark's label as text, wherever the caret is`, async () => {
+    await editor(engine, '[^n] مرحبا\n\n[^note]: ملاحظة', async (page, field) => {
+      await field.evaluate(el => { el.setAttribute('data-paragraph-dirs', 'auto'); el.exactMarkup.sync(); });
+      await page.evaluate(() => new Promise(ok => requestAnimationFrame(() => setTimeout(ok))));
+      const dirs = () => field.evaluate(el => [...el.children].map(line => line.getAttribute('dir')));
+      expect(await dirs()).toEqual(['ltr', null, 'ltr']);
+      // A caret on a footnote's line reveals its syntax; the answer stays.
+      await field.focus();
+      for (const at of [2, 20]) {
+        await field.evaluate((el, at) => el.setSelectionRange(at, at), at); await settle(page);
+        expect(await dirs()).toEqual(['ltr', null, 'ltr']);
+      }
+    });
   }, 60000);
 }
 

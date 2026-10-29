@@ -325,6 +325,19 @@ pub extern "C" fn mde_view(h: u32) -> u32 {
     })
 }
 
+/// Each source line's `auto` direction ([`crate::auto_directions`]: 0 none,
+/// 1 left to right, 2 right to left) into [`mde_out`]; returns the count.
+#[no_mangle]
+pub extern "C" fn mde_auto(h: u32) -> u32 {
+    let dirs = with(h, 0, |e, _| e.auto_directions());
+    ABI.with(|abi| {
+        let out = &mut abi.borrow_mut().out;
+        out.clear();
+        out.extend(dirs.iter().map(|&d| u32::from(d)));
+        out.len() as u32
+    })
+}
+
 /// The last u32 output.
 #[no_mangle]
 pub extern "C" fn mde_out() -> *const u32 {
