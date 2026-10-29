@@ -61,8 +61,14 @@ impl OwnerQueue {
     fn forgotten(&mut self, retirement: Retirement) {
         if let Some(slot) = &self.pending {
             let mut current = slot.lock().unwrap();
-            if current.is_some() {
-                *current = Some(retirement);
+            if let Some((was, _)) = current.as_ref() {
+                // Coalesced with the one still waiting (no turn between them,
+                // so the owner's calls are the same for both): a call either
+                // lets go stays let go. What stays in flight is what both say
+                // is; the newer storage snapshot stands.
+                let (mut in_flight, snapshot) = retirement;
+                in_flight.retain(|entry| was.contains(entry));
+                *current = Some((in_flight, snapshot));
                 return;
             }
         }
@@ -1190,7 +1196,12 @@ mod tests {
             Ok(Value::Number(0.0))
         }
 
-        fn answer(&mut self, _: &mut Store, source: &str, _: &[Value]) -> Result<Answer, DataError> {
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
             if source == "slow" {
                 self.started.send(()).unwrap();
                 self.release.recv().unwrap();
@@ -1224,7 +1235,8 @@ mod tests {
         placed.activate().unwrap();
         let mut store = Store::new("", []);
         let token = |placed: &mut Placed<Hears>, store: &mut Store, source: &str| {
-            let answer = placed.answer_for(Target::Resource(0), store, source, &[Value::Number(1.0)]);
+            let answer =
+                placed.answer_for(Target::Resource(0), store, source, &[Value::Number(1.0)]);
             match answer.unwrap() {
                 Answer::Later(request) => request.continuation.unwrap(),
                 _ => panic!("a worker answer"),
@@ -1257,9 +1269,179 @@ mod tests {
         second.recv_timeout(Duration::from_secs(5)).unwrap();
         let views = views.lock().unwrap();
         assert!(
-            views.first().is_some_and(|view| !view.contains(&"read".to_string())),
+            views
+                .first()
+                .is_some_and(|view| !view.contains(&"read".to_string())),
             "the owner kept the let-go call's key in flight: {views:?}"
         );
+    }
+
+    /// A key both coalesced retirements keep, each for a different call (the
+    /// second's view after a newer call for the key was dispatched): the owner
+    /// still hears it in flight. Its views carry no tokens (`forget` sends
+    /// none: the proxy's mean nothing there), so a key both keep is kept.
+    #[test]
+    fn a_key_both_coalesced_retirements_keep_stays_in_flight() {
+        let (started_tx, started_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        let views = Arc::new(Mutex::new(Vec::new()));
+        let mut placed = Placed::new(
+            Hears {
+                started: started_tx,
+                release: release_rx,
+                views: views.clone(),
+            },
+            Placement::Worker,
+        );
+        placed.activate().unwrap();
+        let mut store = Store::new("", []);
+        let args = [Value::Number(1.0)];
+        let mut token = |placed: &mut Placed<Hears>, source: &str| {
+            let answer = placed.answer_for(Target::Resource(0), &mut store, source, &args);
+            match answer.unwrap() {
+                Answer::Later(request) => request.continuation.unwrap(),
+                _ => panic!("a worker answer"),
+            }
+        };
+        let slow = token(&mut placed, "slow");
+        let empty = Store::new("", []);
+        let first = send(placed.dispatch(slow, &empty));
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let view = |continuation| {
+            [InFlight {
+                target: Target::Resource(0),
+                source: "read",
+                args: &args,
+                continuation: Some(continuation),
+            }]
+        };
+        let mut turns = Vec::new();
+        for _ in 0..2 {
+            let call = token(&mut placed, "read");
+            let Dispatch::Run(Work::Later(turn)) = placed.dispatch(call, &empty) else {
+                panic!("an owner turn");
+            };
+            placed.forgotten(&empty, &view(call));
+            turns.push(turn);
+        }
+        let mut replies = Vec::new();
+        for turn in turns {
+            let (tx, rx) = channel();
+            turn(Reply::new(move |outcome| tx.send(outcome).unwrap()));
+            replies.push(rx);
+        }
+        release_tx.send(()).unwrap();
+        first.recv_timeout(Duration::from_secs(5)).unwrap();
+        for reply in replies {
+            reply.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        let views = views.lock().unwrap();
+        assert_eq!(views.first(), Some(&vec!["read".to_string()]), "{views:?}");
+    }
+
+    /// The coalescing's claim, checked: random retirements and turns, the
+    /// owner draining now and then, let go of exactly the calls processing
+    /// every retirement on its own, in order, does.
+    #[test]
+    fn coalesced_retirements_let_go_what_retiring_each_in_order_does() {
+        let keys: Vec<(Target, String, Vec<Vec<u8>>)> = (0..4)
+            .map(|i| (Target::Resource(i), "r".to_string(), Vec::new()))
+            .collect();
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = move |n: u64| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) % n
+        };
+        // An owner that parks a call for each turn and lets go of the parked
+        // calls whose key a retirement leaves out; the calls it let go, by id.
+        fn drain(
+            jobs: &std::sync::mpsc::Receiver<Job>,
+            parked: &mut Vec<(usize, Key)>,
+            gone: &mut Vec<usize>,
+            ids: &mut usize,
+        ) {
+            while let Ok(job) = jobs.try_recv() {
+                match job {
+                    Job::Forgotten(slot) => {
+                        let Some((view, _)) = slot.lock().unwrap().take() else {
+                            continue;
+                        };
+                        let live: Vec<Key> = view
+                            .iter()
+                            .map(|(t, s, a)| (Some(*t), s.clone(), a.concat()))
+                            .collect();
+                        parked.retain(|(id, k)| {
+                            let keep = live.contains(k);
+                            if !keep {
+                                gone.push(*id);
+                            }
+                            keep
+                        });
+                    }
+                    Job::Answer {
+                        target,
+                        source,
+                        args,
+                        ..
+                    } => {
+                        *ids += 1;
+                        parked.push((*ids, (target, source, args.concat())));
+                    }
+                    Job::Resume { .. } => {}
+                }
+            }
+        }
+        for _ in 0..500 {
+            let (coalesce_tx, coalesce_rx) = channel();
+            let (order_tx, order_rx) = channel();
+            let mut coalesced = OwnerQueue {
+                sender: coalesce_tx,
+                pending: None,
+            };
+            let mut ordered = OwnerQueue {
+                sender: order_tx,
+                pending: None,
+            };
+            let (mut parked_c, mut gone_c, mut ids_c) = (Vec::new(), Vec::new(), 0);
+            let (mut parked_o, mut gone_o, mut ids_o) = (Vec::new(), Vec::new(), 0);
+            for _ in 0..30 {
+                match next(3) {
+                    0 => {
+                        let view: Vec<_> = keys.iter().filter(|_| next(2) == 0).cloned().collect();
+                        coalesced.forgotten((view.clone(), Vec::new()));
+                        // In order: each its own marker, never merged.
+                        ordered.pending = None;
+                        ordered.forgotten((view, Vec::new()));
+                    }
+                    1 => {
+                        let (target, source, args) = keys[next(4) as usize].clone();
+                        let job = |reply| Job::Answer {
+                            target: Some(target),
+                            source: source.clone(),
+                            args: args.clone(),
+                            snapshot: Vec::new(),
+                            clock: 0.0,
+                            reply,
+                        };
+                        coalesced.turn(job(Reply::new(|_| {})));
+                        ordered.turn(job(Reply::new(|_| {})));
+                    }
+                    _ => {
+                        drain(&coalesce_rx, &mut parked_c, &mut gone_c, &mut ids_c);
+                        drain(&order_rx, &mut parked_o, &mut gone_o, &mut ids_o);
+                    }
+                }
+            }
+            drain(&coalesce_rx, &mut parked_c, &mut gone_c, &mut ids_c);
+            drain(&order_rx, &mut parked_o, &mut gone_o, &mut ids_o);
+            // The same calls let go (one merged marker lets go at once what two did one after the other).
+            gone_c.sort_unstable();
+            gone_o.sort_unstable();
+            assert_eq!(gone_c, gone_o);
+            assert_eq!(parked_c, parked_o);
+        }
     }
 
     /// LLP 1016.000 D8 in a worker: a long poll attached to the worker's own
