@@ -120,6 +120,12 @@ component NativeFixture
   // hatch replaces a field's value with `input`; the `presser` hatch clicks
   // its own button once when armed, and on every change while looping, which
   // never settles until it is stopped.
+  // A hatched frame, shown on a press: the Apple module's `frame` hatch
+  // names the app in its user agent before the web view is made (LLP
+  // 1020.002 §9).
+  state framed = false
+  action frame
+    framed = not framed
   state fed = ""
   state feedWith = ""
   state armed = false
@@ -524,6 +530,10 @@ component NativeFixture
                           text "Mode"
                         button press=failSave testId="fail-save" padding=6 background-color="#e5e7eb"
                           text "Save"
+                        button press=frame testId="show-frame" padding=6 background-color="#e5e7eb"
+                          text (framed ? "Unframe" : "Frame")
+                        if framed
+                          iframe hatch="frame" src="about:blank" testId="hatched-frame" width=40 height=24
                       // An "Open in…" chooser (LLP 1021): the invoker refreshes
                       // what is installed as it opens; a menu on every host,
                       // titled by its aria-label, each row its provider's icon,

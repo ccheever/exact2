@@ -967,6 +967,42 @@ component Glow
   view
     text "g" text-shadow=glow
 
+component Pair
+  props
+    ink: string
+    mark: string
+  view
+    column background-color=ink
+      if ink == "-exact-system-blue"
+        text "b"
+      text "m" color=mark
+
+component Tinted
+  props
+    ink: enum<"-exact-system-blue", "-exact-system-red">
+    mark: string
+  view
+    column background-color=ink
+      text "m" color=mark
+
+component Lined
+  props
+    ink: enum<"\n-exact-label", "-exact-system-red">
+    mark: string
+  view
+    column background-color=ink
+      text "m" color=mark
+
+component Spelled
+  props
+    ink: string
+    mark: string
+  view
+    column background-color=ink
+      if ink == "-EXACT-LABEL"
+        text "s"
+      text "m" color=mark
+
 component Inks
   props
     caret: string
@@ -979,7 +1015,7 @@ component Inks
       input value="" aria-label="field" caret-color=caret accent-color=accent
 "#;
 
-const STYLED_APP: &str = r#"use Dot, Ring, Glow, Inks from "@acme/lib"
+const STYLED_APP: &str = r#"use Dot, Ring, Glow, Pair, Tinted, Lined, Spelled, Inks from "@acme/lib"
 
 component App
   action go
@@ -988,6 +1024,10 @@ component App
       Dot(size="4px", ink="red", label="a")
       Ring(edge="4px", tint="red")
       Glow(glow="glow")
+      Pair(ink="red", mark="blue")
+      Tinted(ink="-exact-system-blue", mark="blue")
+      Lined(ink="-exact-system-red", mark="blue")
+      Spelled(ink="red", mark="blue")
       Inks(caret="red", accent="red", pressed="red", pressInk="red", go=go)
 "#;
 
@@ -1040,12 +1080,41 @@ fn a_string_written_as_a_style_row_gets_a_value_of_its_kind() {
         .lines()
         .find(|l| l.contains("Inks("))
         .expect("an Inks cell");
-    for prop in ["caret", "accent", "pressed", "pressInk"] {
-        assert!(
-            inks.contains(&format!(r#"{prop}="-exact-label""#)),
-            "{inks}"
-        );
+    // Each colour prop its own role, in declared order (D4 batch 2 #5: one
+    // drawn over another, as VerifiedBadge's check over its disc, shows).
+    for (prop, role) in [
+        ("caret", "-exact-label"),
+        ("accent", "-exact-system-blue"),
+        ("pressed", "-exact-system-red"),
+        ("pressInk", "-exact-secondary-label"),
+    ] {
+        assert!(inks.contains(&format!(r#"{prop}="{role}""#)), "{inks}");
     }
+    // A cell whose variant value is one of the roles: the other colour prop
+    // takes another, so the two never match (round 1, Astra).
+    let blue = text
+        .lines()
+        .find(|l| l.contains(r#"Pair(ink="-exact-system-blue""#))
+        .expect("Pair's -exact-system-blue cell");
+    assert!(!blue.contains(r#"mark="-exact-system-blue""#), "{blue}");
+    assert!(blue.contains(r#"mark="-exact-label""#), "{blue}");
+    // An enum colour prop's placeholder (its first literal) is taken too, and
+    // a role however it is spelled (round 2, Astra).
+    let tinted = (text.lines())
+        .find(|l| l.contains("Tinted("))
+        .expect("a Tinted cell");
+    assert!(tinted.contains(r#"ink="-exact-system-blue""#), "{tinted}");
+    assert!(tinted.contains(r#"mark="-exact-label""#), "{tinted}");
+    // An enum colour placed by its placeholder (its first literal), read as
+    // written, not as its escaped source (re-check 2, Astra).
+    let lined = (text.lines())
+        .find(|l| l.contains("Lined("))
+        .expect("a Lined cell");
+    assert!(lined.contains(r#"mark="-exact-system-blue""#), "{lined}");
+    let spelled = (text.lines())
+        .find(|l| l.contains(r#"Spelled(ink="-EXACT-LABEL""#))
+        .expect("Spelled's -EXACT-LABEL cell");
+    assert!(!spelled.contains(r#"mark="-exact-label""#), "{spelled}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1114,5 +1183,180 @@ fn a_string_drawn_as_a_paths_data_gets_a_neutral_square_and_text_keeps_its_name(
         .expect("a Tab cell");
     assert!(tab.contains(&format!("shape={square}")), "{tab}");
     assert!(tab.contains(r#"title="title""#), "{tab}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const BADGES: &str = r#"component Badge
+  props
+    badge: string
+    label: string
+  parts
+    mark: paint
+  view
+    column part="mark"
+      if badge == "verified"
+        text "V"
+      else if "verifier" == badge
+        text "T"
+      text label
+"#;
+
+const BADGES_APP: &str = r#"use Badge from "@acme/lib"
+
+component App
+  view
+    column
+      Badge(badge="verified", label="a")
+"#;
+
+/// A string prop the view compares with literals is a variant of those
+/// literals and the empty string, one cell each, never its name, which draws
+/// nothing (VerifiedBadge's `badge`, stage 15 D4 batch 1 #2); a text prop
+/// keeps its name.
+#[test]
+fn a_string_compared_with_literals_gets_a_cell_per_literal_and_the_empty_one() {
+    let dir = fixture("badges");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), BADGES).unwrap();
+    std::fs::write(dir.join("app.contract"), BADGES_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let badge: Vec<_> = g.cells.iter().filter(|c| c.component == "Badge").collect();
+    assert_eq!(
+        badge.len(),
+        3,
+        "{:?}",
+        g.cells
+            .iter()
+            .map(|c| (&c.component, &c.values))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        badge.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        badge.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let values: Vec<String> = badge
+        .iter()
+        .map(|c| {
+            c.values
+                .iter()
+                .find(|(p, _)| p == "badge")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(values, ["verified", "verifier", ""]);
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    assert!(text.contains(r#"badge="verifier""#), "{text}");
+    assert!(text.contains(r#"label="label""#), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const ENUM_BADGES: &str = r#"component Badge
+  props
+    badge: enum<"none", "verified", "verifier">
+    other: enum<"a", "b">
+    label: string
+  parts
+    mark: paint
+  view
+    column part="mark"
+      if badge == "verified"
+        text "V"
+      else if "verifier" == badge
+        text "T"
+      text label
+"#;
+
+/// The same, guarded by `!=` (PostCard's and PersonRow's `if badge !=
+/// "none"`), and a string compared by `!=` alone, which stays its name.
+const NE_BADGES: &str = r#"component Badge
+  props
+    badge: enum<"none", "verified", "verifier">
+    note: string
+  parts
+    mark: paint
+  view
+    column part="mark"
+      if badge != "none"
+        text "B"
+      if note != ""
+        text note
+"#;
+
+const ENUM_BADGES_APP: &str = r#"use Badge from "@acme/lib"
+
+component App
+  view
+    column
+      Badge(badge="verified", other="a", label="a")
+"#;
+
+/// An enum prop the view compares with literals in an `if` is a variant of
+/// every value it declares, in order, one cell each (VerifiedBadge's
+/// `badge`, an enum since stage 15 B batch 2, so "none" draws its empty
+/// cell); an enum the view never compares stays at its first value.
+#[test]
+fn an_enum_compared_with_literals_gets_a_cell_per_value() {
+    let dir = fixture("enum-badges");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), ENUM_BADGES).unwrap();
+    std::fs::write(dir.join("app.contract"), ENUM_BADGES_APP).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let badge: Vec<_> = g.cells.iter().filter(|c| c.component == "Badge").collect();
+    assert!(
+        badge.iter().all(|c| c.refused.is_none()),
+        "{:?}",
+        badge.iter().map(|c| &c.refused).collect::<Vec<_>>()
+    );
+    let value = |c: &&contract::gallery::Cell, prop: &str| {
+        c.values
+            .iter()
+            .find(|(p, _)| p == prop)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default()
+    };
+    let values: Vec<String> = badge.iter().map(|c| value(c, "badge")).collect();
+    assert_eq!(values, ["none", "verified", "verifier"]);
+    // `other`, never compared, is no variant: three cells, not six.
+    assert_eq!(badge.len(), 3);
+    assert!(badge
+        .iter()
+        .all(|c| !c.values.iter().any(|(p, _)| p == "other")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An enum guarded by `!=` gets a cell per value too (Astra's 2b r1: a
+/// PersonRow's or PostCard's gallery kept "none" and never drew a badge); a
+/// string's `!=` adds no cells (batch 1's rule is `==`).
+#[test]
+fn an_enum_guarded_by_not_equal_gets_a_cell_per_value_too() {
+    let dir = fixture("ne-badges");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), NE_BADGES).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Badge from \"@acme/lib\"\n\ncomponent App\n  view\n    column\n      Badge(badge=\"none\", note=\"n\")\n",
+    )
+    .unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let badge: Vec<_> = g.cells.iter().filter(|c| c.component == "Badge").collect();
+    let values: Vec<String> = badge
+        .iter()
+        .map(|c| {
+            c.values
+                .iter()
+                .find(|(p, _)| p == "badge")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(values, ["none", "verified", "verifier"]);
+    assert!(badge
+        .iter()
+        .all(|c| !c.values.iter().any(|(p, _)| p == "note")));
     let _ = std::fs::remove_dir_all(&dir);
 }

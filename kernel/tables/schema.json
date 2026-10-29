@@ -1564,13 +1564,13 @@
       "id": 261,
       "name": "menuPlacement",
       "kind": "str",
-      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal about|app|file|edit|view|go|window|help|none. AppKit projects the button into that menu, with or without a chord (none: no item, the chord kept); other hosts retain the ordinary button. No layout effect."
+      "_comment": "LLP 1021 §5.3: -exact-menu on a button, a literal about|app|file|edit|view|go|window|help|none, `dock` beside one or alone, or `status` alone (LLP 1133.025 D4, D5). AppKit projects the button into that menu, with or without a chord (none: no item, the chord kept), and `dock` into the Dock menu; `status` is the app's status item on macOS and its notification-area icon on Windows. Other hosts retain the ordinary button. No layout effect."
     },
     {
       "id": 263,
       "name": "menuRemove",
       "kind": "str",
-      "_comment": "@ref LLP 1021 §5.3: root -exact-menu-remove, a literal whitespace-separated list of standard AppKit menu item ids. Other hosts ignore this presentation hint."
+      "_comment": "@ref LLP 1021 §5.3: root -exact-menu-remove, a literal whitespace-separated list of standard AppKit menu item ids, and status-quit, the host's quit item ending a status menu (LLP 1133.025 D7). Other hosts ignore this presentation hint."
     },
     {
       "id": 264,
@@ -1744,6 +1744,18 @@
       "name": "orientationlock",
       "kind": "str",
       "_comment": "@ref LLP 1133.029 D1: an orientation lock on any element, a Screen Orientation API `OrientationLockType` (`portrait`, `landscape`, their `-primary` and `-secondary`, `natural`, `any`), `current` (the window's orientation when the lock begins) or `none` (the default). Held while the element is mounted and displayed and outside every `dialog` and popover; `exact_runner::orientation` decides which holders count and what the session's lock is."
+    },
+    {
+      "id": 291,
+      "name": "keepMounted",
+      "kind": "str",
+      "_comment": "@ref LLP 1010 §6.11: `keep-mounted` on a virtualized list, a list of row keys (each a string, number or bool, or an option of one; `none` names no row), at most 64: the rows it keeps mounted wherever its window is. The runner reads the value (and the JS target's list.js); the row holds the keys as JSON. Not layout."
+    },
+    {
+      "id": 292,
+      "name": "menuKeys",
+      "kind": "str",
+      "_comment": "@ref LLP 1021 §5.3.3: root -exact-menu-keys, a literal whitespace-separated list of id=chord, where id is close-window (File ▸ Close Window) and chord is one aria-keyshortcuts chord with Meta that is not a standard one, or none. AppKit gives that item the chord, or no chord. Other hosts ignore this presentation hint."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -2172,6 +2184,14 @@
       "values": [
         "auto",
         "balance"
+      ],
+      "default": "auto"
+    },
+    "FontSmoothing": {
+      "_comment": "@ref LLP 1019 D12: -webkit-font-smoothing, auto or antialiased. WebKit's none and subpixel-antialiased are refused by name.",
+      "values": [
+        "auto",
+        "antialiased"
       ],
       "default": "auto"
     },
@@ -4447,6 +4467,16 @@
       "layout": true,
       "default": 0,
       "_comment": "@ref LLP 1011.002 D3: CSS `vertical-align: <length>` (CSS Inline 3 §4.3, `baseline-shift`) on an `image` in a paragraph's text: how far its box is raised above the place `vertical_align` puts it; negative lowers it. The web writes it as `vertical-align`."
+    },
+    {
+      "bit": 222,
+      "field": "font_smoothing",
+      "snapshot": "admit",
+      "watch": "admit",
+      "terminal": "admit",
+      "codec": "enum:FontSmoothing",
+      "inherited": true,
+      "_comment": "@ref LLP 1019 D12: `-webkit-font-smoothing`, a property WebKit and Chromium define and no CSS specification does: `auto` or `antialiased`. AppKit draws an `antialiased` paragraph with Core Graphics font smoothing off, as Chrome and Safari do on macOS: grayscale coverage without the stem darkening smoothing adds; UIKit sets the same flag, expected to change nothing on iOS (not measured), as in iOS Safari. The web writes it with Firefox's `-moz-osx-font-smoothing`. Linux, Windows, a terminal and the widget and watch drivers admit it and draw as before. Paint only: a change neither measures nor lays out. Inherited, as in WebKit."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch, 27 font-variation-settings — LLP 1019 §13 D10; 28 is CSS's `border-color` shorthand; 29 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -4932,6 +4962,16 @@
       "mail",
       "envelope",
       "M3 6h18v12H3V6Zm0 0 9 7 9-7"
+    ],
+    [
+      "emoji",
+      "face.smiling",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM8.5 14.5s1.3 1.8 3.5 1.8 3.5-1.8 3.5-1.8M9 9.5h.01M15 9.5h.01"
+    ],
+    [
+      "translate",
+      "character.bubble",
+      "m5 8 6 6m-7 0 6-6 2-3M2 5h12M7 2h1m14 20-5-10-5 10m2-4h6"
     ]
   ],
   "symbolAliases": [
@@ -5166,10 +5206,55 @@
     [
       "sliders",
       "adjust"
+    ],
+    [
+      "mood",
+      "emoji"
+    ],
+    [
+      "sentiment-satisfied",
+      "emoji"
+    ],
+    [
+      "smiley",
+      "emoji"
+    ]
+  ],
+  "symbolGlyphs": [
+    [
+      "back",
+      "fluent",
+      "M20 12H4m7-7-7 7 7 7",
+      false
+    ],
+    [
+      "more",
+      "fluent",
+      "M7.5 12a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm6 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm6 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z",
+      true
+    ],
+    [
+      "back",
+      "material",
+      "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
+      true
+    ],
+    [
+      "more",
+      "material",
+      "M14 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z",
+      true
+    ],
+    [
+      "share",
+      "material",
+      "M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z",
+      true
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path keeps to about the box's 20-unit live area, which the web draws an em across, as an SF Symbol's glyph is (the neutral look's `symbol-scale`). The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
   "_symbolAliases": "[alias, role]. Other spellings a `symbol:` source answers to, beside the role itself and Apple's name for it (dots, dashes and underscores are one: `chevron.right`, `chevron-right`, `chevron_right`): Material's names and the common guesses that mean this role and no other. An alias keeps the distinctions the roles make (filled or outlined, enclosed or bare): a name for a symbol no role draws is no alias and is refused. Never a role, never another spelling's key; `sf/` stays reserved. The lowering rewrites a source to its role, so the plan and every host see the role, and warns (`lower-symbol-alias`) once per use (LLP 1116.007 D3.1).",
+  "_symbolGlyphs": "[role, platform, path, filled]. @ref LLP 1115.001 D14, LLP 1115.004: a role a platform's own symbols draw in another shape, in that shape: in the same 24-unit box, stroked as a role's path is, or filled (even-odd). `fluent` is Windows, whose Back (Segoe Fluent Icons U+E72B) is an arrow and More (U+E712) three bare dots in a row. `material` is Android: `back` and `share` are Material Icons' `arrow_back` (which the top app bar's Up arrow draws too) and `share` paths, and `more` is `more_vert`'s three discs. A role with no row for a platform draws its own path there. A role takes these by any of its spellings (`sf/chevron.backward` is `back`); an icon token is the author's own image and draws as written. The web and the Linux desktop (the neutral look, LLP 1115.000 D17) draw the role's own path.",
   "_materials": "[name, iOS UIBlurEffect.Style (or glass / glassClear: UIGlassEffect), macOS NSVisualEffectView.Material (or glass / glassClear: NSGlassEffectView), web and Linux blur px, web saturate %, light tint, dark tint]. @ref LLP 1053.000 D4: `backgroundMaterial`'s whole vocabulary, one row per platform material, kebab-case one-to-one. A `~` marks a platform without that material: it draws the one named instead and logs so once. The web and Linux columns are stated approximations of Apple's look, not parity. Hosts never admit a platform name directly.",
   "_buttonStyles": "[name, iOS 26+ UIButton.Configuration factory, the factory before iOS 26, macOS NSButton look (borderless, push, push-accent: the accent as bezelColor, glass: NSBezelStyleGlass on macOS 26 else push, glass-accent), web and Linux look (ua: the browser's own button, text, soft, fill, glass, glass-fill)]. @ref LLP 1069.011 D2: `buttonStyle`'s whole vocabulary, kebab-case one-to-one with Apple's names. A `~` marks a platform drawing a stand-in, silently; the agent reports the requested and the drawn style. Hosts never admit a platform name directly.",
   "buttonStyles": [

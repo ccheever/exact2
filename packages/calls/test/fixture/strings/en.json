@@ -1,0 +1,4 @@
+{
+  "purpose.microphone": "The fixture's test call records a few seconds.",
+  "purpose.calls": "The fixture places and rings test calls."
+}

@@ -15,6 +15,7 @@ use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
+    platform::windows::EventLoopBuilderExtWindows,
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{CursorIcon, Fullscreen, Theme, Window, WindowId},
 };
@@ -55,6 +56,7 @@ struct App<D: DataSource> {
     ime: crate::ime::InputMethod,
     appearance: crate::appearance::Changes,
     modal: crate::modal::Schedule,
+    desktop: Rc<crate::desktop::Desktop>,
 }
 
 impl<D: DataSource> Drop for App<D> {
@@ -179,7 +181,16 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         config.size = (opening.width, opening.height);
     }
     let mut builder = EventLoop::<crate::accessibility::Event>::with_user_event();
-    let ime = crate::ime::InputMethod::install(&mut builder);
+    let ime = crate::ime::InputMethod::default();
+    let desktop = crate::desktop::Desktop::install(name);
+    let ime_message = ime.message_hook();
+    let desktop_message = desktop.clone();
+    // Winit keeps one hook; replacing it would lose composition completion on clicks.
+    builder.with_msg_hook(move |message| {
+        ime_message(message);
+        desktop_message.message(message);
+        false
+    });
     let event_loop = match builder.build() {
         Ok(value) => value,
         Err(e) => {
@@ -187,7 +198,12 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             return 1;
         }
     };
+    crate::jump_list::set_from_compat(compat);
     let proxy = event_loop.create_proxy();
+    let wake = proxy.clone();
+    desktop.set_wake(move || {
+        let _ = wake.send_event(crate::accessibility::Event::Wake);
+    });
     let wake = proxy.clone();
     exact_linux::set_event_waker(Some(Arc::new(move || {
         let _ = wake.send_event(crate::accessibility::Event::Wake);
@@ -227,6 +243,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         ime,
         appearance: Default::default(),
         modal: Default::default(),
+        desktop,
         refit_after_scale: false,
     };
     if let Err(e) = event_loop.run_app(&mut state) {
@@ -234,6 +251,16 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         state.failed = true;
     }
     exact_linux::set_event_waker(None);
+    // However the loop ended (the window closed, a bounded run, a failure): the store's writes, made on a thread of
+    // their own, are on disk before the process ends, and what failed is said.
+    if !exact_linux::host::drain_store_writes(std::time::Duration::from_secs(5)) {
+        eprintln!("exact: the store's writes were not all on disk at exit");
+    }
+    if let Some(p) = &state.presenter {
+        for line in exact_linux::host::take_store_warnings(p.host().runner().data_ref().app_id()) {
+            eprintln!("exact: {line}");
+        }
+    }
     if state.frames > 0 {
         eprintln!(
             "exact-windows: {} frames; mean render/present {:.2} ms; mean CPU upload {:.2} ms",
@@ -396,7 +423,16 @@ impl<D: DataSource + Default + 'static> App<D> {
         ) {
             p.set_caret_visible(true);
             // A programmatic move while hidden starts a fresh visible phase.
-            frame = Some(p.frame());
+            // SAFETY: the presenter is still owned by this live window.
+            #[allow(unsafe_code)]
+            {
+                frame = unsafe {
+                    p.window_frame(
+                        handle.hwnd.get() as usize,
+                        handle.hinstance.map_or(0, |h| h.get() as usize),
+                    )
+                }?;
+            }
             self.caret.presented(
                 handle.hwnd.get(),
                 caret_rect,
@@ -520,6 +556,11 @@ impl<D: DataSource + Default + 'static> App<D> {
             return Ok(());
         }
         p.set_caret_visible(self.caret.visible());
+        if !self.caret.can_patch() {
+            p.repaint();
+            window.request_redraw();
+            return Ok(());
+        }
         if self.caret.needs_picture() {
             let other = p.frame();
             if !p.last_frame_succeeded() || p.dirty() {
@@ -609,10 +650,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 self.appearance
                     .install(handle.hwnd.get(), self.proxy.clone());
                 self.modal.install(handle.hwnd.get(), self.proxy.clone());
+                self.desktop.set_window(handle.hwnd.get());
+                if let Err(error) = self.clicks.install(handle.hwnd.get()) {
+                    self.fail(events, error);
+                    return;
+                }
             }
         }
         match app::boot_presenter::<D>(&mut self.config, viewport) {
             Ok((mut p, warning)) => {
+                p.host_mut().runner_mut().set_row_reuse(true);
                 if let Some(scale) = self.appearance.text_scale() {
                     if let Some(error) = p.set_text_scale(scale) {
                         eprintln!("exact-windows: text size: {error}");
@@ -720,6 +767,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             self.show_edit_menu();
             return;
         }
+        let button_position = match &event {
+            WindowEvent::MouseInput { state, button, .. } => self.clicks.position(*state, *button),
+            _ => None,
+        };
         let Some(p) = &mut self.presenter else { return };
         p.advance(self.started.elapsed().as_secs_f64() * 1000.);
         // The input's time: where the advance left the clock, a live runner's
@@ -778,6 +829,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                let (x, y) = if let Some((px, py)) = button_position {
+                    self.pointer = (px as f32 / self.scale as f32, py as f32 / self.scale as f32);
+                    self.pointer_inside = self.window.as_ref().is_some_and(|window| {
+                        let size = window.inner_size();
+                        px >= 0 && py >= 0 && (px as u32) < size.width && (py as u32) < size.height
+                    });
+                    self.pointer
+                } else {
+                    (x, y)
+                };
                 let down = state == ElementState::Pressed;
                 if down {
                     self.caret.activity(Instant::now());
@@ -823,8 +884,21 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 self.clicks.clear();
                 crate::wheel::dispatch(p, (x, y), delta, self.scale);
             }
-            WindowEvent::KeyboardInput { event, .. } => {
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic,
+                ..
+            } => {
                 self.clicks.clear();
+                // A key already down as the window gains focus (winit's
+                // synthetic press) is held, not pressed here: a browser fires
+                // no keydown for it, and it is no keyboard input to WinUI's
+                // focus visual. Its release still arrives as a key's.
+                if is_synthetic && event.state == ElementState::Pressed {
+                    let (code, _) = key_names(event.physical_key, &event.logical_key, None);
+                    p.hold_modifier(&code, true);
+                    return;
+                }
                 if event.state == ElementState::Pressed {
                     self.caret.activity(Instant::now());
                 }

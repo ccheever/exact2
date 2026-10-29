@@ -53,7 +53,7 @@ test('an idle tool holds its long poll: clock settle returns at once, heartbeats
     const r = replies().map(l => JSON.parse(l));
     expect(r.length).toBe(ops.length);
     const opened = r[N + 5].resources.changes, idle = r[N + 11].resources.changes, after = r[N + 15].resources.changes;
-    expect(r[N + 5].resources.hello).toMatchObject({ ok: true, protocol: 'tamber/1.17' });
+    expect(r[N + 5].resources.hello).toMatchObject({ ok: true, protocol: 'tamber/1.18' });
     expect(opened.stream).toBe(true);
     // Settled with the poll held, not waited on: named, and back well inside the server's wait (10 s of 25 s).
     expect(r[N + 6]).toMatchObject({ settled: true, held: 1, heldTargets: ['changes'] });

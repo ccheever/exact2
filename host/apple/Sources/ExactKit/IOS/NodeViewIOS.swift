@@ -60,7 +60,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     weak var paintParent: PaintView?
     let firstDraw: DrawReceipt?
     package let kind: String
-    var inlineText: [InlineText] = []
+    var inlineText: [InlineText] = [] { didSet { hasInlineContextPopover = inlineText.contains { $0.props["contextPopover"]?.isEmpty == false } } }
+    /// A run names a context popover: read for every paragraph each batch (`ContextMenuHost.sync`).
+    private(set) var hasInlineContextPopover = false
     /// The rarely set fields (`NodeExtrasIOS.swift`); nil until one is set.
     var extras: NodeExtras?
     /// A box's gradient and shadows (`NodePaintExtras`); nil until one is set.
@@ -102,9 +104,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             let hidden = hostHidden || css
-            let changed = super.isHidden != hidden
+            // UIKit's setter walks the subtree's backdrop masks and accessibility
+            // even when the value stands (a list hiding its hidden sections every batch).
+            guard super.isHidden != hidden else { return }
             super.isHidden = hidden
-            if changed, scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
+            if scrollView != nil { presenter?.keyboardToolbars.backendChanged() }
         }
     }
     package var handlers: Set<String> = [] {
@@ -271,6 +275,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set {
             let oldValue = placementHidden
             if newValue || extras != nil { more.placementHidden = newValue }
+            if newValue { Self.placedViews.add(self) }
             if placementHidden && !oldValue { more.hiddenBeforePlacement = hiddenByHost }
             if placementHidden { isHidden = true }
             else if oldValue { isHidden = extras?.hiddenBeforePlacement ?? false }
@@ -640,10 +645,11 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             o.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(o)
             overlay = o
+            Self.canvasOverlays.add(o)
         }
         if kind == "textarea" { makeTextArea() }
         if kind == "input" { if presenter.fieldsWaiting.contains(id) { fieldWaits = true } else { makeField() } }
-        presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
+        if kind != "iframe" { presenter.leaves.embed(self) } // a video's player, a module's box (LLP 1068 §5.1); a web view waits for the props (`embedFrame`)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -708,9 +714,18 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Where layout put this box and where it is drawn (`PixelGridIOS.swift`).
     package var grid: GridPlace?
 
+    /// Every canvas's overlay alive, and every node a surface placed. With
+    /// none, no node is under a canvas (`canvasAbove`) or placed
+    /// (`placedAncestor`), and the walks up the tree that ask (each visible
+    /// paragraph every scrolled frame, each node a hit test visits) are
+    /// skipped. A weak table may count one just freed: it only keeps the walk.
+    static let canvasOverlays = NSHashTable<PlainView>.weakObjects()
+    static let placedViews = NSHashTable<NodeView>.weakObjects()
+
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
     package var canvasAbove: NodeView? {
+        guard Self.canvasOverlays.count > 0 else { return nil }
         var v: UIView = self
         while let s = v.superview {
             if let c = s as? NodeView, c.overlay === v { return c }
@@ -786,6 +801,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.videoVisibility?.changed()
         presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
+        FrameSampler.scrolled(scrollView, in: presenter?.session, person: false)
         repaintThrough()
         scrollEndMoved(scrollView)
         // User scrolling is already a coherent position. Deliver before the
@@ -827,6 +843,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The direct child of a canvas this node is under, when that child is
     /// placed by the surface: the node whose `placement` maps this subtree.
     var placedAncestor: NodeView? {
+        guard Self.placedViews.count > 0 else { return nil }
         var v: UIView? = self
         while let n = v {
             if let node = n as? NodeView, (node.placement != nil || node.placementHidden) { return node }
@@ -1148,8 +1165,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateTextAccessibility()
         if actsAsButton {
             isAccessibilityElement = true
-            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6).
-            let link = props["accessibilityRole"] == "link"
+            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6);
+            // a list row is a cell, a button whatever it opens (`listRow`).
+            let link = props["accessibilityRole"] == "link" && !listRow
             accessibilityTraits.insert(link ? .link : .button); accessibilityTraits.remove(link ? .button : .link)
             // `aria-current` (not `false`) is the selected trait too: UIKit has no
             // current, and a bar's current item is its selected one (theme2 2026-10-22 06:40).
@@ -1187,7 +1205,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
-    /// picture (`BoxFilter`), drawn again after each batch.
+    /// picture (`BoxFilter`), drawn again when what it shows changes.
     private(set) var boxFilter: BoxFilter?
     var hasBoxFilter: Bool { boxFilter != nil }
     func applyFilter() {
@@ -1198,8 +1216,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if f.set(style["filter"]) {
             boxFilter = f
             layer.mask = f.hide
-            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter() }
-            renderFilter()
+            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
+            redrawFilter()
         } else if let f = boxFilter {
             f.remove()
             boxFilter = nil
@@ -1208,11 +1226,19 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
 
-    func renderFilter() {
+    /// In a batch, the picture is drawn once as it ends, with the whole batch in it.
+    private func redrawFilter() {
+        if presenter?.applying == true { presenter?.boxFilters.touched(self) } else { renderFilter() }
+    }
+    func renderFilter(fresh: Bool = true) {
         guard let f = boxFilter else { return }
         guard superview != nil else { f.remove(); return }
         setPaintPosition(paintZPosition)
-        f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark)
+        let shown = window.map { convert(bounds, to: $0).intersects($0.bounds) } ?? true
+        f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark,
+                 node: id, fresh: fresh, shown: shown) { [weak self] in
+            if let self { presenter?.boxFilters.landed(self) }
+        }
     }
 
     /// Inside `GlassGroups.moving`: a container comes or goes under the
@@ -1221,8 +1247,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package override func didMoveToSuperview() {
         if Self.containerMoves == 0 { pressEpoch &+= 1; cancelPressContact(reparenting: true) }
         super.didMoveToSuperview()
+        Self.textGeometry &+= 1
         paintOrderMoved()
-        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { redrawFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
         if superview != nil, style["color_scheme"] != nil || overrideUserInterfaceStyle != .unspecified { settleColorScheme() }

@@ -1,0 +1,5 @@
+always "once ready"
+  expect state ready stays true
+test "load twice"
+  tap "load"
+  tap "load"

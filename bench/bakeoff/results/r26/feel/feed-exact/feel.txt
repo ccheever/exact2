@@ -1,0 +1,32 @@
+dev.bakeoff.feed.b90c5a7: ExactKit.ScrollView (decelerationRate 0.998, bounces true, scrollsToTop true), 60 Hz, 16.5 s of motion
+  ok    hitch ratio (ms/s)                     0
+  ok    longest frame (ms)                     16.7
+  ok    main thread p95 (ms/frame)             3.66
+  ok    tracking ratio                         1
+  ok    touch-to-content lag (frames)          0
+  ok    glide after a still lift (pt)          0
+  ok    deceleration τ (ms; .normal 500)       502
+  ok    momentum hand-off (content/asked)      1.05
+  ok    flings that drop a frame at the lift   0/4
+  ok    offset jumps while decelerating        0
+  ok    edge bounce settle (s)                 0.82
+  ok    rubber band (overscroll/finger)        0.63
+  ok    rubber band settle (s)                 0.57
+  ok    status-bar scroll to top (s)           0.99
+  ok    tap while decelerating: travel (pt)    0
+  ok    blank samples (share)                  0
+  bad   scrub: hitch ratio (ms/s)              238.8
+  bad   scrub: longest frame (ms)              115.2
+  bad   scrub: blank samples (share)           0.25
+  ok    scrub: blanks while held (share)       0
+  ok    carousel: hitch ratio (ms/s)           0
+  ok    carousel: longest frame (ms)           16.7
+  ok    carousel: tracking ratio               1
+  ok    carousel: deceleration τ (ms; .normal 500) 504
+  ok    carousel: momentum hand-off (content/asked) 1
+  ok    carousel: edge bounce settle (s)       0.6
+  ok    carousel: a mostly-horizontal drag (carousel/finger, list pt) 0.95, 0
+  ok    carousel: a mostly-vertical drag (list/finger, carousel pt) 0.95, 0
+  25 ok, 0 tell, 3 bad
+  where the scrub's late frames' main-thread time went:
+    scrub: 24 late frames (0 on a timer's tick), 768 ms late; Exact host 1230 ms (in UIKit 1008) · Exact host (main waits on exact.owner) 75 ms (in text & drawing 21) · Exact runtime (main waits on exact.owner) 42 ms; in display links and ports 691 ms, events 615 ms, the main queue 34 ms, run-loop observers (the commit) 3 ms

@@ -49,6 +49,44 @@ fn reach_margin(a: &Attr, virtualized: bool) -> Result<(), LowerError> {
 }
 
 impl Lowerer<'_> {
+    /// `keep-mounted=keys` (@ref LLP 1010 §6.11): a list of row keys, each a
+    /// string, number or bool or an option of one, as a `for`'s `key=` is.
+    pub(super) fn bind_keep_mounted(
+        &mut self,
+        attr: &Attr,
+        scope: &Scope,
+        locals: u16,
+        bindings: &mut Vec<exact_plan::BindingsRow>,
+    ) -> Result<(), LowerError> {
+        let (code, ty) = self.typed_code(&attr.value, scope, locals)?;
+        let key = |t: &Ty| {
+            matches!(
+                t,
+                Ty::String | Ty::Number | Ty::Bool | Ty::Enum(_) | Ty::Unknown
+            )
+        };
+        let keys = match &ty {
+            Ty::List(item) => match item.as_ref() {
+                Ty::Option(inner) => key(inner),
+                item => key(item),
+            },
+            _ => false,
+        };
+        if !keys {
+            return err(
+                "lower-attr-type",
+                format!("`keep-mounted` takes a list of row keys, each a string, number or bool (or an option of one, `none` naming no row), as the `for`'s `key=` gives them: `keep-mounted=[first(ids), ids.at(-1)]`; this is {ty}"),
+                attr.span,
+            );
+        }
+        bindings.push(super::prop_row(
+            exact_kernel::PropId::KeepMounted,
+            code,
+            attr.written,
+        ));
+        Ok(())
+    }
+
     pub(super) fn check_collection(
         &self,
         tag: &str,
@@ -79,6 +117,12 @@ impl Lowerer<'_> {
         }
         if let Some(margin) = literal(attrs, "reach-margin") {
             reach_margin(margin, virtualized)?;
+        }
+        if let Some(keep) = literal(attrs, "keep-mounted") {
+            if !virtualized {
+                return err("lower-list-virtualized", "`keep-mounted` names rows a virtualized list keeps mounted wherever its window is; it goes on `list virtualized=true`, whose rows are the only ones that unmount", keep.span);
+            }
+            self.check_kept_keys(keep, children, scope)?;
         }
         if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
             if !virtualized {
@@ -183,6 +227,53 @@ impl Lowerer<'_> {
         inner.push_each(var, index.as_deref(), item);
         match contract_types::infer(key, &inner, shapes) {
             Ok(t) if !t.is_string() && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
+            _ => Ok(()),
+        }
+    }
+
+    /// `keep-mounted`'s keys are the `for`'s key type: a number never names
+    /// a row keyed by a string (@ref LLP 1010 §6.11).
+    fn check_kept_keys(
+        &self,
+        keep: &Attr,
+        children: &[Node],
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        let [Node::Each {
+            var,
+            index,
+            list,
+            key,
+            ..
+        }] = children
+        else {
+            return Ok(());
+        };
+        let shapes = &self.types.shapes;
+        let kind = |t: &Ty| match t {
+            Ty::String | Ty::Enum(_) => Some("string"),
+            Ty::Number => Some("number"),
+            Ty::Bool => Some("bool"),
+            _ => None,
+        };
+        let kept = match contract_types::infer(&keep.value, scope, shapes) {
+            Ok(Ty::List(item)) => match *item {
+                Ty::Option(inner) => kind(&inner),
+                item => kind(&item),
+            },
+            _ => None,
+        };
+        let item = match contract_types::infer(list, scope, shapes) {
+            Ok(Ty::List(item)) => *item,
+            _ => Ty::Unknown,
+        };
+        let mut inner = scope.clone();
+        inner.push_each(var, index.as_deref(), item);
+        let keyed = contract_types::infer(key, &inner, shapes)
+            .ok()
+            .and_then(|t| kind(&t));
+        match (kept, keyed) {
+            (Some(kept), Some(keyed)) if kept != keyed => err("lower-attr-type", format!("`keep-mounted` names rows by the `for`'s key, a {keyed}; these keys are {kept}s and would name no row"), keep.span),
             _ => Ok(()),
         }
     }

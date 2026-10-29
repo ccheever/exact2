@@ -25,6 +25,15 @@ final class NativeButtonIOS: UIButton {
         if ExactEnv.agentMode { TouchLog.reach(touches) }
         super.touchesBegan(touches, with: event)
     }
+    /// Where the touch lifted while UIKit sends the action it ends with (in
+    /// `super.touchesEnded`): its press's point (LLP 1021 D2). VoiceOver's
+    /// activation sends the action with no touch, and has none.
+    private(set) var lifted: CGPoint?
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        lifted = touches.first?.location(in: nil)
+        defer { lifted = nil }
+        super.touchesEnded(touches, with: event)
+    }
     /// What was last written, so a batch that changes nothing writes nothing.
     struct Written: Equatable {
         var face: ButtonFace
@@ -41,6 +50,15 @@ final class NativeButtonIOS: UIButton {
         var interactive: Bool
         /// The applied padding (`NodeView.kernelPadding`, shared, not copied)
         var padding: [CGFloat?]
+        /// Whether `other` draws the same: it differs at most in what only
+        /// accessibility reads (the face's label among them). A list's next
+        /// row of the same face sets no configuration on the button it reuses.
+        func draws(as other: Written) -> Bool {
+            var face = face, theirs = other.face
+            face.label = nil; theirs.label = nil
+            return face == theirs && raster == other.raster && accent == other.accent && destructive == other.destructive
+                && enabled == other.enabled && traits == other.traits && interactive == other.interactive && padding == other.padding
+        }
     }
     /// A native button sent no padding: every side UIKit's
     static let unsaid: [CGFloat?] = [nil, nil, nil, nil]
@@ -108,6 +126,8 @@ final class NativeButtonIOS: UIButton {
     var menuShape: String?
     private(set) var isMenuOpen = false
     private var menuConfiguration: UIContextMenuConfiguration?
+    /// No menu shows from it, nor is one still leaving.
+    var menuAtRest: Bool { !isMenuOpen && menuConfiguration == nil }
     func dismissMenu() {
         guard isMenuOpen else { return }
         isMenuOpen = false
@@ -171,8 +191,9 @@ extension NodeView {
     /// does, once: the target is this node or, without a handler, the
     /// nearest ancestor with one whose box holds the touch (refused at a
     /// disabled one), resolved first; then the press's focus
-    /// (`focusForPress`), and `press` when there is a target.
-    func activateNative() {
+    /// (`focusForPress`), and `press` when there is a target, at `lifted`,
+    /// the window point a touch lifted at (none from a key or VoiceOver).
+    func activateNative(at lifted: CGPoint? = nil) {
         guard let presenter, !disabled, !inert else { return }
         let target = activationTarget(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil))
         let bubbled = target.map { presenter.pressBox(of: $0, from: self) !== $0 } ?? false
@@ -192,7 +213,7 @@ extension NodeView {
         guard !bubbled || path?.isLive(in: presenter) == true,
               lifetimes.allSatisfy({ $0() }), let target = heldTarget?.live(in: presenter), target.takesPress(bubbled: bubbled) else { return }
         presenter.menus.activating(from: self, pressing: target) {
-            presenter.press(target.id, bubbled: bubbled)
+            presenter.press(target.id, at: lifted, bubbled: bubbled)
         }
     }
 }
@@ -208,7 +229,7 @@ extension ControlHost {
         // identity and explicit name from its first frame as on a bare button.
         button.isAccessibilityElement = true
         button.accessibilityTraits.insert(.button)
-        button.addAction(UIAction { [weak button] _ in button?.owner?.activateNative() }, for: .primaryActionTriggered)
+        button.addAction(UIAction { [weak button] _ in button?.owner?.activateNative(at: button?.lifted) }, for: .primaryActionTriggered)
         return button
     }
 
@@ -269,23 +290,26 @@ extension ControlHost {
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style ?? "")` is not a button style; drawing bordered")
         }
+        let redraw = button.written.map { !$0.draws(as: written) } ?? true
         button.written = written
-        let (_, drawn, glass) = Self.configuration(face)
-        button.isEnabled = written.enabled
-        button.isUserInteractionEnabled = written.interactive
-        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive,
-                                     padding: written.padding, raster: ButtonRasterIOS.image(face, lease: owner.raster))
+        if redraw {
+            let (_, drawn, glass) = Self.configuration(face)
+            button.isEnabled = written.enabled
+            button.isUserInteractionEnabled = written.interactive
+            ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive,
+                                         padding: written.padding, raster: ButtonRasterIOS.image(face, lease: owner.raster))
+            button.drawn = drawn
+            if button.isGlass != glass {
+                button.isGlass = glass
+                owner.syncGlassSlot()
+            }
+        }
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
         button.setAccessibilityToggle(written.pressed)
         if #available(iOS 18, tvOS 18, *) {
             button.accessibilityExpandedStatus = written.expanded.map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
-        }
-        button.drawn = drawn
-        if button.isGlass != glass {
-            button.isGlass = glass
-            owner.syncGlassSlot()
         }
     }
 
@@ -337,6 +361,17 @@ extension MenuHost {
         guard button.menu == nil || shape != button.menuShape else { return }
         button.menuShape = shape
         button.menu = pullDown(of: v, titled: heading)
+    }
+    /// `id`'s button parks with its row, its menu kept: the next sync is not
+    /// to end it as no longer `id`'s.
+    func parkNativeMenu(_ id: UInt32) { nativeMenus[id] = nil }
+    /// A parked button with a menu is `id`'s now. Its menu answers only the
+    /// row it was built for (`rows(of:)` checks the incarnation), so the
+    /// sync builds `id`'s, or ends it if `id` opens no menu.
+    func adoptNativeMenu(_ button: NativeButtonIOS, of id: UInt32) {
+        guard button.menu != nil else { return }
+        button.menuShape = nil
+        nativeMenus[id] = button
     }
     /// The native button no longer opens a menu: its primary action is its activation again.
     static func endNativeMenu(_ button: NativeButtonIOS) {

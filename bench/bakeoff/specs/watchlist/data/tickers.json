@@ -1,0 +1,1822 @@
+[
+ {
+  "symbol": "RZTI",
+  "name": "Northwind Systems",
+  "price": 97.67,
+  "open": 98.67,
+  "volume": 6986000
+ },
+ {
+  "symbol": "JKT",
+  "name": "Ironwood Bank",
+  "price": 215.47,
+  "open": 213.38,
+  "volume": 6475000
+ },
+ {
+  "symbol": "RZT",
+  "name": "Bluebird Holdings",
+  "price": 353.44,
+  "open": 363.8,
+  "volume": 3995000
+ },
+ {
+  "symbol": "FNO",
+  "name": "Kestrel Systems",
+  "price": 317.86,
+  "open": 326.87,
+  "volume": 2632000
+ },
+ {
+  "symbol": "HMX",
+  "name": "Cedar Biotech",
+  "price": 603.42,
+  "open": 588.28,
+  "volume": 7288000
+ },
+ {
+  "symbol": "FNXO",
+  "name": "Ironwood Biotech",
+  "price": 72.23,
+  "open": 74.51,
+  "volume": 641000
+ },
+ {
+  "symbol": "PXXI",
+  "name": "Fieldstone Retail",
+  "price": 391.25,
+  "open": 394.67,
+  "volume": 6162000
+ },
+ {
+  "symbol": "DXA",
+  "name": "Pinecone Systems",
+  "price": 253.39,
+  "open": 259.89,
+  "volume": 3922000
+ },
+ {
+  "symbol": "NVT",
+  "name": "Juniper Motors",
+  "price": 467.24,
+  "open": 484.48,
+  "volume": 8579000
+ },
+ {
+  "symbol": "FNTI",
+  "name": "Juniper Foods",
+  "price": 550.89,
+  "open": 542.6,
+  "volume": 7954000
+ },
+ {
+  "symbol": "WXA",
+  "name": "Meridian Foods",
+  "price": 460.07,
+  "open": 470.49,
+  "volume": 2784000
+ },
+ {
+  "symbol": "GLCI",
+  "name": "Ironwood Energy",
+  "price": 274.48,
+  "open": 272.58,
+  "volume": 4377000
+ },
+ {
+  "symbol": "ORAO",
+  "name": "Northwind Biotech",
+  "price": 223.8,
+  "open": 223.67,
+  "volume": 8307000
+ },
+ {
+  "symbol": "BLI",
+  "name": "Kestrel Energy",
+  "price": 210.66,
+  "open": 217.03,
+  "volume": 1345000
+ },
+ {
+  "symbol": "ORTI",
+  "name": "Acme Biotech",
+  "price": 599.02,
+  "open": 584.48,
+  "volume": 5466000
+ },
+ {
+  "symbol": "GLCO",
+  "name": "Umbra Foods",
+  "price": 478.22,
+  "open": 480.46,
+  "volume": 6666000
+ },
+ {
+  "symbol": "ZEI",
+  "name": "Quarry Holdings",
+  "price": 392.87,
+  "open": 391.73,
+  "volume": 1830000
+ },
+ {
+  "symbol": "PXAO",
+  "name": "Tidewater Retail",
+  "price": 330.25,
+  "open": 320.67,
+  "volume": 2530000
+ },
+ {
+  "symbol": "TKI",
+  "name": "Kestrel Holdings",
+  "price": 156.14,
+  "open": 151.42,
+  "volume": 5021000
+ },
+ {
+  "symbol": "WXO",
+  "name": "Bluebird Motors",
+  "price": 188.95,
+  "open": 181.57,
+  "volume": 8915000
+ },
+ {
+  "symbol": "TKX",
+  "name": "Cedar Biotech",
+  "price": 28.27,
+  "open": 28.08,
+  "volume": 1744000
+ },
+ {
+  "symbol": "EV",
+  "name": "Labs Foods",
+  "price": 426.38,
+  "open": 434.89,
+  "volume": 258000
+ },
+ {
+  "symbol": "EVAI",
+  "name": "Harbor Bank",
+  "price": 61.21,
+  "open": 62.9,
+  "volume": 7891000
+ },
+ {
+  "symbol": "NV",
+  "name": "Tidewater Bank",
+  "price": 540.42,
+  "open": 541.96,
+  "volume": 4488000
+ },
+ {
+  "symbol": "WXXO",
+  "name": "Acme Foods",
+  "price": 21.51,
+  "open": 21.17,
+  "volume": 3438000
+ },
+ {
+  "symbol": "BLX",
+  "name": "Granite Foods",
+  "price": 103.84,
+  "open": 104.22,
+  "volume": 1204000
+ },
+ {
+  "symbol": "ARTO",
+  "name": "Cedar Biotech",
+  "price": 307.82,
+  "open": 314.14,
+  "volume": 4122000
+ },
+ {
+  "symbol": "RZI",
+  "name": "Meridian Holdings",
+  "price": 557.44,
+  "open": 555.9,
+  "volume": 8883000
+ },
+ {
+  "symbol": "SNTI",
+  "name": "Bluebird Holdings",
+  "price": 31.1,
+  "open": 31.54,
+  "volume": 5220000
+ },
+ {
+  "symbol": "ARI",
+  "name": "Ember Systems",
+  "price": 566.24,
+  "open": 543.73,
+  "volume": 6154000
+ },
+ {
+  "symbol": "EVX",
+  "name": "Vantage Bank",
+  "price": 528.35,
+  "open": 519.28,
+  "volume": 8862000
+ },
+ {
+  "symbol": "TKCO",
+  "name": "Meridian Energy",
+  "price": 214.23,
+  "open": 214.28,
+  "volume": 2889000
+ },
+ {
+  "symbol": "NVO",
+  "name": "Willow Systems",
+  "price": 8.19,
+  "open": 8.17,
+  "volume": 1706000
+ },
+ {
+  "symbol": "SNI",
+  "name": "Vantage Systems",
+  "price": 214.86,
+  "open": 206.3,
+  "volume": 6677000
+ },
+ {
+  "symbol": "WX",
+  "name": "Northwind Energy",
+  "price": 223.49,
+  "open": 232.35,
+  "volume": 3811000
+ },
+ {
+  "symbol": "DXAO",
+  "name": "Meridian Biotech",
+  "price": 284.56,
+  "open": 286.49,
+  "volume": 2668000
+ },
+ {
+  "symbol": "QTXI",
+  "name": "Tidewater Bank",
+  "price": 480.21,
+  "open": 485.33,
+  "volume": 8880000
+ },
+ {
+  "symbol": "EVI",
+  "name": "Acme Retail",
+  "price": 314.95,
+  "open": 324.53,
+  "volume": 8733000
+ },
+ {
+  "symbol": "HM",
+  "name": "Meridian Retail",
+  "price": 338.17,
+  "open": 334.77,
+  "volume": 5531000
+ },
+ {
+  "symbol": "EVAO",
+  "name": "Meridian Retail",
+  "price": 528.14,
+  "open": 546.56,
+  "volume": 134000
+ },
+ {
+  "symbol": "CR",
+  "name": "Vantage Bank",
+  "price": 261.28,
+  "open": 264.94,
+  "volume": 2572000
+ },
+ {
+  "symbol": "PXO",
+  "name": "Granite Holdings",
+  "price": 149.96,
+  "open": 152.78,
+  "volume": 3808000
+ },
+ {
+  "symbol": "RZO",
+  "name": "Orchard Retail",
+  "price": 324.11,
+  "open": 336.11,
+  "volume": 6245000
+ },
+ {
+  "symbol": "FNCO",
+  "name": "Pinecone Energy",
+  "price": 357.2,
+  "open": 367.31,
+  "volume": 5442000
+ },
+ {
+  "symbol": "CRA",
+  "name": "Willow Holdings",
+  "price": 202.32,
+  "open": 201.96,
+  "volume": 8592000
+ },
+ {
+  "symbol": "QTXO",
+  "name": "Willow Retail",
+  "price": 234.76,
+  "open": 243.24,
+  "volume": 6780000
+ },
+ {
+  "symbol": "FNA",
+  "name": "Willow Holdings",
+  "price": 91.21,
+  "open": 87.99,
+  "volume": 2020000
+ },
+ {
+  "symbol": "ZECI",
+  "name": "Quarry Bank",
+  "price": 557.05,
+  "open": 555.63,
+  "volume": 5577000
+ },
+ {
+  "symbol": "PXXO",
+  "name": "Pinecone Biotech",
+  "price": 132.28,
+  "open": 129.77,
+  "volume": 1110000
+ },
+ {
+  "symbol": "ZETO",
+  "name": "Lumen Foods",
+  "price": 598.09,
+  "open": 577.53,
+  "volume": 6480000
+ },
+ {
+  "symbol": "FNI",
+  "name": "Lumen Retail",
+  "price": 307.3,
+  "open": 304.29,
+  "volume": 7565000
+ },
+ {
+  "symbol": "BLTI",
+  "name": "Lumen Biotech",
+  "price": 208.61,
+  "open": 201.27,
+  "volume": 933000
+ },
+ {
+  "symbol": "TKTO",
+  "name": "Driftwood Foods",
+  "price": 593.01,
+  "open": 597.71,
+  "volume": 3466000
+ },
+ {
+  "symbol": "GLXI",
+  "name": "Pinecone Foods",
+  "price": 302.29,
+  "open": 295.81,
+  "volume": 3580000
+ },
+ {
+  "symbol": "EVXO",
+  "name": "Northwind Bank",
+  "price": 327.94,
+  "open": 337.55,
+  "volume": 6044000
+ },
+ {
+  "symbol": "CRC",
+  "name": "Granite Motors",
+  "price": 278.91,
+  "open": 276.26,
+  "volume": 6541000
+ },
+ {
+  "symbol": "PXX",
+  "name": "Willow Holdings",
+  "price": 456.73,
+  "open": 444.31,
+  "volume": 2921000
+ },
+ {
+  "symbol": "FNX",
+  "name": "Granite Retail",
+  "price": 225.2,
+  "open": 217.14,
+  "volume": 5690000
+ },
+ {
+  "symbol": "RZC",
+  "name": "Tidewater Motors",
+  "price": 599.6,
+  "open": 619.57,
+  "volume": 6124000
+ },
+ {
+  "symbol": "RZXI",
+  "name": "Juniper Systems",
+  "price": 278.61,
+  "open": 279.59,
+  "volume": 1285000
+ },
+ {
+  "symbol": "ZEO",
+  "name": "Meridian Foods",
+  "price": 169.02,
+  "open": 164.15,
+  "volume": 4973000
+ },
+ {
+  "symbol": "WXAO",
+  "name": "Orchard Energy",
+  "price": 166.81,
+  "open": 170.55,
+  "volume": 2042000
+ },
+ {
+  "symbol": "ARA",
+  "name": "Ember Holdings",
+  "price": 289.79,
+  "open": 294.17,
+  "volume": 3008000
+ },
+ {
+  "symbol": "HMA",
+  "name": "Pinecone Systems",
+  "price": 197.12,
+  "open": 192.28,
+  "volume": 2250000
+ },
+ {
+  "symbol": "DXXI",
+  "name": "Ironwood Biotech",
+  "price": 46.95,
+  "open": 46.35,
+  "volume": 7362000
+ },
+ {
+  "symbol": "TKT",
+  "name": "Northwind Foods",
+  "price": 344.18,
+  "open": 335.25,
+  "volume": 2414000
+ },
+ {
+  "symbol": "GLA",
+  "name": "Driftwood Energy",
+  "price": 367.55,
+  "open": 373.38,
+  "volume": 7260000
+ },
+ {
+  "symbol": "CRAI",
+  "name": "Willow Retail",
+  "price": 306.44,
+  "open": 311.94,
+  "volume": 1805000
+ },
+ {
+  "symbol": "FNT",
+  "name": "Harbor Retail",
+  "price": 581.91,
+  "open": 578.64,
+  "volume": 8596000
+ },
+ {
+  "symbol": "CRI",
+  "name": "Meridian Bank",
+  "price": 483.8,
+  "open": 496.6,
+  "volume": 6657000
+ },
+ {
+  "symbol": "ARC",
+  "name": "Quarry Systems",
+  "price": 126.55,
+  "open": 123.62,
+  "volume": 6572000
+ },
+ {
+  "symbol": "LMAO",
+  "name": "Ironwood Retail",
+  "price": 234.31,
+  "open": 227.61,
+  "volume": 3706000
+ },
+ {
+  "symbol": "LMXI",
+  "name": "Umbra Bank",
+  "price": 424.96,
+  "open": 422.89,
+  "volume": 120000
+ },
+ {
+  "symbol": "JKTI",
+  "name": "Cedar Retail",
+  "price": 312.69,
+  "open": 302.94,
+  "volume": 6250000
+ },
+ {
+  "symbol": "EVXI",
+  "name": "Ironwood Holdings",
+  "price": 439.69,
+  "open": 451.23,
+  "volume": 5112000
+ },
+ {
+  "symbol": "WXI",
+  "name": "Tidewater Holdings",
+  "price": 383.03,
+  "open": 381.52,
+  "volume": 1723000
+ },
+ {
+  "symbol": "RZTO",
+  "name": "Bluebird Retail",
+  "price": 419.68,
+  "open": 407.33,
+  "volume": 4808000
+ },
+ {
+  "symbol": "TKXI",
+  "name": "Umbra Foods",
+  "price": 486.78,
+  "open": 500.88,
+  "volume": 4232000
+ },
+ {
+  "symbol": "ORC",
+  "name": "Lumen Bank",
+  "price": 49.65,
+  "open": 48.18,
+  "volume": 6522000
+ },
+ {
+  "symbol": "QTT",
+  "name": "Granite Holdings",
+  "price": 273.88,
+  "open": 272.25,
+  "volume": 290000
+ },
+ {
+  "symbol": "HMCI",
+  "name": "Labs Retail",
+  "price": 345.84,
+  "open": 347.16,
+  "volume": 2055000
+ },
+ {
+  "symbol": "WXCO",
+  "name": "Pinecone Holdings",
+  "price": 242.81,
+  "open": 249.64,
+  "volume": 7367000
+ },
+ {
+  "symbol": "HMXO",
+  "name": "Bluebird Bank",
+  "price": 553.17,
+  "open": 566.42,
+  "volume": 6785000
+ },
+ {
+  "symbol": "RZ",
+  "name": "Orchard Holdings",
+  "price": 29.46,
+  "open": 30.22,
+  "volume": 4566000
+ },
+ {
+  "symbol": "QTA",
+  "name": "Acme Retail",
+  "price": 17.12,
+  "open": 17.27,
+  "volume": 5519000
+ },
+ {
+  "symbol": "WXX",
+  "name": "Tidewater Energy",
+  "price": 31.14,
+  "open": 32.17,
+  "volume": 8270000
+ },
+ {
+  "symbol": "PXC",
+  "name": "Juniper Biotech",
+  "price": 517.22,
+  "open": 520.72,
+  "volume": 6413000
+ },
+ {
+  "symbol": "QTI",
+  "name": "Quarry Foods",
+  "price": 433.57,
+  "open": 427.41,
+  "volume": 4756000
+ },
+ {
+  "symbol": "RZX",
+  "name": "Ironwood Foods",
+  "price": 191.88,
+  "open": 194.13,
+  "volume": 2717000
+ },
+ {
+  "symbol": "JK",
+  "name": "Acme Retail",
+  "price": 479.61,
+  "open": 492.14,
+  "volume": 5871000
+ },
+ {
+  "symbol": "VLA",
+  "name": "Saltmarsh Energy",
+  "price": 96.72,
+  "open": 99.58,
+  "volume": 2723000
+ },
+ {
+  "symbol": "EVC",
+  "name": "Granite Retail",
+  "price": 367.39,
+  "open": 366.81,
+  "volume": 469000
+ },
+ {
+  "symbol": "LMTI",
+  "name": "Meridian Retail",
+  "price": 361.43,
+  "open": 373.4,
+  "volume": 5452000
+ },
+ {
+  "symbol": "SNCO",
+  "name": "Pinecone Motors",
+  "price": 359.59,
+  "open": 346.71,
+  "volume": 6399000
+ },
+ {
+  "symbol": "LMCO",
+  "name": "Juniper Retail",
+  "price": 178.37,
+  "open": 182.48,
+  "volume": 4040000
+ },
+ {
+  "symbol": "DXXO",
+  "name": "Juniper Systems",
+  "price": 243.82,
+  "open": 250.47,
+  "volume": 6076000
+ },
+ {
+  "symbol": "FNAO",
+  "name": "Juniper Bank",
+  "price": 358.77,
+  "open": 364.57,
+  "volume": 8387000
+ },
+ {
+  "symbol": "JKXI",
+  "name": "Kestrel Holdings",
+  "price": 102.24,
+  "open": 102.72,
+  "volume": 7390000
+ },
+ {
+  "symbol": "NVAO",
+  "name": "Willow Biotech",
+  "price": 409.47,
+  "open": 418.29,
+  "volume": 5033000
+ },
+ {
+  "symbol": "ZE",
+  "name": "Kestrel Biotech",
+  "price": 361.39,
+  "open": 364.18,
+  "volume": 5022000
+ },
+ {
+  "symbol": "ORXI",
+  "name": "Acme Foods",
+  "price": 433.4,
+  "open": 418.07,
+  "volume": 8157000
+ },
+ {
+  "symbol": "GLO",
+  "name": "Umbra Retail",
+  "price": 397.89,
+  "open": 404.26,
+  "volume": 2165000
+ },
+ {
+  "symbol": "BLCI",
+  "name": "Labs Biotech",
+  "price": 25.78,
+  "open": 24.78,
+  "volume": 1828000
+ },
+ {
+  "symbol": "ZEXO",
+  "name": "Orchard Holdings",
+  "price": 372.4,
+  "open": 357.68,
+  "volume": 7731000
+ },
+ {
+  "symbol": "FNXI",
+  "name": "Fieldstone Systems",
+  "price": 301.75,
+  "open": 290.68,
+  "volume": 1240000
+ },
+ {
+  "symbol": "LMA",
+  "name": "Bluebird Systems",
+  "price": 509.09,
+  "open": 496.3,
+  "volume": 6751000
+ },
+ {
+  "symbol": "RZCI",
+  "name": "Tidewater Foods",
+  "price": 354.67,
+  "open": 352.17,
+  "volume": 6463000
+ },
+ {
+  "symbol": "SNC",
+  "name": "Redwood Holdings",
+  "price": 530.77,
+  "open": 511,
+  "volume": 6070000
+ },
+ {
+  "symbol": "BLO",
+  "name": "Saltmarsh Energy",
+  "price": 287.95,
+  "open": 278.86,
+  "volume": 4040000
+ },
+ {
+  "symbol": "QTAI",
+  "name": "Willow Holdings",
+  "price": 135.57,
+  "open": 138.72,
+  "volume": 3145000
+ },
+ {
+  "symbol": "GLX",
+  "name": "Pinecone Bank",
+  "price": 216.26,
+  "open": 208.89,
+  "volume": 8808000
+ },
+ {
+  "symbol": "ARXI",
+  "name": "Orchard Biotech",
+  "price": 553.16,
+  "open": 553.3,
+  "volume": 6803000
+ },
+ {
+  "symbol": "SNXO",
+  "name": "Granite Retail",
+  "price": 512.84,
+  "open": 497.54,
+  "volume": 6842000
+ },
+ {
+  "symbol": "EVT",
+  "name": "Northwind Bank",
+  "price": 227.48,
+  "open": 225.59,
+  "volume": 2158000
+ },
+ {
+  "symbol": "NVTI",
+  "name": "Pinecone Motors",
+  "price": 271.76,
+  "open": 275.47,
+  "volume": 3637000
+ },
+ {
+  "symbol": "ART",
+  "name": "Saltmarsh Motors",
+  "price": 27.89,
+  "open": 26.95,
+  "volume": 120000
+ },
+ {
+  "symbol": "FNC",
+  "name": "Juniper Energy",
+  "price": 508.59,
+  "open": 516.5,
+  "volume": 8924000
+ },
+ {
+  "symbol": "EVTO",
+  "name": "Ironwood Systems",
+  "price": 489.3,
+  "open": 491.84,
+  "volume": 117000
+ },
+ {
+  "symbol": "AR",
+  "name": "Cedar Bank",
+  "price": 369.16,
+  "open": 379.92,
+  "volume": 7174000
+ },
+ {
+  "symbol": "BLXO",
+  "name": "Northwind Foods",
+  "price": 75.08,
+  "open": 73.75,
+  "volume": 8308000
+ },
+ {
+  "symbol": "CRAO",
+  "name": "Cedar Bank",
+  "price": 558.58,
+  "open": 558.71,
+  "volume": 7363000
+ },
+ {
+  "symbol": "SNXI",
+  "name": "Umbra Retail",
+  "price": 499.33,
+  "open": 480.35,
+  "volume": 3574000
+ },
+ {
+  "symbol": "WXAI",
+  "name": "Ironwood Biotech",
+  "price": 54.53,
+  "open": 54.04,
+  "volume": 5952000
+ },
+ {
+  "symbol": "VLCI",
+  "name": "Kestrel Retail",
+  "price": 434.11,
+  "open": 432.98,
+  "volume": 4363000
+ },
+ {
+  "symbol": "ARCI",
+  "name": "Ember Systems",
+  "price": 179.74,
+  "open": 176.14,
+  "volume": 7967000
+ },
+ {
+  "symbol": "DXT",
+  "name": "Lumen Energy",
+  "price": 489.66,
+  "open": 490.69,
+  "volume": 1561000
+ },
+ {
+  "symbol": "JKA",
+  "name": "Acme Holdings",
+  "price": 349.75,
+  "open": 336.55,
+  "volume": 8073000
+ },
+ {
+  "symbol": "WXCI",
+  "name": "Saltmarsh Holdings",
+  "price": 563.95,
+  "open": 551.95,
+  "volume": 7727000
+ },
+ {
+  "symbol": "JKAI",
+  "name": "Northwind Bank",
+  "price": 417.18,
+  "open": 425.16,
+  "volume": 5631000
+ },
+ {
+  "symbol": "TKC",
+  "name": "Willow Systems",
+  "price": 413.92,
+  "open": 419.9,
+  "volume": 1826000
+ },
+ {
+  "symbol": "TKO",
+  "name": "Willow Foods",
+  "price": 26.51,
+  "open": 25.67,
+  "volume": 7249000
+ },
+ {
+  "symbol": "CRX",
+  "name": "Labs Motors",
+  "price": 99.45,
+  "open": 100.11,
+  "volume": 7262000
+ },
+ {
+  "symbol": "TKAI",
+  "name": "Tidewater Retail",
+  "price": 594.93,
+  "open": 583.91,
+  "volume": 2445000
+ },
+ {
+  "symbol": "JKCI",
+  "name": "Cedar Bank",
+  "price": 226.35,
+  "open": 217.36,
+  "volume": 1827000
+ },
+ {
+  "symbol": "DXTI",
+  "name": "Meridian Energy",
+  "price": 275.94,
+  "open": 266.85,
+  "volume": 8357000
+ },
+ {
+  "symbol": "DXO",
+  "name": "Umbra Foods",
+  "price": 558.08,
+  "open": 578.01,
+  "volume": 3920000
+ },
+ {
+  "symbol": "ORTO",
+  "name": "Vantage Retail",
+  "price": 219.88,
+  "open": 215.85,
+  "volume": 7468000
+ },
+ {
+  "symbol": "OR",
+  "name": "Lumen Bank",
+  "price": 112.26,
+  "open": 110.6,
+  "volume": 3653000
+ },
+ {
+  "symbol": "CRXI",
+  "name": "Juniper Foods",
+  "price": 145.17,
+  "open": 146.55,
+  "volume": 6979000
+ },
+ {
+  "symbol": "RZXO",
+  "name": "Ironwood Holdings",
+  "price": 82.57,
+  "open": 85.17,
+  "volume": 10000
+ },
+ {
+  "symbol": "ARCO",
+  "name": "Fieldstone Motors",
+  "price": 480.95,
+  "open": 476.5,
+  "volume": 1779000
+ },
+ {
+  "symbol": "ORI",
+  "name": "Cedar Biotech",
+  "price": 124.9,
+  "open": 129.48,
+  "volume": 2881000
+ },
+ {
+  "symbol": "JKX",
+  "name": "Fieldstone Foods",
+  "price": 579.8,
+  "open": 558.87,
+  "volume": 6959000
+ },
+ {
+  "symbol": "PXTI",
+  "name": "Orchard Foods",
+  "price": 515.95,
+  "open": 515.38,
+  "volume": 4921000
+ },
+ {
+  "symbol": "BLC",
+  "name": "Orchard Bank",
+  "price": 388.57,
+  "open": 398.46,
+  "volume": 8808000
+ },
+ {
+  "symbol": "JKCO",
+  "name": "Fieldstone Foods",
+  "price": 156.09,
+  "open": 154.73,
+  "volume": 4034000
+ },
+ {
+  "symbol": "GLC",
+  "name": "Acme Systems",
+  "price": 39.05,
+  "open": 39.36,
+  "volume": 850000
+ },
+ {
+  "symbol": "DX",
+  "name": "Vantage Systems",
+  "price": 87.7,
+  "open": 86.81,
+  "volume": 5462000
+ },
+ {
+  "symbol": "LMC",
+  "name": "Harbor Bank",
+  "price": 83.05,
+  "open": 84.22,
+  "volume": 4473000
+ },
+ {
+  "symbol": "VLAO",
+  "name": "Ironwood Motors",
+  "price": 601.1,
+  "open": 602.45,
+  "volume": 3053000
+ },
+ {
+  "symbol": "SNX",
+  "name": "Willow Motors",
+  "price": 565.39,
+  "open": 563.95,
+  "volume": 7954000
+ },
+ {
+  "symbol": "BL",
+  "name": "Fieldstone Retail",
+  "price": 325.27,
+  "open": 331,
+  "volume": 1581000
+ },
+ {
+  "symbol": "DXCO",
+  "name": "Vantage Energy",
+  "price": 498.64,
+  "open": 482.41,
+  "volume": 1403000
+ },
+ {
+  "symbol": "QTTO",
+  "name": "Redwood Retail",
+  "price": 394.5,
+  "open": 402.47,
+  "volume": 5136000
+ },
+ {
+  "symbol": "ORCI",
+  "name": "Tidewater Motors",
+  "price": 204.85,
+  "open": 210.28,
+  "volume": 7767000
+ },
+ {
+  "symbol": "VLO",
+  "name": "Juniper Holdings",
+  "price": 16,
+  "open": 15.71,
+  "volume": 5712000
+ },
+ {
+  "symbol": "JKC",
+  "name": "Harbor Energy",
+  "price": 287.83,
+  "open": 293.08,
+  "volume": 8422000
+ },
+ {
+  "symbol": "LMI",
+  "name": "Northwind Holdings",
+  "price": 299.15,
+  "open": 305.98,
+  "volume": 5888000
+ },
+ {
+  "symbol": "PX",
+  "name": "Acme Retail",
+  "price": 490.68,
+  "open": 473.23,
+  "volume": 5531000
+ },
+ {
+  "symbol": "GL",
+  "name": "Granite Systems",
+  "price": 196.32,
+  "open": 191.78,
+  "volume": 6910000
+ },
+ {
+  "symbol": "RZAI",
+  "name": "Pinecone Systems",
+  "price": 530.43,
+  "open": 513.63,
+  "volume": 4072000
+ },
+ {
+  "symbol": "VLT",
+  "name": "Juniper Retail",
+  "price": 326.75,
+  "open": 338.22,
+  "volume": 1097000
+ },
+ {
+  "symbol": "QTCO",
+  "name": "Meridian Motors",
+  "price": 491.54,
+  "open": 504.72,
+  "volume": 7225000
+ },
+ {
+  "symbol": "PXTO",
+  "name": "Saltmarsh Systems",
+  "price": 521.74,
+  "open": 504.37,
+  "volume": 7049000
+ },
+ {
+  "symbol": "BLA",
+  "name": "Saltmarsh Biotech",
+  "price": 302.24,
+  "open": 314.2,
+  "volume": 2866000
+ },
+ {
+  "symbol": "HMT",
+  "name": "Ironwood Energy",
+  "price": 150.25,
+  "open": 146.73,
+  "volume": 7750000
+ },
+ {
+  "symbol": "ORT",
+  "name": "Fieldstone Motors",
+  "price": 208.5,
+  "open": 207.75,
+  "volume": 8864000
+ },
+ {
+  "symbol": "GLAI",
+  "name": "Granite Systems",
+  "price": 278.04,
+  "open": 274.18,
+  "volume": 951000
+ },
+ {
+  "symbol": "ARAI",
+  "name": "Saltmarsh Retail",
+  "price": 360.62,
+  "open": 368.72,
+  "volume": 6191000
+ },
+ {
+  "symbol": "TK",
+  "name": "Acme Bank",
+  "price": 471.99,
+  "open": 480.22,
+  "volume": 8035000
+ },
+ {
+  "symbol": "TKTI",
+  "name": "Saltmarsh Biotech",
+  "price": 15.35,
+  "open": 15.96,
+  "volume": 1769000
+ },
+ {
+  "symbol": "WXTO",
+  "name": "Saltmarsh Motors",
+  "price": 348.33,
+  "open": 334.9,
+  "volume": 4291000
+ },
+ {
+  "symbol": "NVTO",
+  "name": "Umbra Systems",
+  "price": 499.98,
+  "open": 501.91,
+  "volume": 7737000
+ },
+ {
+  "symbol": "ORO",
+  "name": "Lumen Energy",
+  "price": 65.66,
+  "open": 65.84,
+  "volume": 7520000
+ },
+ {
+  "symbol": "PXAI",
+  "name": "Quarry Energy",
+  "price": 586.55,
+  "open": 584.78,
+  "volume": 8229000
+ },
+ {
+  "symbol": "HMAO",
+  "name": "Granite Bank",
+  "price": 305.55,
+  "open": 295.45,
+  "volume": 6509000
+ },
+ {
+  "symbol": "ZEAO",
+  "name": "Meridian Foods",
+  "price": 456.09,
+  "open": 456.45,
+  "volume": 1550000
+ },
+ {
+  "symbol": "SNA",
+  "name": "Vantage Foods",
+  "price": 119.63,
+  "open": 123.54,
+  "volume": 6300000
+ },
+ {
+  "symbol": "RZA",
+  "name": "Cedar Holdings",
+  "price": 264.34,
+  "open": 262.5,
+  "volume": 3934000
+ },
+ {
+  "symbol": "CRXO",
+  "name": "Cedar Systems",
+  "price": 544.62,
+  "open": 550.46,
+  "volume": 6806000
+ },
+ {
+  "symbol": "VLI",
+  "name": "Orchard Systems",
+  "price": 510.54,
+  "open": 505.99,
+  "volume": 2263000
+ },
+ {
+  "symbol": "SNAI",
+  "name": "Acme Motors",
+  "price": 545.69,
+  "open": 547.27,
+  "volume": 2316000
+ },
+ {
+  "symbol": "CRCO",
+  "name": "Pinecone Systems",
+  "price": 167.18,
+  "open": 168.91,
+  "volume": 7153000
+ },
+ {
+  "symbol": "CRO",
+  "name": "Orchard Holdings",
+  "price": 115.39,
+  "open": 111.48,
+  "volume": 6680000
+ },
+ {
+  "symbol": "ARXO",
+  "name": "Granite Energy",
+  "price": 127.68,
+  "open": 129.6,
+  "volume": 6669000
+ },
+ {
+  "symbol": "PXI",
+  "name": "Acme Energy",
+  "price": 324.95,
+  "open": 331.2,
+  "volume": 5989000
+ },
+ {
+  "symbol": "VLXI",
+  "name": "Saltmarsh Foods",
+  "price": 23.5,
+  "open": 22.71,
+  "volume": 764000
+ },
+ {
+  "symbol": "LMCI",
+  "name": "Harbor Retail",
+  "price": 433.61,
+  "open": 420.75,
+  "volume": 8276000
+ },
+ {
+  "symbol": "TKCI",
+  "name": "Bluebird Bank",
+  "price": 264.17,
+  "open": 268.01,
+  "volume": 125000
+ },
+ {
+  "symbol": "DXI",
+  "name": "Cedar Foods",
+  "price": 600.86,
+  "open": 599.75,
+  "volume": 1765000
+ },
+ {
+  "symbol": "ORA",
+  "name": "Orchard Biotech",
+  "price": 484.68,
+  "open": 466.19,
+  "volume": 5065000
+ },
+ {
+  "symbol": "PXCO",
+  "name": "Umbra Systems",
+  "price": 465.89,
+  "open": 455.77,
+  "volume": 1873000
+ },
+ {
+  "symbol": "ZEX",
+  "name": "Umbra Foods",
+  "price": 168.35,
+  "open": 173.41,
+  "volume": 2788000
+ },
+ {
+  "symbol": "CRTI",
+  "name": "Driftwood Retail",
+  "price": 585.45,
+  "open": 565.67,
+  "volume": 3441000
+ },
+ {
+  "symbol": "QTX",
+  "name": "Cedar Holdings",
+  "price": 328.15,
+  "open": 332.84,
+  "volume": 593000
+ },
+ {
+  "symbol": "HMI",
+  "name": "Willow Holdings",
+  "price": 36.17,
+  "open": 35.61,
+  "volume": 6442000
+ },
+ {
+  "symbol": "HMCO",
+  "name": "Ironwood Motors",
+  "price": 64.12,
+  "open": 62.08,
+  "volume": 2534000
+ },
+ {
+  "symbol": "HMXI",
+  "name": "Ironwood Motors",
+  "price": 541.64,
+  "open": 544.41,
+  "volume": 3468000
+ },
+ {
+  "symbol": "TKXO",
+  "name": "Ember Biotech",
+  "price": 99.95,
+  "open": 97.78,
+  "volume": 1948000
+ },
+ {
+  "symbol": "TKAO",
+  "name": "Bluebird Energy",
+  "price": 418.29,
+  "open": 412.43,
+  "volume": 4823000
+ },
+ {
+  "symbol": "ZEXI",
+  "name": "Tidewater Holdings",
+  "price": 356.98,
+  "open": 352.39,
+  "volume": 652000
+ },
+ {
+  "symbol": "SNAO",
+  "name": "Labs Energy",
+  "price": 89.69,
+  "open": 86.94,
+  "volume": 8147000
+ },
+ {
+  "symbol": "BLCO",
+  "name": "Harbor Holdings",
+  "price": 19.29,
+  "open": 19.67,
+  "volume": 6166000
+ },
+ {
+  "symbol": "ZECO",
+  "name": "Redwood Retail",
+  "price": 521.05,
+  "open": 541.6,
+  "volume": 1007000
+ },
+ {
+  "symbol": "EVO",
+  "name": "Harbor Bank",
+  "price": 53.07,
+  "open": 54.09,
+  "volume": 2478000
+ },
+ {
+  "symbol": "NVX",
+  "name": "Redwood Motors",
+  "price": 535.67,
+  "open": 553.09,
+  "volume": 2894000
+ },
+ {
+  "symbol": "ARTI",
+  "name": "Tidewater Systems",
+  "price": 271.86,
+  "open": 261.13,
+  "volume": 3209000
+ },
+ {
+  "symbol": "DXC",
+  "name": "Pinecone Foods",
+  "price": 429.43,
+  "open": 419.25,
+  "volume": 7223000
+ },
+ {
+  "symbol": "RZAO",
+  "name": "Saltmarsh Holdings",
+  "price": 575.45,
+  "open": 571.83,
+  "volume": 3792000
+ },
+ {
+  "symbol": "NVI",
+  "name": "Driftwood Retail",
+  "price": 353.33,
+  "open": 361.77,
+  "volume": 5316000
+ },
+ {
+  "symbol": "NVAI",
+  "name": "Labs Systems",
+  "price": 266.51,
+  "open": 274.74,
+  "volume": 1519000
+ },
+ {
+  "symbol": "ZEC",
+  "name": "Willow Energy",
+  "price": 271.6,
+  "open": 276.36,
+  "volume": 1085000
+ },
+ {
+  "symbol": "QTTI",
+  "name": "Meridian Biotech",
+  "price": 20.37,
+  "open": 21.16,
+  "volume": 871000
+ },
+ {
+  "symbol": "PXA",
+  "name": "Labs Bank",
+  "price": 121.87,
+  "open": 117.93,
+  "volume": 5531000
+ },
+ {
+  "symbol": "QTC",
+  "name": "Harbor Energy",
+  "price": 251.71,
+  "open": 254.33,
+  "volume": 2250000
+ },
+ {
+  "symbol": "ARO",
+  "name": "Acme Holdings",
+  "price": 477.79,
+  "open": 461.57,
+  "volume": 6281000
+ },
+ {
+  "symbol": "ORXO",
+  "name": "Kestrel Bank",
+  "price": 453.47,
+  "open": 436.22,
+  "volume": 2257000
+ },
+ {
+  "symbol": "VLX",
+  "name": "Willow Motors",
+  "price": 198.07,
+  "open": 194.54,
+  "volume": 3940000
+ },
+ {
+  "symbol": "NVXO",
+  "name": "Redwood Holdings",
+  "price": 42.89,
+  "open": 42.88,
+  "volume": 4735000
+ },
+ {
+  "symbol": "GLT",
+  "name": "Kestrel Energy",
+  "price": 586.29,
+  "open": 575.9,
+  "volume": 4737000
+ },
+ {
+  "symbol": "CRTO",
+  "name": "Granite Holdings",
+  "price": 595.09,
+  "open": 601.42,
+  "volume": 8514000
+ },
+ {
+  "symbol": "LMXO",
+  "name": "Vantage Foods",
+  "price": 250.28,
+  "open": 256.23,
+  "volume": 7178000
+ },
+ {
+  "symbol": "JKO",
+  "name": "Granite Energy",
+  "price": 136.38,
+  "open": 132.7,
+  "volume": 6464000
+ },
+ {
+  "symbol": "VLCO",
+  "name": "Fieldstone Systems",
+  "price": 62.54,
+  "open": 61.34,
+  "volume": 1920000
+ },
+ {
+  "symbol": "ARAO",
+  "name": "Bluebird Systems",
+  "price": 254.79,
+  "open": 250.98,
+  "volume": 1829000
+ },
+ {
+  "symbol": "ZEAI",
+  "name": "Lumen Bank",
+  "price": 313.47,
+  "open": 310.57,
+  "volume": 7875000
+ },
+ {
+  "symbol": "QTO",
+  "name": "Cedar Foods",
+  "price": 556.55,
+  "open": 563.06,
+  "volume": 906000
+ },
+ {
+  "symbol": "EVCO",
+  "name": "Cedar Holdings",
+  "price": 36.15,
+  "open": 37.5,
+  "volume": 4055000
+ },
+ {
+  "symbol": "BLXI",
+  "name": "Northwind Foods",
+  "price": 126.24,
+  "open": 122.9,
+  "volume": 1845000
+ },
+ {
+  "symbol": "PXT",
+  "name": "Willow Foods",
+  "price": 49.1,
+  "open": 49.8,
+  "volume": 7799000
+ },
+ {
+  "symbol": "DXTO",
+  "name": "Fieldstone Bank",
+  "price": 81.27,
+  "open": 78.13,
+  "volume": 745000
+ },
+ {
+  "symbol": "ZET",
+  "name": "Acme Motors",
+  "price": 469.49,
+  "open": 460.06,
+  "volume": 7382000
+ },
+ {
+  "symbol": "WXTI",
+  "name": "Lumen Foods",
+  "price": 114.03,
+  "open": 111.87,
+  "volume": 6242000
+ },
+ {
+  "symbol": "EVCI",
+  "name": "Kestrel Foods",
+  "price": 559.76,
+  "open": 545.13,
+  "volume": 620000
+ },
+ {
+  "symbol": "LMX",
+  "name": "Redwood Systems",
+  "price": 587.03,
+  "open": 584.97,
+  "volume": 1271000
+ },
+ {
+  "symbol": "VLXO",
+  "name": "Redwood Foods",
+  "price": 28.84,
+  "open": 29.14,
+  "volume": 8183000
+ },
+ {
+  "symbol": "JKAO",
+  "name": "Driftwood Retail",
+  "price": 458.15,
+  "open": 469.55,
+  "volume": 4953000
+ },
+ {
+  "symbol": "ORCO",
+  "name": "Vantage Foods",
+  "price": 323.82,
+  "open": 313.04,
+  "volume": 4642000
+ },
+ {
+  "symbol": "GLTI",
+  "name": "Ember Systems",
+  "price": 427.74,
+  "open": 427.81,
+  "volume": 1086000
+ },
+ {
+  "symbol": "JKXO",
+  "name": "Cedar Retail",
+  "price": 64.92,
+  "open": 67.06,
+  "volume": 4241000
+ },
+ {
+  "symbol": "HMAI",
+  "name": "Kestrel Energy",
+  "price": 383.73,
+  "open": 375.54,
+  "volume": 7596000
+ },
+ {
+  "symbol": "JKTO",
+  "name": "Northwind Holdings",
+  "price": 402.24,
+  "open": 390.1,
+  "volume": 754000
+ },
+ {
+  "symbol": "FNCI",
+  "name": "Harbor Motors",
+  "price": 91.05,
+  "open": 88.99,
+  "volume": 4479000
+ },
+ {
+  "symbol": "NVCO",
+  "name": "Tidewater Biotech",
+  "price": 449.47,
+  "open": 450.63,
+  "volume": 4654000
+ },
+ {
+  "symbol": "LM",
+  "name": "Vantage Foods",
+  "price": 414.06,
+  "open": 428.49,
+  "volume": 3361000
+ },
+ {
+  "symbol": "QTCI",
+  "name": "Granite Foods",
+  "price": 467.18,
+  "open": 478.44,
+  "volume": 4313000
+ },
+ {
+  "symbol": "NVA",
+  "name": "Northwind Motors",
+  "price": 300.57,
+  "open": 292.67,
+  "volume": 164000
+ },
+ {
+  "symbol": "WXC",
+  "name": "Meridian Retail",
+  "price": 251.47,
+  "open": 248.12,
+  "volume": 5334000
+ },
+ {
+  "symbol": "VLTI",
+  "name": "Harbor Foods",
+  "price": 347.69,
+  "open": 345.42,
+  "volume": 6587000
+ },
+ {
+  "symbol": "NVCI",
+  "name": "Ironwood Bank",
+  "price": 55.21,
+  "open": 55.12,
+  "volume": 4017000
+ },
+ {
+  "symbol": "EVTI",
+  "name": "Fieldstone Holdings",
+  "price": 502.92,
+  "open": 518.06,
+  "volume": 440000
+ },
+ {
+  "symbol": "QTAO",
+  "name": "Saltmarsh Biotech",
+  "price": 562.47,
+  "open": 558.47,
+  "volume": 6565000
+ },
+ {
+  "symbol": "DXAI",
+  "name": "Fieldstone Biotech",
+  "price": 582.38,
+  "open": 604.01,
+  "volume": 6754000
+ },
+ {
+  "symbol": "HMTO",
+  "name": "Driftwood Foods",
+  "price": 395.7,
+  "open": 386.11,
+  "volume": 8241000
+ },
+ {
+  "symbol": "BLT",
+  "name": "Cedar Motors",
+  "price": 80.89,
+  "open": 78.62,
+  "volume": 5109000
+ },
+ {
+  "symbol": "BLAI",
+  "name": "Bluebird Motors",
+  "price": 154.72,
+  "open": 151.82,
+  "volume": 6247000
+ },
+ {
+  "symbol": "VLTO",
+  "name": "Driftwood Motors",
+  "price": 14.55,
+  "open": 14.18,
+  "volume": 3286000
+ },
+ {
+  "symbol": "CRT",
+  "name": "Quarry Motors",
+  "price": 34.05,
+  "open": 33.59,
+  "volume": 1147000
+ },
+ {
+  "symbol": "ORAI",
+  "name": "Vantage Retail",
+  "price": 198.62,
+  "open": 192.97,
+  "volume": 6470000
+ },
+ {
+  "symbol": "BLAO",
+  "name": "Ironwood Motors",
+  "price": 394.72,
+  "open": 401.95,
+  "volume": 3656000
+ }
+]

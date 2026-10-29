@@ -31,7 +31,7 @@ impl Raster {
     }
 }
 
-fn integer_bounds(rect: Rect4, ts: Transform) -> Option<[f32; 4]> {
+pub(super) fn integer_bounds(rect: Rect4, ts: Transform) -> Option<[f32; 4]> {
     axis_bounds(rect, ts).filter(|bounds| bounds.iter().all(|v| v.fract() == 0.))
 }
 

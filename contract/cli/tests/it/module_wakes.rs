@@ -501,6 +501,77 @@ fn an_implementation_raises_a_wake_and_is_told_its_end() {
     assert_eq!(woke(&heard)[2], r#""w3" "unheard""#, "{}", logs(&r));
 }
 
+/// The platform's time runs out before the wake's own budget (a `BGTask`'s
+/// expiration handler): the implementation says so, the running wake
+/// expires at once and its request fails, and a wake still waiting behind
+/// it ends `expired` unrun.
+#[test]
+fn an_implementation_expires_the_wake_it_raised() {
+    use std::sync::{Arc, Mutex};
+    let app = App::new("told-expired");
+    let mut r = boot(&app);
+    r.listen(Arc::new(|| {}));
+    let heard: Arc<Mutex<Vec<serde_json::Value>>> = Default::default();
+    let seen = heard.clone();
+    r.native_slot().host(Some(Arc::new(
+        move |body: Vec<u8>, reply: exact_runner::Reply| {
+            seen.lock()
+                .unwrap()
+                .push(serde_json::from_slice(&body).unwrap());
+            reply.send(exact_runner::Outcome::Response(exact_runner::Response {
+                status: 200,
+                headers: Vec::new(),
+                body: b"{}".to_vec(),
+            }));
+        },
+    )));
+    r.bind_extensions(&["tide"], &[]);
+    let say = |r: &Runner<Later>, topic: &str, id: &str| {
+        let body =
+            serde_json::json!({ "extension": "tide", "event": "tide", "args": [id], "id": id });
+        r.native_slot().changed(&format!("{topic}:{body}"));
+    };
+    let woke = |heard: &Arc<Mutex<Vec<serde_json::Value>>>| {
+        (heard.lock().unwrap().iter())
+            .filter(|v| v.get("woke").is_some())
+            .map(|v| format!("{} {}", v["woke"], v["outcome"]))
+            .collect::<Vec<_>>()
+    };
+    say(&r, "exact-wake", "w1");
+    say(&r, "exact-wake", "w2");
+    r.apply_announced();
+    by(&mut r, 0.0);
+    assert_eq!(
+        state(&r)["wake"]["invocations"][0]["state"],
+        "running",
+        "{}",
+        logs(&r)
+    );
+    say(&r, "exact-wake-expired", "w2");
+    r.apply_announced();
+    assert_eq!(woke(&heard), [r#""w2" "expired""#], "{}", logs(&r));
+    assert_eq!(state(&r)["wake"]["invocations"][0]["state"], "running");
+    say(&r, "exact-wake-expired", "w1");
+    r.apply_announced();
+    by(&mut r, 0.0);
+    assert_eq!(
+        woke(&heard),
+        [r#""w2" "expired""#, r#""w1" "expired""#],
+        "{}",
+        logs(&r)
+    );
+    assert_eq!(state(&r)["wake"]["outcome"], "expired", "{}", logs(&r));
+    assert!(
+        logs(&r).contains("the platform expired wake w1"),
+        "{}",
+        logs(&r)
+    );
+    // Said again after the wake ended, it changes nothing.
+    say(&r, "exact-wake-expired", "w1");
+    r.apply_announced();
+    assert_eq!(woke(&heard).len(), 2);
+}
+
 /// LLP 1133.023 D7: a tool call is an invocation as a wake's event is, one
 /// at a time with the wakes: a call that arrives while a wake runs waits
 /// for it, and runs once the wake has ended.
@@ -535,4 +606,47 @@ fn a_call_waits_for_a_running_wake() {
     let calls = state(&r)["intents"]["calls"].clone();
     assert_eq!(calls[0]["outcome"], "ok", "{calls} {}", logs(&r));
     assert_eq!(calls[0]["certainty"], "applied");
+}
+
+/// LLP 1133.033 D21: Android's reader under the agent starts no foreground
+/// service and says each claim through the claimant's `changed`; the runner
+/// journals it and lists the claims held in the claimant's
+/// `state.extensions` entry until their release.
+#[test]
+fn a_foreground_service_claim_is_listed_while_held() {
+    let app = App::new("claim");
+    let mut r = boot(&app);
+    r.listen(std::sync::Arc::new(|| {}));
+    let told = |r: &Runner<Later>, claimed: bool, refused: Option<&str>| {
+        let mut body = serde_json::json!({ "extension": "tide", "kind": "capture", "types": ["microphone"], "claimed": claimed, "text": "Recording" });
+        if let Some(why) = refused {
+            body["refused"] = why.into();
+        }
+        r.native_slot()
+            .changed(&format!("exact-foreground-service:{body}"));
+    };
+    let claims = |r: &Runner<Later>| state(r)["extensions"]["tide"]["foregroundService"].clone();
+    told(&r, true, None);
+    r.apply_announced();
+    let held = claims(&r);
+    assert_eq!(held[0]["type"], "microphone", "{held}");
+    assert_eq!(
+        (held[0]["package"].as_str(), held[0]["text"].as_str()),
+        (Some("tide"), Some("Recording"))
+    );
+    assert!(
+        logs(&r).contains("foreground service microphone: claimed"),
+        "{}",
+        logs(&r)
+    );
+    told(&r, false, None);
+    r.apply_announced();
+    assert!(claims(&r).is_null(), "{}", claims(&r));
+    assert!(logs(&r).contains("foreground service microphone: released"));
+    told(&r, false, Some("ForegroundServiceStartNotAllowedException"));
+    r.apply_announced();
+    assert!(logs(&r).contains(
+        "foreground service microphone: refused: ForegroundServiceStartNotAllowedException"
+    ));
+    assert!(claims(&r).is_null());
 }

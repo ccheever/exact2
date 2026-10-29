@@ -1,0 +1,223 @@
+{
+ "app": "dev.bakeoff.workoutlog.b5b82f6",
+ "verdict": "probed",
+ "smooth": {
+  "frames": 732,
+  "motionS": 12.2,
+  "fps": 60,
+  "hitchRatio": 0,
+  "longestFrameMs": 16.7,
+  "hitches": 0,
+  "hitchAt": [],
+  "mainMs": 1.36,
+  "mainP95Ms": 3.3,
+  "where": [],
+  "verdict": {
+   "hitch": "ok",
+   "stall": "ok",
+   "main": "ok"
+  }
+ },
+ "tracking": {
+  "ratio": 1.009,
+  "lagFrames": 0,
+  "maxErrorPt": 4.7,
+  "slopPt": 10,
+  "glidePt": 0,
+  "verdict": {
+   "ratio": "ok",
+   "lag": "ok",
+   "glide": "ok"
+  }
+ },
+ "flings": [
+  {
+   "name": "fling-1500",
+   "asked": 1500,
+   "fingerV": 787,
+   "tauMs": 502,
+   "ratePerMs": 0.99801,
+   "r2": 0.9961,
+   "contentV": 1282,
+   "handoff": 0.85,
+   "frames": 89,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 614,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 3.3,
+   "contentSizeChanges": 6,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-4000",
+   "asked": 4000,
+   "fingerV": 3027,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9999,
+   "contentV": 4423,
+   "handoff": 1.11,
+   "frames": 46,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1667,
+   "contentSizeChanges": 25,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-6000",
+   "asked": 6000,
+   "fingerV": 3030,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 1.4,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-1",
+   "asked": 8000,
+   "fingerV": -5300,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": -4205,
+   "handoff": 0.53,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1912,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-2",
+   "asked": 8000,
+   "fingerV": -5300,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": -4245,
+   "handoff": 0.53,
+   "frames": 16,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 845,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-partway",
+   "asked": 3000,
+   "fingerV": 1410,
+   "tauMs": 501,
+   "ratePerMs": 0.99801,
+   "r2": 0.9989,
+   "contentV": 2954,
+   "handoff": 0.98,
+   "frames": 113,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1428,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 1.9,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-for-tap",
+   "asked": 4000,
+   "fingerV": 3456,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9999,
+   "contentV": 4542,
+   "handoff": 1.14,
+   "frames": 22,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1146,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 2.5,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  }
+ ],
+ "momentum": {
+  "tauMs": 501,
+  "handoff": 0.98,
+  "jumps": 0,
+  "contentSizeChanges": 31,
+  "contentShifts": 0,
+  "liftDrops": 0,
+  "lifts": 4,
+  "liftMainMs": 3.3,
+  "verdict": {
+   "lift": "ok",
+   "tau": "ok",
+   "handoff": "ok",
+   "jumps": "ok"
+  }
+ },
+ "edgeBounce": {
+  "name": "fling-up-2",
+  "overshootPt": 79.3,
+  "entryV": -2240,
+  "settleS": 0.75,
+  "verdict": {
+   "settle": "ok"
+  }
+ },
+ "rubberBand": {
+  "overscrollPt": 110.7,
+  "fingerPt": 224,
+  "ratio": 0.49,
+  "settleS": 0.57,
+  "bounces": true,
+  "verdict": {
+   "ratio": "ok",
+   "settle": "ok"
+  }
+ },
+ "scrollToTop": {
+  "fromPt": 1644,
+  "reached": true,
+  "startS": 0.15,
+  "durationS": 0.8,
+  "scrollsToTop": true,
+  "verdict": {
+   "reached": "ok"
+  }
+ },
+ "tapToStop": {
+  "beforeV": 2020,
+  "stopFrames": 1,
+  "travelPt": 0,
+  "activated": false,
+  "verdict": {
+   "stop": "ok"
+  }
+ },
+ "blank": {
+  "samples": 66,
+  "uniformSamples": 0,
+  "checked": 0,
+  "lateChecked": 0,
+  "verified": true,
+  "blankSamples": 0,
+  "share": 0,
+  "maxPt": 0,
+  "sampleMs": 1.8,
+  "verdict": {
+   "blank": "ok"
+  }
+ },
+ "list": {
+  "cls": "ExactGroupedLists.GroupedCollectionView",
+  "decelerationRate": 0.998,
+  "bounces": true,
+  "scrollsToTop": true,
+  "delaysContentTouches": true,
+  "contentHeight": 3891.666666666667
+ }
+}

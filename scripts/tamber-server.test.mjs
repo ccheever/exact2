@@ -14,7 +14,7 @@ import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
-import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
+import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer, TOOL_PORT } from './tamber-server.mjs';
 import { suiteBrowser } from './agent-launch.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -301,6 +301,7 @@ const post = async request => {
 /** The long poll's answer. */
 const poll = async request => (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify(request) })).json();
 
+const EVENT_WAIT = 20_000, WIRE_TEST = 300_000; // (a watcher event on a busy machine can take seconds, 5 s timed out; a wire test's limit holds all its waits)
 /** The change stream's events as they come. */
 async function subscribe() {
   const res = await fetch(`${origin}/__tamber/subscribe`, { method: 'POST', headers });
@@ -315,9 +316,9 @@ async function subscribe() {
       for (const part of parts) if (part.startsWith('data: ')) events.push(JSON.parse(part.slice(6)));
     }
   })();
-  const until = async (pass, ms = 5000) => {
+  const until = async (pass, ms = EVENT_WAIT) => {
     const end = Date.now() + ms;
-    while (!pass(events)) { if (Date.now() > end) throw new Error(`no such event in ${JSON.stringify(events)}`); await Bun.sleep(20); }
+    while (!pass(events)) { if (Date.now() > end) throw new Error(`no event ${pass} in ${ms} ms, in ${JSON.stringify(events)}`); await Bun.sleep(20); }
   };
   return { events, until, close: () => reader.cancel() };
 }
@@ -350,7 +351,7 @@ test('two clients writing one token: the second conflicts, and the write is anno
   writeFileSync(join(dir, 'brand.tamber'), BRAND);
   await stream.until(e => e.at(-1)?.files['brand.tamber'] === sha(BRAND));
   stream.close();
-}, 30_000);
+}, WIRE_TEST);
 
 test('a hand edit made before a write is its own event, not the writer\'s', async () => {
   const stream = await subscribe();
@@ -368,7 +369,7 @@ test('a hand edit made before a write is its own event, not the writer\'s', asyn
   writeFileSync(join(dir, 'brand.tamber'), BRAND);
   await stream.until(e => e.at(-1)?.files['brand.tamber'] === sha(BRAND) && e.at(-1)?.files['app.tamber'] === sha(DESIGN));
   stream.close();
-}, 30_000);
+}, WIRE_TEST);
 
 test('a hand edit and a git checkout reach a subscriber', async () => {
   const stream = await subscribe();
@@ -405,7 +406,7 @@ test('a hand edit and a git checkout reach a subscriber', async () => {
   spawnSync('git', ['checkout', '--', 'app.tamber'], { cwd: dir });
   await stream.until(e => e.at(-1)?.files['app.tamber'] === sha(DESIGN));
   stream.close();
-}, 30_000);
+}, WIRE_TEST);
 
 test('a second wire for the app, whose lock is the first\'s, answers 503', async () => {
   const second = tamberServer({ appDir: dir, log: () => {} });
@@ -434,8 +435,8 @@ async function devLoop(flags = [], app = 'theme-fixture') {
   const port = listener.address().port;
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-tamber-dev-'));
-  // Owned: ended with what it starts when the test ends, a timeout included (test-children.mjs).
-  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Owned, ended with the test (test-children.mjs); framed by FRAME_ANCESTORS's port, whatever another file left set.
+  const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app, '--port', String(port), ...flags], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist, EXACT_TOOL_PORT: String(TOOL_PORT) }, stdio: ['ignore', 'pipe', 'pipe'] });
   const stop = async () => {
     await dev.stop(30_000);
     rmSync(dist, { recursive: true, force: true });
@@ -758,7 +759,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.17');
+      expect(hello.protocol).toBe('tamber/1.18');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.
@@ -798,7 +799,7 @@ test('a conflict names who last changed the file', async () => {
   const stream = await subscribe();
   await stream.until(e => e.at(-1)?.files?.['app.tamber'] === sha(DESIGN));
   stream.close();
-}, 30_000);
+}, WIRE_TEST);
 
 test("commit takes the session's files only, keeps other staging, and never pushes", async () => {
   // Every file as HEAD has it, a remote, and something else staged.
@@ -844,7 +845,7 @@ test("commit takes the session's files only, keeps other staging, and never push
   await stream.until(e => e.some(x => x.event === 'committed'));
   stream.close();
   rmSync(bare, { recursive: true, force: true });
-}, 30_000);
+}, WIRE_TEST);
 
 test('commit refuses a file dirty at its baseline, and one changed by hand between writes', async () => {
   // brand.tamber differs from HEAD before the session writes it.
@@ -865,7 +866,7 @@ test('commit refuses a file dirty at its baseline, and one changed by hand betwe
   expect(refused.error.refused.find(r => r.file === 'app.tamber').why).toContain('someone other than this server');
   expect(head()).toBe(at);
   stream.close();
-}, 30_000);
+}, WIRE_TEST);
 
 test('a held proposal is accepted, and one gone stale or taken in part is recomputed', async () => {
   gitIn('checkout', '--', 'app.tamber');
@@ -942,7 +943,7 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(dropped.proposals.map(p => p.proposal)).not.toContain(part.ok.proposal);
   await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === part.ok.proposal && x.client === 'person'));
   stream.close();
-}, 30_000);
+}, WIRE_TEST);
 
 test('commit refuses a file staged at its baseline, and one whose HEAD moved; a locked index moves nothing', async () => {
   gitIn('checkout', '--', 'app.tamber', 'brand.tamber');
@@ -980,7 +981,7 @@ test('commit refuses a file staged at its baseline, and one whose HEAD moved; a 
   expect(retried.status, JSON.stringify(retried)).toBe(200);
   expect(gitIn('status', '--porcelain', 'app.tamber').stdout).toBe('');
   stream.close();
-}, 30_000);
+}, WIRE_TEST);
 
 test("an import is held as proposals: the tokens as one, each role override apart; again, it proposes nothing", async () => {
   const { importTheme } = await import('./tamber-server.mjs');
@@ -1305,7 +1306,7 @@ test("the app's .contract: a hand edit is announced, set-state is committed, and
     const reader = res.body.getReader(), decoder = new TextDecoder(), events = [];
     let buf = '';
     (async () => { for (;;) { const { value, done } = await reader.read().catch(() => ({ done: true })); if (done) return; buf += decoder.decode(value, { stream: true }); const parts = buf.split('\n\n'); buf = parts.pop(); for (const p of parts) if (p.startsWith('data: ')) events.push(JSON.parse(p.slice(6))); } })();
-    const until = async pass => { const end = Date.now() + 5000; while (!pass(events)) { if (Date.now() > end) throw new Error(JSON.stringify(events)); await Bun.sleep(20); } };
+    const until = async pass => { const end = Date.now() + EVENT_WAIT; while (!pass(events)) { if (Date.now() > end) throw new Error(`no event ${pass} in ${EVENT_WAIT} ms, in ${JSON.stringify(events)}`); await Bun.sleep(20); } };
     await until(e => e[0]?.event === 'subscribed');
     // A hand edit of the Contract source, a state part added: announced.
     writeFileSync(join(repo, 'app.contract'), VIEW.replace('  background-color="#0a7aff"\n', '  background-color="#0a7aff"\n  :hover\n    opacity=0.9\n'));
@@ -1371,7 +1372,7 @@ test("a held set-state is guarded by the other Contract sources, and a replaced 
     const reader = res.body.getReader(), decoder = new TextDecoder(), events = [];
     let buf = '';
     (async () => { for (;;) { const { value, done } = await reader.read().catch(() => ({ done: true })); if (done) return; buf += decoder.decode(value, { stream: true }); const parts = buf.split('\n\n'); buf = parts.pop(); for (const p of parts) if (p.startsWith('data: ')) events.push(JSON.parse(p.slice(6))); } })();
-    const until = async pass => { const end = Date.now() + 5000; while (!pass(events)) { if (Date.now() > end) throw new Error(JSON.stringify(events)); await Bun.sleep(20); } };
+    const until = async pass => { const end = Date.now() + EVENT_WAIT; while (!pass(events)) { if (Date.now() > end) throw new Error(`no event ${pass} in ${EVENT_WAIT} ms, in ${JSON.stringify(events)}`); await Bun.sleep(20); } };
     await until(e => e[0]?.event === 'subscribed');
     const files = { 'app.contract': digest('app.contract'), 'src/ui/post.contract': digest('src/ui/post.contract') };
     const held = await call({ method: 'propose', hold: true, client: 'agent', files, ops: [{ op: 'set-state', style: 'Post', state: 'active', row: 'opacity', value: 0.8 }] });

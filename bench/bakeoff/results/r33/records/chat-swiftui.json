@@ -1,0 +1,26 @@
+{
+  "spec": "chat",
+  "arm": "swiftui",
+  "model": "claude",
+  "appId": "dev.bakeoff.chat.b93358f",
+  "assignedId": "dev.bakeoff.chat.b93358f",
+  "appName": "Chat",
+  "sim": "EEFC0029-1010-45E4-8242-42CF67E16C96",
+  "pin": "05b2942866",
+  "minutes": 6.06,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 871724,
+    "fresh": 53856,
+    "input": 855529,
+    "cached": 801673,
+    "output": 16195,
+    "cost": 0.9148826000000002,
+    "calls": 38,
+    "toolCalls": 23
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r33/built/chat-swiftui.app",
+  "notes": true,
+  "finished": "2026-10-28T15:16:33.194Z"
+}

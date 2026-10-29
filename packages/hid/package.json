@@ -1,0 +1,13 @@
+{
+  "name": "@exact/hid",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HID devices by WebHID's names: a chooser or the attached list, input reports as a batch, and output and feature reports (LLP 1133.037).",
+  "exports": {
+    ".": "./exact.json",
+    "./web": "./web/exact.json",
+    "./apple": "./apple/exact.json",
+    "./linux": "./linux/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

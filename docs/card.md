@@ -46,6 +46,7 @@ functions: call -> result
   round(n) -> number  (half up)
   searchParam(entry, name) -> string
   select(router, tabName) -> Router
+  sharedFiles(entry, name) -> SharedFiles
   sin(rad) -> number
   s.slice(start, end?) -> text|list
   sortBy(xs, x => key, "desc"?) -> T[]  (stable)
@@ -62,7 +63,7 @@ functions: call -> result
   text.trim() -> string
   pending(resourceOrMutationName)  failed(resourceOrMutationName)  failure(resourceOrMutationName)  path("routeName", args…)  empty(field=constant, …)  some(expr)  DeclaredShape(field=value, …)
 
-tags: attributes; on events. Every tag takes CSS's style attributes (flex gap padding font-size …) and colour roles (-exact-label); `contract vocab <name>` gives a style's values
+tags: attributes; on events. Every tag takes CSS style attributes (flex gap padding …) and colour roles (-exact-label); `contract vocab <style>` lists its values
   view box row column main nav article aside section header footer hr: id testId role title tabindex; on press hover key keyup focus blur contextmenu dblclick
   text "…": markup; on selectionchange
   image "…": alt; on load
@@ -156,7 +157,7 @@ a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond
   text `${now}`
 keeping a value: Root `state` only: a number, string or bool (or an option or list of one) up to 16 KB. Records belong in a source (`files-and-grants`).
   state units = "C" persist
-colour: Leave the accent unsaid (a brand is an app.tamber) and controls unpainted; elsewhere a role (it follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
+colour: Leave the accent unsaid (a brand is an app.tamber) and controls unpainted; elsewhere a role (follows the scheme): text `label`, `secondary-label`; a card `secondary-background`; a fill `secondary-fill`; a hue `system-red`…. No hex.
   main
     text "Total" color="-exact-secondary-label"
     view padding=12 background-color="-exact-secondary-background"
@@ -169,7 +170,7 @@ reading and writing data: `loadItems` and `addItem` are in app.ts and answer exa
   action add
     send added = addItem("Milk")
   text items.join(", ")
-a dated record: The write reads the clock, not a ticked `now`, and stores `at`, never `performanceNow()` alone (0 each launch). `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
+a dated record: The write reads the clock, not a ticked `now`, and stores `at`; `performanceNow()` alone is 0 each launch. `"iso"` is the day, compared as text; its label `formatDay(at, now, …)`: Today, Yesterday. Tests pin `epoch` and `time-zone`.
   shape Time
     epochAtZero: number
     utcOffset: number
@@ -178,7 +179,7 @@ a dated record: The write reads the clock, not a ticked `now`, and stores `at`, 
   action log
     let at = time.epochAtZero + performanceNow()
     days = days.concat([formatDate(at, time.utcOffset, "iso")])
-a test, and verify: By `testId` or exact text, each test from empty storage. `clock data` after a reply, `clock settle` after a push, sheet or alert, `clock held` for an `exactHeld` reply; `reload` relaunches on its storage; never wait in real time. `bun exact.mjs verify` runs the tests, checks each screen a test ends on and relaunches once; `verify ios` last, for iPhone; `--shots <dir>` keeps screenshots.
+a test, and verify: Each test starts with empty storage; target by `testId` or text. `clock data` lands replies, `clock settle` settles presentation, `clock held` lands held replies; `reload` keeps storage. `bun exact.mjs verify` tests, checks end screens and relaunches; `verify ios` last; `--shots <dir>` keeps screenshots. It runs `contract verify app.contract` too; keep its receipt.
   test "a pick survives a relaunch"
     tap "pick"
     clock data
@@ -209,7 +210,7 @@ component App
 ```
 - `select value=v change=set` holds `option "Label" value="x"`. Tabs: a `row role="tablist"` of `button role="tab" aria-controls="panel-x" aria-selected=… press=…`, each panel a `column role="tabpanel" id="panel-x"`; `routes nav`, `tab`, `select(nav, name)`.
 - A number field's `min`, `max`, `step` are numbers (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
-- A symbol is `"symbol:<role>"` (roles below); `symbol:sf/<name>` is Apple-only.
+- Symbols: `"symbol:<role>"` (below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract (`contract vocab <name>` says what instead): abs pow sqrt sort reduce find some every contains padStart parseInt.
 idioms with code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass bar-buttons haptics status-bar toast titlebar share use svg safe-area
-symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail
+symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail emoji translate

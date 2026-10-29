@@ -1,0 +1,27 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/maps@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [
+    "exact-map"
+  ],
+  "hatches": [
+    "googleMap"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "com.google.android.gms:play-services-maps:20.1.0"
+  ],
+  "artifacts": [],
+  "class": "exact.maps.MapsModule"
+}

@@ -1,8 +1,8 @@
 //! `grant-device-missing`: a device the view reaches through the runner
 //! answers only under the app's grant (LLP 1069.008 D3; `runner/src/device.rs`):
-//! `exactMIDI()` reads `denied` and `showNotification` is refused, on every
-//! host, at run time. The grants are the data module's (`export const grants`
-//! in `app.ts`, `fn grants()` in a Rust data crate) and may be computed, so
+//! `exactMIDI()` reads `denied` on every host, at run time. The grants are the
+//! data module's (`export const grants` in `app.ts`, `fn grants()` in a Rust
+//! data crate) and may be computed, so
 //! this reads the string literals of the app's source ([`literals`]) and
 //! says something only when it is certain: a `device.midi <key>` whose key
 //! the strings table has is the grant; a grant built otherwise, or a file
@@ -35,22 +35,13 @@ struct Device {
     purpose: &'static str,
 }
 
-const DEVICES: &[Device] = &[
-    Device {
-        name: "midi",
-        without: "reads `denied` on every host",
-        sources: &["exactMIDI"],
-        commands: &["requestMIDIAccess", "sendMIDI"],
-        purpose: "Plays the pattern on your instruments.",
-    },
-    Device {
-        name: "notifications",
-        without: "is refused on every host (`showNotification: refused`)",
-        sources: &[],
-        commands: &["showNotification"],
-        purpose: "Reminds you when a timer ends.",
-    },
-];
+const DEVICES: &[Device] = &[Device {
+    name: "midi",
+    without: "reads `denied` on every host",
+    sources: &["exactMIDI"],
+    commands: &["requestMIDIAccess", "sendMIDI"],
+    purpose: "Plays the pattern on your instruments.",
+}];
 
 /// Directories that hold no source of the app's data module.
 const SKIP: &[&str] = &["node_modules", "target", "dist", "assets", "strings"];
@@ -255,7 +246,9 @@ pub(crate) fn check(file: &File, root: &Path, strings: Option<&Strings>) -> Vec<
             Some(device) if !named(device) => format!("`{last}` to the app's grants"),
             Some(device) => format!("`{last} purpose.{device}` to the app's grants, with its purpose in strings/{base}.json"),
             // A line that names no target (LLP 1020.002 D9).
-            None if last == "browser.automation" => format!("`{last}` to the app's grants"),
+            None if matches!(last.as_str(), "browser.automation" | "payment.google-pay") => {
+                format!("`{last}` to the app's grants")
+            }
             None => format!("`{last} <its target>` to the app's grants"),
         };
         out.push(CompileError {
@@ -291,6 +284,8 @@ fn module_uses(file: &File) -> Vec<(Vec<String>, Span, String)> {
         fn sends(stmts: &[Stmt], name: &str) -> Option<Span> {
             stmts.iter().find_map(|s| match s {
                 Stmt::Send { source, span, .. } if source == name => Some(*span),
+                // A send that answers nothing is a statement (LLP 1133.004 D5).
+                Stmt::Command { name: n, span, .. } if n == name => Some(*span),
                 Stmt::If {
                     then, otherwise, ..
                 } => sends(then, name).or_else(|| sends(otherwise, name)),

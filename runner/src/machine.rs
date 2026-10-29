@@ -27,6 +27,15 @@ pub enum Trap {
         pc: usize,
         op: Opcode,
     },
+    /// `range` received a numeric count outside its domain.
+    RangeCount {
+        pc: usize,
+        non_finite: bool,
+    },
+    /// `path` received parameters that cannot form a route.
+    PathParameter {
+        pc: usize,
+    },
     UnwrapNone {
         pc: usize,
     },

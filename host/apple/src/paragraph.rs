@@ -415,6 +415,15 @@ impl<D: DataSource> Host<D> {
             self.queue_layout_subtree(id);
         }
         let m = self.mirror.entry(id).or_default();
+        // What layout derives (`emit_layout`) is layout's to set and clear.
+        // Cleared here as unauthored, a growing list's `flexGrows` went and
+        // came back in every batch that touched the list: each row of a
+        // scrolling list of tasks reconfigured its checkbox for it.
+        for key in super::layout::DERIVED_PROPS {
+            if let (Some(value), false) = (m.props.get(key), props.contains_key(key)) {
+                props.insert(key, value.clone());
+            }
+        }
         if props != m.props {
             let set: Vec<(&str, String)> = props
                 .iter()
@@ -444,9 +453,14 @@ impl<D: DataSource> Host<D> {
             self.svg.element(self.runner.kernel(), id);
             return;
         }
-        // A select's options are its menu's, not views (LLP 1069.001 D2).
+        // A select's options are its menu's, not views (LLP 1069.001 D2). A
+        // control this batch creates is configured for its create op; saying
+        // so for it too made every list row with a checkbox a batch that
+        // configures every control and syncs the navigation chrome.
         if node_type == NodeType::Control {
-            batch.controls = true;
+            if !batch.creates(id) {
+                batch.controls = true;
+            }
             return;
         }
         let mut children = self.runner.kernel().node(id).expect("live").children();

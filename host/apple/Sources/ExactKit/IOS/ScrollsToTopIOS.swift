@@ -41,6 +41,25 @@ extension Presenter {
         return roots.lazy.compactMap { Self.firstVerticalScroller(under: $0) }.first.flatMap { self.navigation.shownScroll($0) } ?? viewport
     }
 }
+
+extension NodeView {
+    /// A status-bar tap far down a virtualized list: UIKit's animation to the
+    /// top crosses a screen or more a frame, every frame showing rows none
+    /// before it showed, each built as it shows (a photo grid's took 30 to
+    /// 70 ms a frame for its first ten). At that speed a frame is a blur of
+    /// rows the next replaces, so the list cuts to two screens from the top,
+    /// the one frame of rows any jump costs, and UIKit glides the rest, which
+    /// the pump leads as it does any scroll.
+    @objc package func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        guard scrollView === self.scrollView, let collections = presenter?.collections,
+              let entry = collections.entries[id], !entry.snapshot.horizontal else { return true }
+        let top = -scrollView.adjustedContentInset.top, glide = scrollView.bounds.height * 2
+        guard scrollView.contentOffset.y - top > glide * 1.5 else { return true }
+        collections.userIntent(id)
+        scrollView.setContentOffset(PixelGrid.offset(CGPoint(x: scrollView.contentOffset.x, y: top + glide), in: scrollView), animated: false)
+        return true
+    }
+}
 #endif
 
 extension Presenter {

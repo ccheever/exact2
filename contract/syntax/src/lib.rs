@@ -40,6 +40,7 @@ mod share;
 mod spans;
 pub mod state;
 mod tap;
+mod test_steps;
 pub mod tool;
 
 pub use ast::*;
@@ -148,6 +149,15 @@ pub const HOST_COMMANDS: &[&str] = &[
     "setMode",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
+    // `startTrace_EXPERIMENTAL()` records the display link's callbacks until
+    // `stopTrace_EXPERIMENTAL()`, which puts the trace on the clipboard as JSON
+    // (`stopTrace_EXPERIMENTAL(maxBytes)`: cut to that size; tvOS, with no
+    // clipboard, only saves the file): Save Trace's frames, from an app's own
+    // control, in a production build too (Apple; web and Linux refuse it in
+    // the journal). Experimental: the names say so while the trace's
+    // fields may still change.
+    "startTrace_EXPERIMENTAL",
+    "stopTrace_EXPERIMENTAL",
     // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's
     // `id`, from an action; `close(id)` closes it (bare `close()` is still
     // the window's).
@@ -156,11 +166,6 @@ pub const HOST_COMMANDS: &[&str] = &[
     "hidePopover",
     "togglePopover",
     "share",
-    // Local notifications by the Notification API's names (rules/DEFERRED.md,
-    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and
-    // `closeNotification(tag)`.
-    "showNotification",
-    "closeNotification",
     // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
     "saveFile",
     // @ref LLP 1069.010 D2 — the File System Access API's pickers.

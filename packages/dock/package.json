@@ -1,0 +1,11 @@
+{
+  "name": "@exact/dock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ask for the person's attention from the Dock or the taskbar (LLP 1133.025 D5).",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./windows": "./windows/exact.json"
+  }
+}

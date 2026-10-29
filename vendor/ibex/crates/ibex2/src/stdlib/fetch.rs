@@ -396,13 +396,25 @@ pub fn fetch_stream(
     request: Request,
     signal: &AbortSignal,
 ) -> Result<StreamingResponse, HostError> {
+    fetch_stream_gated(transport, grants, None, request, signal)
+}
+
+/// [`fetch_stream`], with the host's `gate` checked beside the grant at
+/// every hop (Exact patch, LLP 1133.036 D6).
+pub fn fetch_stream_gated(
+    transport: &dyn Transport,
+    grants: &GrantSet,
+    gate: Option<&dyn crate::boundary::HopGate>,
+    request: Request,
+    signal: &AbortSignal,
+) -> Result<StreamingResponse, HostError> {
     let mut current = prepare_body(request)?;
     let mut redirects = 0;
     let mut redirected = false;
 
     loop {
         signal.check()?;
-        admit_hop(grants, &current.url, redirected)?;
+        admit_hop(grants, gate, &current.url, redirected)?;
 
         // The request guard applies here, where a header list becomes a
         // request — not in Headers::set, where the guard is "none".
@@ -427,8 +439,19 @@ pub fn fetch_stream(
     }
 }
 
-/// The grant check for one hop to `url`, the first or one a redirect led to.
-pub(crate) fn admit_hop(grants: &GrantSet, url: &str, redirected: bool) -> Result<(), HostError> {
+/// The grant check for one hop to `url`, the first or one a redirect led to,
+/// then `gate`'s.
+pub(crate) fn admit_hop(
+    grants: &GrantSet,
+    gate: Option<&dyn crate::boundary::HopGate>,
+    url: &str,
+    redirected: bool,
+) -> Result<(), HostError> {
+    admit_hop_grant(grants, url, redirected)?;
+    crate::boundary::gated(gate, url)
+}
+
+fn admit_hop_grant(grants: &GrantSet, url: &str, redirected: bool) -> Result<(), HostError> {
     let origin = origin_of(url)?;
     // Through boundary::admit, not an inline permits() check: the
     // capability name and the shape of a denial belong in one place, or

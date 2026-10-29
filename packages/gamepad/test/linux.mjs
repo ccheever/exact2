@@ -8,6 +8,8 @@
 //   each pad's family and labels; the pad pressed is the current one; a
 //   rumble reaches the pad's motors and completes after its span; a reset
 //   preempts a running one; a light is refused, since no pad here has one.
+//   A pad that disconnects ends the effect playing on it, `preempted`, and
+//   raises `gamepaddisconnected`.
 //   `clock settle` crosses a rumble: its answer comes at the span's end on
 //   the host's clock, not on wall time.
 // - Under the agent unbound, the declared substitute answers, and nothing
@@ -50,6 +52,18 @@ const texts = tree => Object.fromEntries((tree.nodes ?? []).filter(n => n.props?
   const [, tapped, settled, buzzed] = drive('--bind', 'gamepad', 'clock settle', 'tap buzz', 'clock settle', 'tree');
   check('bound', 'clock settle crosses a rumble to its end', settled.settled === true && settled.clock - tapped.clock >= 200 && texts(buzzed).played === 'complete',
     `${JSON.stringify(settled).slice(0, 300)} ${texts(buzzed).played}`);
+}
+{
+  // A claim's lifetime: a pad that goes ends its effect, and the pads stay
+  // the process's when the session ends.
+  const ops = ['--bind', 'gamepad', 'clock +100', 'tree', 'tap long', 'clock +1500', 'tree'];
+  const [, , , , stays] = drive(...ops);
+  const leaving = { ...env, EXACT_AGENT_PADS: JSON.stringify([{ ...pads[0], leaves: 1000 }, pads[1]]) };
+  const [, b, , , a] = run('bun', ['exact.mjs', 'agent', 'linux', '--reset-storage', '--json', ...ops], app, leaving).trim().split('\n').map(l => JSON.parse(l));
+  check('bound', 'a pad that stays keeps its effect running', texts(stays).played === '', texts(stays).played);
+  check('bound', 'a pad that goes is listed, then gone', texts(b).list === 'true 2 0' && texts(a).list === 'true 1 none', `${texts(b).list} → ${texts(a).list}`);
+  check('bound', 'its going raises gamepaddisconnected', texts(a).went === '0 ', JSON.stringify(texts(a).went));
+  check('bound', 'and ends its effect, preempted', texts(a).played === 'preempted', texts(a).played);
 }
 {
   const [, listed, , , buzzed, logs] = drive('clock settle', 'tree', 'tap buzz', 'clock settle', 'tree', 'logs');

@@ -91,13 +91,10 @@ impl Reply {
         Reply(reply)
     }
 
-    /// Answer with `answer`. An answer that is not an object (a list) is
-    /// sent as `{"exact:answer": value}`, a key no shape's field can take.
+    /// Answer with `answer`, a list as it is: the runner reads the body as the
+    /// name's answer, as the Apple and Android hosts hand it on once they
+    /// unwrap their bridges' `{"exact:answer": value}`.
     pub fn send(self, answer: Json) {
-        let answer = match answer {
-            Json::Object(_) => answer,
-            other => json!({ "exact:answer": other }),
-        };
         self.0
             .send(exact_runner::Outcome::Response(exact_runner::Response {
                 status: 200,
@@ -252,6 +249,12 @@ impl Context {
     /// Raise the interface's event `name` with `args`, a JSON array.
     pub fn emit(&self, name: &str, args: Json) {
         self.0.notifier.emit(name, args);
+    }
+
+    /// The host's services for the desktop's modules (LLP 1133.025 D11
+    /// item 2), or `None` on a host that keeps none.
+    pub fn desktop(&self) -> Option<std::rc::Rc<dyn crate::desktop::Services>> {
+        crate::desktop::services()
     }
 
     /// The host's pads (LLP 1133.022 D4): the process's one registry, which

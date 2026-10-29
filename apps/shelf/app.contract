@@ -33,11 +33,17 @@
 // Barcode reads a book's ISBN off the back camera and looks it up; Add Quote
 // from Photo reads a page's text into the notes. Each is shown only where its
 // package says it works here.
+//
+// NFC (LLP 1133.035 §11): Tag This Book writes a sticker inside a book, and
+// Scan reads one back and opens its book. iOS draws its own sheet while the
+// phone waits for a tag (`readerUI` `system`); Android and the web draw
+// nothing, so the app shows its own panel there, with the same words.
 
 use getSupportedFormats, detectedBarcodes, BarcodeFormats, BarcodeScan from "@exact/barcode-detection"
 use textDetectorAvailability, detectText, TextDetectorAvailability, DetectedTextList from "@exact/text-detection"
 use getUserMedia, stopTrack, cameraStatus, MediaStream, MediaStreamTrack, CameraStatus, MediaTrackConstraints from "@exact/media-capture"
 use takePhoto, Photo from "@exact/camera"
+use nfcStatus, scan, abortScan, abortWrite, openNFCSettings, reading, readingerror, NFCStatus, NDEFScanEnd, NDEFReading, NFCTag from "@exact/nfc"
 
 use setAppShortcuts, ShortcutItem from "@exact/quick-actions"
 use setContentIndex, ContentDescription from "@exact/search-index"
@@ -91,6 +97,17 @@ shape Time
   epochAtZero: number
   locale: string
 
+// How Tag This Book went: `cause` is the module's (`read-only`, `too-small`,
+// `lost`, `not-ndef`), or `cancelled`, `blocked`, `failed`.
+shape Tagged
+  ok: bool
+  cause: string
+
+// The book a tag names, or, for one not on the shelf, its link.
+shape Owner
+  id: string
+  url: string
+
 // What Open Library has for an ISBN.
 shape Found
   isbn: string
@@ -104,6 +121,7 @@ fn percent(cur: number, total: number): number = total > 0 ? round(cur / total *
 fn matches(b: Book, f: string, q: string): bool = (f == "all" or b.status == f) and (q == "" or b.title.toLowerCase().includes(q) or b.author.toLowerCase().includes(q))
 fn wholePages(text: string): bool = match parseNumber(text) { case some(n) => floor(n) == n and n > 0 and n <= 10000, case none => false }
 fn pagesValue(text: string): number = match parseNumber(text) { case some(n) => n, case none => 0 }
+fn tagLine(cause: string): string = cause == "read-only" ? "This tag is locked." : (cause == "too-small" ? "This tag is too small." : (cause == "lost" ? "Hold the phone still until it's done." : (cause == "not-ndef" ? "This tag can't store a link." : (cause == "blocked" ? "NFC is blocked for this site." : "This tag couldn't be written."))))
 fn countText(n: number, one: string, many: string): string = n == 1 ? `1 ${one}` : `${n} ${many}`
 fn lineAt(lines: string[], i: number): string = match lines.at(i) { case some(x) => x, case none => "" }
 fn digitAt(s: string, i: number): number = match parseNumber(s.slice(i, i + 1)) { case some(n) => n, case none => -1 }
@@ -144,6 +162,15 @@ component Shelf
   mutation opened as shape MediaStream then arm
   mutation stopped as shape MediaStreamTrack
   mutation quoted as shape DetectedTextList then showQuote
+  // NFC: the line the panel adds (a tag that can't be read), the link of a
+  // tag for a book not on the shelf, and what the alert after tagging says.
+  state nfcLine = ""
+  state foundUrl = ""
+  state tagSaid = ""
+  resource nfc = nfcStatus() as shape NFCStatus else empty()
+  mutation scanned as shape NDEFScanEnd then scanEnded
+  mutation tagged as shape Tagged then tagEnded
+  mutation found as shape Owner then openFound
 
   derive current = top(nav)
   derive visible = lib.books.filter(b => matches(b, filter, query.trim().toLowerCase()))
@@ -152,7 +179,7 @@ component Shelf
   derive owned = lib.books.map(b => b.sourceKey)
   derive titleError = draftTitle.trim() == "" ? "Enter a title." : ""
   derive pagesError = draftPages == "" or wholePages(draftPages) ? "" : "Pages must be a whole number from 1 to 10,000."
-  derive reading = lib.books.filter(b => b.status == "reading")
+  derive inProgress = lib.books.filter(b => b.status == "reading")
   derive indexKey = lib.books.map(b => `${b.id}|${b.title}|${b.author}|${b.status}`).join("\n")
 
   // The system's ways in (LLP 1133.023 §11): every book in its search, and
@@ -164,7 +191,7 @@ component Shelf
   action reindex
     setContentIndex(kind="book", entries=lib.books.map(b => ContentDescription(id=b.id, kind=none, title=b.title, description=some(b.author),
       category=none, icons=none, url=`/book/${b.id}`, apple=none)))
-    setAppShortcuts(shortcuts=reading.slice(0, 1).map(b => ShortcutItem(name=`Continue ${b.title}`,
+    setAppShortcuts(shortcuts=inProgress.slice(0, 1).map(b => ShortcutItem(name=`Continue ${b.title}`,
       short_name=some(b.title), description=none, url=`/book/${b.id}`, icons=none, apple=none, android=none)))
   derive canScan = formats.tracks and formats.formats.includes("ean_13") and camera.available
   derive backCamera = MediaTrackConstraints(deviceId=none, groupId=none, facingMode=some("environment"), width=none, height=none, aspectRatio=none, frameRate=none, resizeMode=none, zoom=none, torch=none, sampleRate=none, sampleSize=none, channelCount=none, echoCancellation=none, autoGainControl=none, noiseSuppression=none, latency=none)
@@ -175,6 +202,13 @@ component Shelf
   derive canQuote = readerAny.availability == "available"
   derive quoteLines = match quoted { case some(q) => q.texts.map(t => t.rawValue), case none => [] }
   derive quoteChosen = range(quoteLines.length).filter(i => not quoteOff.includes(i)).map(i => lineAt(quoteLines, i))
+  // The app draws the wait only where the platform draws none, and never
+  // under the browser's permission prompt.
+  derive appPanel = nfc.readerUI == "app" and nfc.state == "granted"
+  derive nfcOff = nfc.radio == "off"
+  derive panelShown = appPanel and (pending(scanned) or pending(tagged))
+  task panel key=panelShown
+    after(1, syncPanel)
 
   // What Shortcuts, Siri and an agent may do (LLP 1111 D2; LLP 1133.023
   // §11); app.json's `intents` gives each its face.
@@ -308,6 +342,54 @@ component Shelf
       send changed = appendQuote(quoteBook, `“${quoteChosen.join(" ")}”`)
     nav = back(nav)
 
+  // NFC: Scan, a reading, and Tag This Book.
+  action startScan
+    nfcLine = ""
+    send scanned = scan(once=true, apple.alertMessage="nfc.holdBook")
+  action scanEnded
+    nfcLine = ""
+  action stopNfc
+    if pending(scanned)
+      abortScan()
+    if pending(tagged)
+      abortWrite()
+  action syncPanel
+    if panelShown
+      showModal("nfc-panel")
+    else
+      close("nfc-panel")
+  action turnOnNfc
+    openNFCSettings()
+  action tagRead(r: NDEFReading)
+    send found = bookForTag(r.id)
+  action unread(t: NFCTag)
+    nfcLine = "This tag can't be read."
+  action openFound
+    match found
+      case some(o)
+        if o.id != ""
+          nav = go(nav, path("book", o.id))
+        else
+          foundUrl = o.url
+          showModal("not-on-shelf")
+      case none
+        foundUrl = ""
+  action openFoundLink
+    openURL(foundUrl)
+  action tagThis(id: string)
+    send tagged = tagBook(id)
+  // iOS's sheet said how it went; elsewhere an alert does.
+  action tagEnded
+    match tagged
+      case some(t)
+        if appPanel and t.cause != "cancelled"
+          tagSaid = t.ok ? "Tagged" : tagLine(t.cause)
+          showModal("tag-said")
+      case none
+        tagSaid = ""
+  action tagSaidDone
+    tagSaid = ""
+
   // Discover
   action chooseSubject(s: string)
     subject = s
@@ -322,6 +404,8 @@ component Shelf
 
   view
     main testId="shelf"
+      reading=tagRead
+      readingerror=unread
       navigationKey=`${current.id}`
       navigationBack="back"
       navigate=follow
@@ -347,6 +431,12 @@ component Shelf
                     gap=8
                     padding="8px 16px"
                     text "Library" role="heading" aria-level=1 flex=1
+                    if nfc.available and nfcOff
+                      button press=turnOnNfc testId="scan-tag"
+                        text "Turn On NFC"
+                    else if nfc.available
+                      button press=startScan testId="scan-tag"
+                        text "Scan"
                     button press=openAdd aria-label="Add Book" testId="add-book"
                       image "symbol:add"
                     input type="search"
@@ -356,6 +446,11 @@ component Shelf
                       aria-label="Search title or author"
                       testId="search"
                       width="100%"
+                  if nfc.available and nfc.state == "denied"
+                    text "NFC is blocked for this site. Allow it in the browser's site settings to scan tags." testId="nfc-blocked"
+                      font="-exact-footnote"
+                      color="-exact-secondary-label"
+                      margin="0 16px"
                   row role="tablist" aria-label="Filter" testId="filter" margin="8px 16px"
                     button role="tab"
                       aria-selected=(filter == "all")
@@ -436,7 +531,11 @@ component Shelf
                         keepNotes=keepNotes,
                         askRemove=askRemove,
                         canQuote=canQuote,
-                        chooseQuote=chooseQuote
+                        chooseQuote=chooseQuote,
+                        canTag=nfc.available,
+                        nfcOff=nfcOff,
+                        tagThis=tagThis,
+                        turnOnNfc=turnOnNfc
                       )
               if e.name == "quote"
                 column navigationKey=`${e.id}`
@@ -692,6 +791,24 @@ component Shelf
           text "Remove"
         button commandfor="remove" command="close" testId="remove-cancel"
           text "Cancel"
+      // The wait for a tag where the platform draws none: a sheet whose
+      // Cancel ends the scan or the write.
+      dialog id="nfc-panel" aria-label="Ready to Scan" close=stopNfc testId="nfc-panel"
+        column gap=8 padding=16 align-items="center"
+          text "Hold your phone near the sticker in the book." testId="nfc-hold"
+          if nfcLine != ""
+            text nfcLine testId="nfc-line" color="-exact-secondary-label"
+          button commandfor="nfc-panel" command="close" testId="nfc-cancel"
+            text "Cancel"
+      dialog id="not-on-shelf" role="alertdialog" aria-label="Not on Your Shelf"
+        text foundUrl testId="found-url"
+        button press=openFoundLink commandfor="not-on-shelf" command="close" testId="open-link"
+          text "Open Link"
+        button commandfor="not-on-shelf" command="close" testId="found-cancel"
+          text "Cancel"
+      dialog id="tag-said" role="alertdialog" aria-label=tagSaid testId="tag-said"
+        button press=tagSaidDone commandfor="tag-said" command="close" testId="tag-said-ok"
+          text "OK"
       // Add Quote from Photo's picker: the platform's, for an image.
       input type="file" accept="image/*" id="quote-photo" display="none" change=quotePicked testId="quote-photo"
 
@@ -746,6 +863,10 @@ component BookSections
     askRemove: action
     canQuote: bool
     chooseQuote: action
+    canTag: bool
+    nfcOff: bool
+    tagThis: action
+    turnOnNfc: action
   view
     if book.coverUrl != ""
       section background-color="transparent"
@@ -817,6 +938,16 @@ component BookSections
         button press=chooseQuote(book.id) testId="add-quote"
           image "symbol:camera"
           text "Add Quote from Photo"
+    if canTag
+      section
+        if nfcOff
+          button press=turnOnNfc testId="tag-book"
+            text "Turn On NFC"
+        else
+          button press=tagThis(book.id) testId="tag-book"
+            text "Tag This Book"
+        footer
+          text "Write a sticker to keep inside the book. Scanning it opens the book here, and its Open Library page on any phone."
     section
       button press=askRemove(book.id) destructive=true testId="remove-book"
         text "Remove from Library"

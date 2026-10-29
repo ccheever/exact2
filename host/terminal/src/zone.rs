@@ -139,7 +139,7 @@ pub(crate) fn launch(
         Launch {
             time: Some(time),
             place: Some(place),
-            clock: None,
+            ..Launch::NONE
         },
         notes,
     )

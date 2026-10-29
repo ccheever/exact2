@@ -1,3 +1,4 @@
 {
-  "purpose.camera": "The conformance suite takes a photo."
+  "purpose.camera": "The conformance suite takes a photo.",
+  "purpose.microphone": "The conformance suite opens the camera and the microphone together."
 }

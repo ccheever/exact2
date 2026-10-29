@@ -532,7 +532,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             addSubview(f)
             field = f
         }
-        presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
+        if kind != "iframe" { presenter.leaves.embed(self) } // a video's player, a module's box (LLP 1068 §5.1); a web view waits for the props (`embedFrame`)
     }
     required init?(coder: NSCoder) { nil }
     package override var isFlipped: Bool { true }
@@ -1232,7 +1232,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
-    /// picture (`BoxFilter`), drawn again after each batch.
+    /// picture (`BoxFilter`), drawn again when what it shows changes.
     private(set) var boxFilter: BoxFilter?
     var hasBoxFilter: Bool { boxFilter != nil }
     func applyFilter() {
@@ -1243,7 +1243,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if f.set(style["filter"]) {
             boxFilter = f
             layer?.mask = f.hide
-            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter() }
+            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
             renderFilter()
         } else if let f = boxFilter {
             f.remove()
@@ -1253,7 +1253,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
 
-    func renderFilter() {
+    func renderFilter(fresh: Bool = true) {
         guard let f = boxFilter, let layer else { return }
         guard superview != nil else { f.remove(); return }
         // The picture renders the layer as it stands: a box that is layer
@@ -1261,7 +1261,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // display, so a new filtered box is not pictured empty.
         if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
         setPaintPosition(paintZPosition)
-        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2, dark: drawsDark)
+        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2, dark: drawsDark,
+                 node: id, fresh: fresh, shown: window == nil || !visibleRect.isEmpty) { [weak self] in
+            if let self { presenter?.boxFilters.landed(self) }
+        }
     }
 
     package override func viewDidMoveToSuperview() {

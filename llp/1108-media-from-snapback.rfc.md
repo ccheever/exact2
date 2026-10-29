@@ -73,7 +73,8 @@ separate lane that runs concurrently; slice 1's driver moves to
   nothing records upload facts, so an offline write naming the photo never
   predicts. No farm build asked for one-view photos or video. Slice 1 is
   therefore what the farm asked for.
-- **No timers in a data module** (LLP 1027.000). r2's D4.3 had the driver
+- **No timers in a data module** (LLP 1027.000; since 2026-10-28 an answer
+  may wait on its own timer, D1, and this choice stands on its own). r2's D4.3 had the driver
   wait out `E_RATE_LIMIT` "up to 10 s in all", as Snapback's client does with
   `setTimeout`. A data module cannot wait. r3 returns the refusal with its
   `retryAfter`, and the app asks again from Contract (D4).
@@ -581,8 +582,9 @@ read the file when the source answers and hold no URL.
    whose body names `asset.id`, nothing less. `E_RATE_LIMIT` is returned
    with `retryable` and `retryAfter` in milliseconds. `Retry-After` is
    seconds, or an HTTP date that the driver turns into milliseconds from the
-   caller's `now` (`upload(path, now)`). A data module has no timers
-   (LLP 1027.000), so the app asks again from Contract, for example from an
+   caller's `now` (`upload(path, now)`). A data module had no timers
+   (LLP 1027.000; since 2026-10-28 an answer may wait on its own, D1, and
+   this choice stands), so the app asks again from Contract, for example from an
    action a `task` runs. An upload is never retried by the driver. A lost reply
    may follow a stored upload, and the server's one-asset-one-home rule
    (`E_ASSET_PLACED`) makes a duplicate harmless but wasteful.

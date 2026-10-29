@@ -285,6 +285,7 @@ extension NodeView {
         guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil else { return }
         paragraphOwner.invalidateText(); paragraphOwner.setNeedsDisplay()
         applyStyle(style)
+        presenter?.controls.tintChanged(self)
     }
 
     /// An authored `accent-color` is its subtree's tint (LLP 1116.001 D2),

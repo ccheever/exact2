@@ -33,6 +33,18 @@ export const STAGE12_TOKENS = new Set(`
   actions.row-liked actions.row-max actions.row-reposted actions.row-saved actions.row-tint actions.row-top actions.row-trail
   actions.row-trail-big`.trim().split(/\s+/));
 
+/** library-gate's FollowButtons by what they hold: a small pill's icon box
+ * (0, its image 0/0) and label (1); a small pill with no icon, its label
+ * (0); a tiny pill's; a small round one's icon box only; a tiny round
+ * one's. */
+const FB = {
+  pill: ['fb-base', 'fb-following', 'fb-inverted', 'fb-subtle', 'fb-overlay', 'sample-fb-icon-follow', 'sample-fb-inverted-following', 'sample-fb-subtle-following', 'sample-fb-overlay-following', 'sample-fb-icon-following-following'],
+  bare: ['sample-fb-icon-following', 'sample-fb-icon-none', 'sample-fb-icon-follow-following'],
+  tiny: ['fb-tiny', 'sample-fb-tiny-following'],
+  round: ['fb-round', 'sample-fb-round-following'],
+  roundTiny: ['sample-fb-round-tiny'],
+};
+
 /** Stage 13 C's components: each one's source, its instances in
  * library-gate (by id), and the testId of an instance's first node. */
 export const COMPONENTS = {
@@ -46,9 +58,13 @@ export const COMPONENTS = {
   // box library-gate holds it in, and a read's path starts at that box.
   Avatar: { source: '@exact/cards/common.contract', root: id => id, ids: ['av-base', 'sample-av-src'] },
   VerifiedBadge: { source: '@exact/cards/common.contract', root: id => id, ids: ['vb-base', 'sample-vb-verifier'] },
+  // Stage 15 B batch 2 (2a): its button is its testId.
+  FollowButton: { source: '@exact/actions/follow-button.contract', root: id => id, ids: [...FB.pill, ...FB.bare, ...FB.tiny, ...FB.round, ...FB.roundTiny] },
+  // Stage 15 B batch 2 (2b): its row is its testId.
+  PersonRow: { source: '@exact/cards/person-row.contract', root: id => id, ids: ['pr-base', 'pr-top', 'pr-none', 'pr-disabled', 'sample-pr-avatar', 'sample-pr-verified', 'sample-pr-verifier', 'sample-pr-pill', 'sample-pr-description', 'sample-pr-description-one', 'sample-pr-all'] },
 };
 
-/** library-gate's instances that draw nothing: VerifiedBadge's "" (no
+/** library-gate's instances that draw nothing: VerifiedBadge's "none" (no
  * badge), its box empty on every host. */
 export const EMPTY = ['sample-vb-none'];
 
@@ -60,7 +76,7 @@ export const EXPORTED_TOKENS = ['cards.avatar', 'cards.avatar-corner', 'cards.ha
  * and the components its params come from. */
 export const BATCHES = [
   { name: 'lists', prefix: /^lists\./, components: ['ListRow', 'SwitchRow'] },
-  { name: 'ProfileHeader', prefix: /^cards\./, components: ['ProfileHeader'] },
+  { name: 'ProfileHeader', prefix: /^cards\.(?!person-)/, components: ['ProfileHeader'] },
   { name: 'ComposeFrame', prefix: /^actions\.compose-/, components: ['ComposeFrame'] },
   { name: 'BarItem', prefix: /^actions\.bar-/, components: ['BarItem'] },
   { name: 'HeaderButton', prefix: /^actions\.header-/, components: ['HeaderButton'] },
@@ -69,6 +85,10 @@ export const BATCHES = [
   // as library-gate passes them, a consumer's token names), so setting one
   // by its full name is shown to restyle the exported use.
   { name: 'Avatar and VerifiedBadge', names: EXPORTED_TOKENS, components: ['Avatar', 'VerifiedBadge'] },
+  // Stage 15 B batch 2 (2a): FollowButton's own tokens, new, and its params.
+  { name: 'FollowButton', prefix: /^actions\.follow-/, components: ['FollowButton'] },
+  // Stage 15 B batch 2 (2b): PersonRow's own tokens, new, and its params.
+  { name: 'PersonRow', prefix: /^cards\.person-/, components: ['PersonRow'] },
 ];
 
 /** A token whose value is an expression of others: read, never set; its
@@ -91,6 +111,82 @@ export const DERIVED = {
  * answered `currentcolor` (LLP 1116.019 D6), so a symbol's tint moved to
  * `color` keeps its read. */
 export const READS = {
+  // Stage 15 B batch 2's PersonRow, from its row (.): its dividers there;
+  // the link (0: its padding, gap and a disabled row's opacity) holding the
+  // header (0/0: the avatar's box 0/0/0, Avatar's column 0/0/0/0 and picture
+  // 0/0/0/0/0; the names 0/0/1: the name 0/0/1/0/0, the badge's column
+  // 0/0/1/0/1 and VerifiedBadge 0/0/1/0/1/0 with its ground /0 and check /1;
+  // the handle 0/0/1/1), the pill's row (0/1, its text 0/1/0) and the
+  // description's column (0/1, or 0/2 after a pill; its text /0); the slot's
+  // column (1: its padding; its box 1/0, the avatar's height).
+  'cards.person-pad-block': ['0 padding_bottom,padding_top *', '1 padding_top *'],
+  'cards.person-pad-inline': ['0 padding_left *', '1 padding_right *'],
+  'cards.person-gap': ['0 column_gap,row_gap *'],
+  'cards.person-header-gap': ['0 padding_right *', '0/0 column_gap,row_gap *'],
+  'cards.person-avatar': ['0/0/0/0 height,width *', '0/0/0/0/0 height,width *', '1/0 height *'],
+  'cards.person-name-size': ['0/0/1/0/0 font_size *'],
+  'cards.person-name-line': ['0/0/1/0/0 line_height *'],
+  'cards.person-badge': ['0/0/1/0/1/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/0/1/0/1/0/0 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all', '0/0/1/0/1/0/1 height,width sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'cards.person-badge-gap': ['0/0/1/0/1 padding_left sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'cards.person-handle-size': ['0/0/1/1 font_size *'],
+  'cards.person-handle-line': ['0/0/1/1 line_height *'],
+  'cards.person-pill-top': ['0/1 padding_top sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-size': ['0/1/0 font_size sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-line': ['0/1/0 line_height sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-pad-block': ['0/1/0 padding_bottom,padding_top sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-pad-inline': ['0/1/0 padding_left,padding_right sample-pr-pill,sample-pr-all'],
+  'cards.person-pill-corner': ['0/1/0 border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right sample-pr-pill,sample-pr-all'],
+  'cards.person-description-top': ['0/1 padding_top sample-pr-description,sample-pr-description-one', '0/2 padding_top sample-pr-all'],
+  'cards.person-description-size': ['0/1/0 font_size sample-pr-description,sample-pr-description-one', '0/2/0 font_size sample-pr-all'],
+  'cards.person-description-line': ['0/1/0 line_height sample-pr-description,sample-pr-description-one', '0/2/0 line_height sample-pr-all'],
+  'cards.person-dim': ['0 opacity pr-disabled'],
+  'PersonRow.divider': ['. border_color_bottom,border_color_top *'],
+  'PersonRow.meta': ['0/0/1/1 text_color *'],
+  'PersonRow.pill': ['0/1/0 background_color sample-pr-pill,sample-pr-all'],
+  'PersonRow.badge': ['0/0/1/0/1/0/0 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  'PersonRow.badgeMark': ['0/0/1/0/1/0/1 text_color sample-pr-verified,sample-pr-verifier,sample-pr-all'],
+  // Stage 15 B batch 2's FollowButton, from its button (.): its shape,
+  // padding, gap and press scale there; its icon's box (0) and image (0/0,
+  // read by the colour it draws in); its label (1, or 0 with no icon). Its
+  // colours are its params' reads, each tone's cell and each tone following.
+  'actions.follow-corner': ['. border_radius_bottom_left,border_radius_bottom_right,border_radius_top_left,border_radius_top_right *'],
+  'actions.follow-pad-block': ['. padding_bottom,padding_top fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'actions.follow-pad-inline': ['. padding_left,padding_right fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'actions.follow-gap': ['. column_gap,row_gap fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following,fb-round,sample-fb-round-following'],
+  'actions.follow-size': ['1 font_size fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following', '0 font_size sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'actions.follow-line': ['1 line_height fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following', '0 line_height sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'actions.follow-icon': ['0/0 height,width fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,fb-round,sample-fb-round-following'],
+  'actions.follow-icon-box': ['0 height,width fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,fb-round,sample-fb-round-following'],
+  'actions.follow-icon-pull': ['0 margin_left,margin_right fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following'],
+  'actions.follow-round': ['. height,width fb-round,sample-fb-round-following'],
+  'actions.follow-tiny-pad-block': ['. padding_bottom,padding_top fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-pad-inline': ['. padding_left,padding_right fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-gap': ['. column_gap,row_gap fb-tiny,sample-fb-tiny-following,sample-fb-round-tiny'],
+  'actions.follow-tiny-size': ['1 font_size fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-line': ['1 line_height fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-icon': ['0/0 height,width fb-tiny,sample-fb-tiny-following,sample-fb-round-tiny'],
+  'actions.follow-tiny-icon-box': ['0 height,width fb-tiny,sample-fb-tiny-following,sample-fb-round-tiny'],
+  'actions.follow-tiny-icon-pull': ['0 margin_left,margin_right fb-tiny,sample-fb-tiny-following'],
+  'actions.follow-tiny-round': ['. height,width sample-fb-round-tiny'],
+  'FollowButton.fill': ['. background_color fb-base,fb-tiny,fb-round,sample-fb-icon-follow,sample-fb-icon-following,sample-fb-icon-none,sample-fb-round-tiny'],
+  'FollowButton.ink': ['0/0 text_color fb-base,fb-tiny,fb-round,sample-fb-icon-follow,sample-fb-round-tiny', '1 text_color fb-base,fb-tiny,sample-fb-icon-follow', '0 text_color sample-fb-icon-following,sample-fb-icon-none'],
+  'FollowButton.followingFill': ['. background_color fb-following,sample-fb-tiny-following,sample-fb-round-following,sample-fb-icon-follow-following,sample-fb-icon-following-following'],
+  'FollowButton.followingInk': ['0/0 text_color fb-following,sample-fb-tiny-following,sample-fb-round-following,sample-fb-icon-following-following', '1 text_color fb-following,sample-fb-tiny-following,sample-fb-icon-following-following', '0 text_color sample-fb-icon-follow-following'],
+  'FollowButton.invertedFill': ['. background_color fb-inverted'],
+  'FollowButton.invertedInk': ['0/0 text_color fb-inverted', '1 text_color fb-inverted'],
+  'FollowButton.invertedFollowingFill': ['. background_color sample-fb-inverted-following'],
+  'FollowButton.invertedFollowingInk': ['0/0 text_color sample-fb-inverted-following', '1 text_color sample-fb-inverted-following'],
+  'FollowButton.subtleFill': ['. background_color fb-subtle'],
+  'FollowButton.subtleInk': ['0/0 text_color fb-subtle', '1 text_color fb-subtle'],
+  'FollowButton.subtleFollowingFill': ['. background_color sample-fb-subtle-following'],
+  'FollowButton.subtleFollowingInk': ['0/0 text_color sample-fb-subtle-following', '1 text_color sample-fb-subtle-following'],
+  'FollowButton.overlayFill': ['. background_color fb-overlay'],
+  'FollowButton.overlayInk': ['0/0 text_color fb-overlay', '1 text_color fb-overlay'],
+  'FollowButton.overlayFollowingFill': ['. background_color sample-fb-overlay-following'],
+  'FollowButton.overlayFollowingInk': ['0/0 text_color sample-fb-overlay-following', '1 text_color sample-fb-overlay-following'],
+  'FollowButton.pressScale': ['. press_scale fb-base,fb-following,fb-inverted,fb-subtle,fb-overlay,sample-fb-icon-follow,sample-fb-inverted-following,sample-fb-subtle-following,sample-fb-overlay-following,sample-fb-icon-following-following,sample-fb-icon-following,sample-fb-icon-none,sample-fb-icon-follow-following'],
+  'FollowButton.pressScaleTiny': ['. press_scale fb-tiny,sample-fb-tiny-following'],
+  'FollowButton.pressScaleRound': ['. press_scale fb-round,sample-fb-round-following,sample-fb-round-tiny'],
   // Stage 15 B's exports, from the box library-gate holds each in: Avatar's
   // column (0), its picture or figure (0/0, the figure's circles and path
   // 0/0/n) and its ring (0/1); VerifiedBadge's column (0) and its two
@@ -225,6 +321,16 @@ export const PARAM_TOKENS = {
   'ComposeFrame.track': 'actions.compose-track', 'ComposeFrame.arc': 'actions.compose-arc',
   'BarItem.tint': 'actions.bar-tint', 'BarItem.badgeFill': 'actions.bar-badge', 'BarItem.badgeInk': 'actions.bar-badge-ink',
   'HeaderButton.tint': 'actions.header-tint', 'HeaderButton.tintSmall': 'actions.header-tint-small',
+  'FollowButton.fill': 'actions.follow-fill', 'FollowButton.ink': 'actions.follow-ink',
+  'FollowButton.followingFill': 'actions.follow-following-fill', 'FollowButton.followingInk': 'actions.follow-following-ink',
+  'FollowButton.invertedFill': 'actions.follow-inverted-fill', 'FollowButton.invertedInk': 'actions.follow-inverted-ink',
+  'FollowButton.invertedFollowingFill': 'actions.follow-following-fill', 'FollowButton.invertedFollowingInk': 'actions.follow-following-ink',
+  'FollowButton.subtleFill': 'actions.follow-subtle-fill', 'FollowButton.subtleInk': 'actions.follow-subtle-ink',
+  'FollowButton.subtleFollowingFill': 'actions.follow-subtle-following-fill', 'FollowButton.subtleFollowingInk': 'actions.follow-subtle-following-ink',
+  'FollowButton.overlayFill': 'actions.follow-overlay-fill', 'FollowButton.overlayInk': 'actions.follow-overlay-ink',
+  'FollowButton.overlayFollowingFill': 'actions.follow-overlay-fill', 'FollowButton.overlayFollowingInk': 'actions.follow-overlay-ink',
+  'PersonRow.divider': 'cards.divider', 'PersonRow.meta': 'cards.meta', 'PersonRow.pill': 'cards.pill', 'PersonRow.badge': 'cards.badge', 'PersonRow.badgeMark': 'cards.badge-mark',
+  'FollowButton.pressScale': 'actions.follow-press', 'FollowButton.pressScaleTiny': 'actions.follow-press-tiny', 'FollowButton.pressScaleRound': 'actions.follow-press-round',
 };
 
 /** A read's entries, parsed: [{ component, path, rows, ids }]. */
@@ -286,7 +392,7 @@ export function valueFor(kind, k) {
   return `#${ch(40, 32)}${ch(72, 40)}${ch(104, 48)}`;
 }
 
-/** The eleven cases (stage 13 C's ten and stage 15 B's exports' one): each batch's tokens (the derived ones read, not set) and
+/** The fifteen cases (stage 13 C's ten, stage 15 B's exports' one, FollowButton's two and PersonRow's two): each batch's tokens (the derived ones read, not set) and
  * its components' params, each name its own value. */
 export function cases(root = ROOT) {
   const tokens = newTokens(root), params = packageParams(root);

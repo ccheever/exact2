@@ -202,15 +202,16 @@ function replyOf(m: Stored, dirs: Directories): Row['reply'] {
       .map(words => plain(flatten(parse(String(words ?? '')), context(dirs)))).filter(Boolean).join(' ')
       || stickersOf(ref.message_snapshots?.[0]?.message ?? ref).map(stickerName).join(', ')
       || String((ref.message_snapshots?.[0]?.message ?? ref).poll?.question?.text ?? ''))
-      .replace(/\s+/g, ' ').trim(), 100),
+      .replace(/\s+/g, ' ').trim(), 100, '…'),
     state: 'present' }];
 }
 
-/** The first `n` characters of `s`, by code point: a cut in UTF-16 units can split an emoji, and the half
- * left is a lone surrogate, which no host's JSON reader takes (the whole window it is in fails). */
-export function clip(s: string, n: number): string {
+/** The first `n` characters of `s`, by code point, then `more` if any were cut: a cut in UTF-16 units can
+ * split an emoji, and the half left is a lone surrogate, which no host's JSON reader takes (the whole
+ * window it is in fails). */
+export function clip(s: string, n: number, more = ''): string {
   const points = Array.from(s);
-  return points.length > n ? points.slice(0, n).join('') : s;
+  return points.length > n ? points.slice(0, n).join('') + more : s;
 }
 
 /** A message's text as the composer shows it for an edit: a mention of a person the directories know is
@@ -351,7 +352,8 @@ export function renderMessage(m: Stored, previous: Stored | undefined, dirs: Dir
     avatar: dirs.avatar(user), color: dirs.nameColor(m.channel_id, m.member?.roles ?? []),
     bot: m.author?.bot === true, at, prevAt,
     grouped: !!previous && String(previous.author?.id) === authorId && delta >= 0 && delta < 7 * 60000 &&
-      (previous.type ?? 0) === 0 && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',
+      // A reply heads a group; the author's next messages join it, as in Discord.
+      [0, 19].includes(previous.type ?? 0) && (m.type ?? 0) === 0 && !isReply(m) && previous.status !== 'failed',
     edited, mine: authorId === me, state: m.status, mentionsMe, jumbo: isJumbo,
     // A forward is never edited: it has no words of its own to edit.
     system, systemIcon, plain: system || text, source: snapshot ? '' : editable(content, dirs), isNew: false, blocks,

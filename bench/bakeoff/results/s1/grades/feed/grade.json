@@ -1,0 +1,51 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first feed of inset rounded cards showing author, handle and relative time (which updates: now → 1m), full text, a full-width image at its own aspect ratio with rounded corners, and carousels of titled cards (with 01/02 index badges). Carousel scrolls freely and stops mid-card rather than snapping."},
+      {"n": 2, "status": "pass", "note": "Heart fills red and the count goes 872→873. Reply count is shown with a bubble icon."},
+      {"n": 3, "status": "pass", "note": "Tapping text or the ↗ button pushes a Post screen with the image larger (338→370 pt) and a timestamp. Image and carousel taps open a black full-screen viewer with a close button, which a swipe down dismisses."},
+      {"n": 4, "status": "partial", "note": "Pull adds 3 posts at the top and the count goes 404→407, but afterwards the large-title area stays stretched (nav bar 211/170 pt tall) with a ~100 pt blank gap above 'Feed' until the user scrolls. The same three canned posts (Maya/Sam/Nora) appear every time."},
+      {"n": 5, "status": "pass", "note": "Compose button opens a sheet (Cancel / New post / Post, disabled until text is typed). The post appears at the top as 'You @you · now'."},
+      {"n": 6, "status": "pass", "note": "Likes, composed posts and refreshed posts all survive a relaunch."}
+    ],
+    "bugs": [
+      "After pull to refresh, the feed does not settle back: a ~100 pt blank band stays between the compose button and the large 'Feed' title (nav bar reported 170–211 pt tall) for 5+ s until the list is scrolled again.",
+      "Refresh always generates the same three posts with identical text, so repeated refreshes stack visible duplicates."
+    ],
+    "tells": [
+      "Decorative 'YOUR DAILY SCROLL · 400 posts' header with a tracked small-caps label reads like a web/dribbble design, not a stock iOS feed.",
+      "Monospaced '01'/'02' index badges on carousel cards.",
+      "Carousel has no paging or snapping; cards stop half-clipped.",
+      "Extra ↗ 'open post' button on every card duplicates tapping the post.",
+      "Coloured initials avatars (fine). Otherwise system nav bar, large title, sheet, edge-swipe back, scroll-edge blur and Dynamic Type all behave natively."
+    ],
+    "scroll": "Smooth through 400+ posts with no blank rows, pop-in or jumps. Flings decelerate natively and the scroll position is kept on returning from a post. The only blemish is the stuck gap after pull to refresh.",
+    "scores": {"features": 8, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Newest-first plain list with hairline separators showing author, handle, relative time ('Just now', '16m ago'), full text, a full-width image at its aspect ratio with rounded corners, and carousels of image cards with titles beneath. Carousel cards are a uniform crop, and the carousel stops roughly but not exactly on a card."},
+      {"n": 2, "status": "pass", "note": "Like (exposed as a Switch) turns the heart red and the count goes 872→873. Reply count is shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a Post screen, but the image is only marginally larger (370→386 pt, gained by shrinking the margins to 8 pt). Image and carousel taps open a black full-screen viewer, which a swipe down dismisses."},
+      {"n": 4, "status": "pass", "note": "Pull adds 3 posts at the top with varied text; the list settles back cleanly."},
+      {"n": 5, "status": "pass", "note": "Compose sheet (Cancel / New Post / Post, disabled until text is typed). The post appears at the top."},
+      {"n": 6, "status": "pass", "note": "Likes, composed posts and refreshed posts all survive a relaunch."}
+    ],
+    "bugs": [
+      "Relative time never advances: posts created this session still read 'Just now' minutes later.",
+      "Detail screen uses 8 pt side margins, inconsistent with the 16 pt feed; at the largest text size its body text runs almost to the screen edge."
+    ],
+    "tells": [
+      "Accessibility tree is deeply nested generic containers (ScrollView > Other 'app' > ScrollView > ScrollView), with stray 'Horizontal scroll bar' elements on vertical lists: a cross-platform/web-style view hierarchy.",
+      "Like button is exposed as a Switch rather than a button.",
+      "8 pt content margins on the detail screen instead of the system's 16/20.",
+      "Grey monogram avatars are hidden at accessibility sizes (acceptable), and the detail view has no timestamp.",
+      "Carousel shows a horizontal scroll indicator and doesn't snap cleanly.",
+      "Otherwise native: large title, sheet compose, edge-swipe back, scroll-edge blur, Dynamic Type and dark mode."
+    ],
+    "scroll": "Smooth flings through 400+ posts with no blank rows or pop-in, and the scroll position is kept on returning from a post. Pull to refresh springs back cleanly.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and scroll smoothly. A feels more finished: inset cards, a clearly larger detail image, a detail timestamp, relative times that update, and consistent margins. Its one real flaw is the gap left after pull to refresh. B's list refreshes cleanly, but its detail screen barely enlarges the image, has cramped 8 pt margins, frozen 'Just now' times and a web-like view hierarchy, so A is the one I would ship."
+}

@@ -1,0 +1,45 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Three-column grid of rounded HSL squares with centred symbols, newest first, all 600 tiles, with a count label."},
+      {"n": 2, "status": "pass", "note": "A pill-shaped 'All boards' button opens a system menu with All plus ten boards. Filtering works (Coast shows 64 tiles)."},
+      {"n": 3, "status": "pass", "note": "Large view shows the tile, board, title in serif type, date and an 'n of 600' position. Swiping left and right moves between tiles, and there are arrow buttons too."},
+      {"n": 4, "status": "pass", "note": "A full-width Like/Liked button toggles the like. The Liked tab shows liked tiles in the same grid, with a filter and count."},
+      {"n": 5, "status": "pass", "note": "Select mode has checkmark circles, Select All, and a bottom bar with Like and Delete. Delete asks for confirmation and then offers an Undo toast."},
+      {"n": 6, "status": "pass", "note": "After relaunch the deleted tiles stay gone (598) and the likes are kept."}
+    ],
+    "bugs": [
+      "The Like and Delete buttons in select mode's action bar are missing from the accessibility tree, so VoiceOver cannot reach them; I could only tap them by screen position."
+    ],
+    "tells": [
+      "Entering select mode makes the large title and tagline vanish and the whole grid jumps up about 88 pt, so a tap aimed at the first row lands on the second.",
+      "Heavily branded: warm cream background, a rust accent instead of the system tint, a serif detail title, a custom pill filter button and a full-width capsule Like button. It reads more designed than stock UIKit.",
+      "The Liked tab icon is a solid black heart even when the tab is not selected.",
+      "The detail screen has a custom bottom band ('Swipe to explore' with arrows) sitting above the tab bar; in dark mode it shows as a grey slab.",
+      "At the largest text size the filter pill wraps 'All boards' onto two lines inside a huge capsule."
+    ],
+    "scroll": "Slow drags and flings are smooth with no blank or popping tiles, and the navigation bar blurs nicely under the grid. Scroll position is kept when coming back from the detail view, and pulling past the top bounces normally.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Edge-to-edge three-column grid of square HSL tiles with thin gutters, newest first. The subtitle reads '600 tiles · Newest first'."},
+      {"n": 2, "status": "pass", "note": "A filter icon button opens a system menu titled 'Filter by Board' with All Boards plus ten boards. Filtering works, and the nav title changes to the board name."},
+      {"n": 3, "status": "pass", "note": "Detail shows a full-width tile, title, board and 'Added <date>'. Swipe and the chevrons move between tiles, with an 'n of 600' position."},
+      {"n": 4, "status": "pass", "note": "Like works from the nav-bar heart or the Like Tile button. The Liked tab shows liked tiles in the same grid, with a filter and count."},
+      {"n": 5, "status": "pass", "note": "Select mode has system-style blue checkmark circles, Select All and a bottom Like/Delete bar. Delete asks for confirmation (no undo)."},
+      {"n": 6, "status": "pass", "note": "After relaunch the deleted tiles stay gone (598) and the likes are kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "No large title: the root screens use a small left-aligned two-line title and subtitle where an iOS 27 app would normally show a large title.",
+      "In select mode at the default size the subtitle already truncates ('Newes…'), and at the largest size the title truncates to 'Moodb…'.",
+      "In select mode the grid is clipped hard above an opaque grey action bar instead of scrolling under a glass toolbar.",
+      "At the largest text size the 'Like Tile' button on the detail screen sits under the tab bar until you scroll."
+    ],
+    "scroll": "Smooth like Photos: flings settle cleanly with no blank tiles, and content blurs under the bars. Scroll position is kept on return from detail, and pulling past the top bounces normally.",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "tie",
+  "why": "Both apps meet all six requirements, persist likes and deletions, and scroll equally smoothly. A is more polished and characterful (Undo after delete, nicer detail typography) but jumps its layout on entering select mode and hides its action buttons from accessibility. B is closer to stock Photos-style iOS but uses a small header that truncates and a clunkier select bar. They balance out."
+}

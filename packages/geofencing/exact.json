@@ -1,0 +1,142 @@
+{
+  "kind": "interface",
+  "name": "@exact/geofencing",
+  "version": "1.0.0",
+  "grants": [
+    "device.geolocation-background",
+    "device.geolocation"
+  ],
+  "permission": [
+    {
+      "name": "geolocation-background",
+      "status": "geofencingStatus",
+      "field": "state",
+      "denied": "PERMISSION_DENIED",
+      "grants": ["device.geolocation-background"],
+      "base": "geolocation",
+      "requires": { "android": ["geolocation"] }
+    },
+    {
+      "name": "geolocation",
+      "denied": "PERMISSION_DENIED",
+      "grants": ["device.geolocation"]
+    }
+  ],
+  "shapes": {
+    "Geofence": {
+      "name": "string",
+      "latitude": "number",
+      "longitude": "number",
+      "radius": "number",
+      "inside": "option<bool>"
+    },
+    "GeofenceEvent": {
+      "geofence": "Geofence",
+      "timestamp": "number",
+      "android": "option<AndroidGeofenceEvent>"
+    },
+    "AndroidGeofenceEvent": {
+      "latitude": "number",
+      "longitude": "number",
+      "accuracy": "number"
+    },
+    "GeofencingStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "apple": "option<AppleGeofencingStatus>",
+      "android": "option<AndroidGeofencingStatus>"
+    },
+    "AppleGeofencingStatus": {
+      "authorization": "enum<notDetermined|restricted|denied|authorizedWhenInUse|authorizedAlways>",
+      "accuracyAuthorization": "enum<fullAccuracy|reducedAccuracy>",
+      "alwaysRequested": "bool"
+    },
+    "AndroidGeofencingStatus": {
+      "playServices": "bool",
+      "backgroundPermissionOptionLabel": "option<string>",
+      "limit": "number"
+    }
+  },
+  "names": [
+    {
+      "send": "addGeofence",
+      "permission": "geolocation-background",
+      "request": true,
+      "grants": ["device.geolocation-background"],
+      "options": {
+        "name": "string",
+        "latitude": "number",
+        "longitude": "number",
+        "radius": { "type": "number", "min": 100 }
+      },
+      "answers": "Geofence",
+      "substitute": {
+        "unsupported": ["web", "linux", "windows", "tvos", "terminal"],
+        "checks": [{ "nonEmpty": ["name"], "error": "TypeError" }],
+        "list": {
+          "state": "geofences",
+          "key": "name",
+          "kind": "geofence",
+          "most": 20,
+          "initial": { "inside": null },
+          "tap": {
+            "as": "wake",
+            "stays": true,
+            "event": { "by": "inside", "false": "geofenceenter", "true": "geofenceleave" },
+            "args": [
+              {
+                "geofence": {
+                  "name": "name",
+                  "latitude": "latitude",
+                  "longitude": "longitude",
+                  "radius": "radius",
+                  "inside": "inside"
+                },
+                "timestamp": "timestamp"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "send": "removeGeofence",
+      "permission": "none",
+      "options": { "name": "string" },
+      "answers": null,
+      "substitute": {
+        "unsupported": ["web", "linux", "windows", "tvos", "terminal"],
+        "unlist": { "key": "name", "kind": "geofence" }
+      }
+    },
+    {
+      "source": "geofences",
+      "live": true,
+      "answers": "Geofence[]",
+      "substitute": {
+        "listed": {
+          "state": "geofences",
+          "kind": "geofence",
+          "fields": ["name", "latitude", "longitude", "radius", "inside"]
+        }
+      }
+    },
+    {
+      "source": "geofencingStatus",
+      "live": true,
+      "answers": "GeofencingStatus",
+      "substitute": {
+        "default": { "available": true, "state": "prompt" },
+        "targets": {
+          "web": { "available": false, "state": "unknown" },
+          "linux": { "available": false, "state": "unknown" },
+          "windows": { "available": false, "state": "unknown" },
+          "tvos": { "available": false, "state": "unknown" },
+          "terminal": { "available": false, "state": "unknown" }
+        }
+      }
+    },
+    { "event": "geofenceenter", "on": "root", "raised": "wake", "args": ["GeofenceEvent"], "hold": 16, "budget": 30000 },
+    { "event": "geofenceleave", "on": "root", "raised": "wake", "args": ["GeofenceEvent"], "hold": 16, "budget": 30000 }
+  ]
+}

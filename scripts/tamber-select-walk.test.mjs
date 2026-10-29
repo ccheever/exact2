@@ -57,10 +57,11 @@ test('tamber/1.17 on both web pages: select walks the page\'s own tree by copies
       const build = await until(async () => (await post({ method: 'hello' })).ok?.builds?.find(b => b.host.startsWith('web')), 120_000, 'the build');
       expect((await post({ method: 'inspect', client: 'tool', on: true })).ok.builds).toEqual([build.id]);
       await page.locator('#exact-inspect').waitFor();
-      const pick = async id => {
+      // (`edge`: at its top left corner, in its own padding, not on a child.)
+      const pick = async (id, edge = false) => {
         const box = await page.locator(`[data-testid="${id}"]`).first().boundingBox();
         const seen = events.length;
-        await page.mouse.click(box.x + Math.min(6, box.width / 2), box.y + box.height / 2);
+        await page.mouse.click(box.x + (edge ? 1 : Math.min(6, box.width / 2)), edge ? box.y + 1 : box.y + box.height / 2);
         return until(() => events.slice(seen).find(e => e.event === 'selection'), 30_000, `${id} selected`);
       };
       const up = async n => {
@@ -80,6 +81,28 @@ test('tamber/1.17 on both web pages: select walks the page\'s own tree by copies
       await lands('wrapped', 1, 'card');        // (c) the nearer host, then its wrapper
       await lands('wrapped', 2, 'outer');
       await lands('glyph', 9, 'root', 3);       // (d) Card, Post, App: the root, three of nine
+      // One rule (stage 15 D3, theme2's condition 1): a selection's chain is the page's own walk, so each entry is where
+      // a move up of its index plus one lands, here on the page: its component, and a slot's host by its own call.
+      const walks = async (id, edge = false) => {
+        const chain = (await pick(id, edge)).source.chain;
+        expect([page_, id, chain.length > 0]).toEqual([page_, id, true]);
+        for (const [k, entry] of chain.entries()) {
+          if (k) await pick(id, edge);
+          const s = await up(k + 1);
+          expect([page_, id, k + 1, s.source.component, s.moved.stepped]).toEqual([page_, id, k + 1, entry.component, k + 1]);
+          // (A slot's host is named by its own call: that line of the source calls it.)
+          if (entry.slot) expect([page_, id, k + 1, SOURCE.split('\n')[entry.line - 1].trim()]).toEqual([page_, id, k + 1, `${entry.component}()`]);
+        }
+        await pick(id, edge);
+        expect((await up(chain.length + 1)).moved).toEqual({ up: chain.length + 1, stepped: chain.length });
+        return chain.map(e => `${e.component}${e.slot ? ' (slot)' : ''}`);
+      };
+      expect(await walks('body')).toEqual(['Card (slot)', 'App']);
+      expect(await walks('glyph')).toEqual(['Card (slot)', 'Post', 'App']);
+      expect(await walks('panel-fill')).toEqual(['Frame (slot)']);
+      expect(await walks('wrapped')).toEqual(['Card (slot)', 'Outer (slot)']);
+      // No fill on the way: the chain as written (Card's own box, in Post).
+      expect(await walks('card', true)).toEqual(['Post', 'App']);
       // A rebuild: the new plan's copies come with inspect mode as the page registers again; a move steps as before.
       const before = (await post({ method: 'hello' })).ok.builds.find(b => b.id === build.id)?.planDigest;
       writeFileSync(join(APP, 'app.contract'), SOURCE.replace('text "body" testId="body"', 'text "body!" testId="body"'));

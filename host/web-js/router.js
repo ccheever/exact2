@@ -1,6 +1,6 @@
 // The router on the JS target (LLP 1038; route/src), re-exported by rt.js: the verbs and reads, the route table, and the
 // router slot's changes to the browser's history.
-import { Refusal, effect, After, journal, clock, commit, W, pressFeedback } from "./rt.js";
+import { Refusal, effect, After, journal, clock, commit, W, pressFeedback, fact } from "./rt.js";
 import { projectRoots } from "./document.js";
 import { canonical, locationOf, enc, dec, matchPattern } from "./route-pattern.js";
 export { canonical, locationOf };
@@ -110,6 +110,19 @@ export function x_searchParam(e, name) {
   const q = e[2].split("?")[1]; if (!q) return "";
   for (const pair of q.split("#")[0].split("&").filter(Boolean)) { const [k, ...v] = pair.split("="); if (dec(k, true) === name) return dec(v.join("="), true); }
   return "";
+}
+// A received share's files by token (LLP 1133.024 D3; runner/src/runner/router.rs `share`): a token not set this launch answers none.
+const Shared = new Map(); let SharedSet = null; const sharedSet = () => SharedSet ??= fact(); // made at first use: rt.js imports this module before its own body runs
+export function x_sharedFiles(e, name) {
+  sharedSet().get();
+  const token = x_searchParam(e, name), files = Shared.get(token);
+  if (!files && token) say(`router sharedFiles refused: no share under \`${name}\` this launch`);
+  return files ?? [[], 0, 0];
+}
+/** What the host copied of a share so far: `files` Picked records, then the counts. */
+export function setShared(token, files, dropped, pending) {
+  say(`share: ${files.length} files set, ${pending} pending, ${dropped} dropped`);
+  Shared.set(token, [files, dropped, pending]); commit(() => sharedSet().bump(), "shared");
 }
 export { segmentOf }; // `encodeRouteSegment` is budget.js's, checked
 export const x_path = (name, ...values) => path(Routes.find(r => r.name === name && !r.notfound), values);

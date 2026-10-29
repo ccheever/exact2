@@ -12,6 +12,10 @@
 // - The capture policy silences an app whose capture another app takes: `isClientSilenced` mutes the tracks,
 //   `silenced` (D8, API 29).
 // - The permission is `RECORD_AUDIO`, its state a fact with the history geolocation keeps (D9).
+// - The background (LLP 1133.033 D5): with `device.microphone-background` the capture claims the host's `capture`
+//   service, type `microphone`, at the first lease and lets it go at the last, so it records on while the app is hidden.
+//   Without the line, or with the claim refused, Android lets a hidden app hear only silence, so leaving the app mutes
+//   the tracks, `background`, and lets their lease go, as on iOS; coming back takes it again.
 // - Under the agent no record is made and nothing is asked: a stream with one track, "Agent microphone".
 // - Tier 3 (D5): `MediaCaptureModule.hatch` is given the `AudioRecord.Builder` once per capture, after the words.
 package exact.mediacapture
@@ -34,6 +38,7 @@ import android.os.Looper
 import dev.exact.canvas.AudioSource
 import dev.exact.canvas.ExactExtension
 import dev.exact.canvas.ExtensionContext
+import dev.exact.canvas.ForegroundClaim
 import dev.exact.canvas.TrackConsumer
 import dev.exact.canvas.TrackEntry
 import dev.exact.canvas.TrackError
@@ -75,6 +80,8 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     private val cameras = VideoTracks(context) { ++next }
     private var overlay: String? = null
     private var opened = false
+    /** The `capture` service's claim, held while any track is active (LLP 1133.033 D5). */
+    private var background: ForegroundClaim? = null
 
     init { if (!context.agent) Capture.listeners += this }
 
@@ -148,6 +155,8 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
     private fun getUserMedia(args: JSONObject, reply: (JSONObject) -> Unit) {
         // No kind asked for is Media Capture's TypeError, before anything opens.
         if (!args.optBoolean("audio", false) && !args.has("audioConstraints")) return reply(error("TypeError"))
+        // A recognizer holding the microphone exclusively (LLP 1133.012 D8): nothing opens beside it.
+        if (context.tracks.held("audio")) return reply(error("NotReadableError"))
         val make = {
             next += 1
             val t = Track("track-${context.session}-$next", "stream-${context.session}-$next",
@@ -181,13 +190,16 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
                 consumer.live(if (context.agent) null else Capture)
                 if (t.muted) consumer.muted(t.muteReason ?: "idle")
             }
-            origin == "app" && t.enabled && (!t.used || start) -> activate(t)
+            // While a recognizer holds the microphone exclusively, a track stays idle (LLP 1133.012 D8).
+            origin == "app" && t.enabled && (!t.used || start) && !context.tracks.held("audio") -> activate(t)
             else -> consumer.muted(t.muteReason ?: "idle")
         }
         return {
             if (t.consumers.remove(consumer) != null && t.consumers.isEmpty() && t.active) deactivate(t)
         }
     }
+
+    override fun leased(id: String) = tracks[id]?.active == true
 
     private fun each(t: Track, f: (TrackConsumer) -> Unit) = t.consumers.keys.toList().forEach(f)
 
@@ -220,12 +232,31 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         }
         each(t) { it.live(if (context.agent) null else Capture) }
         settle(t)
+        if (t.leased || context.agent) claimBackground()
     }
 
     private fun deactivate(t: Track) {
         t.active = false
         release(t)
         mute(t, "idle")
+        releaseBackground()
+    }
+
+    /** Claim the `capture` service where the app's lines declare it, at a lease taken in the foreground (D5). */
+    private fun claimBackground() {
+        if (background != null || !context.foregroundService.declared("capture", "microphone")) return
+        background = context.foregroundService.claim("capture", setOf("microphone"), context.origin, lost = { why ->
+            background = null
+            context.log("media-capture: the background claim was refused after it was made: $why")
+            if (!context.foreground) foreground(false)
+        })
+    }
+
+    /** The last active track is gone: the service goes with its claim. */
+    private fun releaseBackground() {
+        if (tracks.values.any { it.active }) return
+        background?.release()
+        background = null
     }
 
     private fun release(t: Track) {
@@ -242,6 +273,7 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         each(t) { it.ended() }
         t.consumers.clear()
         announce()
+        releaseBackground()
     }
 
     /** The capture policy's silencing of this app's capture, or its end (D8). */
@@ -253,10 +285,30 @@ class MediaCaptureModule(context: ExtensionContext) : ExactExtension(context), T
         }
     }
 
-    /** Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track (D10 item 11). */
-    override fun foreground(shown: Boolean) = cameras.foreground(shown)
+    /**
+     * The app left the foreground or came back (LLP 1133.033 D5): a capture under its claim runs on; any other one
+     * mutes `background` and lets its lease go, since a hidden app hears only silence, and takes it again on return.
+     */
+    override fun foreground(shown: Boolean) {
+        cameras.foreground(shown)
+        if (background != null) return
+        for (t in tracks.values) {
+            if (t.readyState != "live" || !t.active) continue
+            if (shown) {
+                t.platformMute = overlay
+                activate(t)
+            } else {
+                t.platformMute = "background"
+                release(t)
+                settle(t)
+            }
+        }
+    }
 
+    /** Under the agent: a preferred `mediaStreamTrack` is the platform's change to every live track (D10 item 11), and
+     * a preferred `foregroundService` refusal the platform's refusal of the claim (LLP 1133.033 D21). */
     override fun preferred(values: JSONObject) {
+        context.foregroundService.refusing = values.optJSONObject("foregroundService")?.optString("refused")?.ifEmpty { null }
         val value = values.optJSONObject("mediaStreamTrack")
         cameras.preferred(value)
         overlay = if (value?.optBoolean("muted") == true) value.optString("muteReason").ifEmpty { "interrupted" } else null

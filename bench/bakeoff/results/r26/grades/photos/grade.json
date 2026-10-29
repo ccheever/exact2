@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "4-across square centre-cropped grid with 2pt gaps, oldest at top, opens scrolled to the newest at the bottom, day headings in full form (\"Monday, October 26, 2026\") and a photo-count footer."},
+      {"n": 2, "status": "pass", "note": "Tap opens the photo at its own aspect ratio; swiping left and right pages through photos, with a position counter (\"1497 of 1,500\"); swiping down closes it."},
+      {"n": 3, "status": "pass", "note": "A heart toggle in the viewer's bottom bar favorites and unfavorites; a white heart appears on the grid thumbnail straight away."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title, a 'My Albums' heading and a 2-column grid of all 8 albums with rounded covers and counts; each opens a grid with a back button and Select."},
+      {"n": 5, "status": "pass", "note": "Select mode shows blue checkmarks, dims selected tiles and puts the count in the title; batch favorite works (then leaves select mode); batch delete asks for confirmation in an alert and removes the photos; the counts update."},
+      {"n": 6, "status": "pass", "note": "Batch favorites, a viewer favorite and a 2-photo deletion all survived a relaunch (1,498 Photos)."}
+    ],
+    "bugs": [],
+    "tells": [
+      "At the largest text size the nav bar's subtitle ('1,498 Photos') grows huge and pushes the shrunken 'Library' title into the top-left corner; the header looks broken rather than like a system title/subtitle.",
+      "Day headings always include the year and never use 'Today'/'Yesterday'; Photos drops the year for the current year and uses relative days.",
+      "Batch delete confirms with a centred alert rather than an action sheet or popover anchored to the trash button.",
+      "Fast flings travel noticeably less far than a stock UICollectionView (three flings went about 3 weeks back, versus about 7 weeks in B); momentum feels damped.",
+      "Album covers are exposed to accessibility as 'Link' elements and thumbnails as plain buttons, which reads web-like.",
+      "No Share button in the viewer or in select mode.",
+      "A tall footer leaves a large empty band above the tab bar at the bottom of the library.",
+      "The viewer shows an 'N of 1,500' counter in the toolbar, which Photos doesn't do."
+    ],
+    "scroll": "Smooth, with no blank tiles or pop-in even on hard flings, but deceleration is short, so long flings cover much less ground than a native collection view. Pulling past the top and bottom bounces normally.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "4-across square centre-cropped grid with thin gaps, oldest at top, opens at the newest at the bottom; day headings use Photos-style relative and short dates ('Yesterday', 'Sunday, October 25'); footer shows photo and favorite counts."},
+      {"n": 2, "status": "pass", "note": "Opens full screen at its own aspect ratio, centred on screen; swiping left and right pages through photos; swiping down closes it; date and time sit in the nav bar."},
+      {"n": 3, "status": "pass", "note": "A heart button in the viewer toolbar (between Share and Delete) toggles favorite; a filled heart shows on the grid thumbnail."},
+      {"n": 4, "status": "pass", "note": "Albums tab with a large title and a 2-column grid of the 8 albums with covers and counts; an album opens a grid with day headings, a back button, Select and a footer count."},
+      {"n": 5, "status": "pass", "note": "Select mode shows checkmarks and the count in the title, with Share, Favorite and Delete in the toolbar; batch favorite keeps you in select mode, as Photos does; Delete opens a popover anchored to the trash button ('Delete 2 Photos')."},
+      {"n": 6, "status": "pass", "note": "Favorites and deletions survived a relaunch (1,498 Photos · 84 Favorites)."}
+    ],
+    "bugs": [],
+    "tells": [
+      "The viewer's toolbar buttons sit in separate glass circles instead of one grouped toolbar; minor.",
+      "Tiles drawn under the translucent nav bar blur only part of the bar in some positions (the left half shows photo colour, the right is plain); a cosmetic scroll-edge oddity."
+    ],
+    "scroll": "Feels like a native collection view: long flings with full momentum, no blank tiles or pop-in, and sticky day headings that pin cleanly under the nav bar. Bouncing at both ends is normal.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "better": "B",
+  "why": "Both apps meet all six requirements and look almost the same. B is closer to Photos in the details: relative day headings, a delete popover anchored to the button, Share, staying in select mode after a batch action, and native-feeling fling momentum. A's damped scrolling, centred delete alert and broken nav-bar subtitle at the largest text size give it away."
+}

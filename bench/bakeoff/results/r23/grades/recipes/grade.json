@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Plain list of all 160 with a category icon, title, 'Category · time' and a star rating plus chevron; header row reads '160 Recipes · By Name'."},
+      {"n": 2, "status": "pass", "note": "Horizontal chip row with All plus nine categories; search matches titles and ingredients ('milk' in Desserts gives 15, same as B); filter and search combine; no-results state names the category and offers 'Search All Categories'."},
+      {"n": 3, "status": "pass", "note": "Sort menu in the nav bar: Name A to Z / Time quickest / Rating highest, with a checkmark; works and is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "Header card shows time, servings and rating; system stepper with a Reset button; scaling uses nice fractions (¾ clove, 1½ tsp, 1.5 g) and plural units (3 cups); numbered steps in blue circles."},
+      {"n": 5, "status": "pass", "note": "Heart in the nav bar toggles (filled red when saved); Favorites tab lists saved recipes with a count subtitle and swipe-to-Remove; empty state has an icon, an explanation and a Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "A favorite survived relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Category filter is a row of hand-drawn capsule chips, not a system control (well done, but custom).",
+      "At the largest text size the pinned '160 Recipes · By Rating' section header wraps to two huge lines and stays stuck under the search bar, covering about a third of the screen.",
+      "Detail screen puts the time/servings/rating stats in a custom card and has custom numbered step badges; it reads as designed rather than stock, though it adapts well to large text (it stacks vertically)."
+    ],
+    "scroll": "Smooth native list: slow drags, flings and the pull past the top all behaved like UIKit. No blank or popping rows, and the scroll position was kept after pushing a recipe and swiping back.",
+    "scores": {"features": 9, "platform": 8, "polish": 9, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped list of all 160 with title, 'Category · time', an orange star rating and a chevron; header reads '160 recipes · by name'. Rows have no category icon."},
+      {"n": 2, "status": "pass", "note": "Category filter is a native pull-down menu (All Categories plus nine, with a checkmark); search matches titles and ingredients; they combine (header shows '15 recipes in Desserts'); there is a no-results state."},
+      {"n": 3, "status": "pass", "note": "Native sort menu (Name / Time / Rating); works and is kept across relaunch."},
+      {"n": 4, "status": "pass", "note": "Grouped rows for Time and Rating; Servings row has an editable number field (numeric keypad with Done) plus a stepper; fractional scaling is correct (¾, 1½); numbered steps."},
+      {"n": 5, "status": "pass", "note": "Heart in the nav bar toggles; Favorites tab lists saved recipes with swipe-to-Delete and a hint footer; empty state has a heart, a message and a Browse Recipes button."},
+      {"n": 6, "status": "pass", "note": "A favorite survived relaunch."}
+    ],
+    "bugs": [
+      "Units are not pluralised when quantities scale ('3 cup milk')."
+    ],
+    "tells": [
+      "At the largest text size a title breaks inside a word with no hyphen ('Dump' / 'lings').",
+      "At large text the ingredient amount column keeps a fixed wide width, so the ingredient names squeeze and wrap ('2 cloves / rice').",
+      "Empty Favorites title is in regular weight instead of bold, unlike ContentUnavailableView.",
+      "The filled favorite heart is black (label colour) rather than tinted.",
+      "The servings value floats in the middle of the row as a bare text field, an unusual layout next to the stepper.",
+      "Ingredients and Steps section headers are large grey text, and the steps are plain grey numbers; the detail screen looks plain and settings-like.",
+      "The active category is visible only in the header text, not as a selected control on the list screen."
+    ],
+    "scroll": "Scrolling feels native and smooth, with no blank or popping rows. The scroll position was kept on returning from a recipe. The scroll indicator's page count changes while scrolling (15 to 18 pages), a sign of estimated row heights, but nothing visibly jumped.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both meet every requirement and both feel like native iOS lists. A is more refined: visible category chips, category icons, correct unit plurals, a clean header card and a large-text layout that stacks properly. B is solid but plainer, breaks a word with no hyphen at the largest text size, and leaves units singular when scaling ('3 cup milk')."
+}

@@ -205,10 +205,13 @@ public final class ExactReply: @unchecked Sendable {
     }
 
     /// Resolve the TypeScript promise with a JSON object, or with the value
-    /// of its one key `exact:answer` (a package's list, ExactPackage.swift).
+    /// of its one key `exact:answer` (a package's list, a `bool`, or null for
+    /// an absent `option`; ExactPackage.swift).
     public func send(_ value: [String: Any]) {
         let sent: Any = value.count == 1 ? value["exact:answer"] ?? value : value
-        guard JSONSerialization.isValidJSONObject(sent), let data = try? JSONSerialization.data(withJSONObject: sent) else {
+        let scalar = sent is NSNull || sent is NSNumber || sent is String
+        guard scalar || JSONSerialization.isValidJSONObject(sent),
+              let data = try? JSONSerialization.data(withJSONObject: sent, options: .fragmentsAllowed) else {
             return fail("the reply was not JSON")
         }
         answer(200, String(decoding: data, as: UTF8.self))
@@ -267,6 +270,21 @@ open class ExactModule {
     /// A hatched node is leaving; its view goes after this returns, and the
     /// handle does nothing from now on.
     open func elementEnded(_ element: ExactElement) {}
+    /// A frame marked `hatch="word"` is about to make a web view (LLP
+    /// 1020.002 §9): `configuration` is its `WKWebViewConfiguration`, its
+    /// data store and Exact's content worlds set, its preferences the frame's
+    /// own. Set an `applicationNameForUserAgent`, content rule lists, URL
+    /// scheme handlers for the app's own schemes, or those preferences; the
+    /// data store and the content controller must stay the arm's. Change
+    /// only the configuration: the node may not be in the tree yet. Called
+    /// before each web view the arm makes, again for a new `partition` or a
+    /// PDF back to HTML; a hatched frame's first web view waits for the
+    /// module to connect, so none is made without it. `element(_:)` then
+    /// hands the web view at `built`; if `built` has no `platform` (the view
+    /// is made after the batch, as macOS and an iOS list row usually make
+    /// it), the `changed` after this call hands it. `isNew` is true at
+    /// `built`.
+    open func elementConfiguration(_ element: ExactElement, _ configuration: AnyObject) {}
     #if os(macOS)
     /// The window toolbar Exact installed for the Contract's commands (LLP
     /// 1075.003.000 §3.7): once, when installed (at a cold launch, once the
@@ -827,11 +845,14 @@ public final class ExactElement {
     /// The platform object of a hatched node's kind, or nil: a text field or
     /// text view, a control (a segmented control too), a web view, a scroll
     /// view. What an authored row or attribute writes on it is Exact's; the
-    /// rest is yours. A video, frame or native view in a list row may be made
-    /// after `built`: the hatch hears `changed` once it is there.
+    /// rest is yours. A video, frame or native view in a list row, and on
+    /// macOS any frame, may be made after `built`: the hatch hears `changed`
+    /// once it is there.
     public internal(set) weak var platform: AnyObject?
-    /// Whether this call is the node's first.
+    /// Whether this call is the node's first `element(_:)`.
     public internal(set) var isNew = true
+    /// `element(_:)` has been called for it.
+    var told = false
     /// Set in `element` (or in `elementEnded` itself) when `elementEnded`
     /// undoes everything this hatch adds to `view` (its interactions,
     /// gestures, subviews, sublayers, and any property it changed): a list
@@ -1167,8 +1188,10 @@ private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, Unsafe
 }
 
 /// `element(module, event, view, platform, json, len) → flags`
-/// (LLP 1075.003.000): event 0 built, 1 changed, 2 ended; json {"hatch",
-/// "node", "id", "kind", "data"}; bit 0 of the flags: `reusable`.
+/// (LLP 1075.003.000): event 0 built, 1 changed, 2 ended, 3 a frame's
+/// configuration before its web view (the platform object, LLP 1020.002
+/// §9); json {"hatch", "node", "id", "kind", "data"}; bit 0 of the flags:
+/// `reusable`.
 private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32 = { raw, event, view, platform, json, length in
     guard let m = module(raw), let hatches = m.hatches, let json, length > 0,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
@@ -1187,7 +1210,7 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     let element: ExactElement
     if let known = hatches.elements[node] {
         element = known
-        element.isNew = false
+        element.isNew = !known.told
     } else {
         element = ExactElement(hatch: ExactHatchKey(word), id: object["id"] as? String ?? "", node: node, hatches: hatches)
         hatches.elements[node] = element
@@ -1196,7 +1219,12 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
     element.view = view.map { Unmanaged<ExactNativeView>.fromOpaque($0).takeUnretainedValue() }
     // A hatched node's view is a place a binding finds, as a module view is (LLP 1121 D12).
     if let view = element.view { Tambers.made(view, by: m) }
+    if event == 3 {
+        if let platform { m.elementConfiguration(element, Unmanaged<AnyObject>.fromOpaque(platform).takeUnretainedValue()) }
+        return 0
+    }
     element.platform = platform.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
+    element.told = true
     m.element(element)
     return element.reusable ? 1 : 0
 }

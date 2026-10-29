@@ -157,7 +157,7 @@ pub(crate) fn mapped_bounds(h: &[f32; 9], r: Rect4) -> Option<Rect4> {
 }
 
 fn spatial_matrix(
-    kernel: &Kernel,
+    parent: Option<(NodeRef<'_>, exact_kernel::Frame)>,
     node: &exact_kernel::NodeRef<'_>,
     p: &Presented,
     (x, y, w, h): Rect4,
@@ -176,10 +176,10 @@ fn spatial_matrix(
     m = mul(&m, &scale(p.scale * p.press));
     m = mul(&m, &translate(-cx, -cy, 0.0));
     // Its parent's `perspective`, about the parent's `perspective-origin`.
-    if let Some(parent) = node.parent.and_then(|id| kernel.node(id)) {
+    if let Some((parent, frame)) = parent {
         let d = parent.style.perspective;
         if d > 0.0 {
-            let (px, py, pw, ph) = paint_rect(parent.frame, offset);
+            let (px, py, pw, ph) = paint_rect(frame, offset);
             let (pox, poy) = parent.style.rare.perspective_origin.resolve(pw, ph);
             let (ax, ay) = (px + pox, py + poy);
             let mut persp = translate(ax, ay, 0.0);
@@ -207,7 +207,11 @@ pub(crate) fn mapping(
     let f = node.frame;
     let rect = (f.x, f.y, f.width, f.height);
     if node.style.rotate_axis.is_3d() || node.style.translate_z != 0. {
-        plane(&spatial_matrix(kernel, node, p, rect, (0., 0.)))
+        let parent = node.parent.and_then(|id| kernel.node(id)).map(|parent| {
+            let frame = parent.frame;
+            (parent, frame)
+        });
+        plane(&spatial_matrix(parent, node, p, rect, (0., 0.)))
     } else {
         let transform = p.transform(rect, node.style.transform_origin.resolve(f.width, f.height));
         crate::placement::compose([1., 0., 0., 0., 1., 0., 0., 0., 1.], transform, 0., 0.)
@@ -241,7 +245,8 @@ impl Painter {
         if w <= 0.0 || h <= 0.0 {
             return true;
         }
-        let m = spatial_matrix(walk.scene.kernel, node, p, (x, y, w, h), offset);
+        let parent = self.split_parent(walk.scene.kernel, node);
+        let m = spatial_matrix(parent, node, p, (x, y, w, h), offset);
         // The island covers what the box paints past itself: its outer
         // shadows and any overflowing descendant (nothing past a clip).
         let cap = (2.0 * w.max(h).max(64.0)).max(self.viewport.0.max(self.viewport.1));
@@ -267,6 +272,8 @@ impl Painter {
             Box::new(crate::raster::Raster::transparent()),
         );
         painter.dark = self.dark;
+        painter.symbols = self.symbols;
+        painter.split = self.split.clone();
         painter.placements = self.placements.clone();
         painter.canvases = self.canvases.clone();
         painter.flatten = Some(node.id);
@@ -285,7 +292,7 @@ impl Painter {
             dialog: walk.dialog,
         };
         let f = node.frame;
-        painter.node(
+        painter.node_at(
             &mut child_walk,
             node.id,
             Transform::identity(),

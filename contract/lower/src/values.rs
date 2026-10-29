@@ -534,6 +534,12 @@ fn style_value(
             if rows.contains(&StyleId::TextWrapStyle) && matches!(v.trim(), "pretty" | "stable") {
                 return err("lower-attr-value", format!("`{}=\"{v}\"`: exact2 implements `auto` and `balance`; Chrome's `pretty` and `stable` line breakers are not implemented on the native hosts. Use `auto` for ordinary wrapping", a.name), span);
             }
+            // @ref LLP 1019 D12: WebKit's keywords no native host draws.
+            if rows.contains(&StyleId::FontSmoothing)
+                && matches!(v.trim(), "none" | "subpixel-antialiased")
+            {
+                return err("lower-attr-value", format!("`{}=\"{v}\"`: exact2 implements `auto` and `antialiased`; `none` (aliased glyphs) and `subpixel-antialiased` are not implemented. `auto` is the platform's own smoothing", a.name), span);
+            }
             // @ref LLP 1034 §8: `light` or `dark`. CSS's `normal` means the
             // page's schemes, not the parent's, and `light dark` and `only`
             // ask a browser to choose: none is implemented; leaving the

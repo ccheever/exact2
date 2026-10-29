@@ -11,8 +11,8 @@
 // gate can see the slot render both.
 // scripts/library-gate.test.mjs holds the cells to the compiler's IR. No
 // `if`, `for` or `match` in this view: every cell renders.
-use PostCard, AtCard, ProfileHeader, ProfileAlert, Avatar, VerifiedBadge from "@exact/cards"
-use ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton from "@exact/actions"
+use PostCard, AtCard, ProfileHeader, ProfileAlert, Avatar, VerifiedBadge, PersonRow from "@exact/cards"
+use ActionRow, PostButton, ComposeFrame, BarItem, HeaderButton, FollowButton from "@exact/actions"
 use ListRow, SwitchRow from "@exact/lists"
 
 component App
@@ -33,23 +33,29 @@ component App
         // A mark at the page's top, its own colour, where the gate finds the
         // viewport in a shot that holds a host's bars too (Android's reader).
         box testId="gate-top" width=40 height=12 background-color="gate.mark"
-        PostCard(id="pc-base", press=press, inThread=false, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
+        PostCard(id="pc-base", press=press, inThread=false, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="none")
           box testId="marker-pc-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
-        PostCard(id="pc-inthread", press=press, inThread=true, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
+        PostCard(id="pc-inthread", press=press, inThread=true, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="none")
           box testId="marker-pc-inthread" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
-        PostCard(id="pc-lineabove", press=press, inThread=false, lineAbove=true, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
+        PostCard(id="pc-lineabove", press=press, inThread=false, lineAbove=true, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="none")
           box testId="marker-pc-lineabove" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
-        PostCard(id="pc-linebelow", press=press, inThread=false, lineAbove=false, lineBelow=true, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
+        PostCard(id="pc-linebelow", press=press, inThread=false, lineAbove=false, lineBelow=true, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="none")
           box testId="marker-pc-linebelow" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
-        PostCard(id="sample-pc-pinned", press=press, inThread=false, lineAbove=false, lineBelow=false, context="pinned", contextText="Pinned", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
+        PostCard(id="sample-pc-pinned", press=press, inThread=false, lineAbove=false, lineBelow=false, context="pinned", contextText="Pinned", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="none")
           box testId="marker-sample-pc-pinned" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
-        PostCard(id="sample-pc-reposted", press=press, inThread=false, lineAbove=false, lineBelow=false, context="reposted", contextText="Reposted by Fen", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="")
+        PostCard(id="sample-pc-reposted", press=press, inThread=false, lineAbove=false, lineBelow=false, context="reposted", contextText="Reposted by Fen", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="none")
           box testId="marker-sample-pc-reposted" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PostCard(id="sample-pc-verified", press=press, inThread=false, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="verified")
+          box testId="marker-sample-pc-verified" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PostCard(id="sample-pc-verifier", press=press, inThread=false, lineAbove=false, lineBelow=false, context="none", contextText="", replyTo="", profileHref="/profile/ada", avatar="", name="Ada Lindqvist", handle="ada.fixture.invalid", time="3h", badge="verifier")
+          box testId="marker-sample-pc-verifier" press=toggle width=24 height=24 align-items="center" justify-content="center"
             text glyph
         // The action rows no wider than 20rem, the counted buttons' own widest
         // (actions.row-max, 320px), so those buttons always fill what the row
@@ -102,10 +108,11 @@ component App
             text glyph
         // A person's picture and badge as an app places them (LLP 1121 stage
         // 15 B). Neither has an id prop, so each cell is the box that holds
-        // it, named for it. Neither has a variant the compiler marks (D5), so
-        // each has one cell: the avatar without a picture (the default
-        // figure) and the "verified" badge; then the avatar with a picture,
-        // the "verifier" badge and "" (no badge: an empty box) as samples.
+        // it, named for it. Neither has a variant the compiler marks (D5; the
+        // badge, an enum since batch 2, is read by an `if`), so each has one
+        // cell: the avatar without a picture (the default figure) and the
+        // "verified" badge; then the avatar with a picture, and the badge's
+        // other values, "verifier" and "none" (an empty box), as samples.
         // Sizes and the badge's ink and mark by token name, as a consumer
         // passes them.
         row testId="gate-people" gap=8 align-items="flex-start"
@@ -118,7 +125,44 @@ component App
           box testId="sample-vb-verifier"
             VerifiedBadge(badge="verifier", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
           box testId="sample-vb-none"
-            VerifiedBadge(badge="", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
+            VerifiedBadge(badge="none", size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
+        // A person's row: each variant value, one at a time, then a picture,
+        // each badge, the pill, a description (three lines, then one) and all
+        // of them together as samples. The slot is the header's trailing
+        // control (here the marker).
+        PersonRow(id="pr-base", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="none", pill="", description="", descriptionLines=3, divider="bottom", disabled=false, press=press)
+          box testId="marker-pr-base" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="pr-top", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="none", pill="", description="", descriptionLines=3, divider="top", disabled=false, press=press)
+          box testId="marker-pr-top" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="pr-none", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="none", pill="", description="", descriptionLines=3, divider="none", disabled=false, press=press)
+          box testId="marker-pr-none" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="pr-disabled", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="none", pill="", description="", descriptionLines=3, divider="bottom", disabled=true, press=press)
+          box testId="marker-pr-disabled" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="sample-pr-avatar", label="View Ada Lindqvist's profile", avatar="symbol:person", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="none", pill="", description="", descriptionLines=3, divider="bottom", disabled=false, press=press)
+          box testId="marker-sample-pr-avatar" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="sample-pr-verified", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="verified", pill="", description="", descriptionLines=3, divider="bottom", disabled=false, press=press)
+          box testId="marker-sample-pr-verified" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="sample-pr-verifier", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="verifier", pill="", description="", descriptionLines=3, divider="bottom", disabled=false, press=press)
+          box testId="marker-sample-pr-verifier" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="sample-pr-pill", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="none", pill="Follows you", description="", descriptionLines=3, divider="bottom", disabled=false, press=press)
+          box testId="marker-sample-pr-pill" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="sample-pr-description", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="none", pill="", description="Writes about type, maps and the long way round. Posts most days, mostly about the small print of places.", descriptionLines=3, divider="bottom", disabled=false, press=press)
+          box testId="marker-sample-pr-description" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="sample-pr-description-one", label="View Ada Lindqvist's profile", avatar="", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="none", pill="", description="Writes about type, maps and the long way round. Posts most days, mostly about the small print of places.", descriptionLines=1, divider="bottom", disabled=false, press=press)
+          box testId="marker-sample-pr-description-one" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
+        PersonRow(id="sample-pr-all", label="View Ada Lindqvist's profile", avatar="symbol:person", name="Ada Lindqvist", handle="@ada.fixture.invalid", badge="verified", pill="Follows you", description="Writes about type, maps and the long way round. Posts most days, mostly about the small print of places.", descriptionLines=3, divider="bottom", disabled=false, press=press)
+          box testId="marker-sample-pr-all" press=toggle width=24 height=24 align-items="center" justify-content="center"
+            text glyph
         // The composer's frame: each variant value, one at a time, then the
         // ring near and over its limit (with a post to add) as samples.
         ComposeFrame(id="cf-base", cancelLabel="Cancel", drafts=false, draftsLabel="Drafts", busy=false, postLabel="Post", postDisabled=false, reply=false, gallery=false, camera=false, gif=false, canAdd=false, langLabel="English", count=40, limit=300, cancel=press, openDrafts=press, post=press, choose=press, openCamera=press, gifs=press, addPost=press, languages=press)
@@ -168,6 +212,31 @@ component App
           HeaderButton(id="hb-base", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=false, lead=false, press=press)
           HeaderButton(id="hb-small", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=true, lead=false, press=press)
           HeaderButton(id="hb-lead", label="Back", d="M3 12l6-6v4h12v4H9v4z", small=false, lead=true, press=press)
+        // A person's Follow button: each variant value, one at a time (the
+        // label "", so it says its text). As samples: each icon pattern
+        // (structure, no recipe), and each tone and size following, a round
+        // one following and a tiny round one, and the one-icon forms
+        // following. A round cell names its label (it shows no text),
+        // "Follow Ada" or "Following Ada", the app's swap.
+        row testId="gate-follow" gap=8 flex-wrap="wrap" align-items="center"
+          FollowButton(id="fb-base", following=false, text="Follow", label="", tone="primary", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-inverted", following=false, text="Follow", label="", tone="inverted", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-subtle", following=false, text="Follow", label="", tone="subtle", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-overlay", following=false, text="Follow", label="", tone="overlay", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-tiny", following=false, text="Follow", label="", tone="primary", size="tiny", shape="pill", icon="both", press=press)
+          FollowButton(id="fb-round", following=false, text="Follow", label="Follow Ada", tone="primary", size="small", shape="round", icon="both", press=press)
+          FollowButton(id="sample-fb-icon-follow", following=false, text="Follow", label="", tone="primary", size="small", shape="pill", icon="follow", press=press)
+          FollowButton(id="sample-fb-icon-following", following=false, text="Follow", label="", tone="primary", size="small", shape="pill", icon="following", press=press)
+          FollowButton(id="sample-fb-icon-none", following=false, text="Follow", label="", tone="primary", size="small", shape="pill", icon="none", press=press)
+          FollowButton(id="sample-fb-inverted-following", following=true, text="Following", label="", tone="inverted", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="sample-fb-subtle-following", following=true, text="Following", label="", tone="subtle", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="sample-fb-overlay-following", following=true, text="Following", label="", tone="overlay", size="small", shape="pill", icon="both", press=press)
+          FollowButton(id="sample-fb-tiny-following", following=true, text="Following", label="", tone="primary", size="tiny", shape="pill", icon="both", press=press)
+          FollowButton(id="sample-fb-round-following", following=true, text="Following", label="Following Ada", tone="primary", size="small", shape="round", icon="both", press=press)
+          FollowButton(id="sample-fb-round-tiny", following=false, text="Follow", label="Follow Ada", tone="primary", size="tiny", shape="round", icon="both", press=press)
+          FollowButton(id="sample-fb-icon-follow-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="follow", press=press)
+          FollowButton(id="sample-fb-icon-following-following", following=true, text="Following", label="", tone="primary", size="small", shape="pill", icon="following", press=press)
         // The lists' rows sit in a grouped list's section, as the platform's
         // list cells do (LLP 1084): each accessory and a destructive row are
         // samples (structure and an attribute, no recipe).

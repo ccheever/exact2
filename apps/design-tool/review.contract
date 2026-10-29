@@ -1,10 +1,12 @@
-use Changeset, Committed, Held, History, Reverted, Scope from "./shapes.contract"
+use ChosenDiff, Changeset, Committed, Held, History, Reverted, Scope from "./shapes.contract"
 
 // Proposals held for review (LLP 1122 D10, D11): each accepted whole or in
 // part, or dropped.
 component Proposals
   props
     held: Held[]
+    // The diff each recomputed or edited import's card shows, as its choice is now (stage 15 D1.1).
+    diffs: ChosenDiff[]
     // The items picked for "Accept picked" (`<proposal>:<index>`).
     picked: string[]
     client: string
@@ -40,11 +42,17 @@ component Proposals
             else if h.from != ""
               text `Held again from ${h.from} with your edit, on the files as they are now: review its diff, then accept it.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
             if h.replaces != "" or h.from != ""
-              text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
+              // (what is chosen now, planned for the card as it is shown; none while that is being planned)
+              for d in diffs.filter(d => d.proposal == h.proposal and d.shown == `${h.choiceGen}|${picked.filter(p => p.startsWith(`${h.proposal}:`)).join(";")}`) key=d.proposal
+                if d.note != ""
+                  text d.note color="-exact-secondary-label" font="-exact-footnote" testId=`held-diff-note-${h.proposal}`
+                text d.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
+              if diffs.filter(d => d.proposal == h.proposal and d.shown == `${h.choiceGen}|${picked.filter(p => p.startsWith(`${h.proposal}:`)).join(";")}`).length == 0
+                text "Planning the diff of what is chosen…" color="-exact-secondary-label" font="-exact-footnote" testId=`held-diff-note-${h.proposal}`
             text `Tokens (${h.mapped.length})` role="heading" aria-level=3
             for m in h.mapped key=`${m.index}`
               row gap=8 align-items="center" flex-wrap="wrap" testId=`mapped-${h.proposal}-${m.index}`
-                input type="checkbox" disabled=(writing or not canWrite) checked=(not picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
+                input type="checkbox" disabled=(writing or not canWrite) checked=(m.on != picked.includes(`${h.proposal}:${m.index}`)) change=toggleLeaveOut(`${h.proposal}:${m.index}`, m.on) aria-label=m.name testId=`take-${h.proposal}-${m.index}`
                 text m.name width=200 flex-shrink=0 font="-exact-footnote"
                 if m.kind != "token"
                   text m.text color="-exact-secondary-label" font="-exact-caption1" testId=`mapped-text-${h.proposal}-${m.index}`
@@ -57,7 +65,7 @@ component Proposals
                     if md.dark != ""
                       view width=16 height=16 border-radius=3 background-color=md.dark border="1px solid -exact-separator"
                     text md.label font="-exact-caption2" color="-exact-secondary-label"
-                    input value=md.value change=editImportValue(h.proposal, m.index, md.mode) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` flex=1 min-width="12rem" font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
+                    input value=md.value change=editImportValue(h.proposal, m.index, md.mode, h.choiceGen) disabled=(not canPropose) aria-label=`${m.name} ${md.label}` flex=1 min-width="12rem" font="-exact-caption1" testId=`mapped-value-${h.proposal}-${m.index}-${md.mode}`
             text (h.kept ? "Role overrides, as ticked" : "Role overrides, off until ticked") role="heading" aria-level=3
             for o in h.offers key=o.role
               row gap=8 align-items="center" testId=`offer-${h.proposal}-${o.role}`
@@ -70,12 +78,12 @@ component Proposals
             for u in h.unmapped key=u.key
               text `${u.name} = ${u.value}${u.block != "" and not u.derived ? ` (${u.block})` : ""}: ${u.why}` color="-exact-secondary-label" font="-exact-caption1" testId=`unmapped-${h.proposal}-${u.key}`
             row gap=8
-              button press=acceptImportNow(h.proposal) disabled=(writing or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
+              button press=acceptImportNow(h.proposal, h.choiceGen) disabled=(writing or not canWrite) buttonStyle="filled" testId=`accept-${h.proposal}`
                 text "Accept"
               button press=dropProposal(h.proposal) disabled=(writing or not (canWrite or h.client == client)) destructive=true testId=`drop-${h.proposal}`
                 text "Drop"
           else
-            text `${h.client} proposes ${h.tokens.join(", ")}` testId=`held-title-${h.proposal}`
+            text `${h.client} proposes ${h.title}` testId=`held-title-${h.proposal}`
             if h.editedBy != "" and h.editedBy != h.client
               text `Edited by ${h.editedBy}` font="-exact-footnote" color="-exact-secondary-label" testId=`held-edited-${h.proposal}`
             // (Edited, then perhaps recomputed: either way held again, the editor named above.)

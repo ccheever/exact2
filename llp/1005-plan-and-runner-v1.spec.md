@@ -602,8 +602,19 @@ UIKit.
 - **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, from the hit view up
   through authored parents, held on the presenter until the button comes
   up. A native button's own tracking loop reports both (its up before the
-  action it sends). A held node's release drops it from the hold, and a
-  reset clears the hold.
+  action it sends). A text area or an input's editor runs AppKit's tracking
+  loop too; `tracksPointer` reports the down before it and the up after it.
+  A press that moves the focus into one delivers the old field's `change`
+  and `blur` and the new one's `focus` before `pointerdown`: NSWindow makes
+  the hit view first responder before it sends `mouseDown`. Chrome fires
+  `pointerdown` first. A drag of selected text out of a text area or an
+  input's editor is AppKit's dragging session, which runs after the loop
+  returns: `pointerup` comes as the drag starts, where Chrome sends
+  `pointercancel` (declared, not measured). A disabled editor tracks
+  nothing: its press
+  is the node's, as a disabled box's is, and its up the release. A press on
+  an inline atom (a pill) is the text area's node's down and up. A held
+  node's release drops it from the hold, and a reset clears the hold.
 - **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, from
   the node under the press up; a cancel is an up. A contact that a handler
   retires (the pressed node removed or disabled) is cancelled when the walk
@@ -616,10 +627,10 @@ UIKit.
 
 Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
 `testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS),
-`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` and
-`PopoverMacTests` (macOS), the Linux presenter's `touch_tests.rs`, and
-`host/web/tests/pointer.test.mjs` (Chrome: order, bubbling, a lift elsewhere,
-the secondary button, a disabled node).
+`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress`,
+`EditorPointerMacTests` and `PopoverMacTests` (macOS), the Linux presenter's
+`touch_tests.rs`, and `host/web/tests/pointer.test.mjs` (Chrome: order,
+bubbling, a lift elsewhere, the secondary button, a disabled node).
 
 **`stopPropagation()`, one rule** (decided under Charlie's delegation,
 2026-10-15, after Astra's review). Every bubbling event (`key`, `keyup`,

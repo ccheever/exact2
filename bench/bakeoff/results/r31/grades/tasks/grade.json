@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen with Today/All smart rows and My Lists; each has an open count (Today 25, All 135) and a coloured list icon. Counts update after adding, completing and deleting."},
+      {"n": 2, "status": "pass", "note": "Open tasks are listed first, then a 'Completed 7' header that starts collapsed and expands on tap. Tapping the checkbox moves a task to Completed with an animation, and the count updates."},
+      {"n": 3, "status": "pass", "note": "The New Task sheet has a title, notes, a list picker, a Due Date switch with an inline graphical calendar, and a None/Low/High segmented control. Tapping a row opens Details for editing; the edited title was saved."},
+      {"n": 4, "status": "pass", "note": "Overdue dates are red with an exclamation-circle icon and the word 'Overdue'. High priority shows an orange '!!!' and low shows '!'."},
+      {"n": 5, "status": "pass", "note": "Swipe-to-delete works. Reordering works only after More > Reorder Tasks (edit mode with reorder handles); the new order survived a relaunch."},
+      {"n": 6, "status": "pass", "note": "Add List opens an alert with a text field; rename and delete are in the list's More menu, and delete asks for confirmation. Also has a nice empty state for a new list ('No Tasks')."},
+      {"n": 7, "status": "pass", "note": "After relaunch, the added, completed, deleted and reordered tasks were all kept."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Reordering is hidden behind More > Reorder Tasks rather than being available by long-pressing a row.",
+      "The rename alert does not preselect the existing name; typed text is appended to it.",
+      "The Completed header's disclosure glyph is small and sits next to the count, a little unlike a system section header.",
+      "The New Task sheet does not scroll its fields above the keyboard; the date and priority controls stay hidden until you drag the form."
+    ],
+    "scroll": "The 135-row All list scrolls smoothly and decelerates naturally. Rows were already drawn mid-fling with no blanks or pop-in, the large title collapses into the inline title, and pulling past the top rubber-bands.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped Lists screen with Today/All rows (icons) and My Lists with open counts; the counts update correctly. User lists have no icons or colours."},
+      {"n": 2, "status": "pass", "note": "Open tasks are listed first, then a 'Completed (7)' row that starts expanded and collapses with a chevron. The checkbox completes and reopens tasks, and counts update."},
+      {"n": 3, "status": "pass", "note": "The New Task sheet has a title, list menu, Due Date switch with a compact date picker, a Priority pop-up menu and notes. Tapping a task opens Details; the edits saved."},
+      {"n": 4, "status": "pass", "note": "Overdue tasks show the date in red with 'Overdue ·'. High priority shows a red '!!!' and low a grey '!'."},
+      {"n": 5, "status": "pass", "note": "Every row has a visible drag handle and dragging reorders straight away; the order persisted. Swipe left shows a red Delete action."},
+      {"n": 6, "status": "pass", "note": "The + button opens a New List sheet. Touching and holding a list gives a context menu with Rename and Delete, swiping a list deletes it, and delete is confirmed by an alert."},
+      {"n": 7, "status": "pass", "note": "After relaunch, the completion, the added task, the deletion and the reorder were all kept."}
+    ],
+    "bugs": [
+      "After scrolling the All list down and flinging back to the top, the first four rows are drawn without separators; the gap remains once the list has settled."
+    ],
+    "tells": [
+      "A footer under My Lists says 'Swipe a list to delete it; touch and hold to rename it.' Native apps don't explain their gestures in body text.",
+      "Drag handles show on every row all the time, not only in edit mode.",
+      "Row layout is inconsistent: notes sometimes sit on the same line after the date or list name, and sometimes wrap to their own line, so the rows look like flowed inline text.",
+      "Task lists use a plain style with a separator line above the first row, while the main and form screens are inset-grouped.",
+      "User lists have no icons or colours, which makes the main screen sparse next to the Today/All rows.",
+      "Dates switch between relative weekday names ('Tuesday', 'Saturday') and absolute dates."
+    ],
+    "scroll": "The All list scrolls and flings smoothly with no blank rows, and the large title collapses properly. Separators disappear from the top rows after scrolling back, which looks unpolished.",
+    "scores": {"features": 9, "platform": 7, "polish": 7, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both apps meet every requirement and persist reliably. A looks and behaves more like Reminders: inset-grouped task cards, coloured list icons, date and overdue glyphs, coloured list tags in Today/All, a collapsed Completed section, and a proper empty state. B's always-on drag handles, gesture-instruction footer, inconsistent inline row layout and missing separators after scrolling make it feel less hand-built."
+}

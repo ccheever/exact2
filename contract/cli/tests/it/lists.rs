@@ -516,7 +516,7 @@ fn range_counts_from_zero_on_the_budget_and_refuses_what_is_no_count() {
     assert_eq!(text(&r, "row-1"), "row 1");
     for bad in [2.5, -1.0] {
         let e = r.act("set", vec![Value::Number(bad)]).unwrap_err();
-        assert!(format!("{e:?}").contains("TypeMismatch"), "{bad}: {e:?}");
+        assert!(format!("{e:?}").contains("RangeCount"), "{bad}: {e:?}");
         assert_eq!(text(&r, "xs"), "0,1,2", "{bad} refused whole");
     }
     // NaN and the infinities live only inside an evaluation.
@@ -534,7 +534,7 @@ fn range_counts_from_zero_on_the_budget_and_refuses_what_is_no_count() {
         )
         .err()
         .unwrap_or_else(|| panic!("{bad} booted"));
-        assert!(format!("{e:?}").contains("TypeMismatch"), "{bad}: {e:?}");
+        assert!(format!("{e:?}").contains("RangeCount"), "{bad}: {e:?}");
     }
     r.act("set", vec![Value::Number(65_536.0)]).unwrap();
     let e = r.act("set", vec![Value::Number(65_537.0)]).unwrap_err();

@@ -6,6 +6,9 @@
 import { spawnSync } from 'node:child_process';
 import { cargoEnvironment, linuxBinary, linuxBuild, resolveApp } from './app.mjs';
 import { guardFlags } from './help.mjs';
+import { desktopEntry } from './desktop-entry.mjs';
+import { writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 const [name] = guardFlags('linux', process.argv.slice(2));
 if (!name) {
@@ -14,5 +17,11 @@ if (!name) {
 }
 const app = resolveApp(name), [cmd, ...args] = linuxBuild(app);
 const built = spawnSync(cmd, args, { cwd: app.workspace ?? app.dir, env: cargoEnvironment({ ...process.env, CARGO_TARGET_DIR: app.target }), stdio: 'inherit' });
-if (built.status === 0) console.log(linuxBinary(app));
+if (built.status === 0) {
+  // Its desktop entry beside it, with the manifest's shortcuts as actions (LLP 1133.023 D17).
+  const binary = linuxBinary(app), entry = resolve(dirname(binary), `${app.id}.desktop`);
+  writeFileSync(entry, desktopEntry(app, binary));
+  console.log(binary);
+  console.log(entry);
+}
 process.exit(built.status ?? 1);

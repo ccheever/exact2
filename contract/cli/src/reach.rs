@@ -83,11 +83,51 @@ pub(crate) fn from_manifest(
             plan.set_module_substitute(i, &sub.to_string());
         }
     }
+    // The synthetic store's catalogue (LLP 1133.015 §9): the products the
+    // agent's purchases sell, which each name's substitute carries and the
+    // runner hands the implementation bound under the agent.
+    if let Some(at) = manifest.json.pointer("/purchases/catalog") {
+        let catalog = catalog(app_root, at).map_err(|m| refused("purchases-catalog", m))?;
+        for i in 0..plan.modules.len() {
+            if plan.str(plan.modules[i].extension) != "purchases" {
+                continue;
+            }
+            let mut sub: serde_json::Value =
+                serde_json::from_str(plan.str(plan.modules[i].substitute)).unwrap_or_default();
+            sub["catalog"] = catalog.clone();
+            plan.set_module_substitute(i, &sub.to_string());
+        }
+    }
     if let Some(intents) = manifest.json.get("intents") {
         faces(intents, plan).map_err(|(id, m)| refused(id, m))?;
     }
     plan.app_id = manifest.id;
     Ok(())
+}
+
+/// `purchases.catalog`'s file, beside `app.json`: a list of `ItemDetails`,
+/// each with its `itemId`, `title`, `type` and `price`, ids unique.
+fn catalog(app_root: &Path, at: &Value) -> Result<Value, String> {
+    let file = at
+        .as_str()
+        .ok_or("`purchases.catalog` names a JSON file beside app.json")?;
+    let text = std::fs::read_to_string(app_root.join(file))
+        .map_err(|e| format!("`purchases.catalog`: {file}: {e}"))?;
+    let items: Value =
+        serde_json::from_str(&text).map_err(|e| format!("`purchases.catalog`: {file}: {e}"))?;
+    let list = items
+        .as_array()
+        .ok_or_else(|| format!("`purchases.catalog`: {file} is a list of ItemDetails"))?;
+    let mut ids = std::collections::BTreeSet::new();
+    for item in list {
+        let id = item["itemId"].as_str().unwrap_or_default();
+        let typed = matches!(item["type"].as_str(), Some("product" | "subscription"));
+        let priced = item["price"]["currency"].is_string() && item["price"]["value"].is_string();
+        if id.is_empty() || !item["title"].is_string() || !typed || !priced || !ids.insert(id) {
+            return Err(format!("`purchases.catalog`: {file}: each item has a unique `itemId`, a `title`, a `type` (product or subscription) and a `price` {{currency, value}}; `{item}` does not"));
+        }
+    }
+    Ok(items)
 }
 
 /// The doors a face reaches when it names none (§9's cells).

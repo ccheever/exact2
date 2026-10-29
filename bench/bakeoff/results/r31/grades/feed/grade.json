@@ -1,0 +1,48 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "One feed, newest first. Each post shows its author, handle, relative time and full text. Images are full width at their own aspect ratio with rounded corners. Carousels scroll horizontally with titled cards and a 'N moments' caption."},
+      {"n": 2, "status": "pass", "note": "The like button toggles the filled heart and the count (872 -> 873). Reply counts are shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a Post screen. The image there is only slightly larger (382 pt wide vs 358). Tapping a feed image, detail image or carousel card opens a black full-screen viewer that closes on swipe down."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top and shows a '3 fresh posts added' toast."},
+      {"n": 5, "status": "pass", "note": "The compose sheet has Cancel/Post. Post stays disabled for empty or whitespace-only text. The new post appears at the top as 'You @you'."},
+      {"n": 6, "status": "pass", "note": "A like, the refreshed posts and the composed post all survived a relaunch."}
+    ],
+    "bugs": [
+      "The detail screen's filler line reads \"A moment from You's day.\" for your own posts, which is ungrammatical. It also adds an invented caption under every post.",
+      "The detail screen has an unexplained half-filled circle icon at the right of the action row."
+    ],
+    "tells": [
+      "A custom branded header (serif 'feed' wordmark with a logo) replaces a system navigation bar title; there is no large title.",
+      "An editorial hero block ('LIFE, AS IT HAPPENS' / 'A little closer.' / 'The latest · Newest first') sits above the feed. It reads like a marketing web page, not an iOS list.",
+      "Cream background and green accent throughout instead of system background colours.",
+      "Content scrolls under the header and is cut off hard, with none of the system's scroll-edge blur.",
+      "The detail screen adds a serif 'A moment from X's day.' tagline, which looks decorative and web-like.",
+      "At the largest text size avatars stay small while the name, handle and time stack on three lines. The layout holds and nothing overlaps."
+    ],
+    "scroll": "Slow drags and flings were smooth, with images and carousels already loaded and no blank rows or jumps. After opening a post and going back, the list position was kept (offset by about one bar height).",
+    "scores": {"features": 9, "platform": 6, "polish": 7, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "One feed, newest first, with author, handle · relative time and full text. Images are full width at their own aspect ratio with rounded corners. Carousels scroll horizontally with an image and title on each card."},
+      {"n": 2, "status": "pass", "note": "The like control toggles a red filled heart and the count (872 -> 873). Reply counts are shown."},
+      {"n": 3, "status": "pass", "note": "Tapping a post pushes a Post screen. The image there is only marginally larger (378 vs 370 pt). Tapping a feed image, detail image or carousel card opens a black full-screen viewer that closes on swipe down."},
+      {"n": 4, "status": "pass", "note": "Pull to refresh adds three made-up posts at the top. A refresh button in the nav bar does the same."},
+      {"n": 5, "status": "pass", "note": "The compose sheet has a 'What's on your mind?' placeholder, and Post is disabled for empty or whitespace-only text. The new post appears at the top."},
+      {"n": 6, "status": "pass", "note": "A like, the refreshed posts and the composed post all survived a relaunch."}
+    ],
+    "bugs": [
+      "Single-line posts reserve a second line, leaving a visible empty gap between short text and the action row (for example 'Our team shipped the thing!' and 'Ran my first 10k.')."
+    ],
+    "tells": [
+      "The like control is exposed to accessibility as a Switch rather than a button.",
+      "At the largest text size the avatar grows to about 140 pt, squeezing the name and handle into a narrow column ('Maya / Chen', '@maya · / 1m').",
+      "The status bar disappears briefly while the full-screen viewer is dismissed."
+    ],
+    "scroll": "Slow drags and flings were smooth, with no blank rows, pop-in or stutter. The large title collapses into the inline title with the system scroll-edge blur. After opening a post and going back, the list position was kept (offset by about one bar height).",
+    "scores": {"features": 9, "platform": 8, "polish": 7, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet all six requirements, and their image viewers, refresh and persistence work equally well. B looks and behaves like a stock iOS app: large title that collapses with the system blur, glass toolbar buttons, system colours, plain compose sheet. A wraps the same features in a custom web-style header, hero block and cream theme, and its content is cut off hard under that header. B's flaws (blank line under one-line posts, oversized avatars at the largest text size) are smaller than A's departures from platform look and behaviour."
+}

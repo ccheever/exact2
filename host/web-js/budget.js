@@ -222,10 +222,14 @@ function jsonBytes(s) {
   }
   return bytes;
 }
-/** A native module's props (LLP 1024 D1): key/value pairs to one JSON object of strings, a none left out (`stdlib::native_props`). */
+/** A native module's props (LLP 1024 D1): key/value pairs to one JSON object of strings, a none left out (`stdlib::native_props`).
+ * A key that is `[name, schema]` carries its value as JSON by the schema (a package view's record or list prop, LLP 1133.021 §9 item 1). */
 export function NP(p, pc) {
   const o = {};
-  for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]);
+  for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) {
+    if (Array.isArray(p[i])) o[p[i][0]] = JSON.stringify(typed(p[i + 1], JSON.parse(p[i][1])));
+    else o[p[i]] = String(p[i + 1]);
+  }
   let bytes = 2, first = true;
   for (const [key, value] of Object.entries(o)) {
     bytes += (first ? 0 : 1) + jsonBytes(key) + 1 + jsonBytes(value);
@@ -233,6 +237,14 @@ export function NP(p, pc) {
     first = false;
   }
   return JSON.stringify(o);
+}
+/** A value by its schema (`native_props`'s `typed_json`): `0` itself, `o` an option, `l` a list, `r` a record by position, a none field left out. */
+function typed(v, s) {
+  if (v == null) return null;
+  if (s?.o !== undefined) return typed(v, s.o);
+  if (s?.l !== undefined) return v.map(x => typed(x, s.l));
+  if (s?.r) { const out = {}; s.r.forEach(([f, t], i) => { if (v[i] != null) out[f] = typed(v[i], t); }); return out; }
+  return typeof v === "number" && !isFinite(v) ? null : v;
 }
 /** `t(key, name=value…)` (rt.js `text`). */
 export function x_t(name, key, pairs, pc) {

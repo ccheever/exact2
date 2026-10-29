@@ -12,7 +12,9 @@ final class CollectionFillIOSTests: XCTestCase {
             "count": 100, "totalExtent": 7200, "pending": false, "rows": rows, "correction": NSNull()]]]
     }
 
-    private func fixture() throws -> (Presenter, UIWindow, UIScrollView) {
+    /// Four 72-point rows from index `0` (or the indices given), each at its
+    /// place in a 100-row list under 20 points of padding.
+    private func fixture(_ indices: [Int] = Array(0..<4)) throws -> (Presenter, UIWindow, UIScrollView) {
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
         window.addSubview(p.viewport)
@@ -22,14 +24,14 @@ final class CollectionFillIOSTests: XCTestCase {
             ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll", "padding_top": 20]],
             ["op": "collections", "items": [["view": 1, "revision": 1, "scrollSequence": 0,
                 "count": 100, "totalExtent": 7200, "pending": false,
-                "rows": (0..<4).map { ["view": 2 + $0, "root": 2 + $0, "epoch": 1, "index": $0] },
+                "rows": indices.enumerated().map { ["view": 2 + $0.offset, "root": 2 + $0.offset, "epoch": 1, "index": $0.element] },
                 "correction": NSNull()]]],
         ]
-        for i in 0..<4 {
+        for (i, index) in indices.enumerated() {
             ops.append(["op": "create", "id": 2 + i, "kind": "view"])
-            ops.append(["op": "frame", "id": 2 + i, "x": 10, "y": 20 + 72 * i, "w": 280, "h": 72])
+            ops.append(["op": "frame", "id": 2 + i, "x": 10, "y": 20 + 72 * index, "w": 280, "h": 72])
         }
-        ops += [["op": "children", "id": 1, "ids": [2, 3, 4, 5]], ["op": "roots", "ids": [1]],
+        ops += [["op": "children", "id": 1, "ids": indices.indices.map { 2 + $0 }], ["op": "roots", "ids": [1]],
                 ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 200],
                 ["op": "content", "id": 1, "w": 300, "h": 7220]]
         p.apply(wireBatch(ops))
@@ -89,6 +91,26 @@ final class CollectionFillIOSTests: XCTestCase {
         XCTAssertGreaterThan(limit, 0)
         XCTAssertLessThan(limit, UInt32.max - 1, "the pump rations its slice")
         print("D3 scheduled scroll reports=\(reports.count) limit=\(limit) elapsed_ms=\((CACurrentMediaTime() - started) * 1000)")
+    }
+
+    /// Steps of a port or more each frame (a scroll indicator dragged)
+    /// show rows no frame before showed: past the first, a jump's, each
+    /// rescue is a glimpse, its rows bounded.
+    func testCrossingAPortEachFrameRescuesAGlimpse() throws {
+        let (p, window, scroll) = try fixture()
+        defer { p.reset(); window.isHidden = true }
+        var reports: [Data] = []
+        p.collections.onFeedback = { reports.append($0) }
+        func word(_ data: Data, _ at: Int) -> UInt32 { data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: at, as: UInt32.self) } }
+        scroll.contentOffset.y = 10
+        reports.removeAll()
+        scroll.contentOffset.y = 900
+        XCTAssertEqual(word(try XCTUnwrap(reports.last), 92) & 16, 0, "a lone jump builds what shows")
+        scroll.contentOffset.y = 1800
+        let glimpse = try XCTUnwrap(reports.last)
+        XCTAssertEqual(word(glimpse, 92) & 16, 16, "the next step across a port is a glimpse")
+        XCTAssertEqual(word(glimpse, 88), 2, "two rows before a glimpse's cost is measured")
+        XCTAssertTrue(p.collections.glimpses.contains(1))
     }
 
     func testScrollReportsOnlyNewRowMeasurements() throws {
@@ -160,5 +182,27 @@ final class CollectionFillIOSTests: XCTestCase {
         XCTAssertEqual(p.collections.entries[1]?.snapshot.revision, 1)
     }
 
+
+    // @ref LLP 1010 §6.11 — a kept end row past a gap of unbuilt rows does
+    // not end the travel: the rows the port will uncover are still owed.
+    func testAKeptEndRowPastAGapStillLeadsTheSlice() throws {
+        do {
+            let (p, window, scroll) = try fixture([0, 1, 2, 3, 99])
+            defer { p.reset(); window.isHidden = true }
+            // The port reaches 260 of the run's 308; 200 points more need
+            // ceil(152 / 72) = 3 rows, the kept last row notwithstanding.
+            scroll.contentOffset.y = 60
+            XCTAssertEqual(p.collections.rowsToCover(1, ahead: 200), 3)
+            XCTAssertEqual(p.collections.rowsToCover(1, ahead: -200), 0, "the first item is built and joined")
+        }
+        do {
+            let (p, window, scroll) = try fixture([0, 50, 51, 52, 53])
+            defer { p.reset(); window.isHidden = true }
+            // Rows 50–53 span 3620–3908; from 3680 back 200 points needs
+            // ceil(140 / 72) = 2 rows, the kept first row notwithstanding.
+            scroll.contentOffset.y = 3680
+            XCTAssertEqual(p.collections.rowsToCover(1, ahead: -200), 2)
+        }
+    }
 }
 #endif

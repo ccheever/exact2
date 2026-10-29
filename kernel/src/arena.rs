@@ -75,6 +75,11 @@ pub struct NodeArena {
     /// current role and font, under the measurer's revision the kernel last
     /// measured at (`Kernel::measures_symbol`).
     pub(crate) measured_symbols: SlotSet,
+    /// What a host last reported for a mark it sizes alike for every node
+    /// (`control::shared_size`), by kind and font size bits.
+    pub(crate) mark_sizes: Vec<((crate::ControlKind, u32), (f32, f32))>,
+    /// The kind and font size each standing mark report was made under (`Kernel::mark_withdrawn`).
+    pub(crate) mark_reports: IdMap<u32, (crate::ControlKind, u32)>,
     /// Slots that are `position: sticky` (LLP 1083 D3).
     pub(crate) sticky_slots: SlotSet,
     /// Slots in HTML's top layer: popovers, unless their author made them
@@ -182,6 +187,8 @@ impl Clone for NodeArena {
             relative_slots: self.relative_slots.clone(),
             symbols_owed: self.symbols_owed.clone(),
             measured_symbols: self.measured_symbols.clone(),
+            mark_sizes: self.mark_sizes.clone(),
+            mark_reports: self.mark_reports.clone(),
             sticky_slots: self.sticky_slots.clone(),
             top_layer_slots: self.top_layer_slots.clone(),
             timelines: self.timelines.clone(),
@@ -269,6 +276,8 @@ impl NodeArena {
         self.relative_slots.clear();
         self.symbols_owed.clear();
         self.measured_symbols.clear();
+        self.mark_sizes.clear();
+        self.mark_reports.clear();
         self.sticky_slots.clear();
         self.top_layer_slots.clear();
         self.timelines = Default::default();
@@ -914,6 +923,7 @@ impl NodeArena {
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
         self.field_content.remove(&slot);
+        self.mark_reports.remove(&slot);
         self.exclusion_slots.remove(slot);
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
@@ -1368,6 +1378,7 @@ mod tests {
             (StyleId::ColorInterpolationFilters, text("sRGB")),
             (StyleId::TextBoxEdge, text("cap-alphabetic")),
             (StyleId::TextWrapStyle, text("balance")),
+            (StyleId::FontSmoothing, text("antialiased")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

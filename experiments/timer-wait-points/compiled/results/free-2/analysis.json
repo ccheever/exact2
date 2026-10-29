@@ -1,0 +1,6473 @@
+[
+  {
+    "fling": 1,
+    "window": {
+      "frames": 90,
+      "period": 16.67,
+      "late": 0,
+      "missed": 0,
+      "overrunMs": 0,
+      "phases": [],
+      "unattributed": 0
+    },
+    "batchFrames": [
+      {
+        "at": 14,
+        "seq": [
+          887,
+          888
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 31,
+        "seq": [
+          889,
+          889
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 48,
+        "seq": [
+          890,
+          890
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 64,
+        "seq": [
+          891,
+          891
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 81,
+        "seq": [
+          892,
+          892
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 98,
+        "seq": [
+          893,
+          893
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 114,
+        "seq": [
+          894,
+          894
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 131,
+        "seq": [
+          895,
+          895
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 148,
+        "seq": [
+          896,
+          896
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 164,
+        "seq": [
+          897,
+          897
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 181,
+        "seq": [
+          898,
+          898
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 198,
+        "seq": [
+          899,
+          899
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 214,
+        "seq": [
+          900,
+          900
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 231,
+        "seq": [
+          901,
+          901
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 248,
+        "seq": [
+          902,
+          902
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 264,
+        "seq": [
+          903,
+          904
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 281,
+        "seq": [
+          905,
+          905
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 298,
+        "seq": [
+          906,
+          906
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 314,
+        "seq": [
+          907,
+          907
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 331,
+        "seq": [
+          908,
+          908
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 348,
+        "seq": [
+          909,
+          909
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 364,
+        "seq": [
+          910,
+          910
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 381,
+        "seq": [
+          911,
+          911
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 398,
+        "seq": [
+          912,
+          912
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 414,
+        "seq": [
+          913,
+          913
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 431,
+        "seq": [
+          914,
+          914
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 448,
+        "seq": [
+          915,
+          915
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 464,
+        "seq": [
+          916,
+          916
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 481,
+        "seq": [
+          917,
+          917
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 498,
+        "seq": [
+          918,
+          918
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 514,
+        "seq": [
+          919,
+          920
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 531,
+        "seq": [
+          921,
+          921
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 548,
+        "seq": [
+          922,
+          922
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 564,
+        "seq": [
+          923,
+          923
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 581,
+        "seq": [
+          924,
+          924
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 598,
+        "seq": [
+          925,
+          925
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 614,
+        "seq": [
+          926,
+          926
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 631,
+        "seq": [
+          927,
+          927
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 648,
+        "seq": [
+          928,
+          928
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 664,
+        "seq": [
+          929,
+          929
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 681,
+        "seq": [
+          930,
+          930
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 698,
+        "seq": [
+          931,
+          931
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 714,
+        "seq": [
+          932,
+          932
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 731,
+        "seq": [
+          933,
+          933
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 748,
+        "seq": [
+          934,
+          934
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 764,
+        "seq": [
+          935,
+          936
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 781,
+        "seq": [
+          937,
+          937
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 798,
+        "seq": [
+          938,
+          938
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 814,
+        "seq": [
+          939,
+          939
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 831,
+        "seq": [
+          940,
+          940
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 848,
+        "seq": [
+          941,
+          941
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 864,
+        "seq": [
+          942,
+          942
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 881,
+        "seq": [
+          943,
+          943
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 898,
+        "seq": [
+          944,
+          944
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 914,
+        "seq": [
+          945,
+          945
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 931,
+        "seq": [
+          946,
+          946
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 948,
+        "seq": [
+          947,
+          947
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 964,
+        "seq": [
+          948,
+          948
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 981,
+        "seq": [
+          949,
+          949
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 998,
+        "seq": [
+          950,
+          950
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1014,
+        "seq": [
+          951,
+          952
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1031,
+        "seq": [
+          953,
+          953
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1048,
+        "seq": [
+          954,
+          954
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1064,
+        "seq": [
+          955,
+          955
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1081,
+        "seq": [
+          956,
+          956
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1098,
+        "seq": [
+          957,
+          957
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1114,
+        "seq": [
+          958,
+          958
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1131,
+        "seq": [
+          959,
+          959
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1148,
+        "seq": [
+          960,
+          960
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1164,
+        "seq": [
+          961,
+          961
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1181,
+        "seq": [
+          962,
+          962
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1198,
+        "seq": [
+          963,
+          963
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1214,
+        "seq": [
+          964,
+          964
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1231,
+        "seq": [
+          965,
+          965
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1248,
+        "seq": [
+          966,
+          966
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1264,
+        "seq": [
+          967,
+          968
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1281,
+        "seq": [
+          969,
+          969
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1298,
+        "seq": [
+          970,
+          970
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1314,
+        "seq": [
+          971,
+          971
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1331,
+        "seq": [
+          972,
+          972
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1348,
+        "seq": [
+          973,
+          973
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1364,
+        "seq": [
+          974,
+          974
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1381,
+        "seq": [
+          975,
+          975
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1398,
+        "seq": [
+          976,
+          976
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1414,
+        "seq": [
+          977,
+          977
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1431,
+        "seq": [
+          978,
+          978
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1448,
+        "seq": [
+          979,
+          979
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1464,
+        "seq": [
+          980,
+          980
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1481,
+        "seq": [
+          981,
+          981
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1498,
+        "seq": [
+          982,
+          982
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      }
+    ],
+    "commits": 96,
+    "lateFrames": [],
+    "perf": {
+      "seq": [
+        851,
+        1010
+      ],
+      "clock": [
+        15610.16,
+        19010.17
+      ],
+      "sites": [
+        {
+          "at": "bubble.contract:76 (MessageRow)",
+          "evaluated": 4983,
+          "unchanged": 4983,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:354 (Messages)",
+          "evaluated": 33,
+          "unchanged": 33,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:66 (MessageRow)",
+          "evaluated": 22,
+          "unchanged": 22,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:87 (MessageRow)",
+          "evaluated": 22,
+          "unchanged": 21,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:309 (Messages)",
+          "evaluated": 11,
+          "unchanged": 11,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:316 (Messages)",
+          "evaluated": 11,
+          "unchanged": 11,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:317 (Messages)",
+          "evaluated": 11,
+          "unchanged": 11,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        }
+      ],
+      "handlers": []
+    }
+  },
+  {
+    "fling": 2,
+    "window": {
+      "frames": 90,
+      "period": 16.67,
+      "late": 0,
+      "missed": 0,
+      "overrunMs": 0,
+      "phases": [],
+      "unattributed": 0
+    },
+    "batchFrames": [
+      {
+        "at": 11,
+        "seq": [
+          1040,
+          1040
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 28,
+        "seq": [
+          1041,
+          1041
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 45,
+        "seq": [
+          1042,
+          1042
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 61,
+        "seq": [
+          1043,
+          1043
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 78,
+        "seq": [
+          1044,
+          1044
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 95,
+        "seq": [
+          1045,
+          1045
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 111,
+        "seq": [
+          1046,
+          1047
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 128,
+        "seq": [
+          1048,
+          1048
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 145,
+        "seq": [
+          1049,
+          1049
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 161,
+        "seq": [
+          1050,
+          1050
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 178,
+        "seq": [
+          1051,
+          1051
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 195,
+        "seq": [
+          1052,
+          1052
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 211,
+        "seq": [
+          1053,
+          1053
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 228,
+        "seq": [
+          1054,
+          1054
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 245,
+        "seq": [
+          1055,
+          1055
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 261,
+        "seq": [
+          1056,
+          1056
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 278,
+        "seq": [
+          1057,
+          1057
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 295,
+        "seq": [
+          1058,
+          1058
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 311,
+        "seq": [
+          1059,
+          1059
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 328,
+        "seq": [
+          1060,
+          1060
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 345,
+        "seq": [
+          1061,
+          1061
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 361,
+        "seq": [
+          1062,
+          1063
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 378,
+        "seq": [
+          1065,
+          1065
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 395,
+        "seq": [
+          1066,
+          1066
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 411,
+        "seq": [
+          1067,
+          1067
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 428,
+        "seq": [
+          1068,
+          1068
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 445,
+        "seq": [
+          1069,
+          1069
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 461,
+        "seq": [
+          1070,
+          1070
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 478,
+        "seq": [
+          1071,
+          1071
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 495,
+        "seq": [
+          1072,
+          1072
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 511,
+        "seq": [
+          1073,
+          1073
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 528,
+        "seq": [
+          1074,
+          1074
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 545,
+        "seq": [
+          1075,
+          1075
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 561,
+        "seq": [
+          1076,
+          1076
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 578,
+        "seq": [
+          1077,
+          1077
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 595,
+        "seq": [
+          1078,
+          1078
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 611,
+        "seq": [
+          1079,
+          1080
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 628,
+        "seq": [
+          1081,
+          1081
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 645,
+        "seq": [
+          1082,
+          1082
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 661,
+        "seq": [
+          1083,
+          1083
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 678,
+        "seq": [
+          1084,
+          1084
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 695,
+        "seq": [
+          1085,
+          1085
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 711,
+        "seq": [
+          1086,
+          1086
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 728,
+        "seq": [
+          1087,
+          1087
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 745,
+        "seq": [
+          1088,
+          1088
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 761,
+        "seq": [
+          1089,
+          1089
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 778,
+        "seq": [
+          1090,
+          1090
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 795,
+        "seq": [
+          1091,
+          1091
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 811,
+        "seq": [
+          1092,
+          1092
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 828,
+        "seq": [
+          1093,
+          1093
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 845,
+        "seq": [
+          1094,
+          1094
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 861,
+        "seq": [
+          1095,
+          1096
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 878,
+        "seq": [
+          1097,
+          1097
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 895,
+        "seq": [
+          1098,
+          1098
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 911,
+        "seq": [
+          1099,
+          1099
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 928,
+        "seq": [
+          1100,
+          1100
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 945,
+        "seq": [
+          1101,
+          1101
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 961,
+        "seq": [
+          1102,
+          1102
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 978,
+        "seq": [
+          1103,
+          1103
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 995,
+        "seq": [
+          1104,
+          1104
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1011,
+        "seq": [
+          1105,
+          1105
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1028,
+        "seq": [
+          1106,
+          1106
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1045,
+        "seq": [
+          1107,
+          1107
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1061,
+        "seq": [
+          1108,
+          1108
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1078,
+        "seq": [
+          1109,
+          1109
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1095,
+        "seq": [
+          1110,
+          1110
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1111,
+        "seq": [
+          1111,
+          1112
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1128,
+        "seq": [
+          1113,
+          1113
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1145,
+        "seq": [
+          1114,
+          1114
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1161,
+        "seq": [
+          1115,
+          1115
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1178,
+        "seq": [
+          1116,
+          1116
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1195,
+        "seq": [
+          1117,
+          1117
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1211,
+        "seq": [
+          1118,
+          1118
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1228,
+        "seq": [
+          1119,
+          1119
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1245,
+        "seq": [
+          1120,
+          1120
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1261,
+        "seq": [
+          1121,
+          1121
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1278,
+        "seq": [
+          1122,
+          1122
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1295,
+        "seq": [
+          1123,
+          1123
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1311,
+        "seq": [
+          1124,
+          1124
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1328,
+        "seq": [
+          1125,
+          1125
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1345,
+        "seq": [
+          1126,
+          1126
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1361,
+        "seq": [
+          1127,
+          1128
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1378,
+        "seq": [
+          1129,
+          1129
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1395,
+        "seq": [
+          1130,
+          1130
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1411,
+        "seq": [
+          1131,
+          1131
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1428,
+        "seq": [
+          1132,
+          1132
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1445,
+        "seq": [
+          1133,
+          1133
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1461,
+        "seq": [
+          1134,
+          1134
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1478,
+        "seq": [
+          1135,
+          1135
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1495,
+        "seq": [
+          1136,
+          1136
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      }
+    ],
+    "commits": 96,
+    "lateFrames": [],
+    "perf": {
+      "seq": [
+        1010,
+        1168
+      ],
+      "clock": [
+        19010.17,
+        22226.84
+      ],
+      "sites": [
+        {
+          "at": "bubble.contract:76 (MessageRow)",
+          "evaluated": 4983,
+          "unchanged": 4983,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:354 (Messages)",
+          "evaluated": 33,
+          "unchanged": 33,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:66 (MessageRow)",
+          "evaluated": 22,
+          "unchanged": 22,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:87 (MessageRow)",
+          "evaluated": 22,
+          "unchanged": 22,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:309 (Messages)",
+          "evaluated": 11,
+          "unchanged": 11,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:316 (Messages)",
+          "evaluated": 11,
+          "unchanged": 11,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:317 (Messages)",
+          "evaluated": 11,
+          "unchanged": 11,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        }
+      ],
+      "handlers": []
+    }
+  },
+  {
+    "fling": 3,
+    "window": {
+      "frames": 90,
+      "period": 16.67,
+      "late": 0,
+      "missed": 0,
+      "overrunMs": 0,
+      "phases": [],
+      "unattributed": 0
+    },
+    "batchFrames": [
+      {
+        "at": 10,
+        "seq": [
+          1202,
+          1202
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 27,
+        "seq": [
+          1203,
+          1203
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 44,
+        "seq": [
+          1204,
+          1204
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 60,
+        "seq": [
+          1205,
+          1206
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 77,
+        "seq": [
+          1207,
+          1207
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 94,
+        "seq": [
+          1208,
+          1208
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 110,
+        "seq": [
+          1209,
+          1209
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 127,
+        "seq": [
+          1210,
+          1210
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 144,
+        "seq": [
+          1211,
+          1211
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 160,
+        "seq": [
+          1212,
+          1212
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 177,
+        "seq": [
+          1213,
+          1213
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 194,
+        "seq": [
+          1214,
+          1214
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 210,
+        "seq": [
+          1215,
+          1215
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 227,
+        "seq": [
+          1216,
+          1216
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 244,
+        "seq": [
+          1217,
+          1217
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 260,
+        "seq": [
+          1218,
+          1218
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 277,
+        "seq": [
+          1219,
+          1219
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 294,
+        "seq": [
+          1220,
+          1220
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 310,
+        "seq": [
+          1221,
+          1222
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 327,
+        "seq": [
+          1223,
+          1223
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 344,
+        "seq": [
+          1224,
+          1224
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 360,
+        "seq": [
+          1225,
+          1225
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 377,
+        "seq": [
+          1226,
+          1226
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 394,
+        "seq": [
+          1227,
+          1227
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 410,
+        "seq": [
+          1228,
+          1228
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 427,
+        "seq": [
+          1229,
+          1229
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 444,
+        "seq": [
+          1230,
+          1230
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 460,
+        "seq": [
+          1231,
+          1231
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 477,
+        "seq": [
+          1232,
+          1232
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 494,
+        "seq": [
+          1233,
+          1233
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 510,
+        "seq": [
+          1234,
+          1234
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 527,
+        "seq": [
+          1235,
+          1235
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 544,
+        "seq": [
+          1236,
+          1236
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 560,
+        "seq": [
+          1237,
+          1238
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 577,
+        "seq": [
+          1239,
+          1239
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 594,
+        "seq": [
+          1240,
+          1240
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 610,
+        "seq": [
+          1241,
+          1241
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 627,
+        "seq": [
+          1242,
+          1242
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 644,
+        "seq": [
+          1243,
+          1243
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 660,
+        "seq": [
+          1244,
+          1244
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 677,
+        "seq": [
+          1245,
+          1245
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 694,
+        "seq": [
+          1246,
+          1246
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 710,
+        "seq": [
+          1247,
+          1247
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 727,
+        "seq": [
+          1248,
+          1248
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 744,
+        "seq": [
+          1249,
+          1249
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 760,
+        "seq": [
+          1250,
+          1250
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 777,
+        "seq": [
+          1251,
+          1251
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 794,
+        "seq": [
+          1252,
+          1252
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 810,
+        "seq": [
+          1253,
+          1254
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 827,
+        "seq": [
+          1255,
+          1255
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 844,
+        "seq": [
+          1256,
+          1256
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 860,
+        "seq": [
+          1257,
+          1257
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 877,
+        "seq": [
+          1258,
+          1258
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 894,
+        "seq": [
+          1259,
+          1259
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 910,
+        "seq": [
+          1260,
+          1260
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 927,
+        "seq": [
+          1261,
+          1261
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 944,
+        "seq": [
+          1262,
+          1262
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 960,
+        "seq": [
+          1263,
+          1263
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 977,
+        "seq": [
+          1264,
+          1264
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 994,
+        "seq": [
+          1265,
+          1265
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1010,
+        "seq": [
+          1266,
+          1266
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1027,
+        "seq": [
+          1267,
+          1267
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1044,
+        "seq": [
+          1268,
+          1268
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1060,
+        "seq": [
+          1269,
+          1270
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1077,
+        "seq": [
+          1271,
+          1271
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1094,
+        "seq": [
+          1272,
+          1272
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1110,
+        "seq": [
+          1273,
+          1273
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1127,
+        "seq": [
+          1274,
+          1274
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1144,
+        "seq": [
+          1275,
+          1275
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1160,
+        "seq": [
+          1276,
+          1276
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1177,
+        "seq": [
+          1277,
+          1277
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1194,
+        "seq": [
+          1278,
+          1278
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1210,
+        "seq": [
+          1279,
+          1279
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1227,
+        "seq": [
+          1280,
+          1280
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1244,
+        "seq": [
+          1281,
+          1281
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1260,
+        "seq": [
+          1282,
+          1282
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1277,
+        "seq": [
+          1283,
+          1283
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1294,
+        "seq": [
+          1284,
+          1284
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1310,
+        "seq": [
+          1285,
+          1286
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1327,
+        "seq": [
+          1287,
+          1287
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1344,
+        "seq": [
+          1288,
+          1288
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1360,
+        "seq": [
+          1289,
+          1289
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1377,
+        "seq": [
+          1290,
+          1290
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1394,
+        "seq": [
+          1291,
+          1291
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1410,
+        "seq": [
+          1292,
+          1292
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1427,
+        "seq": [
+          1293,
+          1293
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1444,
+        "seq": [
+          1294,
+          1294
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1460,
+        "seq": [
+          1295,
+          1295
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1477,
+        "seq": [
+          1296,
+          1296
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1494,
+        "seq": [
+          1297,
+          1297
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      }
+    ],
+    "commits": 96,
+    "lateFrames": [],
+    "perf": {
+      "seq": [
+        1168,
+        1336
+      ],
+      "clock": [
+        22226.84,
+        25626.82
+      ],
+      "sites": [
+        {
+          "at": "bubble.contract:76 (MessageRow)",
+          "evaluated": 5436,
+          "unchanged": 5436,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:354 (Messages)",
+          "evaluated": 36,
+          "unchanged": 36,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:66 (MessageRow)",
+          "evaluated": 24,
+          "unchanged": 24,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:87 (MessageRow)",
+          "evaluated": 24,
+          "unchanged": 24,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:309 (Messages)",
+          "evaluated": 12,
+          "unchanged": 12,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:316 (Messages)",
+          "evaluated": 12,
+          "unchanged": 12,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:317 (Messages)",
+          "evaluated": 12,
+          "unchanged": 12,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        }
+      ],
+      "handlers": []
+    }
+  },
+  {
+    "fling": 4,
+    "window": {
+      "frames": 90,
+      "period": 16.67,
+      "late": 0,
+      "missed": 0,
+      "overrunMs": 0,
+      "phases": [],
+      "unattributed": 0
+    },
+    "batchFrames": [
+      {
+        "at": 2,
+        "seq": [
+          1367,
+          1367
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 19,
+        "seq": [
+          1368,
+          1368
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 36,
+        "seq": [
+          1369,
+          1369
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 52,
+        "seq": [
+          1370,
+          1370
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 69,
+        "seq": [
+          1371,
+          1371
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 86,
+        "seq": [
+          1372,
+          1372
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 102,
+        "seq": [
+          1373,
+          1373
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 119,
+        "seq": [
+          1374,
+          1374
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 136,
+        "seq": [
+          1375,
+          1375
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 152,
+        "seq": [
+          1376,
+          1376
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 169,
+        "seq": [
+          1377,
+          1377
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 186,
+        "seq": [
+          1378,
+          1378
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 202,
+        "seq": [
+          1379,
+          1380
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 219,
+        "seq": [
+          1381,
+          1381
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 236,
+        "seq": [
+          1382,
+          1382
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 252,
+        "seq": [
+          1383,
+          1383
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 269,
+        "seq": [
+          1384,
+          1384
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 286,
+        "seq": [
+          1385,
+          1385
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 302,
+        "seq": [
+          1386,
+          1386
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 319,
+        "seq": [
+          1387,
+          1387
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 336,
+        "seq": [
+          1388,
+          1388
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 352,
+        "seq": [
+          1389,
+          1389
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 369,
+        "seq": [
+          1390,
+          1390
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 386,
+        "seq": [
+          1391,
+          1391
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 402,
+        "seq": [
+          1392,
+          1392
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 419,
+        "seq": [
+          1393,
+          1393
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 436,
+        "seq": [
+          1394,
+          1394
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 452,
+        "seq": [
+          1395,
+          1396
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 469,
+        "seq": [
+          1397,
+          1397
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 486,
+        "seq": [
+          1398,
+          1398
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 502,
+        "seq": [
+          1399,
+          1399
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 519,
+        "seq": [
+          1400,
+          1400
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 536,
+        "seq": [
+          1401,
+          1401
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 552,
+        "seq": [
+          1402,
+          1402
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 569,
+        "seq": [
+          1403,
+          1403
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 586,
+        "seq": [
+          1404,
+          1404
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 602,
+        "seq": [
+          1405,
+          1405
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 619,
+        "seq": [
+          1406,
+          1406
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 636,
+        "seq": [
+          1407,
+          1407
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 652,
+        "seq": [
+          1408,
+          1408
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 669,
+        "seq": [
+          1409,
+          1409
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 686,
+        "seq": [
+          1410,
+          1410
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 702,
+        "seq": [
+          1411,
+          1412
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 719,
+        "seq": [
+          1413,
+          1413
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 736,
+        "seq": [
+          1414,
+          1414
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 752,
+        "seq": [
+          1415,
+          1415
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 769,
+        "seq": [
+          1416,
+          1416
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 786,
+        "seq": [
+          1417,
+          1417
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 802,
+        "seq": [
+          1418,
+          1418
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 819,
+        "seq": [
+          1419,
+          1419
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 836,
+        "seq": [
+          1420,
+          1420
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 852,
+        "seq": [
+          1421,
+          1421
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 869,
+        "seq": [
+          1422,
+          1422
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 886,
+        "seq": [
+          1423,
+          1423
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 902,
+        "seq": [
+          1424,
+          1424
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 919,
+        "seq": [
+          1425,
+          1425
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 936,
+        "seq": [
+          1426,
+          1426
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 952,
+        "seq": [
+          1427,
+          1428
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 969,
+        "seq": [
+          1429,
+          1429
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 986,
+        "seq": [
+          1430,
+          1430
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1002,
+        "seq": [
+          1431,
+          1431
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1019,
+        "seq": [
+          1432,
+          1432
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1036,
+        "seq": [
+          1433,
+          1433
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1052,
+        "seq": [
+          1434,
+          1434
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1069,
+        "seq": [
+          1435,
+          1435
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1086,
+        "seq": [
+          1436,
+          1436
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1102,
+        "seq": [
+          1437,
+          1437
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1119,
+        "seq": [
+          1438,
+          1438
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1136,
+        "seq": [
+          1439,
+          1439
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1152,
+        "seq": [
+          1440,
+          1440
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1169,
+        "seq": [
+          1441,
+          1441
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1186,
+        "seq": [
+          1442,
+          1442
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1202,
+        "seq": [
+          1443,
+          1444
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1219,
+        "seq": [
+          1445,
+          1445
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1236,
+        "seq": [
+          1446,
+          1446
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1252,
+        "seq": [
+          1447,
+          1447
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1269,
+        "seq": [
+          1448,
+          1448
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1286,
+        "seq": [
+          1449,
+          1449
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1302,
+        "seq": [
+          1450,
+          1450
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1319,
+        "seq": [
+          1451,
+          1451
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1336,
+        "seq": [
+          1452,
+          1452
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1352,
+        "seq": [
+          1453,
+          1453
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1369,
+        "seq": [
+          1454,
+          1454
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1386,
+        "seq": [
+          1455,
+          1455
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1402,
+        "seq": [
+          1456,
+          1456
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1419,
+        "seq": [
+          1457,
+          1457
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1436,
+        "seq": [
+          1458,
+          1458
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1452,
+        "seq": [
+          1459,
+          1460
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1469,
+        "seq": [
+          1461,
+          1461
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1486,
+        "seq": [
+          1462,
+          1462
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      }
+    ],
+    "commits": 96,
+    "lateFrames": [],
+    "perf": {
+      "seq": [
+        1336,
+        1508
+      ],
+      "clock": [
+        25626.82,
+        29100.95
+      ],
+      "sites": [
+        {
+          "at": "bubble.contract:76 (MessageRow)",
+          "evaluated": 5889,
+          "unchanged": 5889,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:354 (Messages)",
+          "evaluated": 39,
+          "unchanged": 39,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:66 (MessageRow)",
+          "evaluated": 26,
+          "unchanged": 26,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:87 (MessageRow)",
+          "evaluated": 26,
+          "unchanged": 26,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:309 (Messages)",
+          "evaluated": 13,
+          "unchanged": 13,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:316 (Messages)",
+          "evaluated": 13,
+          "unchanged": 13,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:317 (Messages)",
+          "evaluated": 13,
+          "unchanged": 13,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        }
+      ],
+      "handlers": []
+    }
+  },
+  {
+    "fling": 5,
+    "window": {
+      "frames": 90,
+      "period": 16.67,
+      "late": 0,
+      "missed": 0,
+      "overrunMs": 0,
+      "phases": [],
+      "unattributed": 0
+    },
+    "batchFrames": [
+      {
+        "at": 15,
+        "seq": [
+          1543,
+          1543
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 32,
+        "seq": [
+          1544,
+          1544
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 48,
+        "seq": [
+          1545,
+          1545
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 65,
+        "seq": [
+          1546,
+          1546
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 82,
+        "seq": [
+          1547,
+          1547
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 98,
+        "seq": [
+          1548,
+          1548
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 115,
+        "seq": [
+          1549,
+          1549
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 132,
+        "seq": [
+          1550,
+          1550
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 148,
+        "seq": [
+          1551,
+          1551
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 165,
+        "seq": [
+          1552,
+          1552
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 182,
+        "seq": [
+          1553,
+          1553
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 198,
+        "seq": [
+          1554,
+          1555
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 215,
+        "seq": [
+          1556,
+          1556
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 232,
+        "seq": [
+          1557,
+          1557
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 248,
+        "seq": [
+          1558,
+          1558
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 265,
+        "seq": [
+          1559,
+          1559
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 282,
+        "seq": [
+          1560,
+          1560
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 298,
+        "seq": [
+          1561,
+          1561
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 315,
+        "seq": [
+          1562,
+          1562
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 332,
+        "seq": [
+          1563,
+          1563
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 348,
+        "seq": [
+          1564,
+          1564
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 365,
+        "seq": [
+          1565,
+          1565
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 382,
+        "seq": [
+          1566,
+          1566
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 398,
+        "seq": [
+          1567,
+          1567
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 415,
+        "seq": [
+          1568,
+          1568
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 432,
+        "seq": [
+          1569,
+          1569
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 448,
+        "seq": [
+          1570,
+          1571
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 465,
+        "seq": [
+          1573,
+          1573
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 482,
+        "seq": [
+          1574,
+          1574
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 498,
+        "seq": [
+          1575,
+          1575
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 515,
+        "seq": [
+          1576,
+          1576
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 532,
+        "seq": [
+          1577,
+          1577
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 548,
+        "seq": [
+          1578,
+          1578
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 565,
+        "seq": [
+          1579,
+          1579
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 582,
+        "seq": [
+          1580,
+          1580
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 598,
+        "seq": [
+          1581,
+          1581
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 615,
+        "seq": [
+          1582,
+          1582
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 632,
+        "seq": [
+          1583,
+          1583
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 648,
+        "seq": [
+          1584,
+          1584
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 665,
+        "seq": [
+          1585,
+          1585
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 682,
+        "seq": [
+          1586,
+          1586
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 698,
+        "seq": [
+          1587,
+          1588
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 715,
+        "seq": [
+          1589,
+          1589
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 732,
+        "seq": [
+          1590,
+          1590
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 748,
+        "seq": [
+          1591,
+          1591
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 765,
+        "seq": [
+          1592,
+          1592
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 782,
+        "seq": [
+          1593,
+          1593
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 798,
+        "seq": [
+          1594,
+          1594
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 815,
+        "seq": [
+          1595,
+          1595
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 832,
+        "seq": [
+          1596,
+          1596
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 848,
+        "seq": [
+          1597,
+          1597
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 865,
+        "seq": [
+          1598,
+          1598
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 882,
+        "seq": [
+          1599,
+          1599
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 898,
+        "seq": [
+          1600,
+          1600
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 915,
+        "seq": [
+          1601,
+          1601
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 932,
+        "seq": [
+          1602,
+          1602
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 948,
+        "seq": [
+          1603,
+          1604
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 965,
+        "seq": [
+          1605,
+          1605
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 982,
+        "seq": [
+          1606,
+          1606
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 998,
+        "seq": [
+          1607,
+          1607
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1015,
+        "seq": [
+          1608,
+          1608
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1032,
+        "seq": [
+          1609,
+          1609
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1048,
+        "seq": [
+          1610,
+          1610
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1065,
+        "seq": [
+          1611,
+          1611
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1082,
+        "seq": [
+          1612,
+          1612
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1098,
+        "seq": [
+          1613,
+          1613
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1115,
+        "seq": [
+          1614,
+          1614
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1132,
+        "seq": [
+          1615,
+          1615
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1148,
+        "seq": [
+          1616,
+          1616
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1165,
+        "seq": [
+          1617,
+          1617
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1182,
+        "seq": [
+          1618,
+          1618
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1198,
+        "seq": [
+          1619,
+          1620
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1215,
+        "seq": [
+          1621,
+          1621
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1232,
+        "seq": [
+          1622,
+          1622
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1248,
+        "seq": [
+          1623,
+          1623
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1265,
+        "seq": [
+          1624,
+          1624
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1282,
+        "seq": [
+          1625,
+          1625
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1298,
+        "seq": [
+          1626,
+          1626
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1315,
+        "seq": [
+          1627,
+          1627
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1332,
+        "seq": [
+          1628,
+          1628
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1348,
+        "seq": [
+          1629,
+          1629
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1365,
+        "seq": [
+          1630,
+          1630
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1382,
+        "seq": [
+          1631,
+          1631
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1398,
+        "seq": [
+          1632,
+          1632
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1415,
+        "seq": [
+          1633,
+          1633
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1432,
+        "seq": [
+          1634,
+          1634
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1448,
+        "seq": [
+          1635,
+          1636
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1465,
+        "seq": [
+          1637,
+          1637
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1482,
+        "seq": [
+          1638,
+          1638
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1498,
+        "seq": [
+          1639,
+          1639
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      }
+    ],
+    "commits": 96,
+    "lateFrames": [],
+    "perf": {
+      "seq": [
+        1508,
+        1673
+      ],
+      "clock": [
+        29100.95,
+        32426.87
+      ],
+      "sites": [
+        {
+          "at": "bubble.contract:76 (MessageRow)",
+          "evaluated": 5436,
+          "unchanged": 5436,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:354 (Messages)",
+          "evaluated": 36,
+          "unchanged": 36,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:66 (MessageRow)",
+          "evaluated": 24,
+          "unchanged": 24,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:87 (MessageRow)",
+          "evaluated": 24,
+          "unchanged": 24,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:309 (Messages)",
+          "evaluated": 12,
+          "unchanged": 12,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:316 (Messages)",
+          "evaluated": 12,
+          "unchanged": 12,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:317 (Messages)",
+          "evaluated": 12,
+          "unchanged": 12,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        }
+      ],
+      "handlers": []
+    }
+  },
+  {
+    "fling": 6,
+    "window": {
+      "frames": 81,
+      "period": 16.67,
+      "late": 4,
+      "missed": 9,
+      "overrunMs": 104.86,
+      "phases": [
+        {
+          "phase": "runtime",
+          "ms": 164.99
+        },
+        {
+          "phase": "scroll",
+          "ms": 0.36
+        },
+        {
+          "phase": "text",
+          "ms": 0.15
+        }
+      ],
+      "unattributed": 47.63
+    },
+    "batchFrames": [
+      {
+        "at": 5,
+        "seq": [
+          1707,
+          1707
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 22,
+        "seq": [
+          1708,
+          1708
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 39,
+        "seq": [
+          1709,
+          1709
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 55,
+        "seq": [
+          1710,
+          1710
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 72,
+        "seq": [
+          1711,
+          1711
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 89,
+        "seq": [
+          1712,
+          1712
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 105,
+        "seq": [
+          1713,
+          1714
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 122,
+        "seq": [
+          1715,
+          1715
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 139,
+        "seq": [
+          1716,
+          1716
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 155,
+        "seq": [
+          1717,
+          1717
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 172,
+        "seq": [
+          1718,
+          1718
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 189,
+        "seq": [
+          1719,
+          1719
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 205,
+        "seq": [
+          1720,
+          1720
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 222,
+        "seq": [
+          1721,
+          1721
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 239,
+        "seq": [
+          1722,
+          1722
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 255,
+        "seq": [
+          1723,
+          1723
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 272,
+        "seq": [
+          1724,
+          1724
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 289,
+        "seq": [
+          1725,
+          1725
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 305,
+        "seq": [
+          1726,
+          1726
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 322,
+        "seq": [
+          1727,
+          1727
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 339,
+        "seq": [
+          1728,
+          1728
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 355,
+        "seq": [
+          1729,
+          1730
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 372,
+        "seq": [
+          1731,
+          1731
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 389,
+        "seq": [
+          1732,
+          1732
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 405,
+        "seq": [
+          1733,
+          1733
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 422,
+        "seq": [
+          1734,
+          1734
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 439,
+        "seq": [
+          1735,
+          1735
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 455,
+        "seq": [
+          1736,
+          1736
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 472,
+        "seq": [
+          1737,
+          1737
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 489,
+        "seq": [
+          1738,
+          1738
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 505,
+        "seq": [
+          1739,
+          1739
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 522,
+        "seq": [
+          1740,
+          1740
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 539,
+        "seq": [
+          1741,
+          1741
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 555,
+        "seq": [
+          1742,
+          1742
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 572,
+        "seq": [
+          1743,
+          1743
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 589,
+        "seq": [
+          1744,
+          1744
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 605,
+        "seq": [
+          1745,
+          1746
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 651,
+        "seq": [
+          1747,
+          1747
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 45.95,
+        "missed": 2
+      },
+      {
+        "at": 672,
+        "seq": [
+          1748,
+          1748
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 20.72,
+        "missed": 0
+      },
+      {
+        "at": 689,
+        "seq": [
+          1749,
+          1749
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 705,
+        "seq": [
+          1750,
+          1750
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 722,
+        "seq": [
+          1751,
+          1751
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 739,
+        "seq": [
+          1752,
+          1752
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 755,
+        "seq": [
+          1753,
+          1753
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 772,
+        "seq": [
+          1754,
+          1754
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 789,
+        "seq": [
+          1755,
+          1755
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 805,
+        "seq": [
+          1756,
+          1756
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 822,
+        "seq": [
+          1757,
+          1757
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 839,
+        "seq": [
+          1758,
+          1758
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 855,
+        "seq": [
+          1759,
+          1759
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 872,
+        "seq": [
+          1760,
+          1761
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 922,
+        "seq": [
+          1762,
+          1762
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 50.5,
+        "missed": 2
+      },
+      {
+        "at": 939,
+        "seq": [
+          1763,
+          1763
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.17,
+        "missed": 0
+      },
+      {
+        "at": 955,
+        "seq": [
+          1764,
+          1764
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 972,
+        "seq": [
+          1765,
+          1765
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 989,
+        "seq": [
+          1766,
+          1766
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1005,
+        "seq": [
+          1767,
+          1767
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1022,
+        "seq": [
+          1768,
+          1768
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1039,
+        "seq": [
+          1769,
+          1769
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1055,
+        "seq": [
+          1770,
+          1770
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1072,
+        "seq": [
+          1771,
+          1771
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1089,
+        "seq": [
+          1772,
+          1772
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1105,
+        "seq": [
+          1773,
+          1773
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1122,
+        "seq": [
+          1774,
+          1775
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1139,
+        "seq": [
+          1776,
+          1776
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1155,
+        "seq": [
+          1777,
+          1777
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1172,
+        "seq": [
+          1778,
+          1778
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1189,
+        "seq": [
+          1779,
+          1779
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1205,
+        "seq": [
+          1780,
+          1780
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1222,
+        "seq": [
+          1781,
+          1781
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1239,
+        "seq": [
+          1782,
+          1782
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1255,
+        "seq": [
+          1783,
+          1783
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1272,
+        "seq": [
+          1784,
+          1784
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1289,
+        "seq": [
+          1785,
+          1785
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1305,
+        "seq": [
+          1786,
+          1786
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1322,
+        "seq": [
+          1787,
+          1787
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1339,
+        "seq": [
+          1788,
+          1788
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1355,
+        "seq": [
+          1789,
+          1789
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1372,
+        "seq": [
+          1790,
+          1791
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 16.67,
+        "missed": 0
+      },
+      {
+        "at": 1460,
+        "seq": [
+          1792,
+          1792
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 87.7,
+        "missed": 4
+      },
+      {
+        "at": 1489,
+        "seq": [
+          1793,
+          1793
+        ],
+        "batches": 1,
+        "apply": 0,
+        "interval": 28.97,
+        "missed": 1
+      }
+    ],
+    "commits": 87,
+    "lateFrames": [
+      {
+        "at": 651,
+        "interval": 45.95,
+        "missed": 2,
+        "overrun": 0,
+        "seq": [
+          1747,
+          1747
+        ],
+        "batches": 1,
+        "phases": [
+          {
+            "phase": "runtime",
+            "ms": 28.62,
+            "segments": 2
+          },
+          {
+            "segments": 1,
+            "phase": "text",
+            "ms": 0.09
+          },
+          {
+            "ms": 0.15,
+            "segments": 2,
+            "phase": "scroll"
+          }
+        ],
+        "unattributed": 17.09
+      },
+      {
+        "at": 922,
+        "interval": 50.5,
+        "missed": 2,
+        "overrun": 33.83,
+        "seq": [
+          1762,
+          1762
+        ],
+        "batches": 1,
+        "phases": [
+          {
+            "segments": 1,
+            "phase": "runtime",
+            "ms": 49.41
+          },
+          {
+            "phase": "scroll",
+            "segments": 1,
+            "ms": 0.08
+          }
+        ],
+        "unattributed": 1.01
+      },
+      {
+        "at": 1460,
+        "interval": 87.7,
+        "missed": 4,
+        "overrun": 71.03,
+        "seq": [
+          1792,
+          1792
+        ],
+        "batches": 1,
+        "phases": [
+          {
+            "phase": "runtime",
+            "ms": 86.73,
+            "segments": 1
+          },
+          {
+            "ms": 0.06,
+            "segments": 1,
+            "phase": "scroll"
+          }
+        ],
+        "unattributed": 0.92
+      },
+      {
+        "at": 1489,
+        "interval": 28.97,
+        "missed": 1,
+        "overrun": 0,
+        "seq": [
+          1793,
+          1793
+        ],
+        "batches": 1,
+        "phases": [
+          {
+            "segments": 1,
+            "phase": "runtime",
+            "ms": 0.23
+          },
+          {
+            "phase": "text",
+            "ms": 0.06,
+            "segments": 1
+          },
+          {
+            "segments": 1,
+            "ms": 0.07,
+            "phase": "scroll"
+          }
+        ],
+        "unattributed": 28.61
+      }
+    ],
+    "perf": {
+      "seq": [
+        1673,
+        1963
+      ],
+      "clock": [
+        32426.87,
+        37976.95
+      ],
+      "sites": [
+        {
+          "at": "bubble.contract:76 (MessageRow)",
+          "evaluated": 9513,
+          "unchanged": 9513,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:354 (Messages)",
+          "evaluated": 63,
+          "unchanged": 63,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:66 (MessageRow)",
+          "evaluated": 42,
+          "unchanged": 42,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "bubble.contract:87 (MessageRow)",
+          "evaluated": 42,
+          "unchanged": 42,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:309 (Messages)",
+          "evaluated": 21,
+          "unchanged": 21,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:316 (Messages)",
+          "evaluated": 21,
+          "unchanged": 21,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        },
+        {
+          "at": "app.contract:317 (Messages)",
+          "evaluated": 21,
+          "unchanged": 21,
+          "created": 0,
+          "rowConstructed": 0,
+          "rowRebound": 0
+        }
+      ],
+      "handlers": []
+    }
+  }
+]

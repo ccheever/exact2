@@ -1,0 +1,123 @@
+03:27:21 build: 15 pairs on 4963c75490
+03:27:21 build contacts-exact on 486FD498-0E3E-4B64-8E4B-152BD8265EE7
+03:27:21 build contacts-swiftui on EF198926-1958-489D-A7A4-9196E454DD3A
+03:27:21 build recipes-exact on C2188CC6-FBE9-409A-92A8-ABD89AC2C432
+03:27:21 build recipes-uikit on 498D6D1F-C21C-4B31-90F4-5D857216E256
+03:27:21 build expenses-exact on EEFC0029-1010-45E4-8242-42CF67E16C96
+03:27:21 build expenses-uikit on CEDFB9C9-FF04-4617-B156-94C56B83CA86
+03:34:18 built recipes-uikit: 6.93 min, 1.17 Mtok, exit 0, app kept
+03:34:18 build workout-log-exact on 498D6D1F-C21C-4B31-90F4-5D857216E256
+03:38:41 built recipes-exact: 10.86 min, 1.90 Mtok, exit 0, app kept
+03:38:41 build workout-log-swiftui on C2188CC6-FBE9-409A-92A8-ABD89AC2C432
+03:41:14 built contacts-exact: 13.4 min, 3.48 Mtok, exit 0, app kept
+03:41:14 build podcasts-exact on 486FD498-0E3E-4B64-8E4B-152BD8265EE7
+03:42:34 built expenses-exact: 14.73 min, 3.66 Mtok, exit 0, app kept
+03:42:34 build podcasts-swiftui on EEFC0029-1010-45E4-8242-42CF67E16C96
+03:44:34 built contacts-swiftui: 17.2 min, 6.27 Mtok, exit 0, app kept
+03:44:34 build notes-exact on EF198926-1958-489D-A7A4-9196E454DD3A
+03:45:48 built workout-log-swiftui: 7.1 min, 1.59 Mtok, exit 0, app kept
+03:45:48 build notes-uikit on C2188CC6-FBE9-409A-92A8-ABD89AC2C432
+03:46:07 built workout-log-exact: 11.4 min, 3.13 Mtok, exit 0, app kept
+03:46:07 build watchlist-exact on 498D6D1F-C21C-4B31-90F4-5D857216E256
+03:49:57 built notes-uikit: 4.14 min, 0.83 Mtok, exit 0, app kept
+03:49:57 build watchlist-uikit on C2188CC6-FBE9-409A-92A8-ABD89AC2C432
+03:53:40 built notes-exact: 8.69 min, 3.64 Mtok, exit 0, app kept
+03:53:40 build chat-exact on EF198926-1958-489D-A7A4-9196E454DD3A
+03:53:44 built expenses-uikit: 26.37 min, 6.72 Mtok, exit 0, app kept
+03:53:44 build chat-swiftui on CEDFB9C9-FF04-4617-B156-94C56B83CA86
+03:56:01 built podcasts-exact: 14.37 min, 4.27 Mtok, exit 0, app kept
+03:56:01 build moodboard-exact on 486FD498-0E3E-4B64-8E4B-152BD8265EE7
+03:57:40 built chat-swiftui: 3.92 min, 0.84 Mtok, exit 0, app kept
+03:57:40 build moodboard-swiftui on CEDFB9C9-FF04-4617-B156-94C56B83CA86
+04:00:34 built podcasts-swiftui: 17.98 min, 4.61 Mtok, exit 0, app kept
+04:00:34 build inbox-exact on EEFC0029-1010-45E4-8242-42CF67E16C96
+04:03:44 built chat-exact: 9.68 min, 4.13 Mtok, exit 0, app kept
+04:03:44 build inbox-uikit on EF198926-1958-489D-A7A4-9196E454DD3A
+04:04:40 built watchlist-uikit: 14.7 min, 2.17 Mtok, exit 0, app kept
+04:04:40 build tasks-exact on C2188CC6-FBE9-409A-92A8-ABD89AC2C432
+04:04:40 built watchlist-exact: 18.16 min, 5.33 Mtok, exit 0, app kept
+04:04:40 build tasks-uikit on 498D6D1F-C21C-4B31-90F4-5D857216E256
+04:11:09 built moodboard-swiftui: 13.47 min, 3.48 Mtok, exit 0, app kept
+04:11:09 build settings-exact on CEDFB9C9-FF04-4617-B156-94C56B83CA86
+04:13:31 built tasks-uikit: 8.85 min, 2.31 Mtok, exit 0, app kept
+04:13:31 build settings-swiftui on 498D6D1F-C21C-4B31-90F4-5D857216E256
+04:16:17 built inbox-uikit: 12.53 min, 3.68 Mtok, exit 0, app kept
+04:16:17 build feed-exact on EF198926-1958-489D-A7A4-9196E454DD3A
+04:17:24 built moodboard-exact: 20.96 min, 6.02 Mtok, exit 0, app kept
+04:17:24 build feed-swiftui on 486FD498-0E3E-4B64-8E4B-152BD8265EE7
+04:18:17 built settings-swiftui: 4.74 min, 0.86 Mtok, exit 0, app kept
+04:18:17 build photos-exact on 498D6D1F-C21C-4B31-90F4-5D857216E256
+04:20:43 built inbox-exact: 19.74 min, 7.48 Mtok, exit 0, app kept
+04:20:43 build photos-uikit on EEFC0029-1010-45E4-8242-42CF67E16C96
+04:22:47 built tasks-exact: 17.72 min, 8.03 Mtok, exit 0, app kept
+04:22:47 build timetable-exact on C2188CC6-FBE9-409A-92A8-ABD89AC2C432
+04:26:50 built feed-swiftui: 9.42 min, 1.81 Mtok, exit 0, app kept
+04:26:50 build timetable-uikit on 486FD498-0E3E-4B64-8E4B-152BD8265EE7
+04:28:24 built feed-exact: 11.71 min, 4.29 Mtok, exit 0, app kept
+04:29:43 built photos-uikit: 8.98 min, 1.74 Mtok, exit 0, app kept
+04:31:22 built settings-exact: 19.81 min, 4.43 Mtok, exit 0, app kept
+04:34:40 built photos-exact: 15.99 min, 7.18 Mtok, exit 0, app kept
+04:36:20 built timetable-exact: 13.14 min, 4.55 Mtok, exit 0, app kept
+04:49:02 built timetable-uikit: 22.19 min, 4.72 Mtok, exit 0, app kept
+04:50:23 feel contacts-exact: exit 0 (load 6)
+04:51:45 feel contacts-swiftui: exit 0 (load 7)
+04:52:58 feel recipes-exact: exit 0 (load 8)
+04:54:10 feel recipes-uikit: exit 0 (load 7)
+04:55:24 feel expenses-exact: exit 0 (load 7)
+04:56:50 feel expenses-uikit: exit 0 (load 7)
+04:58:00 feel workout-log-exact: exit 0 (load 6)
+04:59:10 feel workout-log-swiftui: exit 0 (load 6)
+05:00:27 feel podcasts-exact: exit 0 (load 6)
+05:01:41 feel podcasts-swiftui: exit 0 (load 6)
+05:02:55 feel notes-exact: exit 0 (load 6)
+05:04:05 feel notes-uikit: exit 0 (load 7)
+05:05:19 feel watchlist-exact: exit 0 (load 7)
+05:06:35 feel watchlist-uikit: exit 0 (load 6)
+05:07:56 feel chat-exact: exit 0 (load 7)
+05:09:17 feel chat-swiftui: exit 0 (load 7)
+05:10:34 feel moodboard-exact: exit 0 (load 7)
+05:12:02 feel moodboard-swiftui: exit 0 (load 7)
+05:13:16 feel inbox-exact: exit 0 (load 6)
+05:14:29 feel inbox-uikit: exit 0 (load 6)
+05:15:45 feel tasks-exact: exit 0 (load 7)
+05:17:01 feel tasks-uikit: exit 0 (load 7)
+05:17:37 feel settings-exact: exit 0 (load 6)
+05:18:13 feel settings-swiftui: exit 0 (load 7)
+05:19:39 feel feed-exact: exit 0 (load 6)
+05:21:03 feel feed-swiftui: exit 0 (load 7)
+05:22:25 feel photos-exact: exit 0 (load 6)
+05:23:41 feel photos-uikit: exit 0 (load 5)
+05:24:53 feel timetable-exact: exit 0 (load 8)
+05:26:08 feel timetable-uikit: exit 0 (load 7)
+05:26:08 grade contacts on 82D8930B-3C17-48B9-8264-4B173F6DF361
+05:26:08 grade recipes on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+05:37:14 graded recipes: uikit (11.08 min)
+05:37:14 grade expenses on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+05:40:07 graded contacts: exact (13.97 min)
+05:40:07 grade workout-log on 82D8930B-3C17-48B9-8264-4B173F6DF361
+05:45:57 graded expenses: uikit (8.69 min)
+05:45:57 grade podcasts on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+05:50:21 graded workout-log: swiftui (10.2 min)
+05:50:21 grade notes on 82D8930B-3C17-48B9-8264-4B173F6DF361
+05:56:00 graded podcasts: exact (10.03 min)
+05:56:00 grade watchlist on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+05:59:56 graded notes: uikit (9.56 min)
+05:59:56 grade chat on 82D8930B-3C17-48B9-8264-4B173F6DF361
+06:06:15 graded watchlist: exact (10.23 min)
+06:06:15 grade moodboard on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+06:08:33 graded chat: swiftui (8.6 min)
+06:08:33 grade inbox on 82D8930B-3C17-48B9-8264-4B173F6DF361
+06:14:10 graded moodboard: exact (7.89 min)
+06:14:10 grade tasks on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+06:17:22 graded inbox: exact (8.8 min)
+06:17:22 grade settings on 82D8930B-3C17-48B9-8264-4B173F6DF361
+06:28:46 graded tasks: exact (14.57 min)
+06:28:46 grade feed on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+06:32:54 graded settings: swiftui (15.5 min)
+06:32:54 grade photos on 82D8930B-3C17-48B9-8264-4B173F6DF361
+06:36:15 graded feed: exact (7.46 min)
+06:36:15 grade timetable on 25F76B9D-7CC1-455F-9D1D-4AC6C66542CD
+06:43:44 graded photos: uikit (10.81 min)
+06:43:50 graded timetable: uikit (7.55 min)
+06:44:24 tidied: build trees and older pins removed
+06:44:24 all done

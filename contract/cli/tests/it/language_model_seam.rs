@@ -98,6 +98,10 @@ impl exact_runner::DataSource for Tools {
                     body.to_string().into_bytes(),
                 )))
             }
+            // A sleep on a timer of its own (LLP 1027.000 D1), due at 500 ms.
+            ("tool:findNotes", Some("sleep")) => {
+                Ok(Answer::Later(Request::continuation(9).due(500)))
+            }
             ("tool:findNotes", _) => Ok(Answer::Now(Value::from(r#"[{"title":"Lifetimes"}]"#))),
             _ => Err(DataError::UnknownSource(format!(
                 "the data module's `tools` has no `{source}`"
@@ -420,4 +424,24 @@ fn a_poll_ends_with_its_answer() {
         "a completed response is not: {}",
         logs(&r)
     );
+}
+
+/// A handler sleeping on a timer of its own is listed in `state.pending`,
+/// marked `timer` with when it is due, and is no I/O a clock waits on.
+#[test]
+fn a_handler_sleeping_on_its_own_timer_is_pending_on_a_timer() {
+    let (_app, mut r, _calls, _held) = boot("sleeping");
+    let mut waiting = Vec::new();
+    r.act("create", Vec::new()).unwrap();
+    pump(&mut r, &mut waiting);
+    let call = json!({ "extension": "language-model", "handle": "s1", "handler": "findNotes", "args": { "query": "sleep" } });
+    r.invoke_module(&call.to_string(), Box::new(|_| {}));
+    assert!(r.take_requests().is_empty(), "kept back until it is due");
+    let state = exact_runner::agent::handle(&r, r#"{"op":"state"}"#);
+    let state: Json = serde_json::from_str(&state).unwrap();
+    let sleeping: Vec<&Json> = (state["pending"].as_array().unwrap().iter())
+        .filter(|p| p["timer"] == 500.0)
+        .collect();
+    assert_eq!(sleeping.len(), 1, "{}", state["pending"]);
+    assert!(!r.has_pending(), "no clock waits on it");
 }

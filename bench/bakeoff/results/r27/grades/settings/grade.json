@@ -1,0 +1,44 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections present. Account has an avatar header, editable Name/Email and Sign Out with a confirmation that leads to a 'Not Signed In' state with Sign In. Reading has a stepped slider with A/A icons, a five-font picker, a segmented control and a live preview. Theme offers System/Light/Dark/Sepia. Library has Sort By and two toggles. Notifications reveals a system time picker and three toggles when on. Storage shows Used/Books/Cache, and Clear Cache confirms in an anchored dialog, zeroes the cache and disables itself. About has the version, Privacy/Terms pushed pages and the real StoreKit rating prompt."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort push native inset-grouped checkmark lists, and font names are drawn in their own typeface. The reminder time uses the compact system DatePicker popover. At the largest text size Line Spacing turns into a menu picker."},
+      {"n": 3, "status": "pass", "note": "The preview updates live for font, size (shown as 29 pt) and Relaxed spacing, and its caption says 'PREVIEW · PALATINO, 29 PT'."},
+      {"n": 4, "status": "pass", "note": "After relaunch the name edit, size, font, spacing, Sepia theme, Author sort, notifications on, 7:00 PM reminder and cleared cache were all kept."},
+      {"n": 5, "status": "pass", "note": "Reset All Settings (centred, red) confirms, then restores 18 pt/New York/Normal/System/Recently Read/notifications off and keeps the account, which is sensible."}
+    ],
+    "bugs": [],
+    "tells": [
+      "At the largest text size the account email in the header breaks mid-word ('jordan.ellis@iclo / ud.com').",
+      "The separator under 'Downloaded Books' runs to the card's left edge instead of the text inset (most visible in dark mode).",
+      "The Daily Reminder row is 66 pt tall while its neighbours are 52 pt."
+    ],
+    "scroll": "The long grouped list scrolls, flings and returns to the top smoothly, and the large title collapses to inline as it should. Scroll position is kept when returning from pushed pickers, with no blank or popping rows.",
+    "scores": {"features": 9, "platform": 9, "polish": 8, "overall": 9}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All sections are present, with helpful footers. Name/Email are inline fields. Sign Out uses a system alert, and Sign In then asks for an email in an alert. Text Size has a slider row, Font has five fonts, and spacing is a segmented control with a preview card. Theme has four options. Library has Sort plus two toggles. Notifications reveals a system time picker and three toggles. Storage has Used/Books/Cache, and Clear Cache confirms in an alert and then disables itself. About has the version, Privacy/Terms pages and a Rate the App alert."},
+      {"n": 2, "status": "pass", "note": "Font, Theme and Sort push inset-grouped checkmark lists. The time uses the compact system DatePicker popover. At the largest text size Line Spacing becomes an inline checkmark list."},
+      {"n": 3, "status": "pass", "note": "The preview card follows font, size and spacing live. Sepia only tints the preview card, not the screen."},
+      {"n": 4, "status": "partial", "note": "Usually kept (size, spacing, font, sort, cellular, reminder time, theme all survived relaunch). Once, after going to Theme and back, the text size jumped from 17 back to an older 28 pt and spacing went from Compact back to Normal, and that older state was what survived relaunch."},
+      {"n": 5, "status": "pass", "note": "Reset confirms in an alert and restores 18 pt/Georgia/Normal/System/Recently Added/cellular off/8:00 PM, keeping the account."}
+    ],
+    "bugs": [
+      "After returning from a pushed picker or closing an alert, the Line Spacing segmented control sometimes stays greyed (dimmed tint) and ignores taps until the app is relaunched.",
+      "Once, after visiting the Theme picker and coming back, the Reading settings reverted to earlier values (17 → 28 pt, Compact → Normal), losing the user's change.",
+      "Signing out and back in clears the Name, which becomes an empty 'Your name' placeholder.",
+      "The accessibility state lags the screen: after a change, VoiceOver values still report the old segment and slider value (e.g. Normal still marked selected after tapping Relaxed)."
+    ],
+    "tells": [
+      "The Sepia theme only tints the preview card; the rest of the screen stays light grey, unlike Dark, which recolours everything.",
+      "In the in-app Dark theme, the Name/Email values were drawn in the serif reading font (Palatino) instead of the system font.",
+      "The Rate the App action is a custom alert ('Rate Paperback / Not Now') rather than the system review prompt.",
+      "At the largest text size the email value is cut off ('jordan@pape…') and the Name value sits slightly out of line."
+    ],
+    "scroll": "The list scrolls and flings smoothly with a collapsing large title and no blank or popping rows. After coming back from a picker the screen sometimes showed controls in a dimmed state.",
+    "scores": {"features": 8, "platform": 8, "polish": 6, "overall": 7}
+  },
+  "better": "A",
+  "why": "Both are close to native inset-grouped settings screens with system pickers, alerts and pushed checkmark lists, and both meet every requirement on the happy path. B has an intermittent stale-state problem: the segmented control is sometimes left greyed and dead, and once a Theme round-trip reverted the reading settings. A never misbehaved and adds a real StoreKit prompt, a full-screen Sepia theme and font names drawn in their own typefaces."
+}

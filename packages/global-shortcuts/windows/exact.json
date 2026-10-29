@@ -1,0 +1,15 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/global-shortcuts@^1.0",
+  "platform": "windows",
+  "targets": ["windows"],
+  "options": {
+    "globalShortcut": { "repeat": "bool" }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["lib.rs"] },
+  "artifacts": [],
+  "class": "GlobalShortcuts"
+}

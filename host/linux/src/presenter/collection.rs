@@ -7,7 +7,13 @@ use exact_runner::{
 };
 use std::collections::{BTreeSet, VecDeque};
 
+mod ack;
+#[cfg(test)]
+mod ack_tests;
 mod anchoring;
+pub(in crate::presenter) use ack::Origin;
+#[cfg(test)]
+mod virtual_ack_tests;
 
 const PASSES: usize = 2;
 
@@ -24,6 +30,19 @@ pub(super) struct ModelScroll {
     left: Option<f32>,
     /// Cumulative anchor correction on this input sequence, acknowledged with its pixels.
     rebase: f32,
+    /// The offset it was planned from: a list's own position is its change from here.
+    base: (f32, f32),
+    /// Whose it is ([`Origin`]): an app's moves the reader's revision on; a list's own doesn't.
+    origin: Origin,
+}
+
+impl ModelScroll {
+    /// The same position: its list, input sequence and target. Bookkeeping (the base a clamp
+    /// or an acknowledgement advances) doesn't make it another one.
+    pub(in crate::presenter) fn same_target(&self, other: &ModelScroll) -> bool {
+        (self.key, self.sequence, self.top, self.left)
+            == (other.key, other.sequence, other.top, other.left)
+    }
 }
 
 #[derive(Default)]
@@ -33,6 +52,8 @@ pub(super) struct State {
     interaction: Option<ViewId>,
     authored_scroll: Option<bool>,
     scroll_events: VecDeque<(ViewId, NodeKey)>,
+    /// The list's own positions a reader's move carries onto its next input sequence.
+    carried: BTreeMap<ViewId, ModelScroll>,
     /// The host runs a scroll's collection pass itself, after the frame it
     /// draws (as RecyclerView prefetches between frames): a scroll only
     /// queues it.
@@ -40,6 +61,8 @@ pub(super) struct State {
     /// While set (by such a host, for the frame a scroll draws), passes wait
     /// for [`Presenter::refine_deferred`].
     pub(super) hold: bool,
+    /// Each scroller's node as the clamp last saw it shown ([`Presenter::hidden_scrollers`]).
+    pub(super) shown_keys: BTreeMap<ViewId, NodeKey>,
     /// Slices (LLP 1050.000 §6): a host that fills between frames builds at
     /// most this many rows past what shows per report, and sends one report
     /// per list per pass; the rest is the list's `pending`. `None` builds the
@@ -61,11 +84,17 @@ struct Cursor {
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
     ordinary: bool,
+    /// Only carries a hidden scroller's clamp to its first shown frame: its acknowledgement
+    /// or its node's removal ends it, unless an anchor or a binding takes it on.
+    staging: bool,
     anchored: bool,
     /// The part of the sequence's correction already applied to the reader.
     rebased: f32,
     requested_left: Option<f64>,
     follow_end: bool,
+    /// The travel last seen settled, any list (a resize leaves it): an end followed is
+    /// judged against it.
+    end_max: Option<f32>,
     maximum: Option<(f32, f32)>,
     end_port: Option<ScrollPort>,
 }
@@ -100,18 +129,19 @@ impl Cursor {
         axis: ListAxis,
         main: f32,
         displayed: bool,
+        origin: Origin,
         offset: &mut (f32, f32),
     ) {
         match axis {
             ListAxis::Vertical => {
-                self.model_offset(key, (offset.0, main), displayed, offset);
+                self.model_offset(key, (offset.0, main), displayed, origin, offset);
                 if let Some(pending) = &mut self.model_scroll {
                     pending.left = None;
                 }
             }
             ListAxis::Horizontal => {
                 let top = self.model_scroll.map_or(offset.1, |p| p.top);
-                self.model_offset(key, (main, top), displayed, offset);
+                self.model_offset(key, (main, top), displayed, origin, offset);
             }
         }
     }
@@ -120,6 +150,7 @@ impl Cursor {
         key: NodeKey,
         target: (f32, f32),
         displayed: bool,
+        origin: Origin,
         offset: &mut (f32, f32),
     ) {
         if displayed {
@@ -128,12 +159,23 @@ impl Cursor {
             if self.sequence == u64::MAX {
                 return;
             }
+            // A list's own refinement of an app's position on the same input
+            // sequence (a measurement correction before it is painted) is still
+            // the app's: it lands where asked, until acknowledged or cancelled.
+            let app = |p: &ModelScroll| p.origin == Origin::App && p.sequence == self.sequence;
+            let origin = if self.model_scroll.as_ref().is_some_and(app) {
+                Origin::App
+            } else {
+                origin
+            };
             self.model_scroll = Some(ModelScroll {
                 key,
                 sequence: self.sequence,
                 top: target.1,
                 left: Some(target.0),
                 rebase: self.rebased,
+                base: *offset,
+                origin,
             });
         } else {
             *offset = target;
@@ -259,21 +301,47 @@ fn length(kernel: &Kernel, value: Dimension, basis: f64) -> f64 {
 
 fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
     let mut ancestors = Vec::new();
+    let mut block_width = viewport;
+    if let Some(block) = kernel.host_block(view) {
+        if let exact_kernel::BlockAxis::Is(width) = block.width {
+            return f64::from(width);
+        }
+    }
     let mut at = kernel.node(view).and_then(|n| n.parent);
     while let Some(parent) = at.and_then(|id| kernel.node(id)) {
         ancestors.push(parent);
+        if let Some(block) = kernel.host_block(parent.id) {
+            if let exact_kernel::BlockAxis::Is(width) = block.width {
+                block_width = f64::from(width);
+            }
+            break;
+        }
         at = parent.parent;
     }
-    ancestors.into_iter().rev().fold(viewport, |basis, node| {
-        let style = node.computed_style(exact_kernel::StyleMask::EMPTY);
-        let [_, right, _, left] = style.border_widths();
-        (node.frame.width as f64
-            - left as f64
-            - right as f64
-            - length(kernel, style.padding_left, basis)
-            - length(kernel, style.padding_right, basis))
-        .max(0.)
-    })
+    ancestors
+        .into_iter()
+        .rev()
+        .fold(block_width, |basis, node| {
+            let style = node.computed_style(exact_kernel::StyleMask::EMPTY);
+            let [_, right, _, left] = style.border_widths();
+            let cover = kernel
+                .arena()
+                .slot_of(node.id)
+                .and_then(|s| kernel.arena().cover(s));
+            let covered = match cover {
+                Some(exact_kernel::HostCover::Edges([_, right, _, left])) => {
+                    f64::from(left + right)
+                }
+                _ => 0.,
+            };
+            (node.frame.width as f64
+                - left as f64
+                - right as f64
+                - length(kernel, style.padding_left, basis)
+                - length(kernel, style.padding_right, basis)
+                - covered)
+                .max(0.)
+        })
 }
 
 fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Option<Geometry> {
@@ -284,8 +352,15 @@ fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Op
     // Read the origin from authored style, independently of the mounted row.
     // Subtracting an f64 logical row top from its f32 layout position invents
     // padding at large offsets, invalidating valid anchor corrections.
-    let basis = containing_width(kernel, snapshot.view, viewport);
-    let pad = |d| length(kernel, d, basis);
+    let basis = std::cell::OnceCell::new();
+    let pad = |d: Dimension| {
+        let basis = if d.has_percent() {
+            *basis.get_or_init(|| containing_width(kernel, snapshot.view, viewport))
+        } else {
+            0.
+        };
+        length(kernel, d, basis)
+    };
     let s = node.style;
     let axis = snapshot.axis;
     // Main-axis padding before and after the content, the cross-axis padding
@@ -454,7 +529,7 @@ impl<D: DataSource> Presenter<D> {
             let cursor = self.collection.cursors.entry(view).or_default();
             let was_bound = cursor.key == Some(node.key);
             cursor.bind(node.key, 0);
-            cursor.ordinary = true;
+            (cursor.ordinary, cursor.staging) = (true, false);
             let before_model = cursor.model_scroll;
             let offset = self.scroll.entry(view).or_default();
             let current = cursor
@@ -504,7 +579,13 @@ impl<D: DataSource> Presenter<D> {
             target = bounds.clamp(target);
             if target != current || ((changed_top || changed_left) && target != *offset) {
                 let before = *offset;
-                cursor.model_offset(node.key, target, self.display.attached(), offset);
+                cursor.model_offset(
+                    node.key,
+                    target,
+                    self.display.attached(),
+                    Origin::App,
+                    offset,
+                );
                 // The boot's own offsets are no reader's scroll: a browser
                 // page hears none, its input opening after them (rt.js
                 // `Booting`; Messages' rows opened at scrollLeft 70).
@@ -615,47 +696,6 @@ impl<D: DataSource> Presenter<D> {
             painted.insert(PAGE, page);
         }
         painted
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "android", test))]
-    pub(super) fn acknowledge_collection_scroll(&mut self, painted: BTreeMap<ViewId, ModelScroll>) {
-        for (view, accepted) in painted {
-            let Some(current) = self.pending_model_scroll(view) else {
-                continue;
-            };
-            if current.key != accepted.key || current.sequence != accepted.sequence {
-                continue;
-            }
-            // A newer model correction on the same input sequence survives B,
-            // but the interaction base becomes precisely B's painted position.
-            let offset = if view == PAGE {
-                &mut self.page
-            } else {
-                self.scroll.entry(view).or_default()
-            };
-            let before = *offset;
-            offset.1 = accepted.top;
-            if let Some(left) = accepted.left {
-                offset.0 = left;
-            }
-            let moved = *offset != before;
-            let cursor = self.collection.cursors.get_mut(&view).unwrap();
-            let correction = accepted.rebase - cursor.rebased;
-            cursor.rebased = accepted.rebase;
-            self.reader
-                .rebased(view, before, (before.0, before.1 + correction));
-            self.scroll_end_acknowledged(view, accepted, moved);
-            if moved && view != PAGE {
-                self.collection.scroll_event(view, accepted.key);
-                self.executor.notify();
-            }
-            if current == accepted {
-                self.collection.cursors.get_mut(&view).unwrap().model_scroll = None;
-            } else {
-                self.dirty = true;
-            }
-        }
-        self.finish_collection_scroll_ends();
     }
 
     /// A Runner witness is usable only after feedback for the actual native
@@ -833,6 +873,9 @@ impl<D: DataSource> Presenter<D> {
         {
             cursor.advance();
         }
+        // A reader's move carries the list's own position onto the new sequence (`ack.rs`),
+        // before the feedback below reports the new offset.
+        self.carry_own_position(view);
         self.arm_scroll_anchors();
         // Collection observation supplements the ordinary authored handler.
         let authored = self
@@ -871,7 +914,13 @@ impl<D: DataSource> Presenter<D> {
             self.queue_collections();
             None
         } else {
-            self.queue_collections();
+            if self.collection.hold {
+                self.queue_collections();
+            } else {
+                // This turn consumes the reports; refinement wakes the host
+                // only if its budget leaves work or a scroll correction.
+                self.schedule_collections();
+            }
             self.refine_collections()
         });
         if let Some(error) = error {
@@ -1050,6 +1099,7 @@ impl<D: DataSource> Presenter<D> {
                         axis,
                         main.clamp(0., g.max as f64) as f32,
                         self.display.attached(),
+                        Origin::App,
                         self.scroll.entry(view).or_default(),
                     );
                     self.dirty = true;
@@ -1057,19 +1107,44 @@ impl<D: DataSource> Presenter<D> {
             }
             // An authored request this pass is a jump: nothing planned before it lands.
             let resized_from = resized_from.filter(|_| cursor.sequence == planned + 1);
+            let follow = self
+                .host
+                .kernel()
+                .node(view)
+                .is_some_and(|n| n.props.bool(PropId::ScrollFollowEnd) == Some(true));
             if let Some(main) = cursor.correction(snapshot, resized_from) {
                 let follows_end = tracks_end
                     && resized_from.is_none()
                     && snapshot.correction.is_some_and(|c| c.from.is_none())
-                    && self
-                        .host
-                        .kernel()
-                        .node(view)
-                        .is_some_and(|n| n.props.bool(PropId::ScrollFollowEnd) == Some(true))
+                    && follow
                     && cursor.maximum.is_some_and(|(_, maximum)| {
                         main + g.origin > maximum as f64
                             && main_of(axis, before.unwrap_or_default()) >= maximum - 1.
                     });
+                // The end followed: a scrollFollowEnd list that stood at its end before this
+                // change (its pending position, else its offset, at the travel last seen),
+                // whose content grew, put at its new end. The app's position, with or without
+                // a `scrollend` listener (which changes no revision), on a resize pass too.
+                // Anything else from no row (content shrunk under it, a fling that left the
+                // end) is a clamp, the list's own; from a row, an anchor, the list's own.
+                let from_row = snapshot.correction.is_some_and(|c| c.from.is_some());
+                let standing = cursor.model_scroll.map_or(before.unwrap_or_default(), |p| {
+                    (p.left.unwrap_or_default(), p.top)
+                });
+                let end_followed = follow
+                    && !from_row
+                    && cursor
+                        .end_max
+                        .is_some_and(|max| main_of(axis, standing) >= max - 1. && g.max > max)
+                    && main + g.origin >= f64::from(g.max) - 1.;
+                if end_followed {
+                    cursor.end_max = Some(g.max);
+                }
+                let origin = match (snapshot.seeking || follows_end || end_followed, from_row) {
+                    (true, _) => Origin::App,
+                    (false, true) => Origin::Anchor,
+                    (false, false) => Origin::Clamp,
+                };
                 if snapshot.seeking || follows_end {
                     requested_scroll.get_or_insert(Completion::Collection);
                 }
@@ -1077,11 +1152,14 @@ impl<D: DataSource> Presenter<D> {
                     cursor.maximum = Some((0., g.max));
                 }
                 let was = self.scroll.get(&view).copied().unwrap_or_default();
+                // A seek landing on its row and the end followed are the app's; a
+                // measurement correction is the list's own.
                 cursor.model_main(
                     key,
                     axis,
                     ((main + g.origin) as f32).clamp(0., g.max),
                     self.display.attached(),
+                    origin,
                     self.scroll.entry(view).or_default(),
                 );
                 // The content stays where it shows: a shell that scrolls
@@ -1094,6 +1172,9 @@ impl<D: DataSource> Presenter<D> {
             // Remember the end only once this list has finished opening.
             if tracks_end && !snapshot.pending && snapshot.correction.is_none() {
                 cursor.maximum = Some((0., g.max));
+            }
+            if !snapshot.pending && snapshot.correction.is_none() && resized_from.is_none() {
+                cursor.end_max = Some(g.max);
             }
             if self.scroll.get(&view).copied() != before {
                 moved.push((view, key));
@@ -1300,7 +1381,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_collection_percentage_padding_uses_its_containing_block() {
+    fn empty_collection_padding_resolves_lengths_and_percentages() {
         struct Empty;
         impl DataSource for Empty {
             fn query(
@@ -1311,20 +1392,29 @@ mod tests {
                 Ok(exact_runner::Value::list(vec![]))
             }
         }
-        let plan = contract::compile("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"10%\" padding-right=\"10%\" box-sizing=\"border-box\"\n        for x in rows key=x\n          text `${x}`\n").unwrap();
-        let (host, error) = Host::boot(
-            &plan.encode(),
-            Empty,
-            Box::new(exact_kernel::MonospaceMeasurer::default()),
-            400.,
-            500.,
-        )
-        .unwrap();
-        assert!(error.is_none());
-        let facts = geometry(host.kernel(), &host.collections()[0], 400.).unwrap();
-        assert_eq!(facts.width, 100.);
-        assert_eq!(facts.cross, 60.);
-        assert_eq!(facts.origin, 0.);
+        for (padding, cross) in [
+            ("20px", 60.),
+            ("10%", 60.),
+            ("calc(10% + 3px)", 54.),
+            ("min(10%, 12px)", 76.),
+            ("clamp(10px, 10%, 30px)", 60.),
+        ] {
+            let source = format!("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"{padding}\" padding-right=\"{padding}\" box-sizing=\"border-box\"\n        for x in rows key=x\n          text `${{x}}`\n");
+            let plan = contract::compile(&source).unwrap();
+            let (host, error) = Host::boot(
+                &plan.encode(),
+                Empty,
+                Box::new(exact_kernel::MonospaceMeasurer::default()),
+                400.,
+                500.,
+            )
+            .unwrap();
+            assert!(error.is_none());
+            let facts = geometry(host.kernel(), &host.collections()[0], 400.).unwrap();
+            assert_eq!(facts.width, 100., "{padding}");
+            assert_eq!(facts.cross, cross, "{padding}");
+            assert_eq!(facts.origin, 0., "{padding}");
+        }
     }
 
     /// A padding whose `calc()` resolves below zero is zero, CSS's range for

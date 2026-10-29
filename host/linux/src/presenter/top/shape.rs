@@ -256,17 +256,6 @@ pub fn menu(kernel: &Kernel, pop: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> O
     (!entries.is_empty()).then_some(Plan::Menu(entries))
 }
 
-/// Admission for the retained desktop alert path. Windows keep their own kinds.
-pub(crate) fn neutral_alert(kernel: &Kernel, id: ViewId, pressed: &dyn Fn(ViewId) -> bool) -> bool {
-    crate::paint::look::neutral()
-        && kernel.node(id).is_some_and(|n| {
-            n.parent.is_some()
-                && n.props.str(PropId::SemanticTag) == Some("dialog")
-                && n.props.get(PropId::NavigationKey).is_none()
-        })
-        && alert(kernel, id, pressed, true).is_some()
-}
-
 #[cfg(test)]
 #[path = "shape_tests.rs"]
 mod tests;

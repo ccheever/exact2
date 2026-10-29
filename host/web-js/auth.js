@@ -26,7 +26,19 @@ function parse(text) {
 const unsafeCallback = u => u && (u.authority?.includes("@") || (["http", "https"].includes(u.scheme) && u.authority == null));
 const host = u => (u.authority ?? "").split("@").at(-1).toLowerCase();
 const origin = u => u.authority == null ? null : `${u.scheme}://${host(u)}`;
-const decode = s => { try { return decodeURIComponent(s.replace(/\+/g, " ")); } catch { return s.replace(/\+/g, " "); } };
+// auth.rs `decode`: `%` and two hex digits as a byte, `+` a space, anything else as written, then UTF-8.
+// By code point, so a character outside the BMP is kept whole, as Rust's `str` keeps it.
+const decode = s => { const cs = [...s], out = [], hex = /^[0-9A-Fa-f]$/; for (let i = 0; i < cs.length; i++) { if (cs[i] === "%" && hex.test(cs[i + 1] ?? "") && hex.test(cs[i + 2] ?? "")) { out.push(parseInt(cs[i + 1] + cs[i + 2], 16)); i += 2; } else if (cs[i] === "+") out.push(32); else out.push(...new TextEncoder().encode(cs[i])); } return new TextDecoder().decode(new Uint8Array(out)); };
+// auth.rs `same`: equal in time that depends on the lengths only.
+const same = (a, b) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
+/** auth.rs `loopback_callback` (LLP 1133.005 D9): `http://127.0.0.1:<port>/<path>` or `[::1]`, the port as a
+ * browser writes it in `Host` (no leading zero, not 80), no query or fragment; the same without its port, as a grant
+ * names it, or null. */
+const loopbackCallback = callback => {
+  // The scheme in any case, as auth.rs `Url::parse` lowercases it.
+  const m = /^http:\/\/(127\.0\.0\.1|\[::1\]):([1-9]\d{0,4})(\/[^?#]+)$/i.exec(callback);
+  return m && +m[2] !== 80 && +m[2] < 65536 ? `http://${m[1]}${m[3]}` : null;
+};
 const pairs = q => (q ?? "").split("&").filter(Boolean).map(p => { const i = p.indexOf("="); return i < 0 ? [decode(p), ""] : [decode(p.slice(0, i)), decode(p.slice(i + 1))]; });
 const loopback = u => ["localhost", "127.0.0.1", "[::1]"].includes((u.authority ?? "").replace(/:\d+$/, ""));
 
@@ -50,7 +62,9 @@ function checkGrants(s, grants) {
   if (!u) return "the authorization URL is not absolute";
   if (u.authority?.includes("@")) return "the authorization URL carries userinfo";
   if (!lines.some(l => l.startsWith("auth.session ") && admits(l.slice(13).trim(), u))) return `outside the app's grants (auth.session ${origin(u) ?? ""})`;
-  const granted = lines.some(l => l.startsWith("auth.callback ") && l.slice(14).trim() === s.callback);
+  // A loopback callback is granted at any port (LLP 1133.005 D9).
+  const any = loopbackCallback(s.callback);
+  const granted = lines.some(l => l.startsWith("auth.callback ") && (l.slice(14).trim() === s.callback || any !== null && l.slice(14).trim() === any));
   const page = parse(location.origin);
   if (!granted && !(s.callback === location.origin + CALLBACK && page && loopback(page))) return `outside the app's grants (auth.callback ${s.callback})`;
   return null;
@@ -67,7 +81,7 @@ function accept(s, got) {
   if (u.authority?.toLowerCase() !== want.authority?.toLowerCase()) return "the callback's host is not the request's";
   if (u.path !== want.path) return "the callback's path is not the request's";
   const states = pairs(u.query).filter(([n]) => n === "state").map(([, v]) => v);
-  return states.length === 1 ? (states[0] === s.state ? null : "the callback's state is not the request's") : states.length ? "the callback carries state more than once" : "the callback carries no state";
+  return states.length === 1 ? (same(states[0], s.state) ? null : "the callback's state is not the request's") : states.length ? "the callback carries state more than once" : "the callback carries no state";
 }
 
 /** D7: the hold's summary — the URL's origin and path, its parameter
@@ -104,9 +118,14 @@ export function install(grants, target) {
   }
   // Counted on its answer as an ordinary fetch is (ts-fetch.js `ordinary`, LLP 1016.000 D9) until it settles, a
   // refusal included, or is superseded, whose promise never settles (the runner drops that ticket).
-  globalThis.openAuthSession = (url, o = {}) => { let release; (globalThis.__exact_ordinary ?? (f => f()))(() => new Promise(r => { release = r; })); const session = new Promise((resolve, reject) => {
+  globalThis.openAuthSession = (url, o = {}) => start(url, o, target(), s => checkGrants(s, grants));
+  // An implementation's session (LLP 1133.014 D10 item 3): admitted against what the runtime derives from the app's
+  // `auth.apple` and `auth.google` lines (D8), never the app's `auth.session` lines, and never a list the package
+  // supplies. It may adopt the window the provider's button opened at the press (D5).
+  globalThis.exact.authSession = { open: ({ url, callback, state, cancelled }) => start(url, { callback, state }, `sign-in ${nextTicket()}`, s => checkDerived(s, grants), cancelled) };
+  function start(url, o, name, check, cancelled) { let release; (globalThis.__exact_ordinary ?? (f => f()))(() => new Promise(r => { release = r; })); const session = new Promise((resolve, reject) => {
     if (typeof o.callback !== "string" || typeof o.state !== "string" || !o.state) return reject(new TypeError("openAuthSession(url, {callback, state}): callback is authCallback() and state a non-empty string"));
-    const ticket = nextTicket(), name = target();
+    const ticket = nextTicket();
     const done = (status, body) => { if (status === 200) resolve(body); else { const e = new Error(body || "the auth session failed"); Object.defineProperty(e, "status", { value: status, enumerable: true }); reject(e); } };
     const refuse = (status, why) => { say(`auth ${ticket}: answered ${status}`); done(status, why); };
     const s = { url: String(url), callback: o.callback, state: o.state, ephemeral: !!o.ephemeral };
@@ -119,14 +138,19 @@ export function install(grants, target) {
     if (u.authority.includes("@")) return refuse(502, "the authorization URL carries userinfo");
     if (!cb || cb.fragment != null || cb.query != null || (["http", "https"].includes(cb.scheme) && cb.authority == null)) return refuse(502, "the callback is not a scheme:/path or https://host/path");
     if (cb.authority?.includes("@")) return refuse(502, "the callback carries userinfo");
-    const denied = checkGrants(s, grants);
+    const denied = check(s);
     if (denied) return refuse(403, denied);
+    // A loopback callback other than the page's own (LLP 1133.005 D9), after the grants as the runner's `arm`:
+    // the popup and its callback page are the web's.
+    if (loopbackCallback(s.callback) && s.callback !== location.origin + CALLBACK) return refuse(501, "a page cannot listen");
     // One session per window: the same target's earlier one is superseded;
     // another target's live one refuses this (409).
     for (let i = Live.length - 1; i >= 0; i--) if (Live[i].target === name) { say(`auth ${Live[i].ticket}: cancelled by supersession`); Live[i].close?.(); Live[i].release(); Live.splice(i, 1); }
     if (Live.length) return refuse(409, "already open");
     const l = { ticket, target: name, session: s, done, release };
     Live.push(l);
+    // The implementation's call ended (its task superseded): the session is forgotten, its popup closed.
+    cancelled?.(() => { const at = Live.indexOf(l); if (at < 0) return; Live.splice(at, 1); say(`auth ${ticket}: cancelled by its call's end`); l.close?.(); release(); done(499, "cancelled"); });
     if (clock.agent) { l.held = true; say(`device auth ${ticket} held (agent)`); return; }
     if (!Glue || typeof Glue.arm !== "function") return settle(ticket, 501, "no system browser on this host");
     say(`auth ${ticket}: opened`);
@@ -142,7 +166,25 @@ export function install(grants, target) {
       deliver: t => { if (report) settle(t, ...report); },
     });
     l.close = () => {};
-  }); return session.finally(() => release()); }; // (a rejection still goes unhandled where no one awaits it, as before)
+  }); return session.finally(() => release()); } // (a rejection still goes unhandled where no one awaits it, as before)
+}
+
+/** The providers whose sign-in this runtime opens, by authorization origin, and the line that grants a client. */
+const PROVIDERS = { "https://appleid.apple.com": "auth.apple", "https://accounts.google.com": "auth.google" };
+
+/** D8: an implementation's session goes to a provider's authorization origin, for a client the app grants by that
+ * provider's line, and returns to the page's own callback. */
+function checkDerived(s, grants) {
+  const u = parse(s.url);
+  if (!u) return "the authorization URL is not absolute";
+  if (u.authority?.includes("@")) return "the authorization URL carries userinfo";
+  const line = PROVIDERS[origin(u)];
+  if (!line) return `outside the derived set (${origin(u) ?? ""} is no sign-in provider)`;
+  const ids = pairs(u.query).filter(([n]) => n === "client_id").map(([, v]) => v);
+  const lines = grants.split("\n").map(l => l.trim().split(/\s+/));
+  if (ids.length !== 1 || !lines.some(w => w.length === 2 && w[0] === line && w[1] === ids[0])) return `outside the derived set (${line} ${ids[0] ?? ""})`;
+  if (s.callback !== location.origin + CALLBACK) return "outside the derived set (the callback is not the page's own)";
+  return null;
 }
 
 /** Held requests for the agent's `state` (`pending`, after the network's). */

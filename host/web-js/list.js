@@ -219,6 +219,16 @@ function num(n) {
   for (let p = 1; p < 10; p++) { const s = Number(f.toPrecision(p)); if (Math.fround(s) === f) return String(s); }
   return String(f);
 }
+/** `keep-mounted` (keep.rs `idents`): at most 64 keys, `none` naming no row;
+ * another value keeps none and says so. */
+function keepIdents(v) {
+  const out = [];
+  try {
+    if (!Array.isArray(v) || v.length > 64) throw new Refusal("not a list of at most 64 keys");
+    for (const k of v) if (k != null) { const t = keyText(k); if (!out.includes(t)) out.push(t); }
+  } catch { journal.push("invalid keepMounted value; unset"); return []; }
+  return out;
+}
 function keyText(k) {
   if (typeof k === "string") return "s:" + k;
   if (typeof k === "number" && isFinite(k)) return "n:" + String(k === 0 ? 0 : k);
@@ -245,7 +255,7 @@ class Collection {
     this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
       zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], edgeFired: [null, null], pending: false, parent: null,
-      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0 });
+      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0, keepKeys: [] });
     this.edges = [o.start, o.end]; this.reach = reachMargin(o.reach);
   }
   snapshot() {
@@ -271,6 +281,9 @@ class Collection {
   }
   // ------------------------------------------------ data (mod.rs update_data)
   update(items, [idents, dups], fresh) {
+    // The kept keys as they are now, whichever of the two effects ran first.
+    if (this.o.keep) this.keepKeys = keepIdents(this.o.keep());
+    Remount.delete(this);
     let anchor = this.anchor();
     const dropAnchor = this.dropAnchor?.(), last = this.index.order.at(-1), count = this.index.len;
     const compare = !fresh && items.length === this.items.length;
@@ -386,6 +399,13 @@ class Collection {
     } else {
       const first = this.atEnd ? Math.max(0, this.index.len - this.bootstrap) : this.index.rowAt(this.startOffset) ?? 0;
       ranges = [[first, Math.min(this.index.len, first + this.bootstrap)]];
+    }
+    // The rows it keeps mounted are owed wherever the window is (keep.rs).
+    for (const k of this.keepKeys) {
+      const i = this.index.pos.get(k);
+      if (i === undefined) continue;
+      owed.push([i, i + 1]);
+      if (!ranges.some(r => i >= r[0] && i < r[1])) { ranges.push([i, i + 1]); ranges.sort((a, b) => a[0] - b[0]); }
     }
     const old = new Map(this.mounted.map(m => [m.key, m]));
     this.mounted = [];
@@ -759,9 +779,16 @@ class Collection {
     if (p === undefined) return this.end("cancelled");
     if (!g) return;
     const desired = this.aligned(p, t.align, reported, t.offset);
-    const first = Math.min(this.mounted[0]?.position ?? p, p);
+    // The run of mounted rows that reaches it, and each mounted row before
+    // that run alone: the rows between a kept row and the window are never
+    // measured (into_view.rs `settle_target`).
+    let first = p, joined = true, others = true;
+    for (const q of this.mounted.map(m => m.position).filter(q => q < p).sort((a, b) => b - a)) {
+      if (joined && q + 1 === first) first = q;
+      else { joined = false; others &&= this.index.measured(this.index.order[q]); }
+    }
     if (Math.abs(desired - reported) <= 0.5) {
-      t.aligned = this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
+      t.aligned = others && this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
       if (t.aligned >= 2) this.end("done");
       return;
     }
@@ -816,6 +843,14 @@ export function vl(el, subject, key, row, o) {
   onEnd(() => Lists.delete(c.view));
   let first = true;
   if (o.follow) effect(() => { c.followEnd = !!o.follow(); });
+  // A changed set mounts its rows and lets the others go after the commit,
+  // in the update's pass when the data changed too (mod.rs `update_data`).
+  if (o.keep) effect(() => {
+    const keys = keepIdents(o.keep());
+    if (keys.join("\0") === c.keepKeys.join("\0")) return;
+    c.keepKeys = keys;
+    if (!first) Remount.add(c);
+  });
   // The keys are read here, so a key's other inputs rerun the update too.
   effect(() => {
     const items = subject(), idents = [], dups = new Map(), unique = new Set();
@@ -885,7 +920,19 @@ function release() {
     else if (!inactive(c.el)) { Held.delete(c); for (const m of c.mounted) m.epoch = ++c.nextEpoch; c.revision++; }
   }
 }
-After.push(() => { release(); wake(); publish(); });
+// Lists whose kept rows changed in a commit that left their data alone.
+const Remount = new Set();
+function remount() {
+  for (const c of Remount) if (Lists.has(c.view)) {
+    // The revision moves only when a kept row was not mounted (keep.rs `mounts`).
+    const mounted = new Set(c.mounted.map(m => m.key));
+    const mounts = c.keepKeys.some(k => c.index.pos.has(k) && !mounted.has(k));
+    c.realize(true, {});
+    if (mounts) c.revision++;
+  }
+  Remount.clear();
+}
+After.push(() => { remount(); release(); wake(); publish(); });
 function load() {
   if (Loading || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;

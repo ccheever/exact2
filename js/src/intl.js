@@ -20,6 +20,98 @@
 // the mode.
 (function (global) {
   "use strict";
+  // The cache key of an Intl formatter's arguments when they read the same
+  // whenever they are read: locales as a string or strings, and options as a
+  // plain object of finite primitives in own enumerable data properties;
+  // null for anything else.
+  function formatKey(locales, options) {
+    if (locales !== undefined && typeof locales !== "string" && !(Array.isArray(locales) && locales.every(function (l) { return typeof l === "string"; }))) return null;
+    if (options !== undefined) {
+      if (options === null || typeof options !== "object") return null;
+      var proto = Object.getPrototypeOf(options);
+      if (proto !== Object.prototype && proto !== null) return null;
+      var names = Object.getOwnPropertyNames(options);
+      for (var i = 0; i < names.length; i++) {
+        var d = Object.getOwnPropertyDescriptor(options, names[i]), t = typeof d.value;
+        if (!d.enumerable || !("value" in d) || (t === "object" && d.value !== null) || t === "function" || t === "symbol" || (t === "number" && !isFinite(d.value))) return null;
+      }
+    }
+    return JSON.stringify([locales === undefined ? 0 : locales, options === undefined ? 0 : options]);
+  }
+  dates(global.__exact_dates);
+  delete global.__exact_dates;
+  // Apple's engine makes an NSDateFormatter for every DateTimeFormat and
+  // every Date `toLocale…String` call, which a module labelling a few
+  // hundred rows a turn pays for each (500 dates twice: 130 ms, 7 ms kept).
+  // A formatter made with locales and options that read the same whenever
+  // they are read (`formatKey`) is made once; each `new` is still an object
+  // of its own, which the prototype's methods read through to the one made
+  // (`shared`; the prelude's guarded `format` and `formatToParts` too).
+  function dates(guard) {
+    var Engine = global.Intl && global.Intl.DateTimeFormat;
+    if (!guard || !Engine) return;
+    var proto = Engine.prototype, apply = Reflect.apply, made = new Map(), shared = new WeakMap();
+    var engineOf = function (format) { return shared.get(format) || format; };
+    guard.engineOf(engineOf);
+    var madeFor = function (prefix, locales, options) {
+      var key = formatKey(locales, options);
+      if (key === null) return null;
+      var format = made.get(prefix + key);
+      if (!format) {
+        if (made.size >= 64) made.clear();
+        made.set(prefix + key, (format = new Engine(locales, options)));
+      }
+      return format;
+    };
+    ["resolvedOptions", "formatRange", "formatRangeToParts"].forEach(function (name) {
+      var method = proto[name];
+      if (typeof method !== "function") return;
+      Object.defineProperty(proto, name, { writable: true, configurable: true, value: { [name]: function () { return apply(method, engineOf(this), arguments); } }[name] });
+    });
+    // Reading `arguments` keeps the constructor's and methods' `length` 0, as ECMA-402's.
+    var DateTimeFormat = function DateTimeFormat() {
+      var locales = arguments[0], options = arguments[1], format = madeFor("", locales, options);
+      if (!format) return new.target ? Reflect.construct(Engine, [locales, options], new.target) : Engine(locales, options);
+      var own = Object.create(new.target ? new.target.prototype : proto);
+      shared.set(own, format);
+      return own;
+    };
+    DateTimeFormat.prototype = proto;
+    DateTimeFormat.supportedLocalesOf = Engine.supportedLocalesOf;
+    Object.defineProperty(proto, "constructor", { value: DateTimeFormat, writable: true, configurable: true });
+    Object.defineProperty(global.Intl, "DateTimeFormat", { value: DateTimeFormat, writable: true, configurable: true });
+    // A Date's `toLocaleDateString`, `toLocaleTimeString` and
+    // `toLocaleString` are a DateTimeFormat's `format` whose options gain
+    // the method's default fields when they name none of its kind
+    // (ECMA-402 §21.4.1, CreateDateTimeFormat's `required` and `defaults`).
+    var DATE_FIELDS = ["weekday", "year", "month", "day"], TIME_FIELDS = ["dayPeriod", "hour", "minute", "second", "fractionalSecondDigits"];
+    var withDefaults = function (options, required, defaults) {
+      var o = options === undefined ? {} : options, named = false;
+      if (required !== "time") DATE_FIELDS.forEach(function (k) { if (o[k] !== undefined) named = true; });
+      if (required !== "date") TIME_FIELDS.forEach(function (k) { if (o[k] !== undefined) named = true; });
+      // A style the method refuses is the engine's own TypeError.
+      if ((required === "date" && o.timeStyle !== undefined) || (required === "time" && o.dateStyle !== undefined)) return null;
+      if (named || o.dateStyle !== undefined || o.timeStyle !== undefined) return o;
+      var full = Object.assign({}, o);
+      if (defaults !== "time") full.year = full.month = full.day = "numeric";
+      if (defaults !== "date") full.hour = full.minute = full.second = "numeric";
+      return full;
+    };
+    var dateProto = global.Date.prototype, timeOf = dateProto.getTime;
+    [["toLocaleString", "any", "all"], ["toLocaleDateString", "date", "date"], ["toLocaleTimeString", "time", "time"]].forEach(function (m) {
+      var name = m[0], engineMethod = dateProto[name];
+      Object.defineProperty(dateProto, name, {
+        writable: true, configurable: true,
+        value: { [name]: function () {
+          var locales = arguments[0], options = arguments[1], time = timeOf.call(this);
+          var full = formatKey(locales, options) === null ? null : withDefaults(options, m[1], m[2]);
+          var format = full && madeFor(name + ":", locales, full);
+          if (!format) return apply(engineMethod, this, arguments);
+          return time !== time ? "Invalid Date" : guard.getFormat.call(format)(time);
+        } }[name],
+      });
+    });
+  }
   var Native = global.Intl && global.Intl.NumberFormat, hasCompact, roundsEven, probed = false;
   if (!Native) return;
   // One formatter answers both: an engine without compact formats 1000
@@ -265,10 +357,11 @@
       configurable: true,
       get: function () {
         probe();
-        var bound = bind.call(this);
-        if (!roundsEven) return bound;
+        if (!roundsEven) return bind.call(this);
         var s = stateOf(this), self = this;
-        return s.format || (s.format = function (n) { return bound(roundFor(self, s, n)); });
+        if (s.format) return s.format;
+        var bound = bind.call(this);
+        return (s.format = function (n) { return bound(roundFor(self, s, n)); });
       },
     });
     Object.defineProperty(Native.prototype, "resolvedOptions", {
@@ -291,14 +384,27 @@
   NumberFormat.prototype = Native.prototype;
   NumberFormat.supportedLocalesOf = Native.supportedLocalesOf;
   Object.defineProperty(global.Intl, "NumberFormat", { value: NumberFormat, writable: true, configurable: true });
-  var toLocale = Number.prototype.toLocaleString;
+  // `toLocaleString` is `new Intl.NumberFormat(locales, options).format(x)`
+  // (ECMA-402 §16.4.1), and Apple's engine makes an NSNumberFormatter for
+  // each call: a data module formatting a few hundred prices a second spent
+  // most of its turn there. So a formatter is kept by the locales and
+  // options it was made with, when they read the same whenever they are
+  // read: strings, and a plain object of primitives.
+  var kept = new Map();
+  function formatterFor(locales, options) {
+    var key = formatKey(locales, options);
+    if (key === null) return new NumberFormat(locales, options);
+    var f = kept.get(key);
+    if (!f) {
+      if (kept.size >= 64) kept.clear();
+      kept.set(key, (f = new NumberFormat(locales, options)));
+    }
+    return f;
+  }
   Object.defineProperty(Number.prototype, "toLocaleString", {
     writable: true, configurable: true,
     value: function toLocaleString(locales, options) {
-      probe();
-      if (!hasCompact && options && options.notation === "compact") return new Compact(locales, options).format(Number(this));
-      if (roundsEven) return new NumberFormat(locales, options).format(Number.prototype.valueOf.call(this));
-      return toLocale.call(this, locales, options);
+      return formatterFor(locales, options).format(Number.prototype.valueOf.call(this));
     },
   });
 })(globalThis);

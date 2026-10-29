@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Grouped inset list, newest first, with headers like 'Oct 25, 2026 · $222.02'. All 240 seeded rows are there."},
+      {"n": 2, "status": "pass", "note": "Summary card at the top: October 2026, $5,269.70, 86 expenses. It updated straight away after an add, edit or delete."},
+      {"n": 3, "status": "pass", "note": "Sheet with amount (decimal pad), merchant, a menu picker for the 7 categories, a date picker defaulting to today and a note. Save stays disabled with an inline 'Enter an amount greater than zero.' for -5 and for letters. The new row appears under today's date."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens an Edit Expense sheet with every field filled in; changing the category and note saved and persisted. A native trailing swipe shows Delete, which removes the row and updates the totals."},
+      {"n": 5, "status": "partial", "note": "This month per category, largest first (Bills $1,544.59, 29%...), with share % and count, and tapping pushes a list of that category's history. But each row's share bar is an empty grey track with no fill, so the visual share is missing."},
+      {"n": 6, "status": "pass", "note": "US currency everywhere. An added expense, an edit (category and note) and a delete all survived relaunch."}
+    ],
+    "bugs": [
+      "Category share progress bars on the Categories screen never fill: each is an empty grey track whether the share is 29% or 10%, in light and dark mode."
+    ],
+    "tells": [
+      "Add/Edit sheet puts both Cancel and Save on the right with a left-aligned inline title, not the usual Cancel-left / title-centred / Save-right layout.",
+      "The summary card uses a grey fill that looks like a selected or highlighted cell rather than a deliberate card.",
+      "Cancelling an edited form discards the changes without asking (no 'Discard changes?' confirmation).",
+      "Day header puts the date and total in one string ('Oct 25, 2026 · $222.02') instead of the total aligned right; no 'Today'/'Yesterday' relative dates.",
+      "Plain look overall: no category icons or colour, and the tab icon is a calendar for History."
+    ],
+    "scroll": "Smooth native collection-view scrolling with soft scroll-edge blur under the bar. No blank rows or jumps on slow drags or flings, and position is kept across tab switches and sheets (tapping the active tab scrolls to top, as on iOS).",
+    "scores": {"features": 8, "platform": 8, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset grouped cards per day, newest first, with pinned day headers ('Today', 'Yesterday', 'Sat, Oct 24') and the day total aligned right. All 240 rows are there."},
+      {"n": 2, "status": "pass", "note": "Dark green summary card: October 2026, Spent this month $5,269.70, 86 expenses, a stacked category bar and 'Bills is your top category'. It updates live."},
+      {"n": 3, "status": "pass", "note": "Sheet with a large $ amount field (decimal pad), merchant, a pushed category list with icons and checkmark for the 7 categories, a date defaulting to today and an optional note. Invalid input ('-5abc') keeps Save disabled and shows 'Enter a positive amount with up to 2 decimal places.' Keyboard toolbar has Next/Done."},
+      {"n": 4, "status": "pass", "note": "Tapping a row opens a prefilled Edit sheet; a merchant edit saved and persisted. Trailing swipe shows a native trash Delete action that removes the row and updates the totals. Cancel with changes asks 'Discard changes?'."},
+      {"n": 5, "status": "pass", "note": "Donut chart plus a breakdown list sorted largest first with icon, count, % of total and amount. Tapping pushes that category's October transactions."},
+      {"n": 6, "status": "pass", "note": "US currency throughout. Add, edit and delete persisted across relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Custom-styled form (labels above fields in cards, branded green) rather than a standard grouped Form with inline labels.",
+      "Category picker value is drawn as text with a hand-typed '›' glyph ('  Dining  ›') rather than a system chevron or menu.",
+      "Custom off-white/green brand palette and an opaque band under the nav bar that hard-clips content, instead of the iOS 26 scroll-edge blur.",
+      "Categories tab uses a small inline title while the Expenses tab uses a large title, which is inconsistent.",
+      "At the largest text size the 'SPENDING BREAKDOWN' section header scales very large (hyphenated BREAK-DOWN, which is excused)."
+    ],
+    "scroll": "Smooth native table scrolling with sticky day headers and no blank or popping rows on drags and flings. Scroll position is kept across tab switches and edit sheets.",
+    "scores": {"features": 9, "platform": 7, "polish": 9, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet the spec and persist correctly, but A's Categories share bars never fill, so the visual breakdown the spec asks for is broken, and its sheets lack niceties such as a discard confirmation. B is more finished: a working donut chart and category icons, relative day headers, a keyboard toolbar and a discard prompt. Its custom branded form and palette read a little less stock-iOS than A's, but it is the app I would rather ship."
+}

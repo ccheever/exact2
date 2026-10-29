@@ -74,6 +74,13 @@ impl PathPrefix {
                 return None;
             }
             ("doc:", path)
+        } else if let Some(found) = ["home:", "bundle:"]
+            .into_iter()
+            .find_map(|ns| Some((ns, path.strip_prefix(ns)?.strip_prefix('/')?)))
+        {
+            // Exact patch (exact2 LLP 1133.007 D6): the person's home
+            // directory and the app's installed bundle, resolved by the host.
+            found
         } else if path.starts_with('/') {
             ("", path)
         } else {
@@ -174,6 +181,17 @@ pub enum Grant {
     WebSocketSubdomains(Origin),
     /// `net.websocket ws:` or `net.websocket wss:`: every origin of the scheme.
     WebSocketScheme(String),
+    /// Exact patch (exact2 LLP 1133.036 D5): `net.fetch local-network`, an
+    /// `http:` or `https:` origin whose host, as written, is on the local
+    /// network ([`is_local_network`]), at any port; `loopback` for the line
+    /// a development build's bake writes, `net.fetch local-network development`.
+    FetchLocalNetwork {
+        loopback: bool,
+    },
+    /// `net.websocket local-network`: the same hosts, for `ws:` and `wss:`.
+    WebSocketLocalNetwork {
+        loopback: bool,
+    },
     FsRead(PathPrefix),
     FsWrite(PathPrefix),
     EnvRead(String),
@@ -199,6 +217,14 @@ impl Grant {
             (Grant::WebSocket(granted), Operation::WebSocket { origin }) => granted == origin,
             (Grant::WebSocketScheme(scheme), Operation::WebSocket { origin }) => {
                 origin.scheme == *scheme
+            }
+            (Grant::FetchLocalNetwork { loopback }, Operation::Fetch { origin }) => {
+                matches!(origin.scheme.as_str(), "http" | "https")
+                    && is_local_network(&origin.host, *loopback)
+            }
+            (Grant::WebSocketLocalNetwork { loopback }, Operation::WebSocket { origin }) => {
+                matches!(origin.scheme.as_str(), "ws" | "wss")
+                    && is_local_network(&origin.host, *loopback)
             }
             (Grant::FsRead(prefix), Operation::FsRead { path }) => prefix.covers(path),
             (Grant::FsWrite(prefix), Operation::FsWrite { path }) => prefix.covers(path),
@@ -261,7 +287,7 @@ impl GrantSet {
                 if prefix
                     .0
                     .first()
-                    .is_some_and(|p| p == "app:" || p == "doc:" || p.starts_with("win:"))
+                    .is_some_and(|p| p.ends_with(':') || p.starts_with("win:"))
                 {
                     return prefix.clone();
                 }
@@ -374,6 +400,25 @@ impl GrantSet {
             };
             let target = quoted.as_deref().unwrap_or(first);
             let grant = match capability {
+                // Exact patch (exact2 LLP 1133.036 D5): the local network,
+                // decided from a URL's host as written.
+                "net.fetch" | "net.websocket" if target == "local-network" => {
+                    let loopback = match parts.next() {
+                        None => false,
+                        Some("development") => true,
+                        Some(extra) => {
+                            return Err(format!(
+                                "line {}: unexpected `{extra}` after the target",
+                                index + 1
+                            ))
+                        }
+                    };
+                    if capability == "net.fetch" {
+                        Grant::FetchLocalNetwork { loopback }
+                    } else {
+                        Grant::WebSocketLocalNetwork { loopback }
+                    }
+                }
                 // A CSP scheme source is a scheme and its colon. Keep the two
                 // network families disjoint and admit only their URL schemes.
                 "net.fetch" | "net.websocket" if is_scheme_source(target) => {
@@ -444,6 +489,8 @@ impl GrantSet {
                             index + 1
                         )
                     })?;
+                    namespace_refusal(capability, &prefix)
+                        .map_err(|e| format!("line {}: `{target}`: {e}", index + 1))?;
                     match capability {
                         "fs.read" => Grant::FsRead(prefix),
                         "fs.write" => Grant::FsWrite(prefix),
@@ -556,6 +603,52 @@ fn presence_words(words: &[&str]) -> Result<(), String> {
 #[cfg(test)]
 #[path = "grant_quoted_tests.rs"]
 mod quoted_tests;
+
+/// Exact patch (exact2 LLP 1133.036 D5): whether `host`, as a URL serializes
+/// it, is on the local network: an RFC 1918, link-local IPv4, unique-local
+/// or link-local IPv6 literal (an IPv4-mapped address judged by the IPv4
+/// address it carries) or a name ending in `.local`; with `loopback`, also
+/// 127.0.0.0/8, `[::1]` and `localhost`. Mirrors
+/// `exact_grants::is_local_network`.
+pub fn is_local_network(host: &str, loopback: bool) -> bool {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    let v4 = |a: Ipv4Addr| a.is_private() || a.is_link_local() || loopback && a.is_loopback();
+    let host = host.to_ascii_lowercase();
+    if let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        return inner
+            .parse::<Ipv6Addr>()
+            .is_ok_and(|a| match a.to_ipv4_mapped() {
+                Some(mapped) => v4(mapped),
+                None => {
+                    let first = a.segments()[0];
+                    (first & 0xfe00) == 0xfc00
+                        || (first & 0xffc0) == 0xfe80
+                        || loopback && a.is_loopback()
+                }
+            });
+    }
+    if let Ok(address) = host.parse::<Ipv4Addr>() {
+        return v4(address);
+    }
+    let name = host.strip_suffix('.').unwrap_or(&host);
+    name.ends_with(".local") && name.len() > ".local".len() || loopback && name == "localhost"
+}
+
+/// Exact patch (exact2 LLP 1133.007 D6): why a path line's namespace refuses
+/// it. A line naming the whole home directory would stop meaning anything
+/// (`home-grant-whole`), and the bundle is read only.
+fn namespace_refusal(capability: &str, prefix: &PathPrefix) -> Result<(), String> {
+    match prefix.components() {
+        [home] if home == "home:" => Err(
+            "home-grant-whole: a line names a subtree of the home directory, such as `home:/.ssh`"
+                .into(),
+        ),
+        [bundle, ..] if bundle == "bundle:" && capability != "fs.read" => Err(format!(
+            "the bundle is read only: `{capability}` cannot name it"
+        )),
+        _ => Ok(()),
+    }
+}
 
 /// A CSP3 `scheme-source`: a scheme and its colon, with nothing after it.
 fn is_scheme_source(target: &str) -> bool {

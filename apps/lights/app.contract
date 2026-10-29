@@ -1,0 +1,72 @@
+// Lights: the WLED lights on this network (LLP 1133.036 §10). Found by
+// DNS-SD through @exact/local-network, reached with `fetch` under the
+// `local-network` grant; a typed address when discovery finds nothing.
+use browseServices, localNetworkStatus, LocalServices, LocalNetworkStatus from "@exact/local-network"
+
+shape Light
+  id: string
+  name: string
+  on: bool
+  bri: number
+  mac: string
+  slug: string
+  status: string
+shape Lights
+  items: Light[]
+shape Ack
+  ok: bool
+
+component App
+  state added = "" persist
+  state draft = ""
+  resource network = localNetworkStatus() as shape LocalNetworkStatus else empty()
+  // Finding lights is the app's whole purpose, so it browses at launch.
+  resource found = browseServices(type="_wled._tcp") as shape LocalServices else empty()
+  resource lights = lights(found, added, network.state) as shape Lights else empty()
+  mutation changed as shape Ack queue refreshes lights
+  action type(v: string)
+    draft = v
+  action add
+    added = draft.trim()
+  action forget
+    added = ""
+  action toggle(id: string, bri: number, on: bool)
+    send changed = setLight(id, on, bri)
+  action dim(id: string, on: bool, bri: number)
+    send changed = setLight(id, on, bri)
+  action retry
+    refresh lights
+  action openSettings
+    openURL("app-settings:")
+  view
+    column padding=16 gap=12
+      text "Lights" role="heading" aria-level=1
+      if network.available and (network.state == "prompt" or network.state == "unknown")
+        text "Lights finds the WLED lights on your network. Your device asks once." testId="explain"
+      if network.state == "denied"
+        text "Local Network access is off. Turn it on in Settings, or add a light by its address." testId="denied"
+        button press=openSettings testId="open-settings"
+          text "Open Settings"
+      if not network.available
+        text "This device can't look for lights. Add one by its address." testId="unavailable"
+      if network.available and network.state != "denied" and lights.items.length == 0
+        text "No lights found on this network." testId="none-found"
+      for l in lights.items key=l.id
+        row gap=12 align-items="center" testId=`light-${l.slug}`
+          column flex=1 gap=2
+            text l.name testId=`${l.slug}-name`
+            if l.status != ""
+              text l.status testId=`${l.slug}-status`
+          if l.status == ""
+            input type="range" min=1 max=255 step=1 value=l.bri change=dim(l.id, l.on) aria-label=`${l.name} brightness` testId=`${l.slug}-brightness` width=120
+            input type="checkbox" role="switch" checked=l.on change=toggle(l.id, l.bri) aria-label=`${l.name}` testId=`${l.slug}-switch`
+      text "Add by address" role="heading" aria-level=2
+      row gap=8
+        input value=draft input=type placeholder="192.168.1.40" aria-label="Light's address" testId="address" flex=1 min-width=0
+        button press=add testId="add"
+          text "Add"
+      if added != ""
+        button press=forget testId="forget"
+          text `Forget ${added}`
+      button press=retry testId="retry"
+        text "Try again"

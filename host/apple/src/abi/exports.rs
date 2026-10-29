@@ -42,6 +42,7 @@ macro_rules! host {
         $crate::corner_exports!();
         $crate::gradient_exports!();
         $crate::calc_exports!();
+        $crate::local_network_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -293,6 +294,18 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_host_go(rt: u32, len: usize, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_go(len, now_ms), |n| n)
+        }
+
+        /// A received share, a batch. @ref LLP 1133.024 D2–D4
+        #[no_mangle]
+        pub extern "C" fn exact_share(rt: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share(len, now_ms), |n| n)
+        }
+
+        /// The files of a share claimed before the boot, landed: a batch.
+        #[no_mangle]
+        pub extern "C" fn exact_share_land(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.share_land(), |n| n)
         }
 
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
@@ -645,7 +658,8 @@ macro_rules! host {
         }
 
         /// Move the clock; `mode` as `Bridge::advance` (0 the wall clock, 1
-        /// the agent's jump, 2 an input's `then`s). Returns the batch's length.
+        /// the agent's jump, 2 an input's `then`s, 3 those `then`s only when
+        /// one is the earliest work due). Returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_advance(rt: u32, now_ms: f64, mode: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, mode), |n| n)
@@ -1012,6 +1026,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_into_view(rt: u32, view: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.into_view(view, len), |n| n)
+        }
+
+        /// What UIKit covers of list `view`'s port at its start and end, in
+        /// points: a row the runner aligns lands clear of it.
+        #[no_mangle]
+        pub extern "C" fn exact_list_covered(rt: u32, view: u32, start: f64, end: f64) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_covered(view, start, end), |_| ())
         }
 
         /// Canvas draws in a turn of their own (`deferred` nonzero), or in every

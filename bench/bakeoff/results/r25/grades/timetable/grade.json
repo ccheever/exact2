@@ -1,0 +1,50 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "partial", "note": "Full day in time order, grouped by hour, with time, coloured letter badge, destination, platform, and delayed/cancelled text. The hour heading pins, but it is see-through and has no backing, so the row underneath shows through and collides with the heading text (e.g. '09:34' printed under '09:00')."},
+      {"n": 2, "status": "pass", "note": "Station button at the top pushes a Stations list with a search field. Search filters ('mi' → Mill Creek, Mission), shows a 'No stations found' empty state, and choosing a station updates the board."},
+      {"n": 3, "status": "partial", "note": "Now works at default text size. Opening at now is unreliable: for Mission, relaunches opened at 00:18 about half the time, and when it did land the 05:00 row sat partly under the pinned heading. At the largest text size Now lands with the next departure hidden under the heading. After a line filter the next departure (06:17) was also hidden under the heading."},
+      {"n": 4, "status": "pass", "note": "A pull-down menu offers All lines / Red / Blue / … and the list and count update (26 Red departures)."},
+      {"n": 5, "status": "partial", "note": "Past departures are dimmed, but only weakly: the time and text turn grey while the badge and star stay at full strength, so past and future are hard to tell apart."},
+      {"n": 6, "status": "pass", "note": "Star toggles, the Saved tab lists saved departures grouped by hour with the station shown, unstarring works, there is an empty state, and both saved departures and the station survive relaunch."}
+    ],
+    "bugs": [
+      "The pinned hour heading has no background, so row content scrolls visibly underneath and overlaps the heading text.",
+      "The list does not reliably open at the next departure: relaunching at Mission sometimes lands at 00:18, among the departed rows.",
+      "Now, and the jump after changing the filter, land with the next departure tucked under the pinned heading (always at the largest text size).",
+      "Switching to Saved and back throws away the board's scroll position (07:34 → back to 05:00)."
+    ],
+    "tells": [
+      "The pinned section heading is transparent, unlike the opaque or material headers of a UITableView or List.",
+      "Rows are a stacked column (time+badge / destination / platform) with an unusually tall gap above each hour heading; it doesn't read like a native list row layout.",
+      "The 'Line' label with a blue 'All lines ⌃⌄' menu button on its own row looks like a form row placed outside a form.",
+      "At the largest text size the star grows huge and the header text ('Today · 133 departures') takes up much of the screen.",
+      "No swipe actions to unsave rows in Saved.",
+      "The Departures tab uses a calendar glyph."
+    ],
+    "scroll": "Scrolling and flinging are smooth with no blank rows, but the see-through pinned heading lets rows smear under it, and the scroll position is lost when you leave and come back to the tab.",
+    "scores": {"features": 6, "platform": 5, "polish": 4, "overall": 5}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Full day in time order, grouped by hour with opaque tinted pinned headings that show a departure count. Rows show time, coloured badge, destination, platform, and 'Delayed · +7 min' / 'Cancelled' in colour."},
+      {"n": 2, "status": "pass", "note": "A large station title with a chevron opens a sheet with a grabber, a checkmark on the current station and a bottom search field. Search filters, shows an empty state, and choosing updates the board."},
+      {"n": 3, "status": "pass", "note": "Opens with the next departure at the top under its hour heading, marked NEXT, reliably across relaunches. Now scrolls back there correctly, including after filtering."},
+      {"n": 4, "status": "pass", "note": "The filter menu has coloured dots per line and an All lines item; the button label becomes 'Red line' and the count updates."},
+      {"n": 5, "status": "pass", "note": "Past rows are clearly dimmed, including the badge and text."},
+      {"n": 6, "status": "pass", "note": "Star toggles, Saved lists departures 'From <station>' grouped by hour, there is an empty state, and both saved departures and the station survive relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Branded off-white/teal theme with marketing copy ('MADE FOR YOUR EVERYDAY / Your regulars.', 'The whole day, at your pace.'), which feels a bit web-like.",
+      "A red count badge on the Saved tab, as if saved items were unread notifications.",
+      "The list is clipped above the floating tab bar instead of scrolling under it as on current iOS.",
+      "No swipe actions to unsave rows in Saved.",
+      "The navigation title doesn't scale with Dynamic Type while the content does (minor)."
+    ],
+    "scroll": "Smooth, iPhone-like scrolling with solid sticky hour headers. Flings settle cleanly, and the scroll position is kept when switching tabs.",
+    "scores": {"features": 9, "platform": 7, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "B meets every requirement reliably: it opens at the next departure marked NEXT, has opaque sticky headers, clearly dimmed past rows, and keeps its scroll position. A has the right pieces, but its see-through pinned header overlaps rows, its open-at-now and Now positioning are unreliable (worst at large text), and it loses scroll position between tabs. B's branded styling is less stock than A's, but it is clearly the app to ship."
+}

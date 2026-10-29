@@ -33,12 +33,10 @@ fn raster_tint_matches_chrome_in_both_painters() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// LLP 1095 D8: an untinted symbol is `AccentColor`, here its fallback pair
-/// (`#0088ff`, iOS 27's measured tint: LLP 1115.000 D3.2; no report on
-/// Linux), not the text colour; a written `color` wins, which lowering
-/// gives the symbol as the tint row `currentcolor`.
+/// LLP 1081 stage 2: a symbol is drawn in its computed `color`, inherited
+/// (the column's black) or its own (red), on every host; a tint is for rasters.
 #[test]
-fn an_untinted_symbol_paints_the_accent_fallback() {
+fn a_symbol_paints_its_color() {
     crate::pin_font();
     let plan = contract::compile(
         r##"component App
@@ -69,6 +67,6 @@ fn an_untinted_symbol_paints_the_accent_fallback() {
             .min_by_key(|c| u16::from(c[0]) + u16::from(c[1]) + u16::from(c[2]))
             .unwrap()
     };
-    assert_eq!(ink(0), [0x00, 0x88, 0xff]);
+    assert_eq!(ink(0), [0x00, 0x00, 0x00]);
     assert_eq!(ink(48), [0xff, 0x00, 0x00]);
 }

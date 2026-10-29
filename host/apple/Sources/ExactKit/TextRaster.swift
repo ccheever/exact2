@@ -88,6 +88,8 @@ struct TextRasterJob {
     /// as it composites (`TextRasterImage.tint`): a quarter of the bytes,
     /// and Core Graphics' cheaper glyph path, as a `UILabel`'s backing store.
     var tints = false
+    /// `-webkit-font-smoothing: antialiased` (`Spec.antialiased`).
+    var antialiased = false
     var measuredGlyphs: MeasuredGlyphs? = nil
     var measuredColor: CGColor? = nil
 
@@ -322,7 +324,7 @@ struct TextRasterJob {
             ctx.translateBy(x: 0, y: CGFloat(height))
             ctx.scaleBy(x: scale, y: -scale)
             ctx.translateBy(x: -frame.minX, y: -frame.minY)
-            ctx.setShouldSmoothFonts(true)
+            ctx.setShouldSmoothFonts(!antialiased)
             ctx.setFillColor(color)
             for (line, position) in zip(glyphs.lines, positions) {
                 ctx.saveGState()
@@ -443,7 +445,7 @@ struct TextRasterJob {
         ctx.translateBy(x: 0, y: CGFloat(height))
         ctx.scaleBy(x: scale, y: -scale)
         ctx.translateBy(x: -frame.minX, y: -frame.minY)
-        ctx.setShouldSmoothFonts(true)
+        ctx.setShouldSmoothFonts(!antialiased)
         for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx, scale: scale, pass: pass) }
         ctx.flush()
     }

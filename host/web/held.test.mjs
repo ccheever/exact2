@@ -12,9 +12,11 @@ import { driveHeld, holdingServer } from '../../scripts/held-fixture.mjs';
 test.skipIf(!process.env.EXACT_HELD_WASM_DIST)('the wasm target leaves a held fetch out of every clock, names it, and counts the work after its reply', async () => {
   const dist = resolve(process.env.EXACT_HELD_WASM_DIST);
   const server = holdingServer({ detailDelay: 1500, plainAfter: 3000, port: Number(process.env.EXACT_HELD_PORT ?? 47711) });
-  const page = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+  const page = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     const path = new URL(req.url).pathname;
-    return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    const file = Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1)));
+    // (a path the dist lacks is a 404, not a thrown ENOENT)
+    return await file.exists() ? new Response(file) : new Response('not found', { status: 404 });
   } });
   let s;
   try {

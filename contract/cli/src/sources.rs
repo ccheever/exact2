@@ -1013,6 +1013,18 @@ impl Loader<'_> {
                     return Err(unknown(u, n, from));
                 }
                 if let Some(m) = self.data_only(unique, &found) {
+                    // Bytes are data code's (LLP 1133.006 D8 item 1; LLP
+                    // 1133.022 D19 item 4).
+                    if m.substitute.contains(r#""bytes":true"#) {
+                        return Err(name_error(
+                            "contract-module-bytes",
+                            format!(
+                                "`{}` of `{}` carries bytes, which Contract has none of: call it in `app.ts` and send Contract what it needs (LLP 1133.006 D8)",
+                                m.declared, m.package
+                            ),
+                            n.span,
+                        ));
+                    }
                     return Err(name_error(
                         "module-name-data-only",
                         format!(
@@ -1202,6 +1214,7 @@ impl Loader<'_> {
             names,
             routes: files[0].routes.take(),
             tests: std::mem::take(&mut files[0].tests),
+            properties: std::mem::take(&mut files[0].properties),
             launch: std::mem::take(&mut files[0].launch),
             uses: Vec::new(),
             fonts,

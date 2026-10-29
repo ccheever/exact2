@@ -31,6 +31,7 @@ impl<D: DataSource> Runner<D> {
             if self.route(row) == Route::Agent {
                 entry["agent"] = json!(true);
             }
+            self.devices_json(&extension, entry);
             // Each permission by name; `permission` too where it has one.
             let sub = self.substitute(row);
             let by = sub["permissionBy"].as_object().into_iter().flatten();
@@ -103,11 +104,15 @@ impl<D: DataSource> Runner<D> {
             for (state, calls) in self.played_json(extension).into_iter().flatten() {
                 entry[&state] = calls;
             }
+            if let Some(claims) = self.services_json(extension) {
+                entry["foregroundService"] = claims;
+            }
             // The canvases its inputs feed, and their leases (D6).
             if let Some(surfaces) = self.fed_json(extension) {
                 entry["surfaces"] = surfaces;
             }
             self.reach_json(extension, entry);
+            self.arrival_json(extension, entry);
             let one = (entry["permissions"].as_object())
                 .filter(|p| p.len() == 1)
                 .and_then(|p| p.values().next().cloned());
@@ -124,6 +129,14 @@ impl<D: DataSource> Runner<D> {
                 Some(queued) => queued.push(event),
                 None => entry["queued"] = json!([event]),
             }
+        }
+        // What each bound implementation disclosed of its own (D8 item 9).
+        for extension in self.disclosed_extensions() {
+            let bound = self.extensions.bound.contains(&extension);
+            let entry = out.entry(extension.clone()).or_insert_with(
+                || json!({ "bound": bound, "preferred": {}, "readers": {}, "held": [] }),
+            );
+            entry["implementation"] = self.disclosed_json(&extension).unwrap_or_default();
         }
         // Each package view, and who made it displayed (LLP 1133.008 D8 item 2).
         for row in &self.plan.views {
@@ -187,6 +200,9 @@ impl<D: DataSource> Runner<D> {
                 if value != "clear" && !word_fits(&ty, value) {
                     return refuse(format!("prefer extension: `{key}` is a {ty}"));
                 }
+                if let Some(e) = self.arrival_refusal(key, value, group) {
+                    return refuse(e);
+                }
                 continue;
             }
             let Some(row) = self
@@ -209,7 +225,10 @@ impl<D: DataSource> Runner<D> {
                     }
                 ));
             };
-            if row.send {
+            // A send answered from its own preferred value (`from` itself,
+            // LLP 1133.021 §12's geocoder) takes one; any other is answered.
+            let own = self.substitute(&row)["from"] == self.plan.str(row.declared);
+            if row.send && !own {
                 return refuse(format!(
                     "prefer extension: `{key}` is a send, which the module answers"
                 ));
@@ -246,7 +265,9 @@ impl<D: DataSource> Runner<D> {
                 // overlay (LLP 1133.009 D10 item 11), as a `partial` source
                 // does over its default; a declared one, a value. A sampled
                 // source's takes a reading or a track of steps (§9).
-                let checked = if sub["track"] == true {
+                let checked = if sub["network"] == "browse" {
+                    self.network_checked(value)
+                } else if sub["track"] == true {
                     self.track_checked(&row, &checked)
                 } else if sub["implementation"] == true || sub["partial"] == true {
                     self.partial(&row, &checked)
@@ -259,7 +280,9 @@ impl<D: DataSource> Runner<D> {
             }
         }
         let mut told = std::collections::BTreeSet::new();
+        let mut moved = Vec::new();
         for (key, value) in group {
+            moved.push((key, self.extensions.preferred.get(key).cloned()));
             // A list whose changes are the device's events (`spans.rs`).
             let listed = (self.plan.modules.iter())
                 .find(|m| self.key(m) == *key)
@@ -277,8 +300,12 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             self.note_track(key, value);
+            self.devices_preferred(key);
             self.log(format!("prefer extension {key}"));
             self.announce(key);
+            for dependent in self.network_dependents(key) {
+                self.announce(&dependent);
+            }
             // An agent word is its extension's: any of its names stands for it.
             let extension = key.split_once('.').map_or("", |(e, _)| e);
             let row = (self.plan.modules.iter()).find(|m| {
@@ -291,6 +318,11 @@ impl<D: DataSource> Runner<D> {
         }
         for extension in told {
             self.tell_preferred(&extension);
+        }
+        // A field word's change is an arrival, once every word is set.
+        for (key, before) in moved {
+            let after = self.extensions.preferred.get(key).cloned();
+            self.arrival_field(key, before, after);
         }
         self.settle_values();
         let (receipts, error) = self.apply_announced();
@@ -361,15 +393,23 @@ impl<D: DataSource> Runner<D> {
     /// `row`'s declared `fill`, where `value` leaves a path out. A filler
     /// `"now"` is the agent clock's date; `{"table", "by"}` is the entry of
     /// the declaration's `tables.<table>` that the filled object's field
-    /// `by` names, filled after the plain fillers so `by` can be one.
+    /// `by` names, filled after the plain fillers so `by` can be one. A
+    /// table filler with `"on"`, a list of targets, fills only there: a
+    /// platform's record (a gamepad's `apple`) on that platform's hosts.
     pub(super) fn fill_all(&self, row: &ModulesRow, value: &mut Json) {
         let sub = self.substitute(row);
         let now = json!(self.time.epoch_at_zero + self.now_ms);
+        let target = self.host_target();
+        let here = |f: &Json| {
+            f["on"]
+                .as_array()
+                .is_none_or(|on| on.iter().any(|t| t == target))
+        };
         let fills = sub["fill"].as_object().cloned().unwrap_or_default();
         for tabled in [false, true] {
             for (path, filler) in fills
                 .iter()
-                .filter(|(_, f)| f["table"].is_string() == tabled)
+                .filter(|(_, f)| f["table"].is_string() == tabled && here(f))
             {
                 let made = |object: &Map<String, Json>| match filler {
                     f if f == "now" => Some(now.clone()),

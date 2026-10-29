@@ -351,6 +351,7 @@ export async function waitForInflight(waiting, deadline) {
 
 import { admitsNetwork, admittingGrant, coversPath, grantError, scopedGrantSet } from './grant-admission.js';
 import { faultMessage, takeFault } from './faults.js';
+import { reachRefusal, redirectFor } from './address-space.js';
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
@@ -370,6 +371,9 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   if (!native && !asset) try { new URL(url); } catch (error) { return failed(1, error); }
   const grant = native || asset ? null : admittingGrant(effective, url, socket ? 'websocket' : 'fetch');
   if (!native && !asset && !grant) return failed(2, `outside the app's grants (${capability})`);
+  // LLP 1133.036 D6: a tool's, a wake's or the device's reach to a less public address space waits for the person.
+  const unreached = native || asset ? null : reachRefusal(url, op.origin, op.reachState);
+  if (unreached) return failed(2, `NotAllowedError: ${unreached}`);
   // The line that admitted a stream, for `state.streams`.
   if (op.stream && grant) controller.grant = grant;
   // A body written to a file (`exactBodyTo`) may name up to 1 GiB: it is not held in memory.
@@ -390,7 +394,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     const accept = headers.some(([k]) => k.toLowerCase() === 'accept') ? headers : [...headers, ['accept', 'application/json']];
     controllers.add(controller);
     try {
-      return await readLongPoll(op, { method: 'GET', headers: accept, redirect: op.redirect ?? 'follow', cache: 'no-store' },
+      return await readLongPoll(op, { method: 'GET', headers: accept, redirect: redirectFor(op.origin, op.redirect ?? 'follow', op.reachState), cache: 'no-store' },
         op.maxResponseBytes ?? 1024 * 1024, message, controller, (u) => active() && admitsNetwork(scopedGrantSet(grantSet, op.scope), u, 'fetch'));
     } finally { controllers.delete(controller); delete controller.retrying; }
   }
@@ -458,7 +462,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   }
   // A browser answers a `manual` redirect with an opaque-redirect response
   // (Fetch §2.2.6: status 0, no Location)
-  const init = { method, headers, redirect: op.redirect ?? 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
+  const init = { method, headers, redirect: redirectFor(op.origin, op.redirect ?? 'follow', op.reachState), cache: cache === 'reload' ? 'reload' : 'default', signal };
   if (decodedBody) init.body = decodedBody;
   else if (fileBody) init.body = fileBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];

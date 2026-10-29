@@ -1,0 +1,49 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History, newest first, in month sections; each row shows name, date, exercise count and volume (e.g. 6,767.5 lb). A new workout appears at the top."},
+      {"n": 2, "status": "pass", "note": "The detail screen has a Date/Exercises/Sets/Total Volume summary, then one card per exercise with its muscle·equipment and numbered sets; the exercise row pushes to the exercise screen."},
+      {"n": 3, "status": "pass", "note": "Start from the Workout tab or the + button; an empty name falls back to 'Workout' and can be renamed inline. The picker sheet has a bottom search bar and a Muscle pull-down menu, both working together; you can pick several exercises ('Add 2'). The Add Set sheet uses a decimal pad and pre-fills from the last set. Tapping a set opens Edit, which has Delete Set. Finish is disabled until a set is logged, then saves to History. There is no swipe-to-delete on sets."},
+      {"n": 4, "status": "pass", "note": "The Exercises tab lists all exercises grouped by muscle, with equipment as the subtitle and push to detail. The tab itself has no search."},
+      {"n": 5, "status": "pass", "note": "Best Set card (72.5 lb, 14 reps, with date), Muscle/Equipment, and 'Workouts (4)' rows with top weight per workout. A newly finished workout is included."},
+      {"n": 6, "status": "pass", "note": "An in-progress workout (name, exercises, sets) survived relaunch; the History + button turns into 'Current Workout'. A finished workout survived relaunch."}
+    ],
+    "bugs": [
+      "After a horizontal swipe on a set row in the current workout, the next tap on set or exercise rows is swallowed: nothing happens until a second tap or some other interaction. Once the rows briefly vanished from the accessibility tree.",
+      "No limit on weight: a typo like 98135.5 lb is accepted and logged."
+    ],
+    "tells": [
+      "No swipe-to-delete on set rows. Deleting needs a tap into the edit sheet, where a hand-built UIKit/SwiftUI list would offer a trailing swipe action.",
+      "The Workout and exercise screens show an opaque white nav-bar band over the grouped grey background at rest, with a hard edge, where iOS 26+ is transparent until scrolled.",
+      "The current workout shows its name twice: as the large title and again in a text field right below it.",
+      "The Start Workout row has no disabled or button styling and starts with an empty name, silently using 'Workout'.",
+      "The picker list isn't alphabetical (it appears in id order), unlike the alphabetical library tab."
+    ],
+    "scroll": "History scrolls smoothly with native momentum, the large title collapses with the iOS 26 soft scroll-edge blur, and there are no blank or popping rows. Scroll position is kept when returning from a detail push.",
+    "scores": {"features": 8, "platform": 7, "polish": 7, "overall": 8}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Inset-grouped History, newest first, in month sections; each row has a bold name, the date, and 'N exercises · volume' on a third line. Rows are tall (98 pt) but correct."},
+      {"n": 2, "status": "pass", "note": "The detail screen has a Date/Exercises/Sets/Total Volume summary, then one section per exercise with a tinted header that pushes to the exercise, numbered sets, and a per-exercise volume footer."},
+      {"n": 3, "status": "partial", "note": "The New Workout form has a name field, name suggestions, and Start disabled while the name is empty. The picker has a search field and horizontal muscle filter chips, multi-select with checkmarks, and 'Add (2)'. The Add Set sheet has steppers plus a decimal pad, a keyboard-accessory Add button, a live volume readout, and pre-fills from the last set. Tapping a set opens Edit with Delete Set, and swipe-to-delete works. However, tapping Finish crashes the app every time (reproduced twice). The workout does land in History after relaunch."},
+      {"n": 4, "status": "pass", "note": "The Library tab is grouped by muscle with counts ('Arms (20)') and equipment subtitles, and pushes to detail. The tab itself has no search."},
+      {"n": 5, "status": "pass", "note": "Muscle/Equipment, a large Best Set card (72.5 lb, 14 reps, the workout and date, tappable), and '4 Workouts' rows listing every set and the top weight."},
+      {"n": 6, "status": "pass", "note": "An in-progress workout survived relaunch and the app reopened on the Workout tab, which carries a badge. History persisted, including the workouts saved just before the crashes."}
+    ],
+    "bugs": [
+      "Tapping Finish on a workout in progress crashes the app to the Home Screen, reproduced 2 out of 2 times. The data is saved, but the user sees a crash at the most important moment.",
+      "On the exercise screen, the first 'Workouts' row stays shown as selected (grey highlight) after arriving from a workout detail and doesn't clear.",
+      "On the New Workout form, the Start Workout button sits under the keyboard while you type the name and the list doesn't scroll it into view (Return does start the workout)."
+    ],
+    "tells": [
+      "The stuck grey selection highlight on a list row is not how a system list deselects.",
+      "History rows are three lines tall, so the list runs to 11 screens for 60 workouts, less dense than a typical iOS log.",
+      "The History screen has no toolbar + button; a workout can only be started from the Workout tab."
+    ],
+    "scroll": "Smooth native scrolling with momentum and scroll-edge blur under the collapsed title, no blank or popping rows, and position kept on returning from detail. The tall rows make the list long.",
+    "scores": {"features": 7, "platform": 8, "polish": 5, "overall": 6}
+  },
+  "better": "A",
+  "why": "Both apps look and scroll like native iOS 26 apps, and B has the richer set entry (steppers, swipe-to-delete, suggestions). But B crashes every time you tap Finish, the moment the whole app is built around. A completes every flow without crashing; its flaws are smaller ones, like no swipe-to-delete, a swallowed tap after a swipe, and an opaque nav-bar band."
+}

@@ -1,0 +1,5 @@
+{
+  "purpose.nfc": "The conformance suite reads and writes test tags.",
+  "nfc.hold": "Hold your iPhone near the test tag.",
+  "nfc.done": "Done"
+}

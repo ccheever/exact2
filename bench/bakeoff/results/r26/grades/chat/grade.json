@@ -1,0 +1,46 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Blue right / gray left bubbles, oldest first from Jul 1, date headings at each day change ('Jul 3, 2026 at 4:20 PM' style, a date plus time rather than iMessage's day label). Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send appends the message, stays at the bottom and clears the composer. Send is disabled when the field is empty or only spaces; Return adds a new line and the composer grows."},
+      {"n": 3, "status": "pass", "note": "The composer rides on the keyboard and the newest messages stay visible. Dragging the thread dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "An italic 'Sam is typing…' text bubble, then a canned reply (e.g. 'Sure thing', 'Love that', 👍) about 2 s later. Two quick sends get two replies."},
+      {"n": 5, "status": "partial", "note": "Long-press opens a system context menu with Copy and Delete, and both work (delete persists). But the lifted preview is a blank white pill with no bubble or text in it."},
+      {"n": 6, "status": "pass", "note": "Flings to the first message without blank rows or jumps. A round 'Jump to newest message' button appears when you are far up and returns to the bottom."},
+      {"n": 7, "status": "pass", "note": "Sent messages and Sam's replies survive a relaunch."}
+    ],
+    "bugs": [
+      "The long-press context-menu preview of a message is an empty white rounded rectangle: the bubble's colour and text are missing (seen every time)."
+    ],
+    "tells": [
+      "The context-menu preview renders blank instead of showing the lifted bubble.",
+      "The typing indicator is a static italic text bubble 'Sam is typing…' rather than the animated three-dot bubble.",
+      "Date headings read 'Oct 21, 2026 at 5:56 AM' (full year plus time) instead of iMessage-style 'Wednesday' / 'Sun, Oct 18'.",
+      "The plain nav bar shows 'Sam' alone, with no avatar.",
+      "Bubbles have no tails."
+    ],
+    "scroll": "Smooth and native-feeling: slow drags track the finger, flings decelerate normally, there were no blank or popping rows, and it reaches the first message cleanly. The jump-to-newest button works.",
+    "scores": {"features": 8, "platform": 7, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Blue right / gray left bubbles, oldest first, with iMessage-style day headings ('Wed, Jul 1', 'Thursday', 'Today'). Opens at the newest message."},
+      {"n": 2, "status": "pass", "note": "Send appends the message, stays at the bottom and clears the composer. The send button is disabled when the field is empty or only spaces."},
+      {"n": 3, "status": "pass", "note": "The composer sits on the keyboard and the newest messages stay visible. Dragging the thread dismisses the keyboard."},
+      {"n": 4, "status": "pass", "note": "An animated three-dot bubble with 'Sam is typing…', then a canned reply about 2 s later. Two quick sends get two replies."},
+      {"n": 5, "status": "pass", "note": "Long-press lifts the real bubble into a system context menu with Copy and Delete. Delete works and persists."},
+      {"n": 6, "status": "pass", "note": "Flings to the first message without blank rows or jumps. A glass 'Scroll to newest message' button appears when you are far up and returns to the bottom."},
+      {"n": 7, "status": "pass", "note": "Sent messages and replies survive a relaunch."}
+    ],
+    "bugs": [],
+    "tells": [
+      "Bubbles have no tails.",
+      "The typing label next to the dots is very small, caption-sized text.",
+      "At the largest text size the separate glass send circle stays small next to the enlarged field, and bubbles show through it."
+    ],
+    "scroll": "Smooth and native: it tracks the finger, decelerates naturally, shows no blank or popping rows and reaches the first message. Content slides under the glass nav bar and composer as on iOS 27.",
+    "scores": {"features": 9, "platform": 8, "polish": 8, "overall": 8}
+  },
+  "better": "B",
+  "why": "Both apps meet nearly every requirement and scroll equally well. A's long-press preview is a blank white pill, while B lifts the real bubble. B also has the more iMessage-like details: an animated typing indicator, 'Wednesday'-style date headings and an avatar in the title."
+}

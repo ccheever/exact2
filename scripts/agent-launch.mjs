@@ -493,6 +493,12 @@ export function parseFlags(argv) {
     else if (argv[i] === '--wake') (flags.launchEntries ??= []).push({ launch: 'wake', entry: argv[++i] });
     // A cold tool call (LLP 1133.023 §10): `--call '<tool> <json>'`, delivered once the data module is ready, as a system's call that started the app.
     else if (argv[i] === '--call') (flags.launchEntries ??= []).push({ launch: 'call', entry: argv[++i] });
+    // A launch the login item made (LLP 1133.025 D2, D6): `--login`, or `--login hidden` for one registered to open with
+    // no window. The runner answers `launchedAtLogin`; the macOS host leaves the window unshown for a hidden one.
+    else if (argv[i] === '--login') {
+      flags.login = argv[i + 1] === 'hidden' ? (i++, 'hidden') : 'shown';
+      (flags.launchEntries ??= []).push({ launch: 'login', entry: flags.login });
+    }
     // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
     else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);

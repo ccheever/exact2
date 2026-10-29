@@ -1343,6 +1343,7 @@ fn execute(
     }
     let limit = body_to::limit(&request);
     let timeout = request.timeout_ms;
+    let fetch = reach::gate_fetch(b.fetch.clone(), request.reach);
     // The whole exchange, headers and body, ends by the deadline: the
     // platform's idle timeout alone would let a server that trickles bytes
     // hold the ordered lane for as long as it likes. It is armed before a
@@ -1385,8 +1386,7 @@ fn execute(
     // deadline does (so the reply says Timeout, not a network error), and a
     // deadline over 60 s is not cut short by it.
     req.timeout = timeout.map(|ms| std::time::Duration::from_millis(u64::from(ms) + 1_000));
-    let result = b
-        .fetch
+    let result = fetch
         .stream(req, &abort.signal())
         .and_then(check_headers)
         .and_then(|r| body_to::receive(r, staged, limit));
@@ -1449,7 +1449,7 @@ impl Deadline {
 }
 
 #[path = "executor_stream.rs"]
-mod stream;
+pub(crate) mod stream;
 
 #[cfg(test)]
 #[path = "executor_async_tests.rs"]
@@ -1462,6 +1462,9 @@ use asynch::{asynch_lanes, asynchronous, drained};
 use outcome::{
     bounded_outcome, build_number, check_headers, fetch_failure, fetch_request, retained,
 };
+
+#[path = "executor_reach.rs"]
+mod reach;
 
 #[path = "executor_body.rs"]
 mod body;

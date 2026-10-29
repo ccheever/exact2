@@ -10,15 +10,17 @@ mod background;
 mod commit;
 mod control;
 mod errors;
+pub use errors::RunnerError;
 mod event;
 pub mod faults;
 mod field;
 mod fonts;
 pub mod foresee;
+mod trace;
 pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
 mod pointer;
-pub use pointer::{AtomEvent, DropEvent, PointerEvent, WheelEvent};
+pub use pointer::{AtomEvent, DropEvent, MouseEvent, PointerEvent, WheelEvent};
 mod intersect;
 mod reorder;
 mod reorder_codec;
@@ -81,6 +83,7 @@ mod kept_tests;
 mod lines;
 mod lists;
 mod media_session;
+mod overrun;
 mod page;
 mod perf;
 pub mod persist;
@@ -117,9 +120,9 @@ pub use split::{press_writes_router, StackSplit};
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
 use crate::store::{Store, StoreWrite};
-use crate::vm::{self, Env, Frame, RowSlots, Trap};
-use exact_kernel::{CommitReceipt, Kernel, KernelError, ViewId};
-use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, PlanError, Value};
+use crate::vm::{self, Env, Frame, RowSlots};
+use exact_kernel::{CommitReceipt, Kernel, ViewId};
+use exact_plan::{ActionsId, Code, EventKind, MutationsId, NodesId, Plan, Value};
 
 /// A host-facing effect an action asked for; executed after commit, in order.
 #[derive(Debug, Clone, PartialEq)]
@@ -158,105 +161,6 @@ pub struct Advanced {
     /// request, short of its cutoff or at it: the host lands the reply
     /// before it advances again.
     pub stopped_on_request: bool,
-}
-
-/// Why the runner refused. The kernel is unchanged.
-#[allow(missing_docs)]
-#[derive(Debug)]
-pub enum RunnerError {
-    KernelSchemaMismatch {
-        plan: u64,
-        kernel: u64,
-    },
-    /// The plan belongs to another app (LLP 1023 D5): its header names one identity, this binary's data crate another.
-    AppMismatch {
-        plan: String,
-        host: String,
-    },
-    Plan(PlanError),
-    NotOneRoot(usize),
-    Trap(Trap),
-    Instance(InstanceError),
-    Kernel(KernelError),
-    Data {
-        resource: String,
-        error: DataError,
-    },
-    Shape {
-        resource: String,
-        /// Where the answer first differs from the declared shape.
-        why: String,
-    },
-    UnknownView(ViewId),
-    /// A typed host event carries invalid numeric values. No action ran.
-    InvalidEvent {
-        event: &'static str,
-    },
-    /// A control's `input` or `change` carries a value it could never report (LLP 1069.001 D4): a select's value no enabled option has.
-    InvalidValue {
-        event: &'static str,
-        reason: String,
-    },
-    NoHandler {
-        view: ViewId,
-        event: &'static str,
-    },
-    Arity {
-        action: String,
-        expected: usize,
-        actual: usize,
-    },
-    /// Derives and resources depend on each other in a cycle; nothing settles.
-    Cycle,
-    /// An earlier update failed after the instance tree had begun to change; the runner no longer matches its kernel and must be restarted (D5).
-    Poisoned,
-    /// `advance` was given a non-finite time.
-    NonFiniteClock,
-    /// A viewport dimension is non-finite or non-positive.
-    InvalidViewport,
-    /// A date fact is non-finite, negative, or its offset past ±18 hours.
-    InvalidTime,
-    /// A locale or time zone is empty, over-long, or not in its form.
-    InvalidPlace,
-    /// The declared router shapes, table, launch fallback or value is invalid.
-    Router(String),
-    /// A clock value exceeds the exact integer-millisecond domain.
-    ClockOutOfRange,
-    /// Adding a timer interval did not advance its next due time.
-    ClockDidNotAdvance {
-        timer: usize,
-    },
-    /// One seek reached the bounded number of timer commits it may perform.
-    TimerFireLimit {
-        limit: usize,
-    },
-    /// A send would be the 65th waiting for a `queue` mutation (LLP 1092 D4).
-    QueueFull {
-        mutation: String,
-    },
-    /// A gated task's `key=` is no key (a non-finite number; LLP 1092 D8).
-    TaskKey {
-        task: String,
-    },
-    /// A region sits at the plan root; v1 requires one root node.
-    RootRegion,
-    /// A slot initializer or write does not conform to the slot's declared type.
-    SlotType {
-        slot: String,
-    },
-    /// A derive's value does not conform to its declared type.
-    DeriveType {
-        derive: String,
-    },
-    /// An action argument does not conform to the parameter's declared type.
-    ArgumentType {
-        action: String,
-        param: String,
-    },
-    /// An action argument or a slot write is a string longer than [`crate::vm::MAX_STRING`] bytes.
-    StringTooLong {
-        name: String,
-    },
 }
 
 #[derive(Clone)]
@@ -339,6 +243,10 @@ struct PendingReq {
     held: bool,
     long_poll: bool,
     replied: bool,
+    /// Never sent: when a resource an overrun refused is asked again (`overrun.rs`).
+    reask_at: Option<f64>,
+    /// The re-asks after a turn over its budget this ask's streak has made.
+    reasks: usize,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -360,9 +268,10 @@ impl PendingReq {
         self.stream.is_none_or(|s| s.messages == 0)
     }
 
-    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9).
+    /// Waited on by a clock (a jump, `clock settle`, `clock data`): in flight, not held (D8, D9),
+    /// not a re-ask's wait (no I/O: the agent's settle goes to its time, `overrun.rs`).
     fn waited(&self) -> bool {
-        self.in_flight() && !self.held && !self.replied
+        self.in_flight() && !self.quiet() && !self.replied && self.reask_at.is_none()
     }
 }
 
@@ -454,6 +363,8 @@ pub struct Runner<D: DataSource> {
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
     failed_why: Vec<Option<crate::failure::Failure>>,
+    /// The re-ask being committed, and the reply being landed (`overrun.rs`).
+    overrun: overrun::Overrun,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -480,8 +391,8 @@ pub struct Runner<D: DataSource> {
     requests: Vec<RequestOut>,
     /// Socket operations of commits that stood, since the last take (D7).
     sockets: Vec<crate::SocketSend>,
-    /// The host's live count of a socket's buffered bytes (D7), if it has one.
-    socket_reader: Option<sockets::SocketReader>,
+    /// The host's live views of its sockets (D7) and listeners (LLP 1133.005).
+    socket_reader: sockets::Readers,
     /// The host's live view of its long polls' backoff waits (D8), if it has one.
     retry_reader: Option<crate::RetryReader>,
     mutation_requests: u64,
@@ -576,9 +487,6 @@ pub struct Runner<D: DataSource> {
     device_holds: Vec<device::Hold>,
     /// Replies landed for held requests, by target (LLP 1016.000 D9): `clock held`'s evidence.
     held_replies: Vec<(String, u64)>,
-    /// Notifications the app posted under the agent (`state.notifications`):
-    /// the agent's substitute for the system's (`crate::notify`).
-    notifications: Vec<crate::notify::Notice>,
     /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
     sounds: crate::sound::Sounds,
     /// The transport (LLP 1125 D3): the sequence playing and its record.
@@ -939,11 +847,12 @@ impl<D: DataSource> Runner<D> {
             forgot: false,
             failed_args: Vec::new(),
             failed_why: Vec::new(),
+            overrun: Default::default(),
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
             requests: Vec::new(),
             sockets: Vec::new(),
-            socket_reader: None,
+            socket_reader: Default::default(),
             retry_reader: None,
             mutation_requests: 0,
             refresh_next: Vec::new(),
@@ -984,7 +893,6 @@ impl<D: DataSource> Runner<D> {
             faults: faults::Faults::from_env(),
             device_holds: Vec::new(),
             held_replies: Vec::new(),
-            notifications: Vec::new(),
             auth: Default::default(),
             device_links: DeviceLinks::CORE,
             input_source: None,
@@ -1040,9 +948,7 @@ impl<D: DataSource> Runner<D> {
         runner.stale = vec![false; runner.plan.resources.len()];
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
-        if !ready {
-            runner.seed_kept(&seeded, device_state);
-        }
+        runner.seed_at_boot(&seeded, device_state, ready, private);
         if ready && device_state {
             // … and asked now when it can answer, showing the rendered
             // answer until it does.
@@ -1229,15 +1135,6 @@ impl<D: DataSource> Runner<D> {
     /// Inspect data-source identity and readiness without executing app logic.
     pub fn data_ref(&self) -> &D {
         &self.data
-    }
-
-    /// What the app posted under the agent, oldest first (`crate::notify`).
-    pub fn notifications(&self) -> &[crate::notify::Notice] {
-        &self.notifications
-    }
-
-    pub(crate) fn notifications_mut(&mut self) -> &mut Vec<crate::notify::Notice> {
-        &mut self.notifications
     }
 
     /// Current value of a slot by name.

@@ -17,11 +17,12 @@
 //! client's `end` (its `destroy`) only its own claims.
 //!
 //! **A test build's pad.** With `EXACT_AGENT_PADS` set to a JSON list of
-//! `{"index", "id", "vendor", "product", "pressed"}` (a production bake drops
-//! every `EXACT_AGENT_*` variable, `app.rs`),
+//! `{"index", "id", "vendor", "product", "pressed", "leaves"}` (a production
+//! bake drops every `EXACT_AGENT_*` variable, `app.rs`),
 //! those pads connect at the registry's first use, each pressing its
-//! `pressed` buttons once, and their motors are a recorder whose every
-//! request is journaled: the real path from the registry on, with no device.
+//! `pressed` buttons once and disconnecting `leaves` ms later on the host's
+//! clock when it says, and their motors are a recorder whose every request
+//! is journaled: the real path from the registry on, with no device.
 
 use crate::gamepad::Reading;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -112,6 +113,8 @@ struct Registry {
     clients: u64,
     now: f64,
     lines: Vec<String>,
+    /// Test pads that disconnect, and when.
+    leaving: Vec<(f64, u8)>,
 }
 
 fn registry() -> &'static Mutex<Registry> {
@@ -192,17 +195,7 @@ pub fn read(index: u8, reading: Reading) {
 
 /// The host's reader: pad `index` is gone, with every claim on it.
 pub fn disconnect(index: u8) {
-    with(|r, ended| {
-        let gone = r.slots.get(index as usize).is_some_and(Option::is_some);
-        r.end_device(index, ended);
-        if let Some(slot) = r.slots.get_mut(index as usize) {
-            *slot = None;
-        }
-        if r.current == Some(index) {
-            r.current = None;
-        }
-        ((), gone)
-    })
+    with(|r, ended| ((), r.disconnect(index, ended)))
 }
 
 /// The connected pads by index, and the one in use.
@@ -312,7 +305,13 @@ pub fn tick(now_ms: f64) {
     with(|r, ended| {
         r.now = now_ms;
         r.run(ended);
-        ((), false)
+        let (left, stay) = (r.leaving.iter()).partition(|(at, _)| *at <= now_ms);
+        r.leaving = stay;
+        let mut gone = false;
+        for (_, index) in left {
+            gone |= r.disconnect(index, ended);
+        }
+        ((), gone)
     })
 }
 
@@ -322,6 +321,7 @@ pub fn due() -> Option<f64> {
     let r = registry().lock().unwrap_or_else(|e| e.into_inner());
     (r.claims.iter())
         .map(|c| if c.started { c.end } else { c.start })
+        .chain(r.leaving.iter().map(|(at, _)| *at))
         .reduce(f64::min)
 }
 
@@ -410,6 +410,19 @@ impl Registry {
     }
 
     /// Start the claims due, and complete those past their span.
+    /// Pad `index` is gone, with every claim on it; whether it was there.
+    fn disconnect(&mut self, index: u8, ended: &mut Vec<(Done, &'static str)>) -> bool {
+        let gone = self.slots.get(index as usize).is_some_and(Option::is_some);
+        self.end_device(index, ended);
+        if let Some(slot) = self.slots.get_mut(index as usize) {
+            *slot = None;
+        }
+        if self.current == Some(index) {
+            self.current = None;
+        }
+        gone
+    }
+
     fn run(&mut self, ended: &mut Vec<(Done, &'static str)>) {
         let now = self.now;
         for c in self
@@ -510,6 +523,10 @@ fn inject_into(r: &Mutex<Registry>, json: &str) {
             r.current = Some(index);
         }
         let connection = r.connections;
+        if let Some(ms) = pad["leaves"].as_f64() {
+            let at = r.now + ms;
+            r.leaving.push((at, index));
+        }
         r.slots[i] = Some(Slot {
             identity,
             reading,

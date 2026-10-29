@@ -113,6 +113,11 @@ fn bake_source<D: contract::DataSource>(
         "generated game hosts require app.json rust: false"
     );
     fs::write(out.join("compat.json"), compat.to_json()).unwrap();
+    // What the APK's build reads beside the plan: its capabilities and derived permissions.
+    if platform == "android" {
+        contract::native::android_reach(&app, &baked, &out)
+            .unwrap_or_else(|e| panic!("android reach: {e}"));
+    }
     let entry = contract::rust_entry(data_type, constructor, "off").unwrap();
     let linked = if platform == "web" {
         contract::web_linked(&baked, &compat.inputs)

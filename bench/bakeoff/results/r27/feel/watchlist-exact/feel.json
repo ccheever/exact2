@@ -1,0 +1,1085 @@
+{
+ "app": "dev.bakeoff.watchlist.b74f27e",
+ "verdict": "probed",
+ "smooth": {
+  "frames": 1373,
+  "motionS": 23.15,
+  "fps": 60,
+  "hitchRatio": 12.1,
+  "longestFrameMs": 38.7,
+  "hitches": 16,
+  "hitchAt": [
+   {
+    "gesture": "slow-drag",
+    "ms": 33.3,
+    "mainMs": 0.5,
+    "late": 16.7,
+    "where": {
+     "Exact host": 4.2
+    },
+    "via": {
+     "timers": 4.2
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "slow-drag",
+    "ms": 37.2,
+    "mainMs": 1.4,
+    "late": 20.5,
+    "where": {
+     "Exact host": 3.9,
+     "app JS (main waits on exact.owner)": 3.9,
+     "Exact host · UIKit": 3.9
+    },
+    "via": {
+     "timers": 7.9,
+     "display links and ports": 3.9
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "slow-drag",
+    "ms": 33.3,
+    "mainMs": 0.3,
+    "late": 16.7,
+    "where": {
+     "Exact host": 3.4,
+     "Exact runtime (main waits on exact.owner)": 3.4,
+     "Exact host (main waits on exact.owner)": 3.4
+    },
+    "via": {
+     "timers": 10.2
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "fling-1500",
+    "ms": 34.7,
+    "mainMs": 1.6,
+    "late": 18,
+    "where": {
+     "app JS (main waits on exact.owner)": 2.8,
+     "Exact runtime (main waits on exact.owner)": 2.8,
+     "Exact host · UIKit": 5.6,
+     "Exact host": 2.8,
+     "Exact host · Core Animation": 2.8
+    },
+    "via": {
+     "timers": 11.2,
+     "display links and ports": 2.8,
+     "events": 2.8
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "fling-6000",
+    "ms": 35.6,
+    "mainMs": 1.1,
+    "late": 18.9,
+    "where": {
+     "Exact host · Core Animation": 2.8,
+     "Exact host · UIKit": 5.6,
+     "Exact host (main waits on exact.owner) · text & drawing": 2.8,
+     "Exact host (main waits on exact.owner)": 2.8,
+     "app JS (main waits on exact.owner)": 2.8,
+     "Exact host": 2.8
+    },
+    "via": {
+     "timers": 14,
+     "events": 2.8
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "pull-top",
+    "ms": 35.1,
+    "mainMs": 0.9,
+    "late": 18.4,
+    "where": {
+     "Exact runtime (main waits on exact.owner)": 5.3,
+     "Exact runtime": 2.7,
+     "Exact host": 2.7,
+     "app JS (main waits on exact.owner)": 5.3
+    },
+    "via": {
+     "timers": 13.3,
+     "events": 2.7
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "pull-top",
+    "ms": 34.7,
+    "mainMs": 3.2,
+    "late": 18,
+    "where": {
+     "Exact host · accessibility": 3,
+     "Exact runtime (main waits on exact.owner)": 3,
+     "Exact host · UIKit": 8.9,
+     "app JS (main waits on exact.owner)": 3
+    },
+    "via": {
+     "timers": 5.9,
+     "display links and ports": 5.9,
+     "the main queue": 3,
+     "events": 3
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "fling-partway",
+    "ms": 33.5,
+    "mainMs": 0.8,
+    "late": 16.8,
+    "where": {
+     "Exact host · text & drawing": 2.8,
+     "Exact host · UIKit": 8.4,
+     "Exact host (main waits on exact.owner)": 2.8,
+     "app JS (main waits on exact.owner)": 5.6
+    },
+    "via": {
+     "timers": 14.1,
+     "display links and ports": 2.8,
+     "events": 2.8
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "fling-partway",
+    "ms": 33.3,
+    "mainMs": 1.1,
+    "late": 16.7,
+    "where": {
+     "Exact host": 7.8,
+     "Exact runtime (main waits on exact.owner)": 2.6,
+     "app JS (main waits on exact.owner)": 2.6
+    },
+    "via": {
+     "timers": 10.4,
+     "events": 2.6
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "fling-for-tap",
+    "ms": 34.6,
+    "mainMs": 12.2,
+    "late": 17.9,
+    "where": {
+     "Exact runtime (main waits on exact.owner)": 2.7,
+     "Exact host · UIKit": 13.4,
+     "Exact host (main waits on exact.owner)": 2.7,
+     "Exact runtime": 2.7,
+     "Exact host": 2.7
+    },
+    "via": {
+     "events": 5.3,
+     "display links and ports": 8,
+     "timers": 8,
+     "the main queue": 2.7
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "find-carousel-1",
+    "ms": 33.3,
+    "mainMs": 3.5,
+    "late": 16.7,
+    "where": {
+     "Exact runtime (main waits on exact.owner)": 2.6,
+     "Exact host · UIKit": 2.6,
+     "Exact host (main waits on exact.owner)": 2.6,
+     "Exact host": 7.9
+    },
+    "via": {
+     "timers": 10.6,
+     "display links and ports": 2.6,
+     "events": 2.6
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "find-carousel-2",
+    "ms": 33.3,
+    "mainMs": 1.6,
+    "late": 16.7,
+    "where": {
+     "Exact runtime (main waits on exact.owner)": 2.6,
+     "Exact host · UIKit": 5.2,
+     "Exact host": 5.2,
+     "app JS (main waits on exact.owner)": 2.6
+    },
+    "via": {
+     "the main queue": 2.6,
+     "display links and ports": 2.6,
+     "timers": 10.4
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "find-carousel-3",
+    "ms": 33.6,
+    "mainMs": 0.4,
+    "late": 16.9,
+    "where": {
+     "Exact runtime (main waits on exact.owner)": 5.6,
+     "Exact host · UIKit": 2.8,
+     "Exact host (main waits on exact.owner)": 2.8,
+     "Exact host": 2.8,
+     "app JS (main waits on exact.owner)": 2.8
+    },
+    "via": {
+     "timers": 14.1,
+     "display links and ports": 2.8
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "find-carousel-4",
+    "ms": 34.6,
+    "mainMs": 2.9,
+    "late": 17.9,
+    "where": {
+     "Exact host · UIKit": 2.7,
+     "Exact host (main waits on exact.owner)": 2.7,
+     "Exact host": 8.1,
+     "app JS (main waits on exact.owner)": 2.7
+    },
+    "via": {
+     "timers": 13.4,
+     "events": 2.7
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "find-carousel-8",
+    "ms": 38.7,
+    "mainMs": 2.2,
+    "late": 22,
+    "where": {
+     "Exact runtime (main waits on exact.owner)": 3,
+     "Exact host · UIKit": 8.9,
+     "Exact host · text & drawing": 3,
+     "app JS (main waits on exact.owner)": 5.9
+    },
+    "via": {
+     "timers": 8.9,
+     "events": 11.9
+    },
+    "cause": "tick"
+   },
+   {
+    "gesture": "find-carousel-8",
+    "ms": 28,
+    "mainMs": 3.6,
+    "late": 11.3,
+    "where": {
+     "Exact host · UIKit": 2.5
+    },
+    "via": {
+     "display links and ports": 2.5
+    },
+    "cause": "scroll"
+   }
+  ],
+  "mainMs": 1.79,
+  "mainP95Ms": 4.72,
+  "tickHitchRatio": 11.6,
+  "scrollHitchRatio": 0.5,
+  "where": [
+   {
+    "gesture": "slow-drag",
+    "frames": 3,
+    "lateMs": 53.9,
+    "ticks": 3,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 15.4,
+      "what": [
+       [
+        "UIKit",
+        3.9
+       ]
+      ]
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 3.9,
+      "what": []
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 3.4,
+      "what": []
+     },
+     {
+      "who": "Exact host (main waits on exact.owner)",
+      "ms": 3.4,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 22.3,
+     "display links and ports": 3.9
+    }
+   },
+   {
+    "gesture": "fling-1500",
+    "frames": 1,
+    "lateMs": 18,
+    "ticks": 1,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 11.2,
+      "what": [
+       [
+        "UIKit",
+        5.6
+       ],
+       [
+        "Core Animation",
+        2.8
+       ]
+      ]
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 2.8,
+      "what": []
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 2.8,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 11.2,
+     "display links and ports": 2.8,
+     "events": 2.8
+    }
+   },
+   {
+    "gesture": "fling-6000",
+    "frames": 1,
+    "lateMs": 18.9,
+    "ticks": 1,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 11.2,
+      "what": [
+       [
+        "UIKit",
+        5.6
+       ],
+       [
+        "Core Animation",
+        2.8
+       ]
+      ]
+     },
+     {
+      "who": "Exact host (main waits on exact.owner)",
+      "ms": 5.6,
+      "what": [
+       [
+        "text & drawing",
+        2.8
+       ]
+      ]
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 2.8,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 14,
+     "events": 2.8
+    }
+   },
+   {
+    "gesture": "pull-top",
+    "frames": 2,
+    "lateMs": 36.4,
+    "ticks": 2,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 14.6,
+      "what": [
+       [
+        "UIKit",
+        8.9
+       ],
+       [
+        "accessibility",
+        3
+       ]
+      ]
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 8.3,
+      "what": []
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 8.3,
+      "what": []
+     },
+     {
+      "who": "Exact runtime",
+      "ms": 2.7,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 19.2,
+     "events": 5.7,
+     "display links and ports": 5.9,
+     "the main queue": 3
+    }
+   },
+   {
+    "gesture": "fling-partway",
+    "frames": 2,
+    "lateMs": 33.5,
+    "ticks": 2,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 19,
+      "what": [
+       [
+        "UIKit",
+        8.4
+       ],
+       [
+        "text & drawing",
+        2.8
+       ]
+      ]
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 8.2,
+      "what": []
+     },
+     {
+      "who": "Exact host (main waits on exact.owner)",
+      "ms": 2.8,
+      "what": []
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 2.6,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 24.5,
+     "display links and ports": 2.8,
+     "events": 5.4
+    }
+   },
+   {
+    "gesture": "fling-for-tap",
+    "frames": 1,
+    "lateMs": 17.9,
+    "ticks": 1,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 16.1,
+      "what": [
+       [
+        "UIKit",
+        13.4
+       ]
+      ]
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 2.7,
+      "what": []
+     },
+     {
+      "who": "Exact host (main waits on exact.owner)",
+      "ms": 2.7,
+      "what": []
+     },
+     {
+      "who": "Exact runtime",
+      "ms": 2.7,
+      "what": []
+     }
+    ],
+    "via": {
+     "events": 5.3,
+     "display links and ports": 8,
+     "timers": 8,
+     "the main queue": 2.7
+    }
+   },
+   {
+    "gesture": "find-carousel-1",
+    "frames": 1,
+    "lateMs": 16.7,
+    "ticks": 1,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 10.5,
+      "what": [
+       [
+        "UIKit",
+        2.6
+       ]
+      ]
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 2.6,
+      "what": []
+     },
+     {
+      "who": "Exact host (main waits on exact.owner)",
+      "ms": 2.6,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 10.6,
+     "display links and ports": 2.6,
+     "events": 2.6
+    }
+   },
+   {
+    "gesture": "find-carousel-2",
+    "frames": 1,
+    "lateMs": 16.7,
+    "ticks": 1,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 10.4,
+      "what": [
+       [
+        "UIKit",
+        5.2
+       ]
+      ]
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 2.6,
+      "what": []
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 2.6,
+      "what": []
+     }
+    ],
+    "via": {
+     "the main queue": 2.6,
+     "display links and ports": 2.6,
+     "timers": 10.4
+    }
+   },
+   {
+    "gesture": "find-carousel-3",
+    "frames": 1,
+    "lateMs": 16.9,
+    "ticks": 1,
+    "by": [
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 5.6,
+      "what": []
+     },
+     {
+      "who": "Exact host",
+      "ms": 5.6,
+      "what": [
+       [
+        "UIKit",
+        2.8
+       ]
+      ]
+     },
+     {
+      "who": "Exact host (main waits on exact.owner)",
+      "ms": 2.8,
+      "what": []
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 2.8,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 14.1,
+     "display links and ports": 2.8
+    }
+   },
+   {
+    "gesture": "find-carousel-4",
+    "frames": 1,
+    "lateMs": 17.9,
+    "ticks": 1,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 10.8,
+      "what": [
+       [
+        "UIKit",
+        2.7
+       ]
+      ]
+     },
+     {
+      "who": "Exact host (main waits on exact.owner)",
+      "ms": 2.7,
+      "what": []
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 2.7,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 13.4,
+     "events": 2.7
+    }
+   },
+   {
+    "gesture": "find-carousel-8",
+    "frames": 2,
+    "lateMs": 33.3,
+    "ticks": 1,
+    "by": [
+     {
+      "who": "Exact host",
+      "ms": 14.4,
+      "what": [
+       [
+        "UIKit",
+        11.4
+       ],
+       [
+        "text & drawing",
+        3
+       ]
+      ]
+     },
+     {
+      "who": "app JS (main waits on exact.owner)",
+      "ms": 5.9,
+      "what": []
+     },
+     {
+      "who": "Exact runtime (main waits on exact.owner)",
+      "ms": 3,
+      "what": []
+     }
+    ],
+    "via": {
+     "timers": 8.9,
+     "events": 11.9,
+     "display links and ports": 2.5
+    }
+   }
+  ],
+  "verdict": {
+   "hitch": "bad",
+   "stall": "tell",
+   "main": "ok"
+  }
+ },
+ "tracking": {
+  "ratio": 1,
+  "lagFrames": 0,
+  "maxErrorPt": 4.5,
+  "slopPt": 10,
+  "glidePt": 0,
+  "verdict": {
+   "ratio": "ok",
+   "lag": "ok",
+   "glide": "ok"
+  }
+ },
+ "flings": [
+  {
+   "name": "fling-1500",
+   "asked": 1500,
+   "fingerV": 1120,
+   "tauMs": 514,
+   "ratePerMs": 0.99806,
+   "r2": 0.9866,
+   "contentV": 1357,
+   "handoff": 0.9,
+   "frames": 92,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 666,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 3.1,
+   "contentSizeChanges": 6,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-4000",
+   "asked": 4000,
+   "fingerV": 2660,
+   "tauMs": 505,
+   "ratePerMs": 0.99802,
+   "r2": 0.9959,
+   "contentV": 4121,
+   "handoff": 1.03,
+   "frames": 123,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 2018,
+   "contentSizeChanges": 38,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-6000",
+   "asked": 6000,
+   "fingerV": 6050,
+   "tauMs": 508,
+   "ratePerMs": 0.99803,
+   "r2": 0.9953,
+   "contentV": 3412,
+   "handoff": 0.57,
+   "frames": 120,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1665,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 8.9,
+   "contentSizeChanges": 33,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-1",
+   "asked": 8000,
+   "fingerV": -4980,
+   "tauMs": 499,
+   "ratePerMs": 0.998,
+   "r2": 0.9997,
+   "contentV": -4138,
+   "handoff": 0.52,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1864,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-2",
+   "asked": 8000,
+   "fingerV": -4933,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9997,
+   "contentV": -4114,
+   "handoff": 0.51,
+   "frames": 82,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1840,
+   "contentSizeChanges": 3,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-up-3",
+   "asked": 8000,
+   "fingerV": -4832,
+   "tauMs": 505,
+   "ratePerMs": 0.99802,
+   "r2": 0.7854,
+   "contentV": -4027,
+   "handoff": 0.5,
+   "frames": 33,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1299,
+   "contentSizeChanges": 4,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-partway",
+   "asked": 3000,
+   "fingerV": 2660,
+   "tauMs": 506,
+   "ratePerMs": 0.99802,
+   "r2": 0.9917,
+   "contentV": 3261,
+   "handoff": 1.09,
+   "frames": 118,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1595,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 4.2,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  },
+  {
+   "name": "fling-for-tap",
+   "asked": 4000,
+   "fingerV": 2664,
+   "tauMs": 500,
+   "ratePerMs": 0.998,
+   "r2": 0.9998,
+   "contentV": 4353,
+   "handoff": 1.09,
+   "frames": 22,
+   "jumps": 0,
+   "jumpAt": [],
+   "travelPt": 1083,
+   "liftFrameMs": 16.7,
+   "liftMainMs": 5.3,
+   "contentSizeChanges": 0,
+   "contentShifts": 0
+  }
+ ],
+ "momentum": {
+  "tauMs": 508,
+  "handoff": 1.03,
+  "jumps": 0,
+  "contentSizeChanges": 84,
+  "contentShifts": 0,
+  "liftDrops": 0,
+  "lifts": 4,
+  "liftMainMs": 8.9,
+  "verdict": {
+   "lift": "ok",
+   "tau": "ok",
+   "handoff": "ok",
+   "jumps": "ok"
+  }
+ },
+ "edgeBounce": {
+  "name": "fling-up-3",
+  "overshootPt": 41,
+  "entryV": -1040,
+  "settleS": 0.67,
+  "verdict": {
+   "settle": "ok"
+  }
+ },
+ "rubberBand": {
+  "overscrollPt": 110.7,
+  "fingerPt": 229.7,
+  "ratio": 0.48,
+  "settleS": 0.54,
+  "bounces": true,
+  "verdict": {
+   "ratio": "ok",
+   "settle": "ok"
+  }
+ },
+ "scrollToTop": {
+  "fromPt": 1779,
+  "reached": true,
+  "startS": 0.14,
+  "durationS": 0.82,
+  "scrollsToTop": true,
+  "verdict": {
+   "reached": "ok"
+  }
+ },
+ "tapToStop": {
+  "beforeV": 1960,
+  "stopFrames": 1,
+  "travelPt": 0,
+  "activated": false,
+  "verdict": {
+   "stop": "ok"
+  }
+ },
+ "blank": {
+  "samples": 138,
+  "uniformSamples": 0,
+  "checked": 0,
+  "lateChecked": 0,
+  "verified": true,
+  "blankSamples": 0,
+  "share": 0,
+  "maxPt": 0,
+  "sampleMs": 2.26,
+  "verdict": {
+   "blank": "ok"
+  }
+ },
+ "scrub": {
+  "took": true,
+  "crossed": 0.92,
+  "maxStepPt": 492,
+  "smooth": {
+   "frames": 195,
+   "motionS": 3.3,
+   "fps": 60,
+   "hitchRatio": 15.8,
+   "longestFrameMs": 38.1,
+   "hitches": 3,
+   "hitchAt": [
+    {
+     "gesture": "scrub",
+     "ms": 38.1,
+     "mainMs": 8.5,
+     "late": 21.5,
+     "where": {
+      "Exact runtime (main waits on exact.owner)": 2.7,
+      "Exact host · UIKit": 5.4,
+      "Exact host · text & drawing": 2.7,
+      "Exact host": 5.4,
+      "app JS (main waits on exact.owner)": 2.7
+     },
+     "via": {
+      "the main queue": 5.4,
+      "timers": 8.1,
+      "events": 5.4
+     },
+     "cause": "tick"
+    },
+    {
+     "gesture": "scrub",
+     "ms": 28.5,
+     "mainMs": 19,
+     "late": 11.9,
+     "where": {
+      "Exact host · text & drawing": 2.6,
+      "Exact host · UIKit": 7.8,
+      "Exact host": 5.2,
+      "Exact host · Core Animation": 2.6
+     },
+     "via": {
+      "the main queue": 7.8,
+      "display links and ports": 10.5
+     },
+     "cause": "scroll"
+    },
+    {
+     "gesture": "scrub",
+     "ms": 35.5,
+     "mainMs": 5.3,
+     "late": 18.9,
+     "where": {
+      "Exact runtime (main waits on exact.owner)": 2.4,
+      "Exact host · UIKit": 12.2,
+      "Exact host": 2.4,
+      "app JS (main waits on exact.owner)": 2.4
+     },
+     "via": {
+      "timers": 9.7,
+      "display links and ports": 2.4,
+      "events": 7.3
+     },
+     "cause": "tick"
+    }
+   ],
+   "mainMs": 4.18,
+   "mainP95Ms": 10.07,
+   "where": [
+    {
+     "gesture": "scrub",
+     "frames": 3,
+     "lateMs": 52.3,
+     "ticks": 2,
+     "by": [
+      {
+       "who": "Exact host",
+       "ms": 46.3,
+       "what": [
+        [
+         "UIKit",
+         25.4
+        ],
+        [
+         "text & drawing",
+         5.3
+        ],
+        [
+         "Core Animation",
+         2.6
+        ]
+       ]
+      },
+      {
+       "who": "Exact runtime (main waits on exact.owner)",
+       "ms": 5.1,
+       "what": []
+      },
+      {
+       "who": "app JS (main waits on exact.owner)",
+       "ms": 5.1,
+       "what": []
+      }
+     ],
+     "via": {
+      "the main queue": 13.2,
+      "timers": 17.8,
+      "events": 12.7,
+      "display links and ports": 12.9
+     }
+    }
+   ]
+  },
+  "blank": {
+   "samples": 49,
+   "uniformSamples": 0,
+   "checked": 0,
+   "lateChecked": 0,
+   "verified": true,
+   "blankSamples": 0,
+   "share": 0,
+   "maxPt": 0,
+   "sampleMs": 2.18,
+   "verdict": {
+    "blank": "ok"
+   }
+  },
+  "heldBlank": {
+   "samples": 7,
+   "uniformSamples": 0,
+   "checked": 0,
+   "lateChecked": 0,
+   "verified": true,
+   "blankSamples": 0,
+   "share": 0,
+   "maxPt": 0,
+   "sampleMs": 1.94,
+   "verdict": {
+    "blank": "ok"
+   }
+  },
+  "verdict": {
+   "hitch": "bad",
+   "stall": "tell",
+   "blank": "ok",
+   "held": "ok"
+  }
+ },
+ "list": {
+  "cls": "ExactGroupedLists.GroupedCollectionView",
+  "decelerationRate": 0.998,
+  "bounces": true,
+  "scrollsToTop": true,
+  "delaysContentTouches": true,
+  "contentHeight": 14427.5
+ }
+}

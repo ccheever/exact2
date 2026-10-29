@@ -1,0 +1,19 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/device@^1.0",
+  "platform": "linux",
+  "targets": ["linux"],
+  "shapes": {
+    "LinuxNetwork": {
+      "metered": "bool",
+      "connectivity": "enum<local|limited|captivePortal|full>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["lib.rs"] },
+  "artifacts": [],
+  "class": "Device"
+}

@@ -148,9 +148,10 @@ impl Target {
         })
     }
 
-    pub(super) fn replace(&mut self, pixels: Pixmap) -> Option<Pixmap> {
+    /// The replacement has been allocated transparent and has no ink yet.
+    pub(super) fn replace_empty(&mut self, pixels: Pixmap) -> Option<Pixmap> {
         let old = self.take();
-        self.rows = 0..pixels.height();
+        self.rows = 0..0;
         self.pixels = Some(pixels);
         old
     }
@@ -159,6 +160,102 @@ impl Target {
 #[cfg(test)]
 mod tests {
     use super::super::*;
+
+    #[test]
+    fn opacity_ink_rows_match_full_compositing_for_bounds_and_fallbacks() {
+        for scale in [1., 1.25, 1.5, 2.] {
+            for case in 0..10 {
+                let mut r = Raster::new();
+                r.page([31, 113, 207, 127]);
+                r.begin(120., 160., scale);
+                r.push_opacity(0.37);
+                let identity = Transform::identity();
+                let shape = Shape::new((12.25, 51.5, 52.75, 27.125), [7.5; 4]);
+                match case {
+                    0 => {}
+                    1 => r.fill(&shape, [157, 43, 201, 83], identity),
+                    2 | 3 => {
+                        r.push_clip(&Shape::rect((12., 52., 48., 24.)), identity);
+                        let fill = if case == 2 {
+                            Shape::rect((0., 0., 120., 160.))
+                        } else {
+                            Shape::new((0., 0., 120., 160.), [4.; 4])
+                        };
+                        r.fill(&fill, [157, 43, 201, 255], identity);
+                        r.pop_clip();
+                    }
+                    4 | 5 => {
+                        let path = exact_kernel::svg::parse_d("M12 52L64 52L38 78Z");
+                        r.svg_path(
+                            &crate::paint::SvgPaint {
+                                path: &path,
+                                fill: Some(crate::paint::Ink::Solid([157, 43, 201, 83])),
+                                stroke: (case == 5)
+                                    .then_some(crate::paint::Ink::Solid([217, 151, 32, 255])),
+                                even_odd: false,
+                                order: [0, 1, 2],
+                                width: 13.,
+                                cap: 2,
+                                join: 0,
+                                miter: 8.,
+                                dash: vec![],
+                                phase: 0.,
+                            },
+                            identity,
+                        );
+                    }
+                    6 => {
+                        r.push_opacity(0.61);
+                        r.fill(&shape, [157, 43, 201, 83], identity);
+                        r.pop_opacity();
+                    }
+                    7 => r.fill(
+                        &Shape::rect((0., 0., 120., 160.)),
+                        [157, 43, 201, 255],
+                        identity,
+                    ),
+                    8 => r.fill(&shape, [157, 43, 201, 83], Transform::from_rotate(17.)),
+                    _ => r.pointer(30., 60.),
+                }
+                let rows = r.target.rows();
+                if case <= 4 {
+                    assert!(rows.end - rows.start < r.height / 2);
+                }
+                r.target.resolve();
+                let layer = r.target.pixels.as_ref().unwrap();
+                for (y, bytes) in layer
+                    .data()
+                    .chunks_exact(layer.width() as usize * 4)
+                    .enumerate()
+                {
+                    if !rows.contains(&(y as u32)) {
+                        assert!(
+                            bytes.iter().all(|&byte| byte == 0),
+                            "scale={scale} case={case} row={y}"
+                        );
+                    }
+                }
+                let mut expected = r.layers.last().unwrap().0.clone();
+                expected.draw_pixmap(
+                    0,
+                    0,
+                    layer.as_ref(),
+                    &PixmapPaint {
+                        opacity: 0.37,
+                        ..Default::default()
+                    },
+                    identity,
+                    None,
+                );
+                r.pop_opacity();
+                assert_eq!(
+                    r.finish().unwrap().data(),
+                    expected.data(),
+                    "scale={scale} case={case}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn recycled_frames_keep_storage_but_clear_old_ink_and_resize() {

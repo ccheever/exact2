@@ -136,6 +136,7 @@ impl Host {
             fetch: Fetch {
                 transport: Arc::clone(&self.transport),
                 grants: Arc::clone(&grants),
+                gate: None,
             },
             fs: Fs {
                 grants: Arc::clone(&grants),
@@ -162,6 +163,7 @@ impl Host {
             websocket: WebSocket {
                 transport: Arc::clone(&self.sockets),
                 grants: Arc::clone(&grants),
+                gate: None,
             },
             env: Env { grants },
         }
@@ -242,9 +244,17 @@ impl Bindings {
 pub struct WebSocket {
     transport: Arc<dyn SocketTransport>,
     grants: Arc<GrantSet>,
+    gate: Option<Arc<dyn crate::boundary::HopGate>>,
 }
 
 impl WebSocket {
+    /// This binding with the host's `gate` checked at every [`Self::open`]
+    /// (Exact patch, LLP 1133.036 D6).
+    pub fn with_gate(mut self, gate: Arc<dyn crate::boundary::HopGate>) -> Self {
+        self.gate = Some(gate);
+        self
+    }
+
     /// Open `url` (`ws:` or `wss:`); each message may be up to `max_message`
     /// bytes. Aborting `signal` ends the open or the read in progress.
     pub fn open(
@@ -253,9 +263,10 @@ impl WebSocket {
         max_message: usize,
         signal: &crate::stdlib::abort::AbortSignal,
     ) -> Result<Box<dyn MessageSource>, HostError> {
-        websocket::open(
+        websocket::open_gated(
             self.transport.as_ref(),
             &self.grants,
+            self.gate.as_deref(),
             url,
             max_message,
             signal,
@@ -431,9 +442,17 @@ impl Kv {
 pub struct Fetch {
     transport: Arc<dyn Transport>,
     grants: Arc<GrantSet>,
+    gate: Option<Arc<dyn crate::boundary::HopGate>>,
 }
 
 impl Fetch {
+    /// This binding with the host's `gate` checked beside the grant at every
+    /// hop (Exact patch, LLP 1133.036 D6).
+    pub fn with_gate(mut self, gate: Arc<dyn crate::boundary::HopGate>) -> Self {
+        self.gate = Some(gate);
+        self
+    }
+
     /// Adapt this binding's configured blocking transport to caller-supplied
     /// bounded workers. Pass the adapter to `start_async` so this binding still
     /// admits each hop with its own grant; no raw grant extraction is needed.
@@ -457,9 +476,10 @@ impl Fetch {
         caps: crate::stdlib::fetch_async::HeaderCaps,
         events: Arc<dyn crate::stdlib::fetch_async::FetchEvents>,
     ) -> Arc<crate::stdlib::fetch_async::FetchTask> {
-        crate::stdlib::fetch_async::FetchTask::start(
+        crate::stdlib::fetch_async::FetchTask::start_gated(
             transport,
             self.grants.clone(),
+            self.gate.clone(),
             request,
             upload,
             signal,
@@ -478,11 +498,13 @@ impl Fetch {
         request: Request,
         signal: &crate::stdlib::abort::AbortSignal,
     ) -> Result<crate::stdlib::fetch::StreamingResponse, HostError> {
-        fetch::fetch_stream(self.transport.as_ref(), &self.grants, request, signal)
+        let gate = self.gate.as_deref();
+        fetch::fetch_stream_gated(self.transport.as_ref(), &self.grants, gate, request, signal)
     }
 
     pub fn send(&self, request: Request) -> Result<Response, HostError> {
-        fetch::fetch(self.transport.as_ref(), &self.grants, request)
+        self.stream(request, &crate::stdlib::abort::AbortSignal::default())?
+            .collect()
     }
 
     pub fn get(&self, url: &str) -> Result<Response, HostError> {

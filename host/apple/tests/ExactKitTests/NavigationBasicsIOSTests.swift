@@ -25,16 +25,16 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let presenter = NotificationPresenter()
         presenter.app = ExactApp.shared
         let date = Date()
-        let info: [AnyHashable: Any] = ["navigate": "/thread/42", "session": session.label,
-                                        "owner": session.notificationOwnerID]
+        let info: [AnyHashable: Any] = ["exact": ["navigate": "/thread/42", "session": session.label,
+                                        "owner": session.notificationOwnerID]]
         presenter.deliver(id: "thread-42", date: date, info: info)
         XCTAssertEqual(session.launchLocation, "/thread/42")
-        presenter.deliver(id: "thread-42", date: date, info: ["navigate": "/other", "session": session.label,
-                                                                           "owner": session.notificationOwnerID])
+        presenter.deliver(id: "thread-42", date: date, info: ["exact": ["navigate": "/other", "session": session.label,
+                                                                           "owner": session.notificationOwnerID]])
         XCTAssertEqual(session.launchLocation, "/thread/42")
         XCTAssertTrue(session.pendingLaunchLocations.isEmpty, "a duplicate click must not queue another navigation")
-        presenter.deliver(id: "thread-43", date: date, info: ["navigate": "/thread/43", "session": session.label,
-                                                                           "owner": session.notificationOwnerID])
+        presenter.deliver(id: "thread-43", date: date, info: ["exact": ["navigate": "/thread/43", "session": session.label,
+                                                                           "owner": session.notificationOwnerID]])
         XCTAssertEqual(session.launchLocation, "/thread/42")
         XCTAssertEqual(session.pendingLaunchLocations, ["/thread/43"])
     }
@@ -1475,7 +1475,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
 
 /// A pop the test drives: a cross-fade animator under a percent-driven
 /// interaction, as NavigationBarIOSTests' forwarded delegate does.
-private final class InteractivePop: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
+final class InteractivePop: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
     var interactive = false
     let interaction = UIPercentDrivenInteractiveTransition()
     func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,

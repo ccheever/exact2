@@ -1,0 +1,211 @@
+{
+  "kind": "interface",
+  "name": "@exact/notifications",
+  "version": "1.0.0",
+  "grants": [
+    "device.notifications"
+  ],
+  "permission": {
+    "name": "notifications",
+    "status": "notificationStatus",
+    "field": "state",
+    "denied": "NotAllowedError"
+  },
+  "shapes": {
+    "NotificationStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "badge": "bool",
+      "apple": "option<AppleNotificationSettings>"
+    },
+    "NotificationEvent": {
+      "tag": "string",
+      "data": "option<string>",
+      "title": "string",
+      "body": "option<string>"
+    }
+  },
+  "names": [
+    {
+      "send": "showNotification",
+      "permission": "asks",
+      "grants": [
+        "device.notifications"
+      ],
+      "options": {
+        "title": "string",
+        "body": "option<string>",
+        "tag": "option<string>",
+        "silent": "option<bool>",
+        "data": "option<string>",
+        "showTrigger": "option<number>",
+        "navigate": "option<string>"
+      },
+      "answers": null,
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "tvos",
+          "android",
+          "windows",
+          "terminal"
+        ],
+        "list": {
+          "state": "notifications",
+          "key": "tag",
+          "at": "showTrigger",
+          "launch": "notification",
+          "tap": {
+            "event": "notificationclick",
+            "args": [
+              "tag",
+              {
+                "tag": "tag",
+                "data": "data",
+                "title": "title",
+                "body": "body"
+              }
+            ],
+            "navigate": "navigate"
+          }
+        }
+      }
+    },
+    {
+      "send": "closeNotification",
+      "permission": "none",
+      "options": {
+        "tag": "string"
+      },
+      "answers": null,
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "tvos",
+          "android",
+          "windows",
+          "terminal"
+        ],
+        "unlist": "tag"
+      }
+    },
+    {
+      "send": "setAppBadge",
+      "permission": "none",
+      "options": {
+        "contents": "option<number>"
+      },
+      "answers": null,
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "tvos",
+          "android",
+          "windows",
+          "terminal"
+        ],
+        "checks": [
+          {
+            "min": {
+              "contents": 0
+            },
+            "error": "TypeError"
+          }
+        ],
+        "set": {
+          "state": "badge",
+          "scope": "app",
+          "from": "contents",
+          "absent": "flag",
+          "zero": null
+        }
+      }
+    },
+    {
+      "send": "clearAppBadge",
+      "permission": "none",
+      "answers": null,
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "tvos",
+          "android",
+          "windows",
+          "terminal"
+        ],
+        "set": {
+          "state": "badge",
+          "scope": "app",
+          "value": null
+        }
+      }
+    },
+    {
+      "source": "notificationStatus",
+      "live": true,
+      "answers": "NotificationStatus",
+      "substitute": {
+        "default": {
+          "available": true,
+          "state": "prompt",
+          "badge": true
+        },
+        "targets": {
+          "linux": {
+            "available": false,
+            "state": "unknown",
+            "badge": false
+          },
+          "tvos": {
+            "available": false,
+            "state": "unknown",
+            "badge": false
+          },
+          "android": {
+            "available": false,
+            "state": "unknown",
+            "badge": false
+          },
+          "windows": {
+            "available": false,
+            "state": "unknown",
+            "badge": false
+          },
+          "terminal": {
+            "available": false,
+            "state": "unknown",
+            "badge": false
+          }
+        }
+      }
+    },
+    {
+      "send": "requestNotificationPermission",
+      "permission": "request",
+      "grants": [
+        "device.notifications"
+      ],
+      "answers": "NotificationStatus",
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "tvos",
+          "android",
+          "windows",
+          "terminal"
+        ],
+        "answers": "notificationStatus"
+      }
+    },
+    {
+      "event": "notificationclick",
+      "on": "root",
+      "raised": "activation",
+      "args": [
+        "string",
+        "NotificationEvent"
+      ],
+      "hold": 16
+    }
+  ]
+}

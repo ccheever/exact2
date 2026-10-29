@@ -475,6 +475,7 @@ component App
     hcheck(byTestId(await s.tree(), 'station-search') != null, 'b kept its state after a refused candidate');
     const logs = await s.logs();
     hcheck(logs.host.some((l) => /apply .*refused/.test(l)), `the host reported the refusal: ${logs.host.filter((l) => /apply/.test(l)).join(' | ')}`);
+    if (host === 'host') await (await import('./smoke-leave.mjs')).leaveChecks({ s, say, settle: settleHost, check: hcheck }); // 4a
     // 5. Destroy a under b: a's handle is refused by name; b still answers.
     say('destroy a');
     await settleHost(500);
@@ -1422,7 +1423,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
 for (const file of authoredTests(app.dir)) {
   const t = await runTests({ host, file }).catch((e) => ({ passed: 0, failed: 1, results: [{ name: basename(file), failures: [e.message] }] }));
   for (const r of t.results) for (const f of r.failures) check(false, `test "${r.name}": ${f}`);
-  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (${app.name}/${basename(file)})`);
+  console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed${t.skipped ? `, ${t.skipped} skipped` : ''} (${app.name}/${basename(file)})`);
 }
 
 // 14. Native modules (LLP 1024 D8): the fixture's whole seam, when the app is it.

@@ -124,7 +124,8 @@ impl Failure {
                 | DataError::BadArguments(s)
                 | DataError::Unavailable(s)
                 | DataError::DeferredAtBake(s)
-                | DataError::Interface(s) => (FailureCode::Error, s.clone(), String::new()),
+                | DataError::Interface(s)
+                | DataError::Overrun(s) => (FailureCode::Error, s.clone(), String::new()),
             },
             RunnerError::Shape { resource, why } => (
                 FailureCode::Shape,

@@ -1,0 +1,27 @@
+# Bench on Android's Canvas host (LLP 1133.037 §12.2): the library the reader
+# (host/android) loads as libexactcanvas.so, with the runner, the kernel, the
+# baked plan and the app's TypeScript data module as Hermes bytecode (written
+# by build.rs, never committed). Off Android the library is empty.
+[package]
+name = "bench-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Bench on Android's Canvas host: the library the reader loads"
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+bench = false
+
+[target.'cfg(target_os = "android")'.dependencies]
+exact-logic = { path = "../../../logic" }
+exact-linux = { path = "../../../host/linux" }
+exact-js = { path = "../../../js" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }
+exact-plan = { path = "../../../plan" }
+contract = { path = "../../../contract/cli" }

@@ -86,6 +86,7 @@ export function implementation({ changed, agent, log, tracks, files }) {
   /** Each viewfinder by its node's id: what the runner said of it and what it consumes. */
   const views = new Map();
   let picture = null, pictureURL = null, pictureBitmap = null, taken = 0;
+  const photos = [];
   const viewOf = id => {
     if (!views.has(id)) views.set(id, { el: null, src: null, changes: 0, reports: 0, shown: false, madeBy: 'app', sub: null });
     return views.get(id);
@@ -207,6 +208,7 @@ export function implementation({ changed, agent, log, tracks, files }) {
       // The journal names each photo's SHA-256, which a drive compares with the agent's picture (§9).
       const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
       say(`took ${path} (${bytes.length} bytes, ${width}×${height}, sha256 ${sha})`);
+      photos.push({ path, sha256: sha, track: args.track, origin: 'app' });
       return { path, type, size: bytes.length, width, height };
     },
     async getPhotoCapabilities(args) {
@@ -224,6 +226,8 @@ export function implementation({ changed, agent, log, tracks, files }) {
       } catch { return plain; }
     },
     picture: async () => ({ path: picture ?? '' }),
+    /** What `state.extensions` lists as this implementation's (D8 item 9): each photo, by path and SHA-256. */
+    state: () => ({ photos }),
     /** Under the agent: the picture `prefer extension camera.picture={"path":…}` names (D8 item 9). */
     preferred(values) {
       const named = values?.picture?.path;

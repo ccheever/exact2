@@ -1,0 +1,32 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/compose@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.compose.ComposeModule",
+  "manifest": {
+    "queries": [
+      {
+        "action": "android.intent.action.SENDTO",
+        "scheme": "mailto"
+      },
+      {
+        "action": "android.intent.action.SENDTO",
+        "scheme": "smsto"
+      }
+    ]
+  }
+}

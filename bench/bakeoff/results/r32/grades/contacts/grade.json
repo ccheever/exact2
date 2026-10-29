@@ -1,0 +1,57 @@
+{
+  "A": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "All contacts sorted by last name in letter sections, with a working A–Z index (tap and scrub). Section headers don't stay pinned, and after a jump the target header sits hidden under the search bar."},
+      {"n": 2, "status": "pass", "note": "Filters live on name, company (kestrel → 12), phone and email. Shows a count ('12 contacts found'), a clear empty state, and the clear button restores the full list and favorites."},
+      {"n": 3, "status": "pass", "note": "Details show avatar, name, company, phone, email and birthday. Phone and email are tinted with an arrow, and tapping the phone shows the system 'Not Available' alert, so they are real links."},
+      {"n": 4, "status": "pass", "note": "Add to / Remove from Favorites pill on the details screen. Favorites show at the top as a horizontal row of avatars with a count, and the star also appears on the list row. Kept after relaunch."},
+      {"n": 5, "status": "pass", "note": "Add and Edit sheets with the five fields. Save is disabled for empty or whitespace-only names and shows a hint. Return moves to the next field, Cancel asks to discard changes, and saving opens the new contact. Edits are kept."},
+      {"n": 6, "status": "pass", "note": "Swipe-to-delete on rows and Delete Contact on the details screen, both with a confirmation. The count updates."},
+      {"n": 7, "status": "pass", "note": "Added, edited and deleted contacts and favorite changes all survive relaunch."}
+    ],
+    "bugs": [
+      "The delete confirmation popover (from a swipe or the details screen) points at the top of the screen near the title, not at the row or button that asked for it.",
+      "The Edit Contact sheet still says 'A new connection' under the avatar when both names are cleared, and when editing that copy is wrong.",
+      "In the form, the focused field (Last name) ends up half under the keyboard's Done accessory. The form doesn't scroll it fully into view."
+    ],
+    "tells": [
+      "Heavily branded custom look: serif 'Contacts' display title, a 'YOUR ADDRESS BOOK' tracked eyebrow, a '• Directory' label, a warm beige background and a terracotta tint. It doesn't read as a stock iOS app.",
+      "No system large-title navigation bar. The title is part of the scrolling content and the search field is a custom pill pinned in the bar.",
+      "Section headers (A, B, C…) are not sticky. They scroll away, unlike a plain or inset-grouped iOS list.",
+      "Favorites are a horizontal carousel of avatars, not a list section. At the largest text size it runs under the section index, and names are cut off ('Fe', 'Ade').",
+      "During a swipe, the row being swiped loses its avatar and leaves a hard white rectangle behind the rounded card. The Delete button is a custom tinted rounded rectangle.",
+      "At the largest text size the search field grows into a huge bubble that takes about a third of the screen.",
+      "At the largest text size on the details screen, the phone number breaks inside the number ('…351-945' / '6'), the email is hyphenated mid-word ('eli.adeye-/mi@ex-/ample.-/com'), and the envelope and gift icons overlap the text.",
+      "Form fields show a caption label and an identical placeholder ('First name' over 'First name')."
+    ],
+    "scroll": "Smooth when dragged slowly and when flung, with no blank rows or pop-in, and it springs back cleanly when pulled past the top. Section headers don't pin, and the scroll position is kept when coming back from a details screen.",
+    "scores": {"features": 9, "platform": 5, "polish": 6, "overall": 7}
+  },
+  "B": {
+    "requirements": [
+      {"n": 1, "status": "pass", "note": "Sorted by last name with sticky letter headers and a native-looking blue A–Z index (tap and scrub both work)."},
+      {"n": 2, "status": "pass", "note": "Bottom search field (iOS 26 style) filters by name, company, phone and email. Has a 'No Results' empty state, and clearing restores Favorites and the full list."},
+      {"n": 3, "status": "partial", "note": "Shows name, company, phone, email and birthday, with phone and email in blue. But the name heading runs first and last name together with no space ('MeiChang', 'FelixAdeyemi', 'TestZed') on every contact. Tapping phone or email gives no visible response at all."},
+      {"n": 4, "status": "pass", "note": "Add to / Remove from Favorites row on the details screen. A Favorites section sits at the top of the list. Kept after relaunch."},
+      {"n": 5, "status": "pass", "note": "Add and Edit sheets in an inset-grouped form. Done is disabled for empty or whitespace-only names and shows a hint, and the name is trimmed. Edits are saved. After adding, the app returns to the list, not the new contact."},
+      {"n": 6, "status": "pass", "note": "Native swipe-to-delete on rows, and Delete Contact on the details screen with a confirmation alert."},
+      {"n": 7, "status": "pass", "note": "Additions, edits, deletions and favorite changes survive relaunch."}
+    ],
+    "bugs": [
+      "The details screen shows the full name with no space between first and last name ('MeiChang') for every contact.",
+      "Tapping the phone number or email gives no feedback and does nothing visible.",
+      "After a swipe-delete the list jumps about 100 pt, so the scroll position shifts.",
+      "The first tap on a row right after a section-index jump was sometimes ignored."
+    ],
+    "tells": [
+      "At the largest text size, the email breaks inside the word ('felix.adeyemi@e' / 'xample.com') and the phone number wraps onto two lines.",
+      "The details screen is titled 'Contact', not the person's name, and uses a generic grey silhouette with no initials.",
+      "Hairline separators briefly drew partially or doubled during a fling.",
+      "Edit fields truncate with an ellipsis at the largest text size (standard UITextField behaviour, but it hides the company, phone and email)."
+    ],
+    "scroll": "Feels like a stock iOS list: momentum, rubber-banding at the top, sticky headers, and the large title collapsing into the inline title. The only flaws were a brief separator flicker mid-fling and a jump after deleting a row. The scroll position is kept when coming back from a details screen.",
+    "scores": {"features": 8, "platform": 9, "polish": 6, "overall": 6}
+  },
+  "better": "A",
+  "why": "B is much closer to a hand-built iOS app: system large title, bottom search, sticky headers, native swipe actions and system colours. But every details screen shows the name without a space ('MeiChang'), and tapping phone or email does nothing visible. A has a strong custom brand that is clearly not stock iOS and breaks badly at the largest text size, but every requirement works correctly with confirmations and good feedback, so it is the one I'd rather use as-is."
+}
