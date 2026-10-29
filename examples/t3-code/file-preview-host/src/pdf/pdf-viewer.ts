@@ -333,12 +333,14 @@ export class PdfViewer {
     if (anchor && anchor.width !== width) this.scroll.scrollTo({ top: offsets[anchor.page]! - 16 + (anchor.offset * width) / anchor.width });
   }
 
+  // The loading task's `destroy` (closeLoad) lets the document go, as the reference's effect does: PDF.js 6's document
+  // has no `destroy` of its own.
   dispose() {
     this.closeLoad?.();
     this.closeFind?.();
     this.unobserve();
     for (const page of this.pages.values()) page.dispose();
     this.pages.clear();
-    void this.pdf?.destroy();
+    this.pdf = null;
   }
 }

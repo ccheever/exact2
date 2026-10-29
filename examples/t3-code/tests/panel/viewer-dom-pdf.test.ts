@@ -7,7 +7,7 @@ import { describe, expect, mock, test } from 'bun:test';
 import { domWindow, network, page, resizeAll, sized, until, viewerDom } from './viewer-dom';
 
 type Item = { str: string; hasEOL: boolean };
-const documents = { pages: [] as { width: number; height: number; items: Item[] }[] };
+const documents = { pages: [] as { width: number; height: number; items: Item[] }[], destroyed: 0 };
 class FakePage {
   constructor(private readonly at: { width: number; height: number; items: Item[] }) {}
   getViewport({ scale }: { scale: number }) { return { width: this.at.width * scale, height: this.at.height * scale, scale }; }
@@ -18,10 +18,11 @@ class FakePage {
 }
 mock.module('pdfjs-dist', () => ({
   GlobalWorkerOptions: { workerSrc: '' },
+  // As pdfjs-dist 6.4.299: the document has no `destroy`; its loading task's lets it go.
   getDocument: () => {
     const pages = documents.pages;
-    const pdf = { numPages: pages.length, getPage: async (n: number) => new FakePage(pages[n - 1]!), destroy: async () => {} };
-    return { promise: Promise.resolve(pdf), destroy: async () => {} };
+    const pdf = { numPages: pages.length, getPage: async (n: number) => new FakePage(pages[n - 1]!) };
+    return { promise: Promise.resolve(pdf), destroy: async () => { documents.destroyed += 1; } };
   },
   TextLayer: class {
     constructor(private readonly options: { container: HTMLElement; textContentSource: Item[] }) {}
@@ -108,5 +109,14 @@ describe('PdfViewer', () => {
     await until(() => text(shown[0]!) && text(shown[1]!), 'their text');
     expect(text(shown[0]!).compareDocumentPosition(text(shown[1]!)) & 4).toBe(4); // DOCUMENT_POSITION_FOLLOWING
     viewer.dispose();
+  });
+
+  test('a loaded PDF lets its document go through its loading task, so the page can show the next file', async () => {
+    documents.pages = [{ width: 612, height: 792, items: [{ str: 'Only page', hasEOL: false }] }];
+    documents.destroyed = 0;
+    const { viewer, label } = mount('Short PDF');
+    await until(() => label() === '1 / 1 pages', 'the document');
+    viewer.dispose();
+    expect(documents.destroyed).toBe(1);
   });
 });
