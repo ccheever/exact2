@@ -47,9 +47,13 @@ export function pixelDiff(a, b, allow = [], noise = null, named = []) {
       const i = (y * A.width + x) * 4;
       const d = apart(A.data, i, B.data, i);
       if (d === 0 || allow.some(r => within(r, x, y))) continue;
-      if (noise && d <= noise.floor && edgeAt(A, x, y, noise.edge)) continue;
+      // A named box takes every pixel that differs in it, the web's edge noise too (theme2 23:16 Q2: no rule inside
+      // a named box; its crops are read instead); outside, the floor applies as before.
       const n = names.find(m => within(m.rect, x, y));
-      if (!n) { differ++; continue; }
+      if (!n) {
+        if (!(noise && d <= noise.floor && edgeAt(A, x, y, noise.edge))) differ++;
+        continue;
+      }
       n.differ++;
       n.box = n.box ? [Math.min(n.box[0], x), Math.min(n.box[1], y), Math.max(n.box[2], x + 1), Math.max(n.box[3], y + 1)] : [x, y, x + 1, y + 1];
     }
@@ -161,46 +165,35 @@ export function bindingsCheck(map, bindings) {
   });
 }
 
-/** Option B's body shape on the source (`text`, the .contract file declaring `component`): its view is exactly one
- * call of the package PersonRow (by its imported name), and under it, in its slot, nothing or one `if` (no `else`)
- * whose only child is one call of the package FollowButton. Comments and blank lines aside. {ok, said}. */
-export function bindingShape(text, component) {
-  const alias = (pkg, name) => {
-    for (const m of text.matchAll(/^use (.+) from "@exact\/(\w+)"/gm)) {
-      if (m[2] !== pkg) continue;
-      for (const part of m[1].split(',').map(x => x.trim())) {
-        const [n, as] = part.split(/\s+as\s+/);
-        if (n === name) return as ?? n;
-      }
-    }
-    return null;
-  };
-  const row = alias('cards', 'PersonRow'), follow = alias('actions', 'FollowButton');
-  if (!row) return { ok: false, said: 'imports no PersonRow from @exact/cards' };
+/** Option B's body shape, on the source map and the source. On the map (formatting-proof): the binding calls the
+ * package PersonRow from exactly one call site, the package FollowButton from at most one, and every FollowButton it
+ * draws renders in that PersonRow's slot (its walk's first step is the PersonRow call, `slot: true`). On the source
+ * (`text`, the file declaring it), its view with comments and string literals blanked: at most one `if`, and no
+ * `else`, `for`, `match` or `when`, so the slot holds nothing or the `if` around the FollowButton. {ok, said}. */
+export function bindingShape(map, text, { component, allowed }) {
+  const [rowId, followId] = allowed;
+  const nodes = map.nodes ?? [], steps = map.walk_steps ?? [], walks = map.walks ?? [];
+  const site = c => `${c.file}:${c.line}:${c.col}`;
+  const direct = (id) => nodes.filter(n => n.chain?.[0]?.component === component && n.library === id);
+  const rows = [...new Set(direct(rowId).map(n => site(n.chain[0])))], follows = direct(followId);
+  const followSites = [...new Set(follows.map(n => site(n.chain[0])))];
+  if (rows.length !== 1) return { ok: false, said: `calls PersonRow from ${rows.length} sites, not one` };
+  if (followSites.length > 1) return { ok: false, said: `calls FollowButton from ${followSites.length} sites, not at most one` };
+  const outside = follows.filter(n => { const first = steps[walks[n.walk]?.[0]]; return !(first?.slot && first.component === rowId.split('#')[1] && site(first) === rows[0]); });
+  if (outside.length) return { ok: false, said: `draws a FollowButton outside its PersonRow's slot (${outside.length} node(s))` };
+  // The view's words: from `component <name>` to the next top-level line, comments and strings blanked.
   const lines = text.split('\n');
-  const at = lines.findIndex(l => l === `component ${component}`);
+  const at = lines.findIndex(l => new RegExp(`^component ${component}(?![\\w])`).test(l));
   if (at < 0) return { ok: false, said: `declares no component ${component}` };
   let end = lines.findIndex((l, i) => i > at && /^\S/.test(l) && !l.startsWith('//'));
   if (end < 0) end = lines.length;
-  const body = lines.slice(at + 1, end).map(l => l.replace(/\s+\/\/.*$/, '')).filter(l => l.trim() && !l.trim().startsWith('//'));
-  const v = body.findIndex(l => l === '  view');
+  const blank = l => l.replace(/"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""').replace(/\/\/.*$/, '');
+  const body = lines.slice(at + 1, end).map(blank);
+  const v = body.findIndex(l => /^\s*view\s*$/.test(l));
   if (v < 0) return { ok: false, said: 'has no view' };
-  const view = body.slice(v + 1), depth = l => l.match(/^ */)[0].length;
-  // One call spanning lines: its opening line, its argument lines (deeper), its closing `)` at its own depth.
-  const call = (i, d, name) => {
-    if (view[i]?.trim() !== `${name}(` || depth(view[i]) !== d) return -1;
-    let j = i + 1;
-    while (j < view.length && depth(view[j]) > d) j++;
-    return view[j]?.trim() === ')' && depth(view[j]) === d ? j + 1 : -1;
-  };
-  let i = call(0, 4, row);
-  if (i < 0) return { ok: false, said: `its view doesn't open with one ${row}( call` };
-  if (i < view.length) {
-    if (!follow) return { ok: false, said: `draws more than its ${row} and imports no FollowButton from @exact/actions` };
-    if (!/^ {6}if \S/.test(view[i])) return { ok: false, said: `under its ${row}: ${view[i].trim().slice(0, 60)}, not the if around ${follow}` };
-    const j = call(i + 1, 8, follow);
-    if (j < 0) return { ok: false, said: `its if's only child isn't one ${follow}( call` };
-    if (j < view.length) return { ok: false, said: `more after the if: ${view[j].trim().slice(0, 60)}` };
-  }
-  return { ok: true, said: `one ${row}${i < view.length ? `, and in its slot the if around one ${follow}` : ''}` };
+  const words = body.slice(v + 1).join('\n');
+  const ifs = (words.match(/(^|\s)if\s/g) ?? []).length, other = words.match(/(^|\s)(else|for|match|when)(\s|$)/);
+  if (other) return { ok: false, said: `its view has a ${other[2]}: only the if around the FollowButton is allowed` };
+  if (ifs > 1) return { ok: false, said: `its view has ${ifs} ifs, not at most one` };
+  return { ok: true, said: `one PersonRow call${followSites.length ? `, its one FollowButton in its slot${ifs ? ' (in an if)' : ''}` : ''}` };
 }

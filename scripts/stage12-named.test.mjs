@@ -23,6 +23,11 @@ test('a named box takes its differing pixels, reported with their box; outside i
   expect(pixelDiff(a, b)).toEqual({ differ: 4, total: 64 });
   // A box no pixel differs in says so: none, no box.
   expect(pixelDiff(a, a, [], null, named).names[0]).toMatchObject({ differ: 0, box: null });
+  // The web's edge noise inside a named box is the name's (Grok round 2); outside one it's dropped as before.
+  const edgy = img(8, 8, x => (x < 3 ? [0, 0, 0, 255] : [200, 200, 200, 255]));
+  const fringe = img(8, 8, (x, y) => ((x === 2 && (y === 3 || y === 7)) ? [2, 2, 0, 255] : x < 3 ? [0, 0, 0, 255] : [200, 200, 200, 255]));
+  const noisy = pixelDiff(edgy, fringe, [], { floor: 2, edge: 32 }, named);
+  expect([noisy.differ, noisy.names[0].differ, noisy.names[0].box]).toEqual([0, 1, [2, 3, 3, 4]]);
 });
 
 test("a name's box comes from the whole layout, clipped to the viewport, and is the union of both sides'", () => {
@@ -94,20 +99,29 @@ test('a binding draws nothing of its own and places only what it binds to', () =
     .toEqual(['@exact/cards/person-row.contract#PersonRow', '@exact/lists/menu.contract#MenuItem', null]);
 });
 
-test("option B's body shape: one PersonRow, and in its slot nothing or the if around one FollowButton", () => {
-  const head = 'use PersonRow as Row from "@exact/cards"\nuse FollowButton from "@exact/actions"\n\ncomponent B\n  props\n    p: P\n  view\n';
-  const row = '    Row(\n      id="a",\n      name=p.name\n    )\n';
-  const follow = '      if p.on\n        FollowButton(\n          id="f",\n          press=x\n        )\n';
-  expect(bindingShape(head + row, 'B')).toEqual({ ok: true, said: 'one Row' });
-  expect(bindingShape(head + row + follow + '// the next\ncomponent C\n  view\n    text "c"\n', 'B')).toEqual({ ok: true, said: 'one Row, and in its slot the if around one FollowButton' });
-  for (const [bad, why] of [
-    [head + row + row, 'under its Row'],
-    [head + row + '      FollowButton(\n        id="f"\n      )\n', 'not the if around'],
-    [head + row + follow + '      else\n        text "x"\n', 'more after the if'],
-    [head + row + '      if p.on\n        text "x"\n', "its if's only child isn't"],
-    [head + '    column\n' + row, "doesn't open with one Row( call"],
-    [head.replace('use PersonRow as Row from "@exact/cards"\n', '') + row, 'imports no PersonRow'],
-  ]) expect(bindingShape(bad, 'B')).toMatchObject({ ok: false, said: expect.stringContaining(why) });
+test("option B's body shape: one PersonRow call, its FollowButton in that call's slot, at most one if and no other control", () => {
+  const PR = '@exact/cards/person-row.contract#PersonRow', FB = '@exact/actions/follow-button.contract#FollowButton';
+  const b = { component: 'B', allowed: [PR, FB] };
+  const at = (line, col = 5) => ({ file: '/copy/b.contract', line, col, component: 'B' });
+  const rowNode = line => ({ library: PR, component: 'PersonRow', chain: [at(line)] });
+  // The walk's first step of a slotted FollowButton: the PersonRow call it renders in, `slot: true`.
+  const steps = [{ file: '/copy/b.contract', line: 10, col: 5, component: 'PersonRow', slot: true }, { file: '/copy/b.contract', line: 10, col: 5, component: 'Other' }];
+  const followNode = (line, walk) => ({ library: FB, component: 'FollowButton', chain: [at(line, 9)], walk });
+  const map = (...nodes) => ({ nodes, walk_steps: steps, walks: [[0], [1]] });
+  const text = view => `use PersonRow from "@exact/cards"\n\ncomponent B // a binding\n  props\n    p: P\n  view\n${view}// the next\ncomponent C\n  view\n    text "c"\n`;
+  const ok = text('    PersonRow(id="a", name="for else when", label=`if ${p}`)\n      if p.on\n        FollowButton(id="f",\n\t press=x)\n');
+  expect(bindingShape(map(rowNode(10), rowNode(10), followNode(12, 0)), ok, b)).toEqual({ ok: true, said: 'one PersonRow call, its one FollowButton in its slot (in an if)' });
+  expect(bindingShape(map(rowNode(10)), text('    PersonRow(id="a")\n'), b)).toEqual({ ok: true, said: 'one PersonRow call' });
+  for (const [m, t, why] of [
+    [map(rowNode(10), rowNode(20)), ok, 'from 2 sites'],
+    [map(rowNode(10), followNode(12, 0), followNode(14, 0)), ok, 'FollowButton from 2 sites'],
+    // A FollowButton written beside the row, not in its slot (Grok round 1): its walk doesn't start in the slot.
+    [map(rowNode(10), followNode(12, 1)), ok, "outside its PersonRow's slot"],
+    [map(rowNode(10), followNode(12, 0)), text('    PersonRow(id="a")\n      if p.on\n        FollowButton(id="f")\n      else\n        FollowButton(id="g")\n'), 'has a else'],
+    [map(rowNode(10), followNode(12, 0)), text('    PersonRow(id="a")\n      for x in p.xs key=x\n        FollowButton(id="f")\n'), 'has a for'],
+    [map(rowNode(10), followNode(12, 0)), text('    PersonRow(id="a")\n      if p.on\n        if p.off\n          FollowButton(id="f")\n'), '2 ifs'],
+    [map(rowNode(10)), 'component X\n  view\n    text "x"\n', 'declares no component B'],
+  ]) expect(bindingShape(m, t, b)).toMatchObject({ ok: false, said: expect.stringContaining(why) });
 });
 
 test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindings and screens", () => {

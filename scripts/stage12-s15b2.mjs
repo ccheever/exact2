@@ -74,8 +74,9 @@ export function s15b2Stage(s15b, signIn) {
     ],
     restyle: [...s15b.restyle],
     exact: true,
-    // The package side as it landed on main: 2a, its LLP note, 2b, 2c.
-    release: { label: 'stage 15 B batch 2', runs: [['70b643a47c', '3a63d4c319'], ['c7a0b0602a', 'c7a0b0602a'], ['128269c480', 'cee509ac82'], ['91c61aee77', '91c61aee77']] },
+    // The package side as it landed on main: 2a, its LLP note, 2b, 2c, the brand fill's actions half, the EmptyState
+    // follow-up.
+    release: { label: 'stage 15 B batch 2', runs: [['70b643a47c', '3a63d4c319'], ['c7a0b0602a', 'c7a0b0602a'], ['128269c480', 'cee509ac82'], ['91c61aee77', '91c61aee77'], ['0952139ef4', '0952139ef4'], ['d6d5fc3ec4', 'd6d5fc3ec4']] },
     titles: {
       'consumer-pixels': 'The clone\'s follow buttons, person rows, empty states and menus come from @exact/actions FollowButton, @exact/cards PersonRow and EmptyState and @exact/lists MenuItem and MenuGroup, the duplicates gone, the bindings bare, and every other pixel unchanged (conform clean; zero differing pixels outside the allowlist and the NAMED boxes, each named box\'s crops in the record, web, iOS, macOS, Linux, light and dark)',
     },
