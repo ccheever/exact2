@@ -116,6 +116,7 @@ impl<D: DataSource> Runner<D> {
         let pending = &self.pending;
         let module_aborts = &mut self.module_aborts;
         let retired = &mut self.retired_fetches;
+        let kept = &self.module_work.fetches;
         self.heard_aborts.retain(|&(fetch, _)| {
             let named = pending
                 .iter()
@@ -124,11 +125,16 @@ impl<D: DataSource> Runner<D> {
             // run), so the host cancels it. Whether an answer is owed is the
             // pump's to say (`take_aborted_answer`), from what is pending
             // then: a refused commit may have put it back.
+            // A let-go write kept as module work (LLP 1146 D2) is named
+            // for as long as it runs, past the retired records' cap.
             let ticket = match named {
                 Some(p) => p.ticket,
-                None => match retired.iter().position(|r| r.0 == fetch) {
-                    Some(pos) => retired.remove(pos).1,
-                    None => return true,
+                None => match kept.get(&fetch) {
+                    Some(&ticket) => ticket,
+                    None => match retired.iter().position(|r| r.0 == fetch) {
+                        Some(pos) => retired.remove(pos).1,
+                        None => return true,
+                    },
                 },
             };
             if !module_aborts.contains(&ticket) {
@@ -197,7 +203,10 @@ impl<D: DataSource> Runner<D> {
         while !self.module_aborts.is_empty() {
             let ticket = self.module_aborts.remove(0);
             self.explicit_aborts.push(ticket);
-            if !self.pending.iter().any(|p| p.ticket == ticket) {
+            // Kept module work is answered aborted too: its cancelled reply
+            // never comes, and the let-go answer's continuation hears this
+            // (LLP 1146 D2) as a browser's aborted fetch rejects.
+            if !self.pending.iter().any(|p| p.ticket == ticket) && !self.is_module_work(ticket) {
                 continue;
             }
             return Some((

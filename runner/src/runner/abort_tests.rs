@@ -143,3 +143,123 @@ fn a_request_a_refused_commit_retires_again_is_recorded_once() {
     }
     assert_eq!(r.retired_fetches, [(1, held.ticket)]);
 }
+
+/// [`Held`], keeping each let-go POST as module work (LLP 1146 D2) and
+/// hearing what each kept one's reply was.
+#[derive(Default)]
+struct Kept {
+    held: Held,
+    landed: Arc<Mutex<Vec<(u64, Outcome)>>>,
+}
+
+impl DataSource for Kept {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        self.held.query(source, args)
+    }
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.held.answer(store, source, args)
+    }
+    fn take_aborted(&mut self) -> Vec<u64> {
+        self.held.take_aborted()
+    }
+    fn keep_sent(&mut self, _: &Store, let_go: &[InFlight<'_>], _: bool) -> Vec<Option<u64>> {
+        (0..let_go.len()).map(|i| Some(100 + i as u64)).collect()
+    }
+    fn module_landed(
+        &mut self,
+        _: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        self.landed.lock().unwrap().push((token, outcome));
+        Ok(())
+    }
+}
+
+/// The runner, the door's aborts, what kept work landed with, and the button.
+type KeptRig = (
+    Runner<Kept>,
+    Arc<Mutex<Vec<u64>>>,
+    Arc<Mutex<Vec<(u64, Outcome)>>>,
+    ViewId,
+);
+
+fn kept_runner() -> KeptRig {
+    let source = Kept::default();
+    let (aborted, landed) = (source.held.aborted.clone(), source.landed.clone());
+    let plan = contract::compile(SRC).expect("the fixture compiles");
+    let r = Runner::boot(
+        plan,
+        source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let hold = k.node_by_key(k.find_by_test_id("hold")[0]).unwrap().id;
+    (r, aborted, landed, hold)
+}
+
+/// A let-go POST kept as module work, then aborted by the app: cancelled,
+/// and answered aborted, so the work settles (its continuation hears it)
+/// rather than waiting for a reply the cancel dropped.
+#[test]
+fn an_aborted_write_kept_as_module_work_settles_aborted() {
+    let (mut r, aborted, landed, hold) = kept_runner();
+    r.dispatch(hold, Event::Press).unwrap();
+    let first = r.take_requests();
+    r.dispatch(hold, Event::Press).unwrap();
+    r.take_requests();
+    assert!(
+        r.is_module_work(first[0].ticket),
+        "the replaced POST is kept"
+    );
+    aborted.lock().unwrap().push(1);
+    assert!(r.collected_aborts());
+    let (ticket, outcome) = r.take_request_refusal(false).expect("an answer is owed");
+    assert_eq!(ticket, first[0].ticket);
+    assert_eq!(r.take_explicit_aborts(), [first[0].ticket]);
+    r.fulfill(ticket, outcome).unwrap();
+    assert!(
+        !r.is_module_work(first[0].ticket),
+        "the module work settled"
+    );
+    let landed = landed.lock().unwrap();
+    assert!(
+        matches!(
+            landed.as_slice(),
+            [(
+                100,
+                Outcome::Failed {
+                    kind: crate::FailureKind::Aborted,
+                    ..
+                }
+            )]
+        ),
+        "{landed:?}"
+    );
+}
+
+/// A kept write's abort still names it however many requests are let go
+/// after it: module work is named for as long as it runs, past the retired
+/// records' cap.
+#[test]
+fn a_kept_write_s_abort_names_it_past_the_retired_cap() {
+    let (mut r, aborted, _, hold) = kept_runner();
+    r.dispatch(hold, Event::Press).unwrap();
+    let first = r.take_requests();
+    for _ in 0..300 {
+        r.dispatch(hold, Event::Press).unwrap();
+        r.take_requests();
+    }
+    aborted.lock().unwrap().push(1);
+    r.collect_aborts();
+    let _ = r.take_request_refusal(false);
+    assert!(r.take_explicit_aborts().contains(&first[0].ticket));
+}
