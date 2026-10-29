@@ -58,6 +58,15 @@ impl Executor {
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
+    /// The uploads let go that had begun to go out, for
+    /// `Runner::uploads_started` (LLP 1016.000 D10).
+    pub fn let_go_started(&self, held: impl Fn(u64) -> bool) -> Vec<u64> {
+        self.core.let_go_started(held)
+    }
+    /// Cancel the requests the app aborted, whatever their method.
+    pub fn cancel(&self, tickets: &[u64]) {
+        self.core.cancel(tickets);
+    }
     /// Admit, hold behind an earlier ordered refusal until it settles, or
     /// return a terminal refusal without allocating a failure queue.
     /// The caller records refusals on existing runner tickets and wakes a pump.
@@ -119,6 +128,10 @@ pub trait Io {
     fn resume_ordered(&self) -> Vec<(u64, &'static str)>;
     /// [`Executor::forget`].
     fn forget(&self, held: &dyn Fn(u64) -> bool);
+    /// [`Executor::let_go_started`].
+    fn let_go_started(&self, held: &dyn Fn(u64) -> bool) -> Vec<u64>;
+    /// [`Executor::cancel`].
+    fn cancel(&self, tickets: &[u64]);
     /// [`Executor::run`].
     fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str>;
     /// [`Executor::again`].
@@ -155,6 +168,12 @@ impl Io for Executor {
     }
     fn forget(&self, held: &dyn Fn(u64) -> bool) {
         Executor::forget(self, held)
+    }
+    fn let_go_started(&self, held: &dyn Fn(u64) -> bool) -> Vec<u64> {
+        Executor::let_go_started(self, held)
+    }
+    fn cancel(&self, tickets: &[u64]) {
+        Executor::cancel(self, tickets)
     }
     fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         Executor::run(self, request, work)

@@ -310,7 +310,7 @@ theorem advance_go {p o due pick finish} (J : Config → Prop) (A T : List Strin
     have hset : ∀ y ∈ c.timers.set i tm.fired, y.action ∈ A := fun y hy => by
       rcases List.mem_or_eq_of_mem_set hy with hy | rfl
       · exact hA y hy
-      · unfold Timer.fired; split <;> (try split) <;> exact htm
+      · unfold Timer.fired; split <;> (try split) <;> (try split) <;> exact htm
     dsimp only
     generalize hr : runAction p o { c with timers := c.timers.set i tm.fired, now := tm.next }
       tm.action [] [] = r

@@ -29,13 +29,13 @@ component App
       button "one" press=one testId="one"
       input change=change testId="entry"
 
-test "data lands a then without the timer due now"
+test "the mutation clock lands the remaining then and timer"
   clock +1
-  expect state after == 0
-  expect state ticks == 0
+  expect state after == 1
+  expect state ticks == 1
   clock data
   expect state after == 1
-  expect state ticks == 0
+  expect state ticks == 1
   clock data
   expect state after == 1
   clock +0
@@ -48,13 +48,13 @@ test "data with nothing armed"
 
 test "inputs land their continuations before expectations"
   tap "one"
-  expect state after == 1
-  type "entry" "hello"
   expect state after == 2
+  type "entry" "hello"
+  expect state after == 3
 
-test "settle starts with an advance that fires a timer due now"
+test "settle follows the mutation clock"
   clock +1
-  expect state ticks == 0
+  expect state ticks == 1
   clock settle
   expect state after == 1
   expect state ticks == 1

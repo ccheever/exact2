@@ -1,12 +1,12 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
-import { sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore } from "./navigation.js";
+import { sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore } from "./navigation.js";
 let guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, glidesSettled, scrollsSeen, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, frameModule, frameNavigation; const frameNav = () => frameNavigation ??= loadAfterPaint('./frame-navigation.js', 'frameNavigation'); // frameNavigation: an iframe's navigation records and commands (LLP 1020.002); the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = (at = incarnation) => (pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }))).then(m => m.at(at)); // its operations answer generation `at`, the one that asked
 // An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`, and an element with none gets none (an empty media `src` is a failed load). A media element plays it (podcast F19): the glue hears the URL as its source, and a path with no file is handed to it as written, which it refuses (`src-not-supported`) as HTML refuses a source it cannot fetch. `then` runs once it lands (a `load` command's). A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
 const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value, then) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] !== value) return; const media = el instanceof HTMLMediaElement && name === "src", to = url || (media ? value : null); if (el.getAttribute(name) !== to) to ? el.setAttribute(name, to) : el.removeAttribute(name); if (media) { then?.(); syncMedia(el, { src: to }); } }); track(p.catch(() => {})); return el.getAttribute(name); }
-function appFrameSource(el, value) { el.exactSource = value; if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/")) return false; const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el)))); return true; }
+function appFrameSource(el, value) { el.exactSource = value; if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/") && !pageGivenFiles(value ?? "")) return false; /* an app file, or a page of the app's origin whose query may name one (LLP 1020.001 D7; picker-glue.js decides) */ const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el), u => frameURL(u, el.getAttribute("sandbox")) ? el.setAttribute("src", localAssetURL(u)) : refuseURL(el, "src", u)))); return true; }
 const documentsGlue = (at = incarnation) => (documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => (d.keeping(globalThis.exact.compat?.inputs?.app, grantSet), d).install({ generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }))).then(m => m.at(at));
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -106,12 +106,12 @@ async function loadRust() {
   await rustLoading;
 }
 // @ref LLP 1043.000 §3 D7/D8 — optional executor, absent from ordinary boots.
-let textflow = null, flowLoading = null, flowContexts = [], flowDue = null, flowLanding = false, flowFrames = false, present = timestamp => send(wasm.exact_frame(timestamp - t0)); // an animation frame (LLP 1073 D5)
+let textflow = null, flowLoading = null, flowContexts = [], flowDue = null, flowLanding = false, flowFrames = false, flowWaits = [], flowTolerance = 0, present = timestamp => send(flowWaits.length ? wasm.exact_advance(timestamp - t0, 8) : wasm.exact_frame(timestamp - t0)); // an animation frame (LLP 1073 D5)
 function flowBatch(batch) {
   const op = batch.ops?.find(op => op.op === "textflow");
   if (op) flowContexts = op.contexts;
-  flowDue = batch.timer_due_ms ?? null; flowLanding = !!batch.landing; flowFrames = !!batch.frames; // `landing`: a data module's timer the last step released is still out
-  ticker?.update(flowDue, flowFrames);
+  flowDue = batch.timer_due_ms ?? null; flowLanding = !!batch.landing; flowFrames = !!batch.frames; flowWaits = batch.waits ?? []; flowTolerance = batch.timer_tolerance_ms ?? 0;
+  ticker?.update(flowDue, flowFrames, flowWaits, flowTolerance);
   if (textflow) { textflow.afterBatch(batch); return; }
   if (!flowContexts.length || flowLoading) return;
   ticker?.dispose(); ticker = null;
@@ -119,10 +119,10 @@ function flowBatch(batch) {
   flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(async create => {
     if (generation !== incarnation) return;
     const controller = await create({ views, agentMode, log, now,
-      advance: () => { followOffset(now()); send(wasm.exact_advance(now(), 0)); }, present });
+      advance: () => { followOffset(now()); send(wasm.exact_advance(now(), 0)); }, present, admitTimers: (kinds, cutoff) => { const batch = JSON.parse(readOut(wasm.exact_advance(cutoff, 16 | kinds << 8))); applyBatch(batch); return batch; } });
     if (generation !== incarnation) { controller.dispose(); return; }
     textflow = controller;
-    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames });
+    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames, waits: flowWaits, timer_tolerance_ms: flowTolerance });
   });
   flowLoading.catch(error => { if (generation === incarnation) log(`textflow module: ${error}`); });
 }
@@ -710,6 +710,7 @@ function apply(batch) {
         track(p,op.ticket);break;
       }
       case "refuse": { deferFulfill(...refusal(op, incarnation)); break; }
+      case "abort": { const c = byTicket.get(op.ticket); byTicket.delete(op.ticket); forgettable.delete(c); c?.abort(); break; } // the app aborted it: cancelled whatever its method, as a browser's fetch is
       case "continue": {
         const requestIncarnation = incarnation;
         const p = Promise.resolve().then(() => moduleLoader.run(op.token))
@@ -746,15 +747,16 @@ function apply(batch) {
           grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller, bodyFile: pageFile('requestBody'), bodyTarget: pageFile('bodyTarget'), // `exactBodyFrom` and `exactBodyTo` (LLP 1108 D6 R2): the page's store
           active: () => requestIncarnation === incarnation,
           // A stream's message (LLP 1016.000): after its first, the stream is open, not in flight, so `clock settle`
-          // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
+          // stops waiting on it (D5), an upload only at its reply — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
           message: (m) => { if (messages++ === 0) first(); safelyFulfill(requestIncarnation, op.ticket, 8, 0, `event: ${m.event}\nid: ${m.id}\ncoalesced: ${m.coalesced}`, encoder.encode(m.data)); },
         };
         controllers.add(controller); if (op.longPoll) controller.replied = () => { first(); if (!heldAsks.has(op.ticket)) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } }; // a long poll's reply of any kind (LLP 1016.000 D8 on D9): out of the clocks' count, held and named
-        if (op.url !== "exact-native:" && /^(GET|HEAD)$/i.test(op.method)) forgettable.set(controller, op.ticket);
+        if (op.url !== "exact-native:" && (/^(GET|HEAD)$/i.test(op.method) || op.upload)) forgettable.set(controller, op.ticket); // an upload let go is aborted, as natively (LLP 1016.000 D10)
+        if (op.url !== "exact-native:") byTicket.set(op.ticket, controller);
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
-        if (op.held) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } else { const counted = Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); } p.finally(() => { forgettable.delete(controller); controllers.delete(controller); }); // a reply the server holds (`exactHeld`, LLP 1016.000 D9) is in flight, but no clock waits on it: listed, not tracked
+        if (op.held) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } else { const counted = op.upload ? p : Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); } p.finally(() => { forgettable.delete(controller); controllers.delete(controller); if (byTicket.get(op.ticket) === controller) byTicket.delete(op.ticket); }); // a reply the server holds (`exactHeld`, LLP 1016.000 D9) is in flight, but no clock waits on it: listed, not tracked
         break;
       }
       case "command": { if (op.name === "relaunch") { location.reload(); break; }
@@ -940,7 +942,7 @@ function commitFonts(faces) {
 let grants = [], grantSet = null, unparsed = "";
 let storageRequests = null;
 const inflight = new Set(), heldAsks = new Map(); // `heldAsks`: requests the server holds (LLP 1016.000 D9), ticket to target
-const controllers = new Set(), forgettable = new Map();
+const controllers = new Set(), forgettable = new Map(), byTicket = new Map(); // `byTicket`: each request's controller, for the app's abort
 let incarnation = 0, authHost = null; // auth-glue.js once an auth.session grant asks for it (LLP 1069.006 D4)
 // A ticket's work, in flight while the runner holds the ticket (LLP 1016 D5):
 // a superseded or forgotten one never holds `clock settle`. Work without a
@@ -1256,7 +1258,7 @@ let ticker = null, timerFactory = null, toldOffset = null;
 const followOffset = at => { const [epoch, offset] = reportTime(at); if (wasm.exact_set_time && offset !== toldOffset) { toldOffset = offset; applyBatch(JSON.parse(readOut(wasm.exact_set_time(epoch, offset)))); } };
 function startClock() {
   if (timerFactory && !agentMode && !textflow && !flowLoading) {
-    ticker ??= timerFactory({ now, advance: time => { followOffset(time); send(wasm.exact_advance(time, 0)); }, present }); ticker.update(flowDue, flowFrames);
+    ticker ??= timerFactory({ now, advance: time => { followOffset(time); send(wasm.exact_advance(time, 0)); }, present, release: (kinds, cutoff) => { const batch = JSON.parse(readOut(wasm.exact_advance(cutoff, 16 | kinds << 8))); applyBatch(batch); return batch; } }); ticker.update(flowDue, flowFrames, flowWaits, flowTolerance);
   }
 }
 function activateData() {
@@ -1368,7 +1370,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
 }
 // `agent`, `agentSettled` and `now` exist only in agent mode; a normal page uses the browser's clock.
 let ready;
-globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(), pageFacts: Object.assign(pageFacts, { changed: () => pageChanged() }), keptChanged: () => { if (wasm?.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn("doc-watch:doc:/"))))); }, // the GPU tier's reader and teller (gpu-tier.js); the kept documents' list changed (documents-glue.js, LLP 1069.010.000 D5)
+globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(), pageFacts: Object.assign(pageFacts, { changed: () => pageChanged() }), abortWake: function wake() { if (wake.due || !wasm?.exact_collect_aborts) return; wake.due = true; setTimeout(() => { wake.due = false; send(wasm.exact_collect_aborts()); }); }, keptChanged: () => { if (wasm?.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn("doc-watch:doc:/"))))); }, // the GPU tier's reader and teller (gpu-tier.js); a fetch a realm aborted between batches (module-glue.js door 23); the kept documents' list changed (documents-glue.js, LLP 1069.010.000 D5)
   // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
   navigate: (location) => {
     const nav = root.firstElementChild;

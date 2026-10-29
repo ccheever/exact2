@@ -103,7 +103,7 @@ final class ReplyPumpTests: XCTestCase {
         XCTAssertTrue(session.changesNothing(empty))
         for _ in 0..<10 {
             session.applyUnlessEmpty(empty, scrolled: true)
-            session.applyUnlessEmpty(empty, timer: true)
+            session.applyUnlessEmpty(empty)
         }
         XCTAssertEqual(session.appliedBatches, before, "an unpublished reply must not force empty presenter passes")
         XCTAssertEqual(session.repliesInFlight, 1)

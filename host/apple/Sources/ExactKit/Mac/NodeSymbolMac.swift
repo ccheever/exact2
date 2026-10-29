@@ -26,7 +26,7 @@ extension NodeView {
             // An icon with no SF Symbol draws its own path (D10, stage 9 A).
             image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, SymbolMeasure.configuration(points: points, weight: weight))
             symbolFound = image != nil; if points <= 0 { image = nil }
-            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(RasterRetry.withoutQuery(source)) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
             let clip = symbolClip ?? SymbolClip()
             if symbolClip == nil { clip.wantsLayer = true; clip.layer?.masksToBounds = true; symbolClip = clip; addSubview(clip) }

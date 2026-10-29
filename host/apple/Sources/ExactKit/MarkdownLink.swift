@@ -12,10 +12,11 @@ import AppKit
 
 /// What the core asks of the Markdown capability.
 package protocol MarkdownCapability: AnyObject {
-    /// `source` as display runs over `base` (the node's run); `color` its ink.
+    /// `source` as display runs over `base` (the node's run); `color` its ink,
+    /// `linkColor` a link's and `atomColor` an atom's where it is not `color`.
     /// `boldText`: Bold Text weights `base` (LLP 1115.000 D12.3), so a
     /// piece's own weight (bold) takes the same step.
-    func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
+    func expand(_ source: String, base: Run, color: [Double]?, linkColor: [Double]?, atomColor: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
     /// A Markdown text area's styler.
     func editor() -> MarkdownEditing
     /// `range` (UTF-16, the whole source when nil) of `source` without its
@@ -48,6 +49,11 @@ package protocol MarkdownEditing: AnyObject {
     var bookmark: NSRange? { get set }
     /// The attributes plain typing takes.
     var plainAttributes: [NSAttributedString.Key: Any] { get }
+    /// The `paragraphDirs` its last restyle drew (LLP 1045 D11).
+    var paragraphDirs: String { get }
+    /// The base direction of the line holding `location`, as drawn: an empty
+    /// editor's placeholder takes its first line's (LLP 1045 D11).
+    func direction(at location: Int) -> NSWritingDirection
     /// Remove every Markdown attribute.
     func detach(_ storage: NSTextStorage)
     /// Where a person's selection change from `old` to `new` lands beside a
@@ -100,7 +106,10 @@ package struct MarkdownAtoms: Hashable {
 /// it reports. A new object each restyle, so equal neighbours stay two runs.
 package final class MarkupAtom: NSObject {
     package let kind: String, label: String, icon: String, title: String, role: String, href: String
-    /// Its paint: the kind's `color` and `background-color`, as RGBA, if declared.
+    /// Its paint, as `TextEngine.color` reads it (RGBA, and a face's colour
+    /// in its own space after them): its face's `color` and
+    /// `backgroundColor`, else its kind's `color` and `background-color`;
+    /// nil where neither says.
     package let ink: [Double]?, background: [Double]?
     /// The selection covers it: drawn in the selection's colour (D4),
     /// emphasized or not.
@@ -187,6 +196,15 @@ extension NodeView {
     func restyleMarkup() {
         MarkdownLink.installed?.restyle(self)
         restyleDecorations()
+    }
+    /// The field's own direction is right to left: its `direction`, else the
+    /// document's. A Markdown editor's line without a word takes it (LLP 1045 D11).
+    package var markdownRTL: Bool { (style["direction"]?.string ?? presenter?.documentDirection ?? "ltr") == "rtl" }
+    /// Restyle an editor whose lines the app gave new directions: a new
+    /// `paragraphDirs` changes no text, so no edit restyles it (LLP 1045 D11).
+    func restyleMarkupDirections() {
+        guard let editor = (textArea as? TextArea)?.markup, editor.paragraphDirs != props["paragraphDirs"] ?? "" else { return }
+        restyleMarkup()
     }
 }
 

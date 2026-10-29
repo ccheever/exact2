@@ -32,6 +32,8 @@ pub(super) struct SourceOwner {
     /// Its download failed in a way asking again may mend (`Failure::transient`):
     /// not before this (the server's `Retry-After`, if it gave one).
     transient: Mutex<Option<std::time::Instant>>,
+    /// Why it failed, its image's `error` (no link's query: `remote::without_queries`).
+    message: Mutex<Option<String>>,
 }
 impl SourceOwner {
     /// The file it reads, when it is one (not an update's bytes): a URL's
@@ -69,7 +71,11 @@ impl SourceOwner {
             return;
         };
         downloads.forget(&self.name, &body);
-        eprintln!("exact: image {}: {message}", self.name);
+        eprintln!(
+            "exact: image {}: {message}",
+            remote::without_query(&self.name)
+        );
+        *self.message.lock().unwrap() = Some(message);
     }
 }
 struct State {
@@ -209,6 +215,7 @@ impl Backend {
                     prepared: Mutex::new(Prepared::Queued),
                     remote,
                     transient: Default::default(),
+                    message: Default::default(),
                 });
                 state.next_source = next;
                 state.sources.insert(source.id, Arc::downgrade(&source));
@@ -248,6 +255,13 @@ impl Backend {
         let source = (self.state.lock().unwrap().sources.get(&id)).and_then(Weak::upgrade)?;
         let after = *source.transient.lock().unwrap();
         after
+    }
+    /// Why source `id` failed, as its image's `error` says it, if it said more
+    /// than its refusal.
+    pub fn message(&self, id: u64) -> Option<String> {
+        let source = (self.state.lock().unwrap().sources.get(&id)).and_then(Weak::upgrade)?;
+        let message = source.message.lock().unwrap().clone();
+        message
     }
     /// `source`'s download, if it still waits for a thread, goes first: its
     /// picture now fills the screen ([`remote::Downloads::promote`]).
@@ -359,10 +373,15 @@ impl Backend {
             return false;
         };
         let result = match source.remote.as_ref().and_then(|load| load.outcome()) {
-            // Linux sends no image events (LLP 1011.001): the reason is the
-            // log's, once for the source.
+            // The reason is the image's `error` and the log's, once for the
+            // source; neither quotes a link's query (a CDN's signature).
             Some(Err(failure)) => {
-                eprintln!("exact: image {}: {}", source.name, failure.message);
+                let message = remote::redacted(&failure.message, &source.name);
+                eprintln!(
+                    "exact: image {}: {message}",
+                    remote::without_query(&source.name)
+                );
+                *source.message.lock().unwrap() = Some(message);
                 *source.transient.lock().unwrap() = failure
                     .transient
                     .then(|| failure.after.unwrap_or_else(std::time::Instant::now));

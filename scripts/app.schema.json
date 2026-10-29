@@ -8,6 +8,12 @@
     "app"
   ],
   "properties": {
+    "frame_health": {
+      "type": "object",
+      "description": "Frame callback timing: core enables bounded counters on existing app clocks; production defaults to off. Presentation remains unobserved.",
+      "additionalProperties": false,
+      "properties": { "mode": { "enum": ["off", "core"] } }
+    },
     "modules": {
       "type": "array",
       "description": "The native-module roster (LLP 1024 D1): the custom-element tags the app's module artifact serves (modules/apple/*.swift beside libexact_modules.dylib on Apple, modules/web/index.js on the web). A hyphenated tag in the Contract that this list lacks is bake-unknown-module.",
@@ -220,9 +226,7 @@
         "portrait-secondary"
       ]
     },
-    "theme_color": {
-      "type": "string"
-    },
+    "theme_color": { "type": "string" },
     "background_color_dark": {
       "type": "string",
       "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
@@ -253,18 +257,10 @@
           "src"
         ],
         "properties": {
-          "src": {
-            "type": "string"
-          },
-          "sizes": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "purpose": {
-            "type": "string"
-          }
+          "src": { "type": "string" },
+          "sizes": { "type": "string" },
+          "type": { "type": "string" },
+          "purpose": { "type": "string" }
         },
         "additionalProperties": false
       }
@@ -305,9 +301,7 @@
             "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
             "description": "Literal platform label; no control characters."
           },
-          "preview": {
-            "type": "object"
-          },
+          "preview": { "type": "object" },
           "push": {
             "type": "boolean",
             "default": false
@@ -414,9 +408,7 @@
             },
             "description": "Optional watchOS families; defaults to the accessory families in families."
           },
-          "preview": {
-            "type": "object"
-          }
+          "preview": { "type": "object" }
         }
       }
     },
@@ -547,19 +539,13 @@
           "accept"
         ],
         "properties": {
-          "action": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
+          "action": { "type": "string" },
+          "name": { "type": "string" },
           "accept": {
             "type": "object",
             "additionalProperties": {
               "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             }
           }
         },
@@ -701,9 +687,7 @@
         "link": {
           "type": "array",
           "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
-          "items": {
-            "type": "string"
-          }
+          "items": { "type": "string" }
         },
             "deviceFamily": {
               "type": "array",
@@ -766,9 +750,7 @@
             "urlSchemes": {
               "type": "array",
               "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             },
             "queriesSchemes": {
               "description": "Other apps' URL schemes a native module may ask `canOpenURL` about, to see whether the app is installed (Info.plist's LSApplicationQueriesSchemes): iOS answers false for any scheme not listed, and honours at most 50. A scheme as RFC 3986 writes it, without `:`.",
@@ -800,9 +782,7 @@
                 }
               }
             },
-            "team": {
-              "type": "string"
-            }
+            "team": { "type": "string" }
           },
           "additionalProperties": false
         },
@@ -849,9 +829,7 @@
         "link": {
           "type": "array",
           "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
-          "items": {
-            "type": "string"
-          }
+          "items": { "type": "string" }
         },
             "appTransportSecurity": {
               "description": "App Transport Security keys the build writes into the macOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host.",
@@ -864,15 +842,11 @@
               },
               "additionalProperties": false
             },
-            "team": {
-              "type": "string"
-            },
+            "team": { "type": "string" },
             "urlSchemes": {
               "type": "array",
               "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
-              "items": {
-                "type": "string"
-              }
+              "items": { "type": "string" }
             },
             "window": {
               "type": "object",
@@ -908,9 +882,13 @@
           "additionalProperties": false
         },
         "android": {
-          "description": "Android: `minimumOS` (default 12), and `certificates` for the origin's `assetlinks.json`.",
+          "description": "Android: the painter, `minimumOS` (default 12), and `certificates` for the origin's `assetlinks.json`.",
           "type": "object",
           "properties": {
+            "painter": {
+              "enum": ["ink"],
+              "description": "Opt into ink (LLP 1149 D12); absent: the current painter, with `EXACT_PAINTER` overriding the choice, and ink refused until its Vulkan presenter is implemented."
+            },
             "minimumOS": {
               "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
               "enum": ["10", "11", "12", "13", "14", "15", "16"]
@@ -924,14 +902,24 @@
           "additionalProperties": false
         },
         "linux": {
-          "description": "The Linux host has no settings yet; an empty object.",
+          "description": "Linux: the painter.",
           "type": "object",
+          "properties": {
+            "painter": {
+              "enum": ["ink"],
+              "description": "Opt into ink (LLP 1149 D12); absent: the GPU painter when available, otherwise the CPU, with `EXACT_PAINTER` overriding the choice."
+            }
+          },
           "additionalProperties": false
         },
         "windows": {
-          "description": "Windows: the `window` it opens in.",
+          "description": "Windows: the painter and the `window` it opens in.",
           "type": "object",
           "properties": {
+            "painter": {
+              "enum": ["ink"],
+              "description": "Opt into ink's DirectX 11 composition swap chain (LLP 1149 D12); absent: the CPU painter, with `EXACT_PAINTER` overriding the choice."
+            },
             "window": {
               "description": "In logical pixels (effective pixels, as WinUI's). Absent: 1280 by 720, with no minimum. `EXACT_SIZE` overrides the size.",
               "type": "object",
@@ -959,17 +947,11 @@
       "description": "How the app is delivered and updated (LLP 1030.000): policy, never identity. `exact new` writes only `store`.",
       "type": "object",
       "properties": {
-        "origin": {
-          "$ref": "#/$defs/cadence"
-        },
-        "bundles": {
-          "$ref": "#/$defs/cadence"
-        },
+        "origin": { "$ref": "#/$defs/cadence" },
+        "bundles": { "$ref": "#/$defs/cadence" },
         "binaries": {
           "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/cadenceOrOff"
-          }
+          "additionalProperties": { "$ref": "#/$defs/cadenceOrOff" }
         },
         "release": {
           "type": "object",
@@ -984,9 +966,7 @@
         },
         "phased": {
           "type": "object",
-          "additionalProperties": {
-            "type": "boolean"
-          }
+          "additionalProperties": { "type": "boolean" }
         },
         "store": {
           "description": "Per platform (web, macos, ios, linux), whether an installed app has an update store: \"0\" links none, so every change ships as a new binary; \"A\" links the store, so signed plans and assets update over the air (LLP 1030 D4). `exact new` writes \"0\" everywhere: signed TypeScript and Rust module delivery isn't implemented.",
@@ -1008,12 +988,8 @@
               "compatibilityId"
             ],
             "properties": {
-              "channel": {
-                "type": "string"
-              },
-              "compatibilityId": {
-                "type": "string"
-              }
+              "channel": { "type": "string" },
+              "compatibilityId": { "type": "string" }
             },
             "additionalProperties": false
           }
@@ -1021,9 +997,7 @@
         "channels": {
           "description": "Each channel's update origin: a directory or URL, or \"appdrop\" for AppDrop's origin named after deploy.signing.key (https://appdrop.app/u/<key id>), which needs no account or server.",
           "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+          "additionalProperties": { "type": "string" }
         },
         "activate": {
           "type": "string",
@@ -1041,9 +1015,7 @@
               "exclusiveMinimum": 0,
               "description": "Seconds between foreground update checks; defaults to 900 under every activation policy."
             },
-            "background": {
-              "type": "boolean"
-            }
+            "background": { "type": "boolean" }
           },
           "additionalProperties": false
         },
@@ -1055,19 +1027,13 @@
               "message"
             ],
             "properties": {
-              "message": {
-                "type": "string"
-              },
-              "store": {
-                "type": "string"
-              }
+              "message": { "type": "string" },
+              "store": { "type": "string" }
             },
             "additionalProperties": false
           }
         },
-        "brownfield": {
-          "type": "boolean"
-        },
+        "brownfield": { "type": "boolean" },
         "appdrop": {
           "description": "Publish iOS binary changes to AppDrop, after the streams (`scripts/deploy-appdrop.mjs`). `{}` makes the first such deploy create the link and write its `url` here, to commit. The update key stays out of app.json: $APPDROP_MANAGE_KEY, or the one the appdrop CLI saved. The install page offers the link for iOS when install.ios names no methods.",
           "type": "object",
@@ -1085,9 +1051,7 @@
             },
             "keys": {
               "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              },
+              "additionalProperties": { "type": "string" },
               "description": "Verification keys by id, each an Ed25519 public key as base64 of its 32 raw bytes; baked into the binary and part of the compatibility id (LLP 1026 D11; 1030 D3a)."
             }
           },
@@ -1104,37 +1068,23 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "web": {
-          "$ref": "#/$defs/installPlatform"
-        },
-        "ios": {
-          "$ref": "#/$defs/installPlatform"
-        },
-        "macos": {
-          "$ref": "#/$defs/installPlatform"
-        }
+        "web": { "$ref": "#/$defs/installPlatform" },
+        "ios": { "$ref": "#/$defs/installPlatform" },
+        "macos": { "$ref": "#/$defs/installPlatform" }
       }
     },
     "brand": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "logo": {
-          "type": "string"
-        },
+        "logo": { "type": "string" },
         "wordmark": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": {
-              "type": "string"
-            },
-            "text": {
-              "type": "string"
-            },
-            "font": {
-              "type": "string"
-            },
+            "image": { "type": "string" },
+            "text": { "type": "string" },
+            "font": { "type": "string" },
             "weight": {
               "type": "number",
               "minimum": 100,
@@ -1160,12 +1110,8 @@
         {
           "type": "object",
           "properties": {
-            "mode": {
-              "$ref": "#/$defs/rustMode"
-            },
-            "dev": {
-              "$ref": "#/$defs/rustChoice"
-            },
+            "mode": { "$ref": "#/$defs/rustMode" },
+            "dev": { "$ref": "#/$defs/rustChoice" },
             "prod": {
               "$ref": "#/$defs/rustChoice"
             },
@@ -1367,9 +1313,7 @@
             "schedule"
           ],
           "properties": {
-            "schedule": {
-              "type": "string"
-            }
+            "schedule": { "type": "string" }
           },
           "additionalProperties": false
         }
@@ -1391,9 +1335,7 @@
             "schedule"
           ],
           "properties": {
-            "schedule": {
-              "type": "string"
-            }
+            "schedule": { "type": "string" }
           },
           "additionalProperties": false
         }
@@ -1406,9 +1348,7 @@
         "methods"
       ],
       "properties": {
-        "recommended": {
-          "type": "string"
-        },
+        "recommended": { "type": "string" },
         "methods": {
           "type": "array",
           "items": {
@@ -1430,9 +1370,7 @@
                 "type": "string",
                 "minLength": 1
               },
-              "url": {
-                "type": "string"
-              }
+              "url": { "type": "string" }
             }
           }
         }

@@ -38,8 +38,8 @@
   /* Every pressable shows its own press (LLP 1115.000 D6), so mobile WebKit's
      grey tap highlight, which would paint a second response over each button
      and link, stays off. A node's `-exact-press-scale` is its own (LLP 1061).
-     The input glue marks a held native button `data-pressed`, including
-     while Space holds it (D4.14); neutral.css paints its response. */
+     The input glue marks the pressed node `data-pressed`, including while
+     Space holds it (D4.14); this sheet and neutral.css paint its response. */
   html { -webkit-tap-highlight-color: transparent; }
   /* LLP 1115.000 D4.12: the resets a careful web app ships. A phone does not inflate the text in landscape (normalize.css
      and Tailwind's preflight say the same). A control answers a tap at once: a second quick tap on it is a second tap,
@@ -56,12 +56,12 @@
   #exact-root img[data-symbol-source], #exact-root :is(button, a[href], [data-exact-on~="press"]) img { -webkit-touch-callout: none; -webkit-user-drag: none; }
   /* The unsaid press (LLP 1115.000 D6): a custom `button`, a link or a box
      with a `press` that declares no feedback shows 65% of its opacity, the iOS
-     host's dim (PressFeedback.swift), while the browser holds it `:active` (a
-     mouse button, Space on a button) or the input glue holds it
-     `data-pressed` (a finger, Space on a box it presses by key). On release
-     the input glue holds it at least 0.1 s from the press and fades it back
-     over 0.2 s, as iOS does (PressFeedback.swift `dimHold`, `dimFade`).
-     Only the innermost pressable shows it (the last line). Not dimmed, in the
+     host's dim (PressFeedback.swift), while marked `data-pressed` by the input
+     glue. The mark follows pointer and keyboard presses, including touch delay
+     in scrollers. Using `:active` would keep a mouse press lit after dragging
+     off the box and can flash feedback as a touch becomes a scroll. On release,
+     the dim holds at least 0.1 s from when it appeared, then fades over 0.2 s
+     (`dimHold`, `dimFade`). Only the innermost pressable is marked. Not dimmed, in the
      selector's order: a disabled button; a native control, which keeps its own
      feedback, and a game's action button, which is held; an authored press,
      which replaces it (`-exact-press-scale`, the pressed paint of LLP 1061
@@ -74,14 +74,13 @@
      that is no cell list (`appearance="none"`, a carousel) holds ordinary
      pressables, which dim. An `opacity` the author wrote on the node wins
      (inline, or the JS target's classes). */
-  #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(
+  #exact-root :is(button, a[data-view][href], [data-exact-on~="press"])[data-pressed]:not(
     :disabled,
     [data-button-style], [data-native], input, select, textarea, [data-action],
     [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"],
     [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
     [data-exact-surface],
-    [data-listrows] *, [data-liststyle] > section > * > *,
-    :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { opacity: .65; }
+    [data-listrows] *, [data-liststyle] > section > * > *) { opacity: .65; }
   /* A disabled custom button dims as the drawn switch does, and takes no press; not one whose
      author styles its own disabled state (Contract's `disabledStyled`, LLP 1115.000 D6). */
   #exact-root button:disabled:not([data-button-style], [data-native], [data-disabledstyled]) { opacity: .5; }

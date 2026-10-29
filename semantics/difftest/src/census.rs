@@ -64,7 +64,7 @@ impl Census {
                 let class = refusal_class(reason);
                 *self.classes.entry(class).or_default() += 1;
                 // Aggregate outcomes count, but a commit's own line owns its
-                // finding. Boot and argument refusals have no commit line.
+                // finding. Boot has no commit line.
                 let attributed = line.starts_with("outcome ")
                     && step.windows(2).any(|pair| {
                         pair[0].starts_with("ran ")

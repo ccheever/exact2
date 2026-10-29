@@ -16,6 +16,7 @@ impl<D: DataSource> Runner<D> {
     /// Recording is confined to this call; ordinary host operations keep no trace.
     pub fn trace_commits<T>(&mut self, run: impl FnOnce(&mut Self) -> T) -> (T, Vec<String>) {
         let previous = self.clock.trace.replace(Vec::new());
+        let previous_untraced = std::mem::take(&mut self.clock.untraced_change);
         let result = run(self);
         let trace = std::mem::replace(&mut self.clock.trace, previous).unwrap_or_default();
         let mut lines = Vec::new();
@@ -23,9 +24,53 @@ impl<D: DataSource> Runner<D> {
             lines.push(format!("ran {} {} {}", ran.kind, ran.name, ran.outcome));
             if let Some(reason) = ran.reason {
                 lines.push(format!("# {reason}"));
+                if reason.starts_with("HandlerArguments") {
+                    lines.push("# arguments refused before the action".into());
+                }
             }
         }
+        if std::mem::replace(&mut self.clock.untraced_change, previous_untraced) {
+            lines.push("# a commit the semantics has no branch for".into());
+            lines.push("untraced configuration moved".into());
+        }
         (result, lines)
+    }
+
+    /// Compare the observation's configuration around advance work with no receipt.
+    pub(super) fn trace_configuration(&self) -> Option<String> {
+        self.clock.trace.as_ref()?;
+        let resources: Vec<_> = self
+            .plan
+            .resources
+            .iter()
+            .map(|r| self.resource(self.plan.str(r.name)))
+            .collect();
+        let mut views = Vec::new();
+        let mut pending = self.roots();
+        while let Some(id) = pending.pop() {
+            if let Some(node) = self.kernel.node(id) {
+                if let Some(test) = node.props.str(exact_kernel::PropId::TestId) {
+                    views.push((
+                        test.to_string(),
+                        node.props
+                            .str(exact_kernel::PropId::Text)
+                            .map(str::to_string),
+                    ));
+                }
+                pending.extend(node.children());
+            }
+        }
+        Some(format!(
+            "{:?}",
+            (
+                &self.slots,
+                &self.derives,
+                resources,
+                self.queued(),
+                &self.commands,
+                views
+            )
+        ))
     }
 
     pub(super) fn traced_action(

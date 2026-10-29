@@ -39,6 +39,8 @@ object Native {
     @JvmStatic external fun frame(): ByteBuffer?
     @JvmStatic external fun poll(): Boolean
     @JvmStatic external fun acquired(running: Boolean)
+    @JvmStatic external fun timerObservation(scrolling: Boolean, sampling: Boolean, applying: Boolean, idle: Boolean): Boolean
+    @JvmStatic external fun timerHeld(): Int
     @JvmStatic external fun displayFrame()
     @JvmStatic external fun animating(): Boolean
     @JvmStatic external fun owed(): Boolean

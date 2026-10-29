@@ -1,7 +1,7 @@
 //! The live table on the web (LLP 1121 D13, stage 4): a batch or snapshot
 //! from the dev stream applied in place, no plan, no reload.
 
-use super::super::Host;
+use super::super::{Batch, Host};
 use exact_runner::{design::Edit, DataSource, LiveRefusal, Timed};
 
 impl<D: DataSource> Host<D> {
@@ -45,6 +45,43 @@ impl<D: DataSource> Host<D> {
         exact_runner::agent::quote(&self.runner.design(), &mut out);
         out.push(',');
         out.push_str(&batch[1..]);
+        out
+    }
+}
+
+impl<D: DataSource> Host<D> {
+    /// Close a batch: the runner's deadline, frames wanted (LLP 1073 D5), clock, `seq` (LLP 1079).
+    pub(crate) fn finish(&self, batch: Batch, error: Option<&str>) -> String {
+        let due = self.runner.timer_due_ms();
+        let batch = batch.seq(self.runner.seq_range());
+        let batch = batch.alerts(self.runner.take_alerts());
+        let batch = batch.landing(self.runner.data_timer_landing());
+        let mut out = batch.finish(due, self.runner.wants_frames(), self.runner.now_ms(), error);
+        if self.runner.timer_tolerance_ms() > 0.0 {
+            out.pop();
+            out.push_str(&format!(
+                ",\"timer_tolerance_ms\":{}}}",
+                self.runner.timer_tolerance_ms()
+            ));
+        }
+        if self.runner.plan().timers.iter().any(|t| t.wait != 0) {
+            let waits = self.runner.waits();
+            let states: Vec<f64> = [waits.frame, waits.update, waits.scrollend, waits.idle]
+                .into_iter()
+                .map(|w| {
+                    if w.held {
+                        -2.0
+                    } else {
+                        w.due_ms.unwrap_or(-1.0)
+                    }
+                })
+                .collect();
+            out.pop();
+            out.push_str(&format!(
+                ",\"waits\":{}}}",
+                serde_json::to_string(&states).unwrap()
+            ));
+        }
         out
     }
 }

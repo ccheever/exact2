@@ -129,6 +129,7 @@ impl Lowerer<'_> {
         let expanded = &*expanded;
         decorations::check_field(tag, expanded)?;
         atoms::check_field(tag, expanded)?;
+        values::check_paragraph_dirs(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         menus::check_menu_keys(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
@@ -249,7 +250,7 @@ impl Lowerer<'_> {
         let (expanded, children) = match grouped {
             Some(style) => {
                 listed = [grouped::list_rows(style, *span), expanded.to_vec()].concat();
-                sections = Some(grouped::sections(style, children)?);
+                sections = Some(grouped::sections(style, children, &|a| self.class_rows(a))?);
                 (
                     listed.as_slice(),
                     sections.as_deref().expect("sections just set"),

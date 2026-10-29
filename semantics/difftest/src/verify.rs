@@ -20,7 +20,7 @@ pub struct Options {
     pub prove: Option<String>,
     /// Number of adaptive walks.
     pub walks: usize,
-    /// Maximum new primitive events per walk, including input landings.
+    /// Maximum chosen events per walk, including landings but excluding automatic clocks.
     pub steps: usize,
     /// Seed for walk selection; defaults to the app path.
     pub walk_seed: Option<u64>,
@@ -111,6 +111,11 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
     let seed = options
         .walk_seed
         .unwrap_or_else(|| crate::seed_of(&show(&file)));
+    println!(
+        "undeliverable parser step kinds: {}",
+        crate::script::undeliverable_kinds()
+    );
+    println!("delivered forms: tap press without modifiers; type replacement; clock +N, data, settle; expect (host-only reads omitted)");
     let mut delivery = crate::receipt::Delivery::default();
     let mut located = Vec::new();
     for (test_file, tests) in authored {
@@ -118,17 +123,16 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
             let scripted =
                 crate::script::test_case(&show(&test_file), &source, Some(&file), t, Some(&plan))?;
             let d = &scripted.delivery;
-            let expansion = d
-                .settle_events
-                .map(|k| {
-                    format!(
-                        "; settle expanded to {k} events; kept: {}",
-                        d.expansion
-                            .as_ref()
-                            .map_or_else(String::new, |p| p.display().to_string())
-                    )
-                })
-                .unwrap_or_default();
+            delivery.settle_bounds += d.settle_bounds;
+            delivery.mutation_events += d.mutation_events;
+            delivery.mutation_bounds += d.mutation_bounds;
+            let expansion = if let Some(path) = &d.expansion {
+                format!("; settle expanded to {} events ({} bounded); test clock {} advances ({} bounded); kept: {}",
+                    d.settle_events.unwrap_or(0), d.settle_bounds, d.mutation_events, d.mutation_bounds,
+                    path.display())
+            } else {
+                String::new()
+            };
             if let Some((span, kind, why)) = &d.stopped {
                 let skip = d.taken == 0 && scripted.case.events.is_empty();
                 let summary = format!("{:?} stopped at {kind}", t.name);
@@ -159,6 +163,8 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         scripted: crate::explore(&show(&file), &source, Some(&file)),
         steps: Vec::new(),
     });
+    delivery.mutation_events += located[tests].scripted.delivery.mutation_events;
+    delivery.mutation_bounds += located[tests].scripted.delivery.mutation_bounds;
     let base = located[tests].scripted.case.clone();
     let mut observations = Vec::new();
     for l in &located {
@@ -190,6 +196,8 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
             options.steps,
             &inputs,
         );
+        delivery.mutation_events += walk.scripted.delivery.mutation_events;
+        delivery.mutation_bounds += walk.scripted.delivery.mutation_bounds;
         rendered.extend(walk.rendered);
         walk_census.observe(&walk.observation);
         observations.push(walk.observation);
@@ -402,7 +410,11 @@ pub fn run(file: &Path, options: &Options) -> Result<bool, String> {
         "not run".into()
     };
     print_properties(&properties, &property_files, &totals);
-    println!("world: settle omits host waits on motion, scrolling and hatches, and advances to animation ends");
+    println!(
+        "commit kinds the trace leaves out: {}",
+        crate::observe::OMITTED_KINDS.join(", ")
+    );
+    println!("world: {}", crate::settle::HOST_WORLD);
     suggestions.print(&properties);
     let never = rendered
         .difference(&walk_census.attempted)
@@ -757,7 +769,7 @@ fn locate(
             out.push_str(&format!(" ({})", at_span(f, *s)));
         }
         out.push('\n');
-        let input_step = if matches!(event, Event::Land) && step > 1 {
+        let input_step = if matches!(event, Event::InputLand) && step > 1 {
             step - 1
         } else {
             step

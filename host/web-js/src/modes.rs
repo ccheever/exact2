@@ -150,6 +150,8 @@ pub struct Modes {
     accent: Vec<String>,
     /// What the rows read from a token write, by index: a class's channel.
     pub texts: Vec<String>,
+    /// Where each text is in `texts`.
+    text_at: std::collections::HashMap<String, usize>,
     /// Each type or family token's property a row it writes:
     /// `(name, row, property)` (`measures::type_properties`).
     types: Vec<(String, StyleId, String)>,
@@ -170,6 +172,7 @@ impl Modes {
             kinds: Vec::new(),
             accent: Vec::new(),
             texts: Vec::new(),
+            text_at: Default::default(),
             types: crate::measures::type_properties(plan, every_token()),
         };
         modes.accent = rules(plan, &properties(plan)).1;
@@ -395,10 +398,11 @@ impl Modes {
 
     /// The index of `text` in [`Modes::texts`].
     fn text(&mut self, text: &str) -> usize {
-        match self.texts.iter().position(|t| t == text) {
-            Some(i) => i,
+        match self.text_at.get(text) {
+            Some(i) => *i,
             None => {
                 self.texts.push(text.to_string());
+                self.text_at.insert(text.to_string(), self.texts.len() - 1);
                 self.texts.len() - 1
             }
         }

@@ -25,6 +25,14 @@ pub use darwin::DarwinTransport;
     feature = "portable-http"
 ))]
 pub mod rustls_http;
+// A system name lookup an abort or a deadline can leave (rustls_http, websocket).
+#[cfg(any(
+    not(target_vendor = "apple"),
+    test,
+    feature = "test-support",
+    feature = "portable-http"
+))]
+pub(crate) mod lookup;
 #[cfg(any(not(target_vendor = "apple"), feature = "portable-http"))]
 pub use rustls_http::RustlsHttpTransport;
 // A listening WebSocket (LLP 0059.000 §3.12): the platform's own on Apple,

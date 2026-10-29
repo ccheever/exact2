@@ -4,7 +4,6 @@
 //! the border parity's band, on both painters.
 
 use crate::borders::{boot, held_to_chrome};
-use exact_linux::presenter::PainterChoice;
 
 const CASES: [&str; 11] = [
     "blur4",
@@ -22,16 +21,14 @@ const CASES: [&str; 11] = [
 
 #[test]
 fn every_backdrop_case_matches_chrome() {
-    let mut choices = vec![PainterChoice::Cpu];
-    if exact_linux::gpu::Gpu::new().is_ok() {
-        choices.push(PainterChoice::Gpu);
-    }
+    let choices = crate::paint::painters();
     let mut failures = Vec::new();
     for choice in choices {
         let name = format!("{choice:?}");
         let mut p = boot(choice, "backdrop.contract");
         p.resize(390.0, 840.0);
-        failures.extend(held_to_chrome(&mut p, "backdrop.web.png", &name, &CASES));
+        let cases = &CASES;
+        failures.extend(held_to_chrome(&mut p, "backdrop.web.png", &name, cases));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

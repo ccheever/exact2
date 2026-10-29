@@ -79,6 +79,10 @@ char *dup_utf8(NSString *value) {
 @property(nonatomic, strong) NSURLRequest *request;
 @property(nonatomic, assign) BOOL nativeComplete;
 @property(nonatomic, assign) int reused;
+// The body's bytes the task has sent (`didSendBodyData`), and whether the
+// task was leased and started, so a headers wait called again resumes it.
+@property(nonatomic, assign) int64_t sent;
+@property(nonatomic, assign) BOOL started;
 @end
 
 @implementation Ibex2Exchange
@@ -213,6 +217,17 @@ char *dup_utf8(NSString *value) {
   // Publish EOF after the lease is returned, so sequential requests can reuse
   // the completed connection without racing the final delegate bookkeeping.
   [exchange finishWith:failure];
+  [exchange.condition unlock];
+}
+// An upload's progress: the bytes written so far, which a headers wait that
+// asked for them returns (Exact patch 23).
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
+    didSendBodyData:(int64_t)bytesSent totalBytesSent:(int64_t)totalBytesSent
+    totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
+  Ibex2Exchange *exchange = [self exchangeFor:task.taskIdentifier];
+  [exchange.condition lock];
+  exchange.sent = totalBytesSent;
+  [exchange.condition broadcast];
   [exchange.condition unlock];
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
@@ -353,14 +368,21 @@ void *ibex2_darwin_http_start(void *session_handle, const char *method,
     return (__bridge_retained void *)exchange;
   }
 }
+// `inout_sent`, when not null, is the body's bytes sent as the caller last saw
+// them: a change before the headers returns 2 with the bytes sent now, so the
+// caller can report an upload's progress and call again (Exact patch 23).
 int ibex2_darwin_http_headers(void *handle, int *out_status,
-    char **out_headers, char **out_error) {
+    char **out_headers, char **out_error, int64_t *inout_sent) {
   @autoreleasepool {
     Ibex2Exchange *exchange = (__bridge Ibex2Exchange *)handle;
     *out_headers = nullptr;
     *out_error = nullptr;
+    [exchange.condition lock];
+    BOOL started = exchange.started;
+    exchange.started = YES;
+    [exchange.condition unlock];
     NSURLSession *session = nil;
-    while (session == nil) {
+    while (!started && session == nil) {
       [exchange.condition lock];
       BOOL aborted = exchange.finished;
       [exchange.condition unlock];
@@ -382,17 +404,24 @@ int ibex2_darwin_http_headers(void *handle, int *out_status,
       [pool.condition unlock];
     }
     [exchange.condition lock];
-    if (!exchange.finished) {
+    if (!started && !exchange.finished) {
       exchange.session = session;
       exchange.task = [session dataTaskWithRequest:exchange.request];
       [(Ibex2NoRedirect *)session.delegate track:exchange for:exchange.task.taskIdentifier];
       [exchange.task resume];
-    } else {
+    } else if (!started) {
       if (session != nil) [exchange.pool returnSession:session];
       exchange.nativeComplete = YES;
     }
 
-    while (exchange.response == nil && !exchange.finished) [exchange.condition wait];
+    while (exchange.response == nil && !exchange.finished &&
+           (inout_sent == nullptr || exchange.sent == *inout_sent))
+      [exchange.condition wait];
+    if (exchange.response == nil && !exchange.finished) {
+      *inout_sent = exchange.sent;
+      [exchange.condition unlock];
+      return 2;
+    }
     if (exchange.failure != nil) {
       *out_error = dup_utf8(exchange.failure);
       [exchange.condition unlock];

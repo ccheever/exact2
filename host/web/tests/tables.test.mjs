@@ -98,7 +98,7 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
   const oldApp=process.env.EXACT_APP_DIR;
   const env={...process.env,PATH:`${process.env.HOME}/.cargo/bin:${process.env.PATH}`,EXACT_APP_DIR:app};delete env.EXACT_GAME_PROOF_PROFILE;
   let child,drive,log='';
-  const until=async(read,ms=60000)=>{const end=Date.now()+ms;while(Date.now()<end){if(child?.exitCode!==null&&child?.exitCode!==undefined)throw Error('dev exited '+child.exitCode+':\n'+log);const value=await read();if(value)return value;await Bun.sleep(50);}throw Error('dev condition missing:\n'+log.slice(-4000));};
+  const until=async(read,ms=60000,step='dev condition')=>{const end=Date.now()+ms;while(Date.now()<end){if(child?.exitCode!==null&&child?.exitCode!==undefined)throw Error('dev exited '+child.exitCode+':\n'+log);const value=await read();if(value)return value;await Bun.sleep(50);}throw Error(step+' missing after '+ms/1000+' s:\n'+log.slice(-4000));};
   try {
     process.env.EXACT_APP_DIR=app;
     child=spawn(process.execPath,[resolve(import.meta.dir,'../../../game/dev.mjs'),'beacons'],{env,stdio:['ignore','pipe','pipe']});
@@ -147,8 +147,10 @@ test('real game dev journals rejected edits and reloads tables after a gpu-dev p
     await until(()=>log.slice(offset).includes('rust: rebuilt'),600000);
     const receipt=JSON.parse(readFileSync(resolve(app,'dist/bake.json'),'utf8'));
     expect(receipt.products.some(p=>p.path.endsWith('/gpu-dev/beacons_gpu.wasm'))).toBe(true);
-    // The rebuild restarts its resident producer; wait for its first generation.
-    await until(async()=>(await fetch(url+'/exact.json')).ok);
+    // The rebuild restarts its resident producer; wait for its first generation. A game with data of its own bakes
+    // through its web shell's dev bin, which the rebuild relinks in release (about 40 s at load 10, more loaded): a hang
+    // guard sized for a loaded machine, not a deadline (theme2's 05:50 ruling; QUEUE: a dev profile for -dev bins).
+    await until(async()=>(await fetch(url+'/exact.json')).ok,300000,'the rebuilt producer\'s first generation (exact.json)');
     await drive.close();
     drive=await open({host:'web',app:'beacons',url:url+'/',size:[1280,720]});
     await drive.tap('play');world=drive.world('world');

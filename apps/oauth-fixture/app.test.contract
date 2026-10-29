@@ -1,0 +1,12 @@
+test "signs in, reads the person, and stays signed in after a relaunch"
+  request POST "/control" {"action": "reset"}
+  expect text "status" == "Signed out"
+  tap "sign-in"
+  authorize
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"
+  reload
+  clock data
+  expect text "status" == "Signed in"
+  expect text "name" == "Ada Lovelace"

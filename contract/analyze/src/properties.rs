@@ -63,6 +63,14 @@ struct Cone<'a> {
     seen: BTreeSet<(&'static str, String)>,
 }
 impl Cone<'_> {
+    fn base<'a>(e: &'a Expr, bound: &BTreeSet<String>) -> Option<&'a str> {
+        match e {
+            Expr::Ident(name, _) if !bound.contains(name) => Some(name),
+            Expr::Member(base, _, _) => Self::base(base, bound),
+            _ => None,
+        }
+    }
+
     fn expr(&mut self, e: &Expr, bound: &BTreeSet<String>) -> Option<String> {
         match e {
             Expr::Ident(name, _) if !bound.contains(name) => {
@@ -79,17 +87,25 @@ impl Cone<'_> {
                 None
             }
             Expr::Call(name, args, _) => {
-                if let Some(f) = self.fns.iter().find(|f| f.name == *name) {
+                if contract_syntax::scope::STATUS_CALLS.contains(&name.as_str()) {
+                    if let Some(target) = args.first().and_then(|arg| Self::base(arg, bound)) {
+                        let kind = if self.root.mutations.iter().any(|m| m.name == target) {
+                            "mutation"
+                        } else if self.root.resources.iter().any(|r| r.name == target) {
+                            "resource"
+                        } else {
+                            "target"
+                        };
+                        return Some(format!("`{name}(…)` of {kind} `{target}`"));
+                    }
+                } else if let Some(f) = self.fns.iter().find(|f| f.name == *name) {
                     if self.seen.insert(("fn", name.clone())) {
                         let locals = f.params.iter().map(|p| p.name.clone()).collect();
                         if let Some(s) = self.expr(&f.body, &locals) {
                             return Some(format!("fn `{name}` -> {s}"));
                         }
                     }
-                } else if matches!(
-                    name.as_str(),
-                    "pending" | "failed" | "failure" | "performanceNow" | "frame" | "measure"
-                ) {
+                } else if matches!(name.as_str(), "performanceNow" | "frame" | "measure") {
                     // The roster's date formatters read their arguments; exactTime is a resource.
                     return Some(format!("`{name}(…)`"));
                 }

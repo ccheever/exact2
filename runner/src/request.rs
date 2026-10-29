@@ -152,6 +152,8 @@ pub struct Request {
     /// last one, never dropped. Unset, such a body is the stream's one
     /// answer. Set by TypeScript's `fetch(url, {exactStream})`.
     pub bytes: bool,
+    /// An HTTP stream that is an upload, which tells its bytes sent (`upload.rs`).
+    pub upload_progress: bool,
     /// An HTTP stream that is a long poll (LLP 1016.000 D8): the host asks
     /// the URL, delivers each reply as one [`Message`] (its `id` the new
     /// cursor), and asks again with the cursor taken from that reply, one
@@ -163,7 +165,7 @@ pub struct Request {
     /// A deadline for the whole exchange, in milliseconds: headers and body.
     /// The host cancels the request when it passes and replies
     /// [`FailureKind::Timeout`]. `None` keeps the host's own limits (on Apple,
-    /// URLSession's 60-second idle timeout). A stream has no deadline.
+    /// URLSession's 60-second idle timeout). A stream takes none, except an upload.
     /// Set by TypeScript's `fetch(url, {exactTimeout})` and [`Request::timeout`].
     pub timeout_ms: Option<u32>,
     /// The body is this app file's bytes (`app:/…`), read by the host when it
@@ -207,6 +209,11 @@ pub struct Request {
     /// ([`super::Runner::release_work`]) when its clock reaches this time, in
     /// ms. Set by [`Request::wake`].
     pub wake_ms: Option<u64>,
+    /// The data module's own ticket for the fetch this request is, when the
+    /// module set it: an abort the app makes names the request by it
+    /// ([`super::DataSource::take_aborted`]), so it reaches this request and
+    /// no later one of the same target.
+    pub fetch: Option<u64>,
 }
 
 /// The event of a long poll's message that is a reply but no event (LLP
@@ -310,6 +317,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -320,6 +328,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 
@@ -351,6 +360,26 @@ impl Request {
             && self.surface.is_none()
     }
 
+    /// Whether the request may change something at its server: an `http:`
+    /// or `https:` request whose method is not safe (RFC 9110 §9.2.1), and
+    /// no stream, socket, long poll or held request. One its answer lets go
+    /// runs to its end (LLP 1146 D2): cancelling it would not undo it.
+    pub fn has_effects(&self) -> bool {
+        let url = self.url.get(..8).unwrap_or(&self.url).to_ascii_lowercase();
+        (url.starts_with("http://") || url.starts_with("https://"))
+            && !matches!(
+                self.method.to_ascii_uppercase().as_str(),
+                "GET" | "HEAD" | "OPTIONS" | "TRACE"
+            )
+            && self.continuation.is_none()
+            && self.storage.is_none()
+            && self.surface.is_none()
+            && !self.stream
+            && !self.socket
+            && self.long_poll.is_none()
+            && !self.held
+    }
+
     /// Native ordered lane is mandatory for storage and continuations, even
     /// when an invalid HTTP annotation will cause their admission to refuse.
     pub fn is_ordered(&self) -> bool {
@@ -374,6 +403,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -384,6 +414,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 
@@ -402,6 +433,7 @@ impl Request {
             stream: false,
             socket: false,
             bytes: false,
+            upload_progress: false,
             long_poll: None,
             timeout_ms: None,
             body_from: None,
@@ -412,6 +444,7 @@ impl Request {
             listen: None,
             due_ms: None,
             wake_ms: None,
+            fetch: None,
         }
     }
 
@@ -695,12 +728,13 @@ impl Request {
     }
 
     /// Why this request's deadline is refused, if it is: zero, over
-    /// [`MAX_TIMEOUT_MS`], on a stream, or on work that is not HTTP.
+    /// [`MAX_TIMEOUT_MS`], on a stream that is not an upload, or on work
+    /// that is not HTTP.
     pub fn timeout_refusal(&self) -> Option<&'static str> {
         let ms = self.timeout_ms?;
         if ms == 0 || ms > MAX_TIMEOUT_MS {
             Some("a request timeout must be 1 to 3600000 ms")
-        } else if self.stream {
+        } else if self.stream && !self.upload_progress {
             Some("a stream has no timeout")
         } else if self.storage.is_some()
             || self.continuation.is_some()
@@ -1431,5 +1465,34 @@ mod tests {
             body: Vec::new(),
         };
         assert_eq!(written.body_written(), Some(17));
+    }
+
+    /// LLP 1146 D2: what may change its server runs to its end once its
+    /// answer is let go; what cannot (a safe method), or what is Exact's own
+    /// work, a stream or a held request, does not.
+    #[test]
+    fn a_request_has_effects_only_when_its_method_is_unsafe_over_http() {
+        /// Whether a POST so changed has effects.
+        fn with(change: impl FnOnce(&mut Request)) -> bool {
+            let mut r = Request::post_json("https://example.test/x", "{}");
+            change(&mut r);
+            r.has_effects()
+        }
+        assert!(with(|_| {}));
+        assert!(with(
+            |r| (r.method, r.url) = ("delete".into(), "HTTP://example.test/x".into())
+        ));
+        for safe in ["GET", "HEAD", "OPTIONS", "TRACE"] {
+            assert!(!with(|r| r.method = safe.into()), "{safe}");
+        }
+        assert!(!with(|r| r.url = crate::auth::AUTH_URL.into()));
+        assert!(!with(|r| r.url = NATIVE_URL.into()));
+        assert!(!with(|r| r.stream = true));
+        assert!(!with(|r| r.held = true));
+        assert!(!with(|r| r.continuation = Some(1)));
+        assert!(!with(|r| r.socket = true));
+        assert!(!with(|r| r.storage = Some(Vec::new())));
+        assert!(!with(|r| r.surface = Request::capture_surface("x").surface));
+        assert!(!Request::continuation(7).has_effects());
     }
 }

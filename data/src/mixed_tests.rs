@@ -1,6 +1,6 @@
 use crate::Mixed;
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, FailureKind, Outcome, Request, Store};
+use exact_runner::{Answer, DataError, DataSource, FailureKind, InFlight, Outcome, Request, Store};
 use serde_json::{json, Value as Json};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{cell::RefCell, rc::Rc};
@@ -18,7 +18,11 @@ struct Source {
     failed: bool,
     waiting: std::sync::Arc<std::sync::Mutex<Vec<Wake>>>,
     calls: Rc<RefCell<Vec<String>>>,
+    kept: Kept,
 }
+
+/// What each `keep_sent` heard: the let-go requests' sources, and `refused`.
+type Kept = Rc<RefCell<Vec<(Vec<String>, bool)>>>;
 
 impl Source {
     fn new(label: &str) -> Self {
@@ -32,6 +36,7 @@ impl Source {
             failed: false,
             waiting: Default::default(),
             calls: Default::default(),
+            kept: Default::default(),
         }
     }
     fn record(&self, value: impl Into<String>) {
@@ -89,6 +94,18 @@ impl DataSource for Source {
     ) -> Result<Answer, DataError> {
         self.record(format!("parse:{source}"));
         self.answer(store, source, args)
+    }
+    fn module_landed(&mut self, store: &mut Store, _: u64, _: Outcome) -> Result<(), DataError> {
+        // Every child's key: the store keeps those the turn's grants admit
+        for key in ["js", "rust", "shared"] {
+            let _ = store.set(key, "landed");
+        }
+        Ok(())
+    }
+    fn keep_sent(&mut self, _: &Store, let_go: &[InFlight<'_>], refused: bool) -> Vec<Option<u64>> {
+        let sources = let_go.iter().map(|f| f.source.to_string()).collect();
+        self.kept.borrow_mut().push((sources, refused));
+        vec![None; let_go.len()]
     }
     fn app_id(&self) -> &str {
         &self.id
@@ -422,6 +439,8 @@ use crate::{envelope, Placed};
 use exact_runner::{Dispatch, Placement, Reply, Work};
 use std::sync::{Arc, Mutex};
 
+mod keep_sent;
+
 /// A worker child's proxy, without a thread: it records at `answer`, and at
 /// `dispatch` runs the call against a scoped snapshot and answers at once
 /// with the turn's envelope — the shape `Placed` and the TypeScript worker
@@ -474,6 +493,14 @@ impl DataSource for Proxy {
         let result = self.inner.answer(&mut local, &source, &args);
         let outcome = envelope::encode(result, &mut local, Vec::new());
         Dispatch::Run(Work::Now(Box::new(move || outcome)))
+    }
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        self.inner.keep_sent(store, let_go, refused)
     }
     fn app_id(&self) -> &str {
         self.inner.app_id()

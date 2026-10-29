@@ -8,6 +8,19 @@ import XCTest
 final class FrameClockIOSTests: XCTestCase {
     private final class Owner {}
 
+    func testCanvasDemandRunsWithoutATimerAndStopsWhenCleared() {
+        let session = ExactApp.shared.makeSession(label: "canvas-frame-demand")
+        defer { session.destroy() }
+        session.clock = nil
+        session.frames.canvas2d = true
+        session.scheduleClock(due: nil)
+        XCTAssertFalse(session.frames.timerSoon)
+        XCTAssertTrue(FrameClock.shared.wants(session.frames))
+        session.frames.canvas2d = false
+        session.scheduleClock(due: nil)
+        XCTAssertFalse(FrameClock.shared.wants(session.frames))
+    }
+
     func testOneLinkIsMadeAndPausedWhenNoOneWantsFrames() throws {
         let clock = FrameClock()
         let a = Owner(), b = Owner()

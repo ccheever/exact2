@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 16
+#define EXACT_ABI_VERSION 18
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +40,43 @@ extern "C" {
 
 /* A runtime handle (LLP 1031 D2). 0 is never a runtime. */
 typedef uint32_t ExactRuntime;
+
+/* UI-thread callback proxies, not presented-frame counts. Storage and lookup
+ * are bounded to 16 collectors; create returns 0 at capacity. */
+typedef struct ExactFrameHealthSnapshot {
+    uint64_t generation, callbacks, intervals, active_ns, period_ns, max_gap_ns;
+    uint64_t work_overruns, cadence_changes, last_arrival_ns, running;
+    uint64_t applies, target_applies, apply_overruns, interval_through_ns, apply_through_ns, histogram_overflows;
+} ExactFrameHealthSnapshot;
+uint32_t exact_frame_health_create(void);
+void exact_frame_health_record(uint32_t id, uint64_t arrival, uint64_t target, uint64_t period, uint64_t finished, uint64_t flags);
+typedef struct ExactFrameHealthWork {
+    uint64_t capture, began_ns, finished_ns, target_ns, queued_ns;
+    uint64_t owner_began_ns, owner_finished_ns, landed_ns, operations;
+} ExactFrameHealthWork;
+typedef struct ExactFrameHealthHitch {
+    uint64_t sequence, capture, generation, at_ns, target_ns, period_ns, requested_period_ns, gap_ns, callback_ns;
+    uint64_t before_gap_ns, before_callback_ns, after_at_ns, after_gap_ns, after_callback_ns, flags;
+    ExactFrameHealthWork work;
+} ExactFrameHealthHitch;
+typedef struct ExactFrameHealthHistoryStatus {
+    uint64_t capture, active, segments, started_ns, changed_ns, callbacks;
+    uint64_t total, overwritten, retained, apply_deadlines;
+} ExactFrameHealthHistoryStatus;
+/* Detail capture: 0 pause, 1 start/resume, 2 clear; all on the UI thread.
+ * A producer retains 16 events in fixed storage, never a file or upload. */
+void exact_frame_health_capture(uint32_t id, uint32_t action, uint64_t now);
+ExactFrameHealthHistoryStatus exact_frame_health_history_status(uint32_t id);
+ExactFrameHealthHitch exact_frame_health_hitch(uint32_t id, uint32_t index);
+void exact_frame_health_applied(uint32_t id, ExactFrameHealthWork work, uint64_t flags);
+void exact_frame_health_requested_period(uint32_t id, uint64_t period);
+void exact_frame_health_context(uint32_t id, ExactFrameHealthWork work);
+typedef struct ExactFrameHealthDistribution { uint32_t bins[64]; } ExactFrameHealthDistribution;
+ExactFrameHealthDistribution exact_frame_health_distribution(uint32_t id, uint32_t kind);
+ExactFrameHealthSnapshot exact_frame_health_snapshot(uint32_t id);
+void exact_frame_health_stop(uint32_t id);
+void exact_frame_health_reset(uint32_t id);
+void exact_frame_health_destroy(uint32_t id);
 
 /* Raster accounts outlive replaceable runtimes. Handles are process-unique;
  * charge/lease release is worker-safe and never requires a live Runtime. */
@@ -240,7 +277,7 @@ typedef struct ExactMarkupPiece {
     const uint8_t *href; size_t href_len; /* a link's target; null when none */
     float indent;                       /* CSS px: the head indent of the paragraph it is in (a list item's) */
     uint8_t hang;                       /* 1: a list marker, hung before the indent, its end at it */
-    const uint8_t *atom; size_t atom_len; /* LLP 1045.000 D6: an inline atom's JSON {kind,role,icon,title,href,source,start,end}, its text the label; null otherwise */
+    const uint8_t *atom; size_t atom_len; /* LLP 1045.000 D6: an inline atom's JSON {kind,role,icon,title,href,source,start,end,color,background}, its text the label, its colours its face's paint in the colour wire form (null for the kind's); null otherwise */
 } ExactMarkupPiece;
 /* LLP 1045.000 D2: a node's `atoms` and `atomFaces` JSON, parsed once; pass the handle (0 for none)
  * to the calls below that take `atoms`, and free it with exact_markup_free. */
@@ -262,6 +299,9 @@ uint64_t exact_markup_selection(const uint8_t *utf8, size_t len, uint64_t atoms,
     const uint8_t **out, size_t *count);
 /* Raw UTF-8 plain text, sharing the same handle lifetime. */
 uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, uint64_t atoms, uint32_t start, uint32_t end, const uint8_t **out, size_t *count);
+/* LLP 1045 D11: each source line's direction under `paragraphDirs` `auto`, as the web editor decides
+ * it: one ASCII digit per line, 0 none, 1 left to right, 2 right to left. Same handle lifetime. */
+uint64_t exact_markup_auto(const uint8_t *utf8, size_t len, uint64_t atoms, const uint8_t **out, size_t *count);
 void exact_markup_free(uint64_t handle);
 
 typedef struct ExactMetrics {
@@ -644,10 +684,19 @@ uint32_t exact_pan_sample(ExactRuntime rt, uint32_t first, double x, double y, d
 double exact_pan_velocity(ExactRuntime rt, uint32_t axis, double t);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
+/* Timer waits: mode 0 declares support, 1 admits, 2 runs frame tasks. */
+uint32_t exact_timer_waits(ExactRuntime rt, uint32_t kinds, double cutoff, uint32_t mode);
+/* Delegate ordinary live timers to per-task native timers. Batches carry
+ * nativeTimers with each instance's original deadline, interval and tolerance. */
+uint32_t exact_native_timers(ExactRuntime rt, uint32_t enabled);
+/* Deliver only this timer instance. A cancelled generation cannot fire a replacement. */
+uint32_t exact_fire_native_timer(ExactRuntime rt, uint32_t index, uint64_t generation, double now_ms);
 uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t mode);
 /* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
  * every frame task once at it. The batch says "frames" while one wants it. */
 uint32_t exact_frame(ExactRuntime rt, double now_ms);
+/* Frame tasks after timer admission, preserving the presentation target. */
+uint32_t exact_admitted_frame(ExactRuntime rt, double target_ms, double wall_ms);
 /* @ref LLP 1003.001 D5: exact_frame at the target now_ms, the wall at wall_ms
  * stopping the motion engine's input clock. */
 uint32_t exact_frame_at(ExactRuntime rt, double now_ms, double wall_ms);

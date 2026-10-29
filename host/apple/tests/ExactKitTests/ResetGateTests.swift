@@ -96,11 +96,14 @@ final class ResetGateTests: XCTestCase {
     private func edit(_ session: ExactSession, _ field: UInt32) throws {
         let node = try XCTUnwrap(session.presenter.views[field])
         #if os(iOS)
-        func editor(_ v: UIView) -> UIView? { v is UITextField || v is UITextView ? v : v.subviews.lazy.compactMap(editor).first }
-        let text = try XCTUnwrap(editor(node))
+        let text = try XCTUnwrap(node.firstInTree { $0 is UITextField || $0 is UITextView ? $0 : nil })
         XCTAssertTrue(text.becomeFirstResponder(), "the field takes focus")
         #else
-        func editor(_ v: NSView) -> NSView? { v is NSTextField || v is NSTextView ? v : v.subviews.lazy.compactMap(editor).first }
+        func editor(_ v: NSView) -> NSView? {
+            if v is NSTextField || v is NSTextView { return v }
+            for child in v.subviews { if let found = editor(child) { return found } }
+            return nil
+        }
         let text = try XCTUnwrap(editor(node))
         XCTAssertTrue(window?.makeFirstResponder(text) == true, "the field takes focus")
         #endif

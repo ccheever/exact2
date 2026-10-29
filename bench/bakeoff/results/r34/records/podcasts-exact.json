@@ -1,0 +1,26 @@
+{
+  "spec": "podcasts",
+  "arm": "exact",
+  "model": "gpt",
+  "appId": "dev.bakeoff.podcasts.ba13e5e",
+  "assignedId": "dev.bakeoff.podcasts.ba13e5e",
+  "appName": "Podcasts",
+  "sim": "EEFC0029-1010-45E4-8242-42CF67E16C96",
+  "pin": "f2cbe5de1c",
+  "minutes": 13.71,
+  "exit": 0,
+  "timedOut": false,
+  "tokens": {
+    "total": 3218931,
+    "fresh": 68007,
+    "input": 3194535,
+    "cached": 3126528,
+    "output": 24396,
+    "cost": null,
+    "calls": 10,
+    "toolCalls": 47
+  },
+  "app": "/Users/ccheever/bakeoff/rounds/r34/built/podcasts-exact.app",
+  "notes": true,
+  "finished": "2026-10-28T18:30:22.761Z"
+}

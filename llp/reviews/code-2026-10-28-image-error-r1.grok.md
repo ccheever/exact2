@@ -1,0 +1,21 @@
+# Code review: the image error event on Linux, Android and Windows, round 1 (grok)
+
+- **Family:** xAI. Grok 4.7 via `grok`, reasoning effort xhigh, no subagents, Edit and Write denied, a throwaway worktree at `6cabaac038`.
+- **Method:** one brief (sha256 `23ba770527bee7230eb53486b32c0f9ee094d4af1ebbb845259b3a6e1b34d71c`), shared by both reviewers, blind to the other review. The author (Claude, rt1) is not a reviewer.
+- **Transcription:** the final message, unedited.
+
+**Blocking**
+
+1. `host/linux/src/image.rs:798` — `session.request` failures never settle. `source()` and `plan_view` both error when `!passing(e)`. The `request()` arm only stores `view.refusal`. `SubscriberLimit` and `ConflictingMetadata` (and any `validate` refusal that gets that far) come back every `poll`, the view is not `DecodeFailed`, so it asks again, and `settle` never runs. A full subscriber set or a key whose cached cost disagrees waits forever with no `error`. On failure, do what the other two arms do: if `!passing(e)`, `settle` once with `refusal_text(e)` and stop asking. `QueueFull`, `Paused`, `Shutdown`, and `Stale` stay in `passing`, so a pause still resumes and a full queue still waits.
+
+2. `host/linux/src/image.rs:453` — A source longer than 4096 bytes is dropped with no `error`. The branch cancels the request, clears `view.source`, sets `Refusal::DecodeFailed`, and `continue`s before the source-change reset. `poll` then skips the empty source, so `settle` never runs. The same string hits this branch every sync, so it also never becomes a new assignment. That includes a `data:` URL `assets::data_url` would still accept (up to 1 MiB). Treat a new over-long source as a new assignment: bump `assignment`, reset `settled`/`errored`, drop queued events for the view, and `settle` once with a fixed reason that is not the raw source. Remember that identity (the string is what the cap is avoiding) so the next sync does not settle again.
+
+3. `host/linux/src/image/svg.rs:188` — SVG stderr still quotes the raw source. `decode` logs `exact: image `{name}`` at lines 188, 192, 196, and 204, and `name` is the URL, query included. A signed SVG link (`ex`/`is`/`hm`) lands in the log on a bad file and on a warning for one that still loads. Run `name` through `remote::without_queries` in each of those lines, as `prepare` and `release` already do. Download failures and Apple's failure string are already stripped; these four lines are the ones that still carry a query.
+
+**Non-blocking**
+
+`passing` is the right split for the two arms that use it. Only `QueueFull` is both in the set and actually returned there, and that is the refusal asking again can mend. `Budget` is not a plan error (a plan that cannot shrink is `TooLarge`, which errors); a real budget wait stays `WaitingBudget` and keeps re-planning. `Paused`, `Shutdown`, and `Stale` are not produced there. `DecodeFailed` from a worker is always what `permit.fail` records, so the "other statuses are asked again" branch does not run; a failed decode errors once, and a later `settle` after `load` returns nothing.
+
+Once per assignment holds: `settle` flips `settled` first, so a second event is dropped; `errored` skips the view, so nothing is asked after `error` and a `load` cannot follow. A new source resets both flags, bumps `assignment`, and drops that view's queued events. Delivery still checks node type, key, source, assignment, and that the image hears `error` or `load`, then `Host::dispatch_now`. Symbols return before any of this and emit neither event. Package pictures stay on `package.rs` (the box empties, `failed` sticks, no `load`/`error`); Apple still announces admission refusal and revoke. Under `EXACT_PICTURES_AT_MOUNT`, fetch follows `visible` and the retry budget follows `on_screen`, so an off-screen transient failure waits until it has been on screen and spent the six steps (or a `Retry-After` past 5 minutes spends them on screen). `sync_shown` resets that budget only while off screen, then `poll`s, so a hide between syncs cannot both spend the ladder and emit `error`.
+
+A missing bundled file does error, with the message `decode failed`, and it writes no `exact: image` line (`release` returns when there is no remote body). Apple's text for that case is `the source names no file this host loads`.

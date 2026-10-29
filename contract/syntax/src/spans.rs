@@ -150,7 +150,7 @@ structs! {
     MutationDecl { name, shape, queue, refreshes, then, span }
     Param { name, ty, span }
     Action { name, params, body, span }
-    Task { name, kind, gate, key, timer, span }
+    Task { name, kind, gate, key, timer, options, span }
     Attr { name, value, span, written }
 }
 
@@ -170,7 +170,7 @@ record_variants! {
         Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
         Locale { tag, span }, Prefer { name, value, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
-        Pick { target, paths, span }, Clipboard { target, edit, text, span },
+        Pick { target, paths, span }, Authorize { cancel, span }, Clipboard { target, edit, text, span },
         Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectRefusal { target, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
@@ -307,6 +307,7 @@ impl Step {
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
+            | Step::Authorize { span, .. }
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }

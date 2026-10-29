@@ -49,12 +49,13 @@ function own(e, parent, exclusion) {
 export function paintFlush() {
   // Buckets keep the pass deepest first, including newly dirtied ancestors.
   // A wide list is queued once; no repeated sorting or subtree queries.
-  const buckets = [], queued = new Set();
+  // Depths are shared across this flush: the dirtied elements of a commit are siblings and cousins, so each ancestor is
+  // walked once (LLP 1071.001 A6).
+  const buckets = [], queued = new Set(), depths = new Map();
+  const depth = a => { if (!a || a.id === "exact-root") return 0; let d = depths.get(a); if (d === undefined) { d = depth(a.parentElement) + 1; depths.set(a, d); } return d; };
   const queue = p => {
     if (!p?.isConnected || p.nodeType !== 1 || queued.has(p)) return;
-    let depth = 0;
-    for (let a = p; a && a.id !== "exact-root"; a = a.parentElement) depth++;
-    (buckets[depth] ??= []).push(p); queued.add(p);
+    (buckets[depth(p)] ??= []).push(p); queued.add(p);
   };
   for (const p of dirty) queue(p);
   dirty.clear();

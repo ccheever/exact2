@@ -39,6 +39,20 @@ final class RasterRetryTests: XCTestCase {
         XCTAssertEqual(server.times.count, 1)
     }
 
+    /// A link the error quotes, its own or a redirect's, loses its query (a CDN's signature).
+    func testAnErrorQuotesNoLinksQuery() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        let server = try ScriptedRasterHTTP { _, _ in .redirect("ftp://cdn.example/x.png?ex=1&hm=secret") }
+        defer { server.stop() }
+        node.loadGeneration = 1
+        loader.load(node, source: "\(server.origin)/moved.png?ex=1&hm=secret", resolver: resolver)
+        settle { (images(loader).first?["failure"] as? String ?? "") != "" && images(loader).first?["held"] as? Bool == false }
+        let failure = images(loader).first?["failure"] as? String ?? ""
+        XCTAssertFalse(failure.contains("hm=") || failure.contains("ex="), failure)
+        XCTAssertEqual(loader.testAnnounced.map(\.failure), [failure])
+    }
+
     func testAServersRetryAfterIsNeverAskedSooner() throws {
         let (root, resolver, presenter, node, loader, window) = try fixture()
         defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
@@ -209,6 +223,30 @@ final class RasterRetryTests: XCTestCase {
         for unread in ["", "-1", "1.5", "soon", "99999999999999999999999"] {
             XCTAssertNil(RasterRetry.retryAfter(unread, now: now), unread)
         }
+        XCTAssertEqual(RasterRetry.withoutQueries("a redirect to https://cdn.example/a.png?ex=1&is=2&hm=3 now"),
+                       "a redirect to https://cdn.example/a.png now")
+        XCTAssertEqual(RasterRetry.withoutQueries("why? HTTP 404"), "why? HTTP 404")
+        XCTAssertEqual(RasterRetry.withoutQueries("to //bad:port/a.png?hm=1#f"), "to //bad:port/a.png")
+        XCTAssertEqual(RasterRetry.withoutQueries("at https:cdn.example/a.png?hm=1"), "at https:cdn.example/a.png")
+        XCTAssertEqual(RasterRetry.withoutQueries("`//h/a.svg?hm=1`: fill=\"url(https:h/x?hm=s)\""), "`//h/a.svg`: fill=\"url(https:h/x)\"")
+        XCTAssertEqual(RasterRetry.withoutQueries("HTTP 503: why?"), "HTTP 503: why?")
+        XCTAssertEqual(RasterRetry.withoutQuery("photos:https://cdn.example/a.png?x=a &hm=secret"), "photos:https://cdn.example/a.png")
+        XCTAssertEqual(RasterRetry.withoutQueries("https://cdn.example/a.png?ex=1\u{000B}&hm=secret"), "https://cdn.example/a.png")
+        XCTAssertEqual(RasterRetry.withoutQueries("https://cdn.example/a.png?\u{000B}hm=secret"), "https://cdn.example/a.png")
+        XCTAssertEqual(RasterRetry.redacted("url(\"https://h/a?x=a &hm=s\") gone", source: "https://h/a?x=a &hm=s"), "url(\"https://h/a\") gone")
+        XCTAssertEqual(RasterRetry.withoutQueries("https://h/a.svg?x=a\u{00A0}&hm=secret"), "https://h/a.svg")
+        XCTAssertEqual(RasterRetry.withoutQueries("https://h/a.svg?\u{0301}x=1&hm=secret"), "https://h/a.svg")
+        XCTAssertEqual(RasterRetry.withoutQueries("https://h/a.svg#\u{0301}x"), "https://h/a.svg")
+        XCTAssertEqual(RasterRetry.withoutQueries("`https://h/a.svg?file=(1).png&hm=secret`: x"), "`https://h/a.svg`: x")
+        XCTAssertEqual(RasterRetry.withoutQueries("`https://h/a.png?)ex=1&is=2&hm=secret`: x"), "`https://h/a.png`: x")
+        XCTAssertEqual(RasterRetry.withoutQueries("`https://h/a.svg?x=),&hm=secret`: x"), "`https://h/a.svg`: x")
+        XCTAssertEqual(RasterRetry.withoutQueries("https://h/a.svg?)&hm=secret"), "https://h/a.svg")
+        XCTAssertEqual(RasterRetry.withoutQueries("fill=#fff stroke=#000"), "fill=#fff stroke=#000")
+        XCTAssertEqual(RasterRetry.withoutQueries("`https://h/a.svg?x=)&hm=secret`: x"), "`https://h/a.svg`: x")
+        XCTAssertEqual(RasterRetry.withoutQueries("@import url( a.css?hm=secret);"), "@import url( a.css);")
+        XCTAssertEqual(RasterRetry.redacted("url(https://h/a.svg?x=1&hm=s)", source: "https://h/a.svg?x=1"), "url(https://h/a.svg)")
+        XCTAssertEqual(RasterRetry.withoutQueries("@import url(a.css?hm=secret);"), "@import url(a.css);")
+        XCTAssertEqual(RasterRetry.redacted("at https://h/a b.png?hm=s: gone", source: "https://h/a b.png?hm=s"), "at https://h/a b.png: gone")
         XCTAssertTrue(RasterRetry.transient(URLError(.timedOut)))
         XCTAssertTrue(RasterRetry.transient(RasterHTTPStatus(code: 502)))
         XCTAssertTrue(RasterRetry.transient(RasterHTTPStatus(code: 429)))
@@ -246,7 +284,7 @@ final class RasterRetryTests: XCTestCase {
 /// Loopback HTTP/1.1 answering each request as `answer(path, n)` says, `n`
 /// the requests for that path before it; `times` when each came.
 private final class ScriptedRasterHTTP: @unchecked Sendable {
-    enum Answer { case status(Int, retryAfter: String? = nil), picture }
+    enum Answer { case status(Int, retryAfter: String? = nil), picture, redirect(String) }
     private let listener: Int32
     private let lock = NSLock()
     private var seen: [(String, Date)] = []
@@ -302,6 +340,8 @@ private final class ScriptedRasterHTTP: @unchecked Sendable {
         case .picture:
             let body = Self.picture
             response = Data("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nCache-Control: no-store\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8) + body
+        case .redirect(let location):
+            response = Data("HTTP/1.1 302 Found\r\nLocation: \(location)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
         case .status(let code, let retryAfter):
             let after = retryAfter.map { "Retry-After: \($0)\r\n" } ?? ""
             response = Data("HTTP/1.1 \(code) Nope\r\n\(after)Cache-Control: no-store\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)

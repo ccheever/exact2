@@ -15,7 +15,7 @@ use winit::{
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::{Key, PhysicalKey},
-    platform::windows::EventLoopBuilderExtWindows,
+    platform::windows::{EventLoopBuilderExtWindows, WindowAttributesExtWindows},
     raw_window_handle::{HasWindowHandle, RawWindowHandle},
     window::{CursorIcon, Fullscreen, Theme, Window, WindowId},
 };
@@ -28,7 +28,11 @@ struct App<D: DataSource> {
     config: Config,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    preparing: Option<exact_ink::device::d3d11::Startup>,
+    jump_list_started: bool,
+    direct: bool,
     presenter: Option<Presenter<D>>,
+    timers: crate::timers::Timers,
     started: Instant,
     pointer: (f32, f32),
     pointer_inside: bool,
@@ -43,10 +47,13 @@ struct App<D: DataSource> {
     minimized: bool,
     occluded: bool,
     frames: u64,
+    measured_first_screen: bool,
+    measure_first_composition: bool,
     paint_ms: f64,
     present_ms: f64,
     previous_frame: Option<Instant>,
     samples: Vec<(f64, f64, f64)>,
+    frame_logs: Vec<String>,
     frame_limit: Option<u64>,
     first_tap: Option<String>,
     pads: crate::pad_poll::Pads,
@@ -61,6 +68,7 @@ struct App<D: DataSource> {
 
 impl<D: DataSource> Drop for App<D> {
     fn drop(&mut self) {
+        self.timers.clear();
         self.accessibility.take();
         // The module's GPU swapchain must release its HWND before the window.
         self.presenter.take();
@@ -114,6 +122,19 @@ fn next_frame_deadline(deadline: Instant, started: Instant, period: Duration) ->
     }
 }
 
+fn direct_device(painter: exact_linux::presenter::PainterChoice, device: Option<&str>) -> bool {
+    painter == exact_linux::presenter::PainterChoice::Ink
+        && exact_ink::device::direct_d3d11(device).is_some()
+}
+
+pub(crate) fn boot_phase(name: &str) {
+    if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+        if let Ok(ms) = exact_ink::device::process_ms() {
+            eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
+        }
+    }
+}
+
 pub(super) fn run<D: DataSource + Default + 'static>(
     name: &str,
     opening: crate::Window,
@@ -121,6 +142,9 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     compat: &str,
     composed: exact_linux::Composed,
 ) -> i32 {
+    let started = Instant::now();
+    app::prepare_environment(compat);
+    boot_phase("host-entered");
     if app::print_baked_receipt(compat) {
         return 0;
     }
@@ -132,6 +156,26 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         eprintln!("exact-windows: update-store delivery is not implemented; bake store level 0");
         return 1;
     }
+    let device = std::env::var("EXACT_INK_DEVICE").ok();
+    let direct = direct_device(
+        exact_linux::presenter::PainterChoice::from_env(
+            exact_linux::presenter::PainterChoice::from_baked(compat),
+        ),
+        device.as_deref(),
+    );
+    let preparing = if direct {
+        match exact_ink::device::d3d11::Startup::start(
+            exact_ink::device::direct_d3d11(device.as_deref()).unwrap(),
+        ) {
+            Ok(p) => Some(p),
+            Err(error) => {
+                eprintln!("exact-windows: {error}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
     // A distributed app locates data beside its executable, never in its caller's cwd.
     if std::env::var_os("EXACT_ASSETS").is_none() {
         if let Ok(exe) = std::env::current_exe() {
@@ -140,16 +184,17 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             }
         }
     }
-    if std::env::var_os("EXACT_PAINTER").is_none() {
-        std::env::set_var("EXACT_PAINTER", "cpu");
-    }
     if std::env::var_os("EXACT_GPU_RENDER").is_none() {
         std::env::set_var("EXACT_GPU_RENDER", "1");
     }
-    let started = Instant::now();
     // Windows has no toolkit under this painter, so it shows the web's
     // neutral look (LLP 1115.000 D17), in a window as in a headless run.
     app::show_neutral_look();
+    if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+        && std::env::var("EXACT_AGENT_INK_FAULT").as_deref() == Ok("slow-config")
+    {
+        std::thread::sleep(Duration::from_millis(200));
+    }
     let mut config = Config::from_env(plan, compat);
     // The presenter makes the hatches' value after its first frame is shown.
     config.hatches = composed.hatches;
@@ -166,17 +211,18 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         Err(_) => None,
     };
     let first_tap = std::env::var("EXACT_AGENT_WINDOW_TAP").ok();
-    if first_tap.is_some() && frame_limit.is_none() {
-        eprintln!("exact-windows: EXACT_AGENT_WINDOW_TAP requires a bounded window frame run");
+    if first_tap.is_some()
+        && frame_limit.is_none()
+        && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_none()
+    {
+        eprintln!("exact-windows: EXACT_AGENT_WINDOW_TAP requires a measured window run");
         return 1;
     }
-    if config.agent
-        || config.smoke
-        || config.shot.is_some()
-        || std::env::var("EXACT_DISPLAY").as_deref() == Ok("headless")
-    {
+    if !config.windowed() {
+        drop(preparing);
         return app::run_config::<D>(&mut config, started);
     }
+    boot_phase("config-ready");
     if std::env::var_os("EXACT_SIZE").is_none() {
         config.size = (opening.width, opening.height);
     }
@@ -198,7 +244,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             return 1;
         }
     };
-    crate::jump_list::set_from_compat(compat);
+    boot_phase("event-loop-ready");
     let proxy = event_loop.create_proxy();
     let wake = proxy.clone();
     desktop.set_wake(move || {
@@ -208,6 +254,10 @@ pub(super) fn run<D: DataSource + Default + 'static>(
     exact_linux::set_event_waker(Some(Arc::new(move || {
         let _ = wake.send_event(crate::accessibility::Event::Wake);
     })));
+    let timer_proxy = proxy.clone();
+    let timers = crate::timers::Timers::new(move |fired| {
+        let _ = timer_proxy.send_event(crate::accessibility::Event::Timer(fired));
+    });
     let mut state = App::<D> {
         proxy,
         accessibility: None,
@@ -216,7 +266,11 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         config,
         window: None,
         surface: None,
+        preparing,
+        jump_list_started: false,
+        direct,
         presenter: None,
+        timers,
         started,
         pointer: (0., 0.),
         pointer_inside: false,
@@ -230,10 +284,13 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         minimized: false,
         occluded: false,
         frames: 0,
+        measured_first_screen: false,
+        measure_first_composition: false,
         paint_ms: 0.,
         present_ms: 0.,
         previous_frame: None,
         samples: Vec::new(),
+        frame_logs: Vec::new(),
         frame_limit,
         first_tap,
         pads: Default::default(),
@@ -261,9 +318,16 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             eprintln!("exact: {line}");
         }
     }
+    if state.frame_limit.is_some()
+        && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+        && !state.measured_first_screen
+    {
+        eprintln!("exact-windows: the first-screen readiness target was not painted");
+        state.failed = true;
+    }
     if state.frames > 0 {
         eprintln!(
-            "exact-windows: {} frames; mean render/present {:.2} ms; mean CPU upload {:.2} ms",
+            "exact-windows: {} frames; mean paint {:.2} ms; mean present {:.2} ms",
             state.frames,
             state.paint_ms / state.frames as f64,
             state.present_ms / state.frames as f64
@@ -274,7 +338,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(
             values[((values.len() - 1) as f64 * fraction).round() as usize]
         };
         if !state.samples.is_empty() {
-            eprintln!("exact-windows: recent {} frames p50/p95 ms: interval {:.2}/{:.2}, render/present {:.2}/{:.2}, CPU upload {:.2}/{:.2}",
+            eprintln!("exact-windows: recent {} frames p50/p95 ms: interval {:.2}/{:.2}, paint {:.2}/{:.2}, present {:.2}/{:.2}",
                 state.samples.len(), percentile(|s| s.0, 0.5), percentile(|s| s.0, 0.95),
                 percentile(|s| s.1, 0.5), percentile(|s| s.1, 0.95),
                 percentile(|s| s.2, 0.5), percentile(|s| s.2, 0.95));
@@ -312,6 +376,29 @@ impl<D: DataSource + Default + 'static> App<D> {
             window.request_redraw();
         }
     }
+    fn deliver_timer(&mut self, fired: Arc<crate::timers::Fired>, now: f64) {
+        if let Some(p) = &mut self.presenter {
+            if fired.live(p.native_timer_generation()) {
+                let due = p
+                    .host()
+                    .runner()
+                    .native_timers()
+                    .into_iter()
+                    .find(|row| {
+                        row.index == fired.row.index && row.generation == fired.row.generation
+                    })
+                    .map(|row| row.due_ms);
+                if let Some(due) = due.filter(|due| *due > now) {
+                    self.timers.defer(due, fired);
+                    return;
+                }
+                if let Some(e) = p.fire_native_timer(fired.epoch, &fired.row, now) {
+                    eprintln!("exact-windows: {e}");
+                }
+            }
+        }
+        fired.complete();
+    }
     fn draw(&mut self, events: &ActiveEventLoop) -> Result<(), String> {
         if std::mem::take(&mut self.refit_after_scale) {
             if let Some(window) = &self.window {
@@ -323,7 +410,10 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
         }
         let frame_started = Instant::now();
-        if self.minimized {
+        if self.frames == 0 {
+            boot_phase("first-draw-entered");
+        }
+        if self.minimized || self.occluded {
             return Ok(());
         }
         // A frame task can wake the loop from its own commit. Those wakes
@@ -339,11 +429,24 @@ impl<D: DataSource + Default + 'static> App<D> {
             return Ok(());
         }
         let now = self.now();
-        let (Some(window), Some(surface), Some(p)) =
+        let (Some(window), surface, Some(p)) =
             (&self.window, &mut self.surface, &mut self.presenter)
         else {
             return Ok(());
         };
+        if self.measure_first_composition {
+            // Read before submitting another frame; the compositor has had the
+            // intervening display period. Omitted in the probe-free interval run.
+            match p.displayed_process_ms() {
+                Ok(Some(ms)) => eprintln!(
+                    "exact-windows: process to displayed first composition {ms:.3} ms (DXGI)"
+                ),
+                other => {
+                    eprintln!("exact-windows: first composition timestamp unavailable: {other:?}")
+                }
+            }
+            self.measure_first_composition = false;
+        }
         let size = window.inner_size();
         let (Some(width), Some(height)) =
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
@@ -374,13 +477,16 @@ impl<D: DataSource + Default + 'static> App<D> {
         // moments this turn's commits and the window's new size caused; an
         // overlay published here is in the frame painted below.
         p.hatch_turn();
+        let prepared_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.poll_images();
         // The OS draws the desktop cursor; this presenter's arrow is for DRM.
         p.set_pointer(None);
         if self.frames > 0 {
             p.sync_surfaces();
         }
+        let images_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.tick(now);
+        let tick_at = frame_started.elapsed().as_secs_f64() * 1000.;
         self.caret.advance(frame_started);
         p.set_caret_visible(self.caret.visible());
         if self.frames == 0 {
@@ -394,6 +500,11 @@ impl<D: DataSource + Default + 'static> App<D> {
                     .and_then(|m| m.refresh_rate_millihertz())
             );
         }
+        // Bounded runs measure an unchanged redraw, as the C4 still protocol does.
+        if self.frame_limit.is_some() {
+            p.repaint();
+        }
+        let painting = p.dirty();
         let paint = Instant::now();
         if let Some(previous) = self.caret.take_previous_frame() {
             p.recycle_frame(previous);
@@ -403,14 +514,9 @@ impl<D: DataSource + Default + 'static> App<D> {
         else {
             return Err("not a Windows window".into());
         };
-        // SAFETY: App drops the presenter (and module swapchain) before the HWND.
-        #[allow(unsafe_code)]
-        let mut frame = unsafe {
-            p.window_frame(
-                handle.hwnd.get() as usize,
-                handle.hinstance.map_or(0, |h| h.get() as usize),
-            )
-        }?;
+        let owned = exact_ink::device::d3d11::Window::from_owner(window.clone())
+            .map_err(|e| e.to_string())?;
+        let mut frame = p.window_frame(owned.clone())?;
         let caret_rect = (self.focused && p.last_frame_succeeded())
             .then(|| p.caret_frame())
             .flatten();
@@ -423,16 +529,7 @@ impl<D: DataSource + Default + 'static> App<D> {
         ) {
             p.set_caret_visible(true);
             // A programmatic move while hidden starts a fresh visible phase.
-            // SAFETY: the presenter is still owned by this live window.
-            #[allow(unsafe_code)]
-            {
-                frame = unsafe {
-                    p.window_frame(
-                        handle.hwnd.get() as usize,
-                        handle.hinstance.map_or(0, |h| h.get() as usize),
-                    )
-                }?;
-            }
+            frame = p.window_frame(owned)?;
             self.caret.presented(
                 handle.hwnd.get(),
                 caret_rect,
@@ -444,10 +541,18 @@ impl<D: DataSource + Default + 'static> App<D> {
         // Geometry and accessibility queries below can paint into a discarded
         // frame. Preserve work discovered after this frame's pixels were drawn.
         let repaint_owed = p.dirty();
-        let paint_ms = paint.elapsed().as_secs_f64() * 1000.;
+        let direct_present_ms = if painting && frame.is_none() && p.painter.name == "ink" {
+            p.last_frame_ms().map_or(0., |(_, present)| present)
+        } else {
+            0.
+        };
+        let paint_ms = (paint.elapsed().as_secs_f64() * 1000. - direct_present_ms).max(0.);
         self.paint_ms += paint_ms;
         let present = Instant::now();
         if let Some(frame) = frame {
+            let surface = surface
+                .as_mut()
+                .ok_or("direct painter returned an unpresented frame")?;
             surface.resize(width, height).map_err(|e| e.to_string())?;
             let mut buffer = surface.buffer_mut().map_err(|e| e.to_string())?;
             if buffer.len() != frame.data().len() / 4 {
@@ -466,6 +571,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             buffer.present().map_err(|e| e.to_string())?;
             p.recycle_frame(frame);
         }
+        if !p.last_frame_succeeded() {
+            return Ok(());
+        }
         // A keyboard command can change the cursor while the mouse is still.
         // Re-resolve the painted hit after the frame, including unmounts and HUDs.
         let cursor = if self.pointer_inside && self.focused {
@@ -482,7 +590,9 @@ impl<D: DataSource + Default + 'static> App<D> {
             window.set_cursor(cursor);
             self.cursor = cursor;
         }
-        let present_ms = present.elapsed().as_secs_f64() * 1000.;
+        let present_ms = present.elapsed().as_secs_f64() * 1000. + direct_present_ms;
+        let presented_at = frame_started.elapsed().as_secs_f64() * 1000.;
+        let render_ms = p.last_frame_ms().map_or(0., |(render, _)| render);
         self.present_ms += present_ms;
         if let Some(previous) = self.previous_frame.replace(frame_started) {
             let sample = (
@@ -496,12 +606,97 @@ impl<D: DataSource + Default + 'static> App<D> {
                 self.samples[(self.frames as usize - 1) % 4096] = sample;
             }
         }
+        if self.frames == 0 {
+            eprintln!(
+                "exact-windows: first present returned at {:.3} ms after host start",
+                self.started.elapsed().as_secs_f64() * 1000.
+            );
+        }
+        // A screen's ready marker can exclude background requests that do not
+        // contribute to it. Shelf's library-count appears with its seeded books.
+        let screen_ready = std::env::var("EXACT_AGENT_WINDOW_READY").map_or_else(
+            |_| !p.pending(),
+            |target| p.host().kernel().find_by_test_id(&target).len() == 1,
+        );
+        if (self.frame_limit.is_some() || std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some())
+            && !self.measured_first_screen
+            && p.last_frame_succeeded()
+            && !p.data_activating()
+            && screen_ready
+        {
+            if std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() == Ok("off") {
+                eprintln!("exact-windows: complete first screen submitted (probe off)");
+            } else {
+                let probe = Instant::now();
+                let synchronized = exact_ink::device::compositor_sync_process_ms();
+                let deadline = Instant::now() + Duration::from_secs(1);
+                let displayed = loop {
+                    let displayed = p.displayed_process_ms();
+                    if displayed.is_ok() || Instant::now() >= deadline {
+                        break displayed;
+                    }
+                    // The composition statistics can lag a DWM sync. Do not accept
+                    // an older present as the complete screen's displayed frame.
+                    if exact_ink::device::compositor_sync_process_ms().is_err() {
+                        break displayed;
+                    }
+                };
+                match displayed {
+                    Ok(Some(ms)) => {
+                        eprintln!(
+                            "exact-windows: process to displayed first screen {ms:.3} ms (DXGI)"
+                        )
+                    }
+                    Err(error) => {
+                        eprintln!("exact-windows: displayed-frame timestamp unavailable: {error}")
+                    }
+                    Ok(None) => {}
+                }
+                match synchronized {
+                    Ok(ms) => eprintln!(
+                    "exact-windows: process to first-screen compositor sync {ms:.3} ms (DWM proxy)"
+                ),
+                    Err(error) => eprintln!("exact-windows: compositor sync: {error}"),
+                }
+                eprintln!(
+                    "exact-windows: synchronization probe {:.3} ms",
+                    probe.elapsed().as_secs_f64() * 1000.
+                );
+            }
+            eprintln!(
+                "exact-windows: first-screen painter {} adapter {:?}",
+                p.painter.name, p.painter.adapter
+            );
+            self.measured_first_screen = true;
+        }
         self.frames += 1;
+        self.measure_first_composition = self.frames == 1
+            && surface.is_none()
+            && self.frame_limit.is_some()
+            && std::env::var("EXACT_AGENT_WINDOW_PROBE").as_deref() != Ok("off");
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            let line = format!("exact-windows: frame {} at {:.3} ms, {}x{}, scale {}, painter {}, caret {}, paint {:.3} ms, present {:.3} ms",
+                self.frames, now, size.width, size.height, self.scale, p.painter.name,
+                self.caret.visible(), paint_ms, present_ms);
+            if self.frame_limit.is_some() {
+                self.frame_logs.push(line);
+            } else {
+                eprintln!("{line}");
+            }
+        }
+        let logged_at = frame_started.elapsed().as_secs_f64() * 1000.;
         p.first_pixel();
+        if !self.jump_list_started && p.last_frame_succeeded() {
+            self.jump_list_started = true;
+            crate::jump_list::start(self.config.compat.clone());
+        }
+        let activated_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(access) = &mut self.accessibility {
             access.sync(p, window, &self.name);
         }
+        let accessible_at = frame_started.elapsed().as_secs_f64() * 1000.;
         self.ime.sync(window, p);
+        let ime_at = frame_started.elapsed().as_secs_f64() * 1000.;
         if let Some(target) = self.first_tap.take() {
             let keys = p.host().kernel().find_by_test_id(&target);
             if keys.len() != 1 {
@@ -513,11 +708,25 @@ impl<D: DataSource + Default + 'static> App<D> {
             p.tap(id)?;
         }
         p.sync_surfaces();
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            let line = format!("exact-windows: phases {} prepare {prepared_at:.3}, images {images_at:.3}, tick {tick_at:.3}, presented {presented_at:.3}, logged {logged_at:.3}, activated {activated_at:.3}, accessibility {accessible_at:.3}, ime {ime_at:.3}, surfaces {:.3} ms from frame start; render {render_ms:.3} ms",
+                self.frames, frame_started.elapsed().as_secs_f64() * 1000.);
+            if self.frame_limit.is_some() {
+                self.frame_logs.push(line);
+            } else {
+                eprintln!("{line}");
+            }
+        }
         if repaint_owed || p.dirty() {
             p.repaint();
             window.request_redraw();
         }
         if self.frame_limit.is_some_and(|limit| self.frames >= limit) {
+            // Bounded measurements write their per-frame log after the timed run.
+            // Synchronous file writes can stall even with the DWM probe disabled.
+            for line in self.frame_logs.drain(..) {
+                eprintln!("{line}");
+            }
             events.exit();
         }
         let period = window
@@ -540,23 +749,21 @@ impl<D: DataSource + Default + 'static> App<D> {
         Ok(())
     }
 
-    fn blink(&mut self) -> Result<(), String> {
+    fn blink(&mut self, now: Instant) -> Result<(), String> {
         if self.minimized || self.occluded || !self.focused {
             return Ok(());
         }
-        let (Some(window), Some(surface), Some(p)) =
-            (&self.window, &mut self.surface, &mut self.presenter)
-        else {
+        let (Some(window), Some(p)) = (&self.window, &mut self.presenter) else {
             return Ok(());
         };
         if p.dirty() || p.wants_display_frames() || p.host().motion() {
             return Ok(());
         }
-        if !self.caret.advance(Instant::now()) {
+        if !self.caret.advance(now) {
             return Ok(());
         }
         p.set_caret_visible(self.caret.visible());
-        if !self.caret.can_patch() {
+        if self.surface.is_none() || !self.caret.can_patch() {
             p.repaint();
             window.request_redraw();
             return Ok(());
@@ -569,7 +776,12 @@ impl<D: DataSource + Default + 'static> App<D> {
             }
             self.caret.compare(other);
         }
-        let mut buffer = surface.buffer_mut().map_err(|e| e.to_string())?;
+        let mut buffer = self
+            .surface
+            .as_mut()
+            .expect("patch surface")
+            .buffer_mut()
+            .map_err(|e| e.to_string())?;
         if let Some(damage) = self.caret.paint(&mut buffer, window.inner_size().width) {
             buffer
                 .present_with_damage(&[damage])
@@ -612,8 +824,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         if self.window.is_some() {
             return;
         }
+        boot_phase("resumed");
         let window = match events.create_window(
             Window::default_attributes()
+                .with_no_redirection_bitmap(self.direct)
                 .with_visible(false)
                 .with_title(&self.name)
                 .with_fullscreen(
@@ -630,6 +844,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 return;
             }
         };
+        boot_phase("window-created");
         crate::placement::fit(&window, self.min_size);
         self.accessibility = Some(crate::accessibility::Access::new(
             events,
@@ -657,8 +872,37 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 }
             }
         }
-        match app::boot_presenter::<D>(&mut self.config, viewport) {
+        boot_phase("native-hooks-ready");
+        let mut direct = false;
+        let booted = if let Some(preparing) = self.preparing.take() {
+            app::boot_presenter_with_device::<D>(&mut self.config, viewport, preparing)
+        } else {
+            app::boot_presenter::<D>(&mut self.config, viewport)
+        };
+        boot_phase("presenter-ready");
+        match booted {
             Ok((mut p, warning)) => {
+                if let Ok(handle) = window.window_handle() {
+                    if let RawWindowHandle::Win32(_) = handle.as_raw() {
+                        let owned =
+                            match exact_ink::device::d3d11::Window::from_owner(window.clone()) {
+                                Ok(owned) => owned,
+                                Err(e) => {
+                                    self.fail(events, e.to_string());
+                                    return;
+                                }
+                            };
+                        let attached = p.attach_painter_window(owned, [size.width, size.height]);
+                        match attached {
+                            Ok(attached) => direct = attached,
+                            Err(e) => {
+                                self.fail(events, e);
+                                return;
+                            }
+                        }
+                    }
+                }
+                boot_phase("composition-ready");
                 p.host_mut().runner_mut().set_row_reuse(true);
                 if let Some(scale) = self.appearance.text_scale() {
                     if let Some(error) = p.set_text_scale(scale) {
@@ -678,6 +922,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 p.surface_lifecycle(self.minimized || self.occluded, !self.focused);
                 p.set_window_active(self.focused);
                 // The window's clock owns time (the timers RFC, D1)
+                p.use_native_timers(true);
                 p.set_live_clock(Some(exact_linux::presenter::wall_since(self.started)));
                 if let Some(warning) = warning {
                     eprintln!("exact-windows: {warning}");
@@ -689,25 +934,34 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 return;
             }
         }
-        let context = match softbuffer::Context::new(window.clone()) {
-            Ok(c) => c,
-            Err(e) => {
-                self.fail(events, e);
-                return;
-            }
-        };
-        match softbuffer::Surface::new(&context, window.clone()) {
-            Ok(surface) => self.surface = Some(surface),
-            Err(e) => {
-                self.fail(events, e);
-                return;
+        if !direct {
+            let context = match softbuffer::Context::new(window.clone()) {
+                Ok(c) => c,
+                Err(e) => {
+                    self.fail(events, e);
+                    return;
+                }
+            };
+            match softbuffer::Surface::new(&context, window.clone()) {
+                Ok(surface) => self.surface = Some(surface),
+                Err(e) => {
+                    self.fail(events, e);
+                    return;
+                }
             }
         }
+        boot_phase("before-show");
         window.set_visible(true);
+        boot_phase("visible");
         window.request_redraw();
         self.window = Some(window);
     }
     fn user_event(&mut self, events: &ActiveEventLoop, event: crate::accessibility::Event) {
+        if let crate::accessibility::Event::Timer(fired) = event {
+            self.deliver_timer(fired, self.now());
+            self.about_to_wait(events);
+            return;
+        }
         if matches!(event, crate::accessibility::Event::ModalWake) {
             // Requesting another WM_PAINT is insufficient inside a native
             // modal loop. Consume its deadline in this dispatched callback.
@@ -717,6 +971,13 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             }
             self.about_to_wait(events);
             return;
+        }
+        // Executor, image and hatch wakes need a display turn; polling the
+        // executor alone does not service all three. Timers take the branch above.
+        if matches!(event, crate::accessibility::Event::Wake) {
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
         }
         if let crate::accessibility::Event::Access(event) = event {
             if let (Some(access), Some(p), Some(window)) =
@@ -729,9 +990,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 access.event(p, window, &self.name, event.window_event);
             }
         }
-        if let Some(window) = &self.window {
-            window.request_redraw();
-        }
+        self.about_to_wait(events);
     }
     fn window_event(&mut self, events: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         if let (Some(access), Some(window)) = (&mut self.accessibility, &self.window) {
@@ -944,6 +1203,29 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        let now = self.now();
+        for fired in self.timers.take_due(now) {
+            self.deliver_timer(fired, now);
+        }
+        if let Some(p) = self.presenter.as_mut() {
+            p.timer_visibility(self.minimized || self.occluded);
+            let now = self.started.elapsed().as_secs_f64() * 1000.0;
+            if p.wake_due_ms().is_some_and(|due| due <= now) {
+                if let Some(e) = p.advance(now) {
+                    eprintln!("exact-windows: {e}");
+                }
+            }
+            // Deliver nonvisual effects even when this turn needs no presentation
+            if let Some(e) = p.pump(self.started.elapsed().as_secs_f64() * 1000.0) {
+                eprintln!("exact-windows: {e}");
+            }
+            p.run_commands(D::default);
+            crate::orientation::apply(p);
+            p.hatch_turn();
+            if let Some(e) = p.admit_idle_timer(self.started.elapsed().as_secs_f64() * 1000.0) {
+                eprintln!("exact-windows: {e}");
+            }
+        }
         if self.appearance.take() {
             if let (Some(window), Some(p)) = (&self.window, &mut self.presenter) {
                 system_theme(p, window.theme().unwrap_or(Theme::Light));
@@ -955,17 +1237,18 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 window.request_redraw();
             }
         }
-        if let Err(error) = self.blink() {
+        if let Err(error) = self.blink(Instant::now()) {
             self.fail(events, error);
             return;
         }
         let Some(p) = &mut self.presenter else { return };
-        if self.minimized {
-            self.modal.wait_until(None);
-            events.set_control_flow(ControlFlow::Wait);
-            return;
+        let retirement = p.collect_painter_retirement(Instant::now());
+        if p.dirty() && !self.minimized && !self.occluded {
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
         }
-        let pads_active = self.focused && p.has_gamepad_input();
+        let pads_active = self.focused && !self.minimized && p.has_gamepad_input();
         if self.pads_active != pads_active {
             self.pads_active = pads_active;
             self.pads.forget();
@@ -982,7 +1265,18 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                 },
             );
         }
-        if self.frame_limit.is_some() || p.wants_display_frames() || p.host().motion() {
+        if let Err(e) = self.timers.update(
+            p.native_timer_generation(),
+            p.host().runner().native_timers(),
+            self.started.elapsed().as_secs_f64() * 1000.0,
+        ) {
+            self.fail(events, e);
+            return;
+        }
+        if !self.minimized
+            && (self.frame_limit.is_some()
+                || (!self.occluded && (p.wants_display_frames() || p.host().motion())))
+        {
             if Instant::now() >= self.next_frame {
                 if let Some(window) = &self.window {
                     window.request_redraw();
@@ -991,14 +1285,30 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
             events.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
         } else if let Some(due) = p.wake_due_ms() {
             let deadline = self.started + Duration::from_secs_f64((due / 1000.).max(0.));
-            if Instant::now() >= deadline {
+            events.set_control_flow(ControlFlow::WaitUntil(deadline));
+        } else {
+            events.set_control_flow(ControlFlow::Wait);
+        }
+        if let Some(due) = p.painter_retry_deadline() {
+            if Instant::now() >= due {
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
             }
-            events.set_control_flow(ControlFlow::WaitUntil(deadline));
-        } else {
-            events.set_control_flow(ControlFlow::Wait);
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= due) {
+                events.set_control_flow(ControlFlow::WaitUntil(due));
+            }
+        }
+        if let Some(due) = self.timers.next_delivery() {
+            let deadline = self.started + Duration::from_secs_f64(due / 1000.0);
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= deadline) {
+                events.set_control_flow(ControlFlow::WaitUntil(deadline));
+            }
+        }
+        if let Some(due) = retirement {
+            if !matches!(events.control_flow(), ControlFlow::WaitUntil(t) if t <= due) {
+                events.set_control_flow(ControlFlow::WaitUntil(due));
+            }
         }
         // Only an app with an input canvas needs controller discovery wakes.
         if pads_active {
@@ -1009,6 +1319,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
         }
         if self.focused
             && !self.occluded
+            && !self.minimized
             && !p.dirty()
             && !p.wants_display_frames()
             && !p.host().motion()
@@ -1027,67 +1338,4 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn text_without_a_physical_key_reaches_the_editor() {
-        use winit::keyboard::{KeyCode, NamedKey, NativeKey, NativeKeyCode};
-        let packet = PhysicalKey::Unidentified(NativeKeyCode::Windows(0));
-        for text in ["a", "é", "界", "🦀"] {
-            assert_eq!(
-                key_names(packet, &Key::Character(text.into()), Some(text)),
-                ("Unidentified".into(), text.into())
-            );
-            assert_eq!(
-                key_names(
-                    packet,
-                    &Key::Unidentified(NativeKey::Windows(0xe7)),
-                    Some(text)
-                ),
-                ("Unidentified".into(), text.into())
-            );
-        }
-        assert_eq!(
-            key_names(
-                PhysicalKey::Code(KeyCode::Enter),
-                &Key::Named(NamedKey::Enter),
-                Some("\r")
-            ),
-            ("Enter".into(), "Enter".into())
-        );
-        assert_eq!(
-            key_names(
-                PhysicalKey::Code(KeyCode::SuperLeft),
-                &Key::Named(NamedKey::Meta),
-                None
-            ),
-            ("MetaLeft".into(), "Meta".into())
-        );
-    }
-    #[test]
-    fn frame_cadence_does_not_accumulate_timer_latency() {
-        let start = Instant::now();
-        for hz in [60, 120, 144] {
-            let period = Duration::from_secs_f64(1.0 / hz as f64);
-            let mut deadline = start;
-            for frame in 1..=10_000 {
-                deadline =
-                    next_frame_deadline(deadline, deadline + Duration::from_micros(350), period);
-                assert_eq!(deadline, start + period * frame);
-            }
-        }
-    }
-    #[test]
-    fn early_redraws_preserve_cadence_and_stalls_resume_without_catch_up() {
-        let start = Instant::now();
-        let period = Duration::from_millis(10);
-        let deadline = start + period;
-        assert_eq!(next_frame_deadline(deadline, start, period), deadline);
-        let late = deadline + Duration::from_secs(5);
-        assert_eq!(next_frame_deadline(deadline, late, period), late + period);
-        assert_eq!(
-            next_frame_deadline(deadline, deadline + period, period),
-            deadline + period * 2
-        );
-    }
-}
+mod tests;

@@ -35,8 +35,11 @@ final class NodeLayer: CALayer {
     }
 }
 
-/// Image geometry uses the same animation context as its owning UIView.
-private final class NodeImageLayer: CALayer {
+/// A layer for part of a node's box (an image's fitted rectangle, a
+/// paragraph's text): its place changes in the animation context of the view
+/// it is in, as a subview's frame would, by that view's own
+/// `action(for:forKey:)`; nothing else of it animates.
+class BoxPartLayer: CALayer {
     override func action(forKey event: String) -> CAAction? {
         guard ["bounds", "position"].contains(event) else { return NSNull() }
         var ancestor = superlayer
@@ -47,6 +50,8 @@ private final class NodeImageLayer: CALayer {
         return NSNull()
     }
 }
+
+private final class NodeImageLayer: BoxPartLayer {}
 
 extension NodeView {
     /// Paint only `draw(_:)` makes: a box Core Animation cannot say, an
@@ -362,7 +367,7 @@ extension NodeView {
     /// shadow, gradient, inset shadow, image, border, text — whichever of
     /// them joins first (as `Mac/BoxLayerMac.swift`).
     func insertBoxSublayer(_ l: CALayer) {
-        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, insetCaster, imageLayer, boxBorder, textRasterLayer]
+        let order: [CALayer?] = [shadowCaster, boxFill, boxGradient, insetCaster, imageLayer, boxBorder, textBoxLayer]
         guard let rank = order.firstIndex(where: { $0 === l }) else { return }
         if let below = order[..<rank].reversed().compactMap({ $0 }).first(where: { $0.superlayer === layer }) {
             layer.insertSublayer(l, above: below)

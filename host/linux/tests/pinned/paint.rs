@@ -3,6 +3,9 @@
 //! and a group opacity, a scroll container clips, a screenshot is the
 //! viewport.
 
+mod coverage;
+mod reviews;
+
 use crate::pin_font;
 use exact_linux::presenter::PainterChoice;
 use exact_linux::Presenter;
@@ -21,6 +24,11 @@ fn gpu_available() -> bool {
     match exact_linux::gpu::Gpu::new() {
         Ok(_) => true,
         Err(e) => {
+            assert_ne!(
+                std::env::var("EXACT_REQUIRED").as_deref(),
+                Ok("1"),
+                "missing gpu: {e}"
+            );
             eprintln!("no GPU here ({e}); the GPU painter's pixels are not checked");
             false
         }
@@ -28,12 +36,30 @@ fn gpu_available() -> bool {
 }
 
 /// Every painter that can run here.
-fn painters() -> Vec<PainterChoice> {
+pub(crate) fn painters() -> Vec<PainterChoice> {
     let mut v = vec![PainterChoice::Cpu];
     if gpu_available() {
         v.push(PainterChoice::Gpu);
     }
+    if ink_available() {
+        v.push(PainterChoice::Ink);
+    }
     v
+}
+
+fn ink_available() -> bool {
+    match exact_linux::ink::Ink::new() {
+        Ok(_) => true,
+        Err(e) => {
+            assert_ne!(
+                std::env::var("EXACT_REQUIRED").as_deref(),
+                Ok("1"),
+                "missing ink: {e}"
+            );
+            eprintln!("Ink painter unavailable: {e}");
+            false
+        }
+    }
 }
 
 fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
@@ -339,6 +365,24 @@ fn the_two_painters_agree_within_a_band() {
     let gpu = boot(PainterChoice::Gpu).frame();
     let (mean, over) = band(&cpu, &gpu);
     eprintln!("cpu vs gpu at 390x844: mean {mean:.2}/255, {over:.2}% of pixels differ by > 32");
+    assert!(mean < 5.0, "mean {mean:.2}/255");
+    assert!(over < 6.0, "{over:.2}% of pixels differ by > 32");
+}
+
+#[test]
+fn the_cpu_and_ink_painters_agree_within_a_band() {
+    if !ink_available() {
+        return;
+    }
+    let cpu = boot(PainterChoice::Cpu).frame();
+    let mut painter = boot(PainterChoice::Ink);
+    let ink = painter.frame();
+    assert_eq!(
+        painter.painter.name, "ink",
+        "parity must not use the CPU fallback"
+    );
+    let (mean, over) = band(&cpu, &ink);
+    eprintln!("cpu vs ink at 390x844: mean {mean:.2}/255, {over:.2}% of pixels differ by > 32");
     assert!(mean < 5.0, "mean {mean:.2}/255");
     assert!(over < 6.0, "{over:.2}% of pixels differ by > 32");
 }
@@ -1203,4 +1247,41 @@ fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
         split.take_window_underlay().is_none(),
         "backdrop effects require ordinary capture"
     );
+}
+
+#[test]
+#[ignore = "measurement: ten interleaved Caltrain frames per painter and viewport"]
+fn caltrain_ink_and_vello_frame_times() {
+    assert!(gpu_available() && ink_available());
+    for (width, height) in [(390., 844.), (1920., 1080.)] {
+        let mut ink = boot(PainterChoice::Ink);
+        let mut gpu = boot(PainterChoice::Gpu);
+        ink.resize(width, height);
+        gpu.resize(width, height);
+        let mut times = [Vec::new(), Vec::new()];
+        for frame in 0..10 {
+            for index in if frame % 2 == 0 { [0, 1] } else { [1, 0] } {
+                let p = if index == 0 { &mut ink } else { &mut gpu };
+                p.repaint();
+                let started = std::time::Instant::now();
+                let pixels = p.frame();
+                let wall_ms = started.elapsed().as_secs_f64() * 1000.;
+                assert_eq!(
+                    (pixels.width(), pixels.height()),
+                    (width as u32, height as u32)
+                );
+                assert_eq!(p.painter.name, if index == 0 { "ink" } else { "gpu" });
+                let (encode, readback) = p.last_frame_ms().unwrap();
+                times[index].push((encode, readback, wall_ms));
+            }
+        }
+        for (name, values) in ["ink", "vello"].into_iter().zip(times) {
+            let median = |mut v: Vec<f64>| {
+                v.sort_by(f64::total_cmp);
+                (v[4] + v[5]) / 2.
+            };
+            eprintln!("{name} {width}x{height}, 10 frames: encode+render {:.3} ms, readback {:.3} ms, frame wall {:.3} ms (medians)",
+                median(values.iter().map(|v| v.0).collect()), median(values.iter().map(|v| v.1).collect()), median(values.iter().map(|v| v.2).collect()));
+        }
+    }
 }

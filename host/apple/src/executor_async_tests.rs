@@ -370,6 +370,37 @@ fn a_forgotten_running_write_keeps_the_ordered_slot_until_it_ends() {
 }
 
 #[test]
+fn an_app_aborted_running_write_frees_the_ordered_slot_at_once() {
+    // As `a_forgotten_running_write_keeps_the_ordered_slot_until_it_ends`,
+    // but the app aborted the write: its exchange is cancelled and claimed
+    // now, so the next ordered request starts without waiting for a reply.
+    let script = Arc::new(Script::default());
+    let (core, woke) = core(&script, ORIGINS);
+    let mut post = Request::get("https://a.example.test/post");
+    post.method = "POST".into();
+    core.run(job(1, post), None).unwrap();
+    core.run(job(2, Request::get("https://a.example.test/next")), None)
+        .unwrap();
+    script.wait(1);
+    core.cancel(&[1]);
+    assert_eq!(
+        script.wait(2),
+        2,
+        "the next starts once the write is cancelled"
+    );
+    script.answer("https://a.example.test/next", b"ok");
+    let outcomes = collect(&core, &woke, 1);
+    assert_eq!(outcomes[0].0, 2, "the aborted write's outcome is dropped");
+    // Its bytes go when its transport ends, as a forgotten read's do.
+    script
+        .take("https://a.example.test/post")
+        .sink
+        .end(Err(ibex2::boundary::HostError::Failed("cancelled".into())));
+    eventually(|| bytes(&core) == [0, 0]);
+    assert!(core.drain().is_empty());
+}
+
+#[test]
 fn the_suite_passes_on_the_asynchronous_core() {
     // The executor's whole suite, again, on this core: the same binary,
     // asked for those tests with the core switched on.

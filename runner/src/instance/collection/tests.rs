@@ -8,6 +8,8 @@ mod fill;
 mod key_reads;
 #[path = "ownership_tests.rs"]
 mod ownership;
+#[path = "position_tests.rs"]
+mod position;
 #[path = "rekey_tests.rs"]
 mod rekey;
 #[path = "smooth_tests.rs"]

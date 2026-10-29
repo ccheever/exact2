@@ -9,6 +9,8 @@ pub enum PainterChoice {
     Auto,
     /// vello over wgpu; a boot error when there is no adapter.
     Gpu,
+    /// Instanced geometry; `EXACT_INK_DEVICE` selects wgpu, Metal or D3D11 (LLP 1149).
+    Ink,
     /// tiny-skia.
     Cpu,
     /// Recorded for Android's Canvas (`canvas.rs`).
@@ -29,26 +31,54 @@ pub fn set_custom_painter(name: &'static str, make: PainterFactory) {
     let _ = CUSTOM.set((name, make));
 }
 impl PainterChoice {
-    /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
-    pub fn from_env() -> PainterChoice {
-        match std::env::var("EXACT_PAINTER").as_deref() {
-            Ok("gpu") => PainterChoice::Gpu,
-            Ok("cpu") => PainterChoice::Cpu,
-            Ok("custom") => PainterChoice::Custom,
+    /// The baked `host.<platform>.painter`, or this host's existing default.
+    pub fn from_baked(compat: &str) -> Self {
+        #[derive(Default, serde::Deserialize)]
+        struct Baked {
+            painter: Option<String>,
+        }
+        match serde_json::from_str::<Baked>(compat)
+            .unwrap_or_default()
+            .painter
+            .as_deref()
+        {
+            Some("ink") => Self::Ink,
+            _ if cfg!(windows) => Self::Cpu,
+            _ => Self::Auto,
+        }
+    }
+
+    /// `EXACT_PAINTER` overrides the manifest's choice (LLP 1149 D12).
+    pub fn from_env(manifest: PainterChoice) -> PainterChoice {
+        manifest.with_override(std::env::var("EXACT_PAINTER").ok().as_deref())
+    }
+
+    fn with_override(self, value: Option<&str>) -> Self {
+        match value {
+            None => self,
+            Some("gpu") => Self::Gpu,
+            Some("ink") => Self::Ink,
+            Some("cpu") => Self::Cpu,
+            Some("custom") => Self::Custom,
             #[cfg(any(target_os = "android", test))]
-            Ok("canvas") => PainterChoice::Canvas,
-            _ => PainterChoice::Auto,
+            Some("canvas") => Self::Canvas,
+            _ => Self::Auto,
         }
     }
 }
 
+#[cfg(any(target_os = "android", test))]
+const ANDROID_INK_UNAVAILABLE: &str = "host.android.painter=\"ink\" / EXACT_PAINTER=ink is not yet honoured: ink's wgpu Vulkan surface presenter is not implemented (LLP 1149 S4)";
+
 /// What the painter is, for the smoke's report.
 #[derive(Debug, Clone)]
 pub struct PainterInfo {
-    /// `"gpu"` or `"cpu"`.
+    /// The selected backend's name.
     pub name: &'static str,
     /// The adapter and API, on the GPU.
     pub adapter: Option<String>,
+    /// The rendering API, when a device is installed.
+    pub api: Option<String>,
     /// Device creation, milliseconds, on the GPU.
     pub device_ms: f64,
     /// Shader compilation, milliseconds, on the GPU.
@@ -61,6 +91,7 @@ pub(super) fn cpu_info() -> PainterInfo {
     PainterInfo {
         name: "cpu",
         adapter: None,
+        api: None,
         device_ms: 0.0,
         shaders_ms: 0.0,
         cached: false,
@@ -70,7 +101,7 @@ pub(super) fn cpu_info() -> PainterInfo {
 type OpenedPainter = Result<(Box<dyn Backend>, PainterInfo), String>;
 
 /// A carrier chooses its constructor without retaining every native backend.
-/// The constructor still runs after plan and font validation, on the paint thread.
+/// The backend is installed after validation, on the paint thread.
 #[derive(Clone, Copy)]
 pub(crate) struct PainterBoot {
     pub(super) choice: PainterChoice,
@@ -78,23 +109,75 @@ pub(crate) struct PainterBoot {
 }
 
 impl PainterBoot {
-    pub(super) fn selected(choice: PainterChoice) -> Self {
+    #[cfg(windows)]
+    pub(super) fn prepare_direct(
+        self,
+    ) -> Option<Result<exact_ink::device::d3d11::Preparing, String>> {
+        if self.choice != PainterChoice::Ink
+            || !std::ptr::fn_addr_eq(
+                self.open,
+                open_backend as fn(PainterChoice) -> OpenedPainter,
+            )
+        {
+            return None;
+        }
+        let device = std::env::var("EXACT_INK_DEVICE").ok();
+        let force_warp = exact_ink::device::direct_d3d11(device.as_deref())?;
+        Some(exact_ink::device::d3d11::Preparing::start(force_warp).map_err(|e| e.to_string()))
+    }
+
+    #[cfg(windows)]
+    pub(super) fn finish_direct(preparing: exact_ink::device::d3d11::Preparing) -> OpenedPainter {
+        let start = std::time::Instant::now();
+        let warp = preparing.force_warp();
+        let device = preparing
+            .finish()
+            .or_else(|e| {
+                if warp {
+                    Err(e)
+                } else {
+                    exact_ink::device::d3d11::D3d11::open(true)
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        let ink =
+            crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));
+        if std::env::var_os("EXACT_AGENT_WINDOW_FRAMES").is_some() {
+            eprintln!(
+                "exact-ink: startup device {:.3} ms, pipelines {:.3} ms, join {:.3} ms",
+                ink.info().device_ms,
+                ink.info().shaders_ms,
+                start.elapsed().as_secs_f64() * 1000.
+            );
+        }
+        Ok(ink_backend(ink))
+    }
+
+    pub(crate) fn selected(choice: PainterChoice) -> Self {
         Self {
             choice,
             open: open_backend,
         }
     }
 
-    pub(crate) fn from_env() -> Self {
-        Self::selected(PainterChoice::from_env())
+    pub(crate) fn from_env(manifest: PainterChoice) -> Self {
+        Self::selected(PainterChoice::from_env(manifest))
     }
 
     #[cfg(target_os = "android")]
-    pub(crate) fn canvas() -> Self {
-        Self {
+    pub(crate) fn canvas(manifest: PainterChoice) -> Result<Self, String> {
+        Self::canvas_selected(PainterChoice::from_env(manifest))
+    }
+
+    #[cfg(any(target_os = "android", test))]
+    fn canvas_selected(choice: PainterChoice) -> Result<Self, String> {
+        if choice == PainterChoice::Ink {
+            return Err(ANDROID_INK_UNAVAILABLE.into());
+        }
+        Ok(Self {
             choice: PainterChoice::Canvas,
             open: open_canvas,
-        }
+        })
     }
 
     pub(super) fn open(self) -> OpenedPainter {
@@ -119,6 +202,13 @@ pub(super) fn open_backend(
     let cpu = || (Box::new(Raster::new()) as Box<dyn Backend>, cpu_info());
     match choice {
         PainterChoice::Cpu => Ok(cpu()),
+        #[cfg(target_os = "android")]
+        PainterChoice::Ink => Err(ANDROID_INK_UNAVAILABLE.into()),
+        #[cfg(not(target_os = "android"))]
+        PainterChoice::Ink => {
+            let ink = crate::ink::Ink::new()?;
+            Ok(ink_backend(ink))
+        }
         PainterChoice::Custom => {
             let (name, make) = CUSTOM
                 .get()
@@ -132,6 +222,7 @@ pub(super) fn open_backend(
                 let info = PainterInfo {
                     name: "gpu",
                     adapter: Some(format!("{} ({})", g.adapter, g.api)),
+                    api: Some(g.api.clone()),
                     device_ms: g.device_ms,
                     shaders_ms: g.shaders_ms,
                     cached: g.cached,
@@ -148,7 +239,147 @@ pub(super) fn open_backend(
     }
 }
 
+#[cfg(not(target_os = "android"))]
+fn ink_backend(ink: crate::ink::Ink) -> (Box<dyn Backend>, PainterInfo) {
+    let device = ink.info();
+    let info = PainterInfo {
+        name: "ink",
+        adapter: Some(format!("{} ({})", device.adapter, device.api)),
+        api: Some(device.api.clone()),
+        device_ms: device.device_ms,
+        shaders_ms: device.shaders_ms,
+        cached: device.cached,
+    };
+    (Box::new(ink), info)
+}
+
 impl<D: DataSource> Presenter<D> {
+    pub(crate) fn painter_state(&self) -> serde_json::Value {
+        #[cfg(windows)]
+        let recovery = self.surfaces.direct_window.as_ref();
+        #[cfg(windows)]
+        let (recovering, refusal) = (
+            recovery.is_some_and(|d| d.recovering),
+            recovery.and_then(|d| d.last_refusal.as_deref()),
+        );
+        #[cfg(not(windows))]
+        let (recovering, refusal) = (false, None::<&str>);
+        serde_json::json!({
+            "name": self.painter.name,
+            "device": self.painter.adapter,
+            "api": self.painter.api,
+            "deviceMs": self.painter.device_ms,
+            "shadersMs": self.painter.shaders_ms,
+            "cached": self.painter.cached,
+            "recovering": recovering,
+            "lastRefusal": refusal
+        })
+    }
+
+    /// Install the device prepared before app boot, before any frame is drawn.
+    /// @ref LLP 1149 S2.4.
+    #[cfg(windows)]
+    pub(crate) fn install_prepared_painter(
+        &mut self,
+        preparing: exact_ink::device::d3d11::Startup,
+    ) -> Result<(), String> {
+        let (startup, device) = crate::surfaces::window::Startup::wait(preparing)?;
+        if let Some(device) = device {
+            let ink =
+                crate::ink::Ink::from_device(exact_ink::device::Selected::D3d11(Box::new(device)));
+            let (backend, info) = ink_backend(ink);
+            self.brush.replace_backend(backend);
+            self.painter = info;
+        } else {
+            self.painter.adapter = Some("CPU startup; composition device pending".into());
+        }
+        self.surfaces.startup_device = Some(startup);
+        self.choice = PainterChoice::Ink;
+        self.repaint();
+        Ok(())
+    }
+
+    /// Boot the app under a viewport (points) at a device scale, with its
+    /// asset root. The boot error, if any, is reported beside the presenter
+    /// (the tree is what booted).
+    pub fn boot(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: PathBuf,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        Presenter::boot_with(
+            plan,
+            data,
+            viewport,
+            scale,
+            assets,
+            PainterChoice::from_env(PainterChoice::Auto),
+        )
+    }
+
+    /// Boot with a chosen painter (`boot` reads `EXACT_PAINTER`).
+    pub fn boot_with(
+        plan: &[u8],
+        data: D,
+        viewport: (f32, f32),
+        scale: f32,
+        assets: PathBuf,
+        choice: PainterChoice,
+    ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let (mut presenter, error) = Self::boot_with_assets(
+            PlanBytes::Copied(plan),
+            data,
+            viewport,
+            scale,
+            Assets::embedded(assets),
+            PainterBoot::selected(choice),
+            None,
+            "/",
+            None,
+        )?;
+        presenter.measure();
+        Ok((presenter, error))
+    }
+
+    /// The carrier transfers a retained window to a directly presenting backend.
+    #[cfg(windows)]
+    pub fn attach_painter_window(
+        &mut self,
+        window: exact_ink::device::d3d11::Window,
+        size: [u32; 2],
+    ) -> Result<bool, String> {
+        if let Some(startup) = self.surfaces.startup_device.take() {
+            let direct =
+                crate::surfaces::window::DirectWindow::attach(self, window, size, startup)?;
+            self.surfaces.direct_window = Some(direct);
+            return Ok(true);
+        }
+        let attached = self.brush.attach_window(window.clone(), size)?;
+        if attached {
+            self.surfaces.direct_window = Some(crate::surfaces::window::DirectWindow::new(window));
+        }
+        Ok(attached)
+    }
+
+    /// A bounded measurement may wait for the last frame's displayed timestamp.
+    #[cfg(windows)]
+    pub fn displayed_process_ms(&self) -> Result<Option<f64>, String> {
+        if let Some((device, _)) = self
+            .surfaces
+            .direct_window
+            .as_ref()
+            .and_then(|d| d.fallback.as_ref())
+        {
+            return device
+                .presented_process_ms()
+                .map(Some)
+                .map_err(|e| e.to_string());
+        }
+        self.brush.displayed_process_ms()
+    }
+
     /// The pixels, as a PNG at `path`.
     pub fn screenshot(&mut self, path: &str) -> Result<String, String> {
         let frame = self.frame();
@@ -170,6 +401,53 @@ impl<D: DataSource> Presenter<D> {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn the_manifest_selects_the_painter_and_the_environment_overrides_it() {
+        let manifest = PainterChoice::from_baked(r#"{"painter":"ink"}"#);
+        assert_eq!(manifest.with_override(None), PainterChoice::Ink);
+        for (value, expected) in [
+            ("cpu", PainterChoice::Cpu),
+            ("gpu", PainterChoice::Gpu),
+            ("ink", PainterChoice::Ink),
+            ("auto", PainterChoice::Auto),
+            ("custom", PainterChoice::Custom),
+            ("canvas", PainterChoice::Canvas),
+        ] {
+            assert_eq!(manifest.with_override(Some(value)), expected);
+        }
+        assert_eq!(
+            PainterChoice::from_baked("{}"),
+            if cfg!(windows) {
+                PainterChoice::Cpu
+            } else {
+                PainterChoice::Auto
+            }
+        );
+        for default in [PainterChoice::Cpu, PainterChoice::Auto] {
+            assert_eq!(default.with_override(None), default);
+            assert_eq!(default.with_override(Some("ink")), PainterChoice::Ink);
+        }
+    }
+
+    #[test]
+    fn android_names_the_missing_ink_surface_presenter() {
+        let manifest = PainterChoice::from_baked(r#"{"painter":"ink"}"#);
+        assert!(matches!(
+            PainterBoot::canvas_selected(manifest),
+            Err(reason) if reason == ANDROID_INK_UNAVAILABLE
+        ));
+        let overridden = manifest.with_override(Some("canvas"));
+        assert_eq!(
+            PainterBoot::canvas_selected(overridden)
+                .unwrap()
+                .open()
+                .unwrap()
+                .1
+                .name,
+            "canvas"
+        );
+    }
 
     thread_local! {
         static OPENED: Cell<usize> = const { Cell::new(0) };

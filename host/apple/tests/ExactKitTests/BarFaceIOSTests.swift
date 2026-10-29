@@ -7,8 +7,7 @@ import XCTest
 /// §2): a dot beside a label, or a label in the author's font, is the bar
 /// item's drawn image; a plain label is UIKit's title, the platform's.
 final class BarFaceIOSTests: XCTestCase {
-    private func button(_ children: [[String: Any]]) -> (Presenter, NodeView) {
-        let p = Presenter()
+    private func button(_ children: [[String: Any]], in p: Presenter = Presenter()) -> (Presenter, NodeView) {
         var ops: [[String: Any]] = [
             ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "props": [:], "style": ["text_color": [0, 0, 0, 255]]],
             ["op": "create", "id": 2, "kind": "view", "handlers": [], "props": [:], "style": ["column_gap": 5]]]
@@ -62,6 +61,48 @@ final class BarFaceIOSTests: XCTestCase {
         let image = face.image(tint: .systemBlue)
         XCTAssertEqual(image.renderingMode, .alwaysOriginal)
         XCTAssertGreaterThan(image.size.width, 14 + 5)
+    }
+
+    /// A face read while UIKit dims tints takes its colours as written: UIKit keeps the image baked
+    /// from them undimmed, and after the dimming ends
+    func testAFaceReadWhileDimmedKeepsItsColours() throws {
+        let red: [Double] = [255, 59, 48, 255]
+        let (p, node) = button([dot, label(["text_color": red, "written": ["text_color"]])])
+        node.tintAdjustmentMode = .dimmed
+        let face = try XCTUnwrap(ChipFace(node, engine: TextEngine(resolve: { _ in nil })))
+        withExtendedLifetime(p) {}
+        guard case .text(_, _, let color) = face.parts[1] else { return XCTFail("\(face.parts)") }
+        XCTAssertEqual(color?[0], red, "the colour its author wrote, not its grey")
+    }
+
+    /// A dot whose fill names the tint takes its node's tint, undimmed while UIKit dims tints: the
+    /// bar item's image is baked once and kept
+    func testATintDotTakesItsNodesTintUndimmed() throws {
+        let tinted: [String: Any] = ["op": "create", "id": 3, "kind": "view", "handlers": [], "props": [:],
+                                     "style": ["background_color": ["sys": "@tint", "c": [0, 122, 255, 255]], "width": 14, "height": 6]]
+        let (p, node) = button([tinted, label(["written": ["text_color"]])])
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        window.tintColor = UIColor(red: 1, green: 0, blue: 0, alpha: 1)
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        func fill() throws -> [Double] {
+            let face = try XCTUnwrap(ChipFace(node, engine: TextEngine(resolve: { _ in nil })))
+            guard case .dot(_, let fill, _) = face.parts[0] else { return try XCTUnwrap(nil as [Double]?, "the face's first part is its dot: \(face.parts)") }
+            return fill[0]
+        }
+        for (got, want) in zip(try fill(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the node's red tint") }
+        window.tintAdjustmentMode = .dimmed
+        for (got, want) in zip(try fill(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the red tint, undimmed, while dimmed") }
+        window.tintAdjustmentMode = .automatic
+        // A tint that differs under Increase Contrast resolves in the node's traits, as its text does
+        try XCTSkipIf(SystemColor.highContrast, "the system's Increased Contrast is on")
+        window.tintColor = UIColor { $0.accessibilityContrast == .high ? UIColor(red: 1, green: 0, blue: 0, alpha: 1) : UIColor(red: 0, green: 0, blue: 1, alpha: 1) }
+        node.traitOverrides.accessibilityContrast = .high
+        node.updateTraitsIfNeeded()
+        window.tintAdjustmentMode = .dimmed
+        for (got, want) in zip(try fill(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the tint's high-contrast side, the node's") }
+        window.tintAdjustmentMode = .automatic
     }
 
     /// A colour only inherited from the page is unsaid: the bar's ink, as a
@@ -189,6 +230,59 @@ final class BarFaceIOSTests: XCTestCase {
         heavy.rows.title = ["font_weight": .number(650)]
         p.apply(facesBatch())
         XCTAssertNotEqual(HeaderShape.Item(buttons[1]).source, shape[1].source, "and so does a new weight in the same face")
+    }
+
+    /// An unchanged chip item is drawn again for each projection before iOS
+    /// 26, where its picture is in the bar's tint, which the item does not
+    /// hold; from iOS 26, drawn in the label colour, it is kept as drawn. A
+    /// chip whose face changes is drawn again. A session's presenter, whose
+    /// text engine draws the face.
+    func testAKeptChipItemIsDrawnAgainOnlyInTheBarsTint() throws {
+        let session = ExactApp.shared.makeSession(label: "kept-chip")
+        defer { session.destroy() }
+        let (p, node) = button([dot, label(["written": ["text_color"]])], in: session.presenter)
+        let header = NodeView(id: 100, kind: "view", presenter: p)
+        header.props["semanticTag"] = "header"
+        header.container.addSubview(node)
+        let route = RouteController(header)
+        XCTAssertNotNil(HeaderShape.Item(node).chip)
+        let item = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(node)], route).first)
+        let first = try XCTUnwrap(item.image)
+        let kept = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(node)], route).first)
+        XCTAssertTrue(kept === item, "the item is changed in place")
+        if #available(iOS 26.0, *) { XCTAssertTrue(kept.image === first, "its face kept as drawn") }
+        else { XCTAssertFalse(kept.image === first, "its face drawn again in the tint") }
+        let shown = try XCTUnwrap(kept.image)
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["background_color": [255, 59, 48, 255], "width": 14, "height": 6]]]))
+        let recoloured = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(node)], route).first)
+        XCTAssertTrue(recoloured === item)
+        XCTAssertFalse(recoloured.image === shown, "a new dot colour: its face drawn again")
+    }
+
+    /// A kept item whose author removes its font has UIKit's again, in
+    /// every state, and is still the same item.
+    func testAKeptItemLosesARemovedFont() throws {
+        let p = Presenter()
+        defer { p.reset() }
+        var done = ButtonFace()
+        done.title = "Done"
+        done.rows.title = ["font_size": .number(12)]
+        p.buttonFace = { _ in done }
+        let header = NodeView(id: 100, kind: "view", presenter: p)
+        header.props["semanticTag"] = "header"
+        let button = NodeView(id: 1, kind: "control", presenter: p)
+        button.props["type"] = "button"
+        header.container.addSubview(button)
+        let route = RouteController(header)
+        let item = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(button)], route).first)
+        XCTAssertEqual((item.titleTextAttributes(for: .normal)?[.font] as? UIFont)?.pointSize, 12)
+        done.rows.title = [:]
+        p.apply(facesBatch())
+        let kept = try XCTUnwrap(p.navigation.barItems([HeaderShape.Item(button)], route).first)
+        XCTAssertTrue(kept === item, "the item is changed in place")
+        for state: UIControl.State in [.normal, .highlighted, .disabled, .selected, .focused] {
+            XCTAssertNil(kept.titleTextAttributes(for: state)?[.font], "state \(state.rawValue)")
+        }
     }
 
     /// Under Bold Text an authored weight is the kernel's, stepped already

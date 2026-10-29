@@ -435,10 +435,26 @@ impl<D: DataSource> Runner<D> {
                     let identity = &args[..row.args.len as usize - usize::from(row.context)];
                     let failed_for =
                         |f: &Vec<Value>| *f == args || (self.stale[i] && f == identity);
-                    if forced || self.failed_args[i].as_ref().is_some_and(|f| !failed_for(f)) {
+                    // @ref LLP 1016.000 D10 — an upload is asked once for its
+                    // arguments: in flight, ended or failed, nothing asks it
+                    // again at them, not a store write it read nor a refresh.
+                    let mark = self.upload_at(i, &args).cloned();
+                    // An upload's failure stands through a refresh.
+                    let upload_failed = matches!(mark, Some(super::UploadEnd::Failed(_)))
+                        && self.failed_args[i].as_ref().is_some_and(failed_for);
+                    if forced && !upload_failed
+                        || self.failed_args[i].as_ref().is_some_and(|f| !failed_for(f))
+                    {
                         self.failed_args[i] = None;
                     }
                     let failed = self.failed_args[i].as_ref().is_some_and(failed_for);
+                    // On its way under a ticket kept for other arguments (the same
+                    // request, LLP 1054.000.000 D3): these arguments' again.
+                    if let Some(super::UploadEnd::Sent(t)) = &mark {
+                        if let Some(p) = self.pending.iter_mut().find(|p| p.ticket == *t) {
+                            p.args.clone_from(&args);
+                        }
+                    }
                     // The value may still answer older arguments while a
                     // request is in flight. Reuse follows the current ask;
                     // the standing value keeps its own provenance.
@@ -488,6 +504,7 @@ impl<D: DataSource> Runner<D> {
                     // write through Store, so this is the one dirtying point.
                     // Host facts always come from this candidate, never a baked
                     // or carried delivery answer (LLP 1030 D7).
+                    let upload = mark.is_some() || self.uploading(i);
                     let reuse = states[i]
                         .as_ref()
                         .filter(|_| !unknown)
@@ -496,9 +513,11 @@ impl<D: DataSource> Runner<D> {
                                 || failed
                                 || (asked_args.unwrap_or(&s.args) == &args
                                 && !exact_plan::runner_owned_source(self.plan.str(row.source))
-                                && !forced
-                                && (!self.store_readers[i]
-                                    || s.store_revision == self.store.revision())
+                                && (upload
+                                    || !forced
+                                        && (!self.store_readers[i]
+                                            || s.store_revision == self.store.revision()
+                                            || self.asks_again_after_reply(i)))
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
                                 && (!s.placeholder || pending_res[i] || awaiting[i]))
@@ -511,6 +530,10 @@ impl<D: DataSource> Runner<D> {
                             !(s.value.is_compiled() && self.secrets_unseen(i, &row, &resources))
                         })
                         .map(|s| s.value.clone());
+                    // A refresh an upload stood through is spent, not carried.
+                    if reuse.is_some() && forced && upload {
+                        force.retain(|f| *f != i);
+                    }
                     let mut value_args = if reuse.is_some() {
                         states[i].as_ref().expect("reused").args.clone()
                     } else {
@@ -619,7 +642,9 @@ impl<D: DataSource> Runner<D> {
                             let reconciling = self.reconciling.contains(&i);
                             self.reconciling.retain(|r| *r != i);
                             self.inspect_request(i);
-                            let asked = match self.query(i, &args) {
+                            // An upload's arguments answer as it ended (D10).
+                            let ledger = self.ledger_answer(i, mark.as_ref());
+                            let asked = match ledger.unwrap_or_else(|| self.query(i, &args)) {
                                 // A reconciling answer outside its shape fails
                                 // the resource too.
                                 Ok(Answer::Now(v)) if reconciling => {
@@ -686,6 +711,12 @@ impl<D: DataSource> Runner<D> {
                                         if !self.watching[i].contains(&topic) {
                                             self.watching[i].push(topic);
                                         }
+                                    }
+                                    // A failed ask that read the store makes a store
+                                    // reader too, so a reply's write asks it again
+                                    // (LLP 1146 §2.3).
+                                    if self.store.reads() > reads_before {
+                                        self.store_readers[i] = true;
                                     }
                                     resources[i] = Some(shown);
                                     settled_res[i] = true;
@@ -925,6 +956,7 @@ impl<D: DataSource> Runner<D> {
             // does not refresh itself.
             let stale_store_reader = states.iter().enumerate().any(|(i, state)| {
                 self.store_readers[i]
+                    && !self.asks_again_after_reply(i)
                     && state
                         .as_ref()
                         .is_none_or(|state| state.store_revision != revision)

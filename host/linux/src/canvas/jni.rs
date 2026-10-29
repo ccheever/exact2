@@ -888,6 +888,18 @@ macro_rules! canvas_jni {
             }
 
             #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_timerObservation(
+                _env: *mut JNIEnv, _class: jclass, scrolling: jboolean, sampling: jboolean, applying: jboolean, idle: jboolean,
+            ) -> jboolean {
+                flag(with(|h| h.timer_observation(scrolling != JNI_FALSE, sampling != JNI_FALSE, applying != JNI_FALSE, idle != JNI_FALSE)).unwrap_or(false))
+            }
+
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_timerHeld(_env: *mut JNIEnv, _class: jclass) -> jint {
+                with(|h| h.held_timer_waits() as jint).unwrap_or(0)
+            }
+
+            #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_displayFrame(
                 _env: *mut JNIEnv, _class: jclass,
             ) {

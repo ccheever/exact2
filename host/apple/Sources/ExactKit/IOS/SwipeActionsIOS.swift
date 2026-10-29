@@ -717,7 +717,7 @@ package final class SwipeActionsHost {
                 // Its authored background, else the accent its author wrote
                 // on it, as a native action's (Mail's Flag is orange), else
                 // UIKit's for its style.
-                if let fill = target.cgColor("background_color") {
+                if let fill = target.undimmedCGColor("background_color") {
                     action.backgroundColor = UIColor(cgColor: fill)
                 } else if !destructive, target.wrote("accent_color"),
                           let accent = target.channels("accent_color").map({ TextEngine.color($0) }) {

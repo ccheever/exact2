@@ -118,6 +118,32 @@ final class SymbolColorIOSTests: XCTestCase {
         XCTAssertNotEqual(control.imageForSegment(at: 0)?.pngData(), red, "native inherited tint repaints hierarchical segments")
     }
 
+    /// A projected segment made again while UIKit dims tints keeps its palette as written: UIKit
+    /// keeps the image as made, and nothing makes it again when the dimming ends
+    func testAProjectedSegmentMadeWhileDimmedKeepsItsPalette() throws {
+        let p = presenter([])
+        defer { p.reset() }
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": 100, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "frame", "id": 100, "x": 0, "y": 0, "w": 300, "h": 40]]
+        for id in [102, 104] {
+            ops += [
+                ["op": "create", "id": id, "kind": "button", "props": ["accessibilityRole": "tab", "accessibilityLabel": "Cloud"], "handlers": ["press"]],
+                ["op": "create", "id": id + 1, "kind": "image", "props": ["imageSource": "symbol:sf/cloud.sun.fill", "symbolName": "cloud.sun.fill"],
+                 "style": ["font_size": 24, "symbol_rendering": "palette", "symbol_palette": [[255, 0, 0, 255], [0, 0, 255, 255]]]],
+                ["op": "frame", "id": id + 1, "x": 0, "y": 0, "w": 32, "h": 32],
+                ["op": "children", "id": id, "ids": [id + 1]]]
+        }
+        ops += [["op": "children", "id": 100, "ids": [102, 104]], ["op": "children", "id": 1, "ids": [100]]]
+        p.apply(wireBatch(ops))
+        let control = try XCTUnwrap(p.segments.control(of: 100))
+        let before = try XCTUnwrap(control.imageForSegment(at: 0)?.pngData())
+        p.viewport.tintAdjustmentMode = .dimmed
+        p.segments.sync()
+        p.viewport.tintAdjustmentMode = .automatic
+        XCTAssertEqual(control.imageForSegment(at: 0)?.pngData(), before, "the palette as written, once the dimming ends")
+    }
+
     /// LLP 1121 D9: a symbol a native control shows as its face keeps the
     /// control's tint. Under the same written green, hierarchical (which
     /// bakes its colour into the image's configuration): a tablist of two
