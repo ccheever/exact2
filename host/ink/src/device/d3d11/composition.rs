@@ -4,7 +4,9 @@ use super::*;
 use std::any::Any;
 use std::cell::RefCell;
 use windows::Win32::{
-    Foundation::{CloseHandle, DXGI_STATUS_OCCLUDED, HANDLE, HWND, WAIT_OBJECT_0},
+    Foundation::{
+        CloseHandle, DXGI_STATUS_OCCLUDED, HANDLE, HWND, WAIT_EVENT, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    },
     Graphics::{DirectComposition::*, Dwm::*},
     System::Threading::WaitForSingleObject,
     UI::Controls::MARGINS,
@@ -232,21 +234,27 @@ impl Composition {
                 ));
             }
             let backdrop = DWMSBT_MAINWINDOW;
-            DwmSetWindowAttribute(
-                hwnd,
-                DWMWA_SYSTEMBACKDROP_TYPE,
-                (&backdrop as *const DWM_SYSTEMBACKDROP_TYPE).cast(),
-                size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
-            )?;
-            DwmExtendFrameIntoClientArea(
-                hwnd,
-                &MARGINS {
-                    cxLeftWidth: -1,
-                    cxRightWidth: -1,
-                    cyTopHeight: -1,
-                    cyBottomHeight: -1,
+            optional_backdrop(
+                || {
+                    DwmSetWindowAttribute(
+                        hwnd,
+                        DWMWA_SYSTEMBACKDROP_TYPE,
+                        (&backdrop as *const DWM_SYSTEMBACKDROP_TYPE).cast(),
+                        size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
+                    )
                 },
-            )?;
+                || {
+                    DwmExtendFrameIntoClientArea(
+                        hwnd,
+                        &MARGINS {
+                            cxLeftWidth: -1,
+                            cxRightWidth: -1,
+                            cyTopHeight: -1,
+                            cyBottomHeight: -1,
+                        },
+                    )
+                },
+            );
             self.scene.visual.SetContent(&self.swap)?;
             self.scene.device.Commit()?;
             self.scene.content.set(self.swap.as_raw() as usize);
@@ -293,38 +301,39 @@ impl D3d11 {
             .as_ref()
             .and_then(|c| unsafe { c.swap.GetLastPresentCount().ok() })
             .unwrap_or(u32::MAX);
-        self.retiring_device = Some((Box::new(previous), present));
+        self.retiring_devices.push((Box::new(previous), present));
+        self.collect_presented_devices();
     }
 
-    fn collect_presented_device(&mut self) {
-        let Some((previous, present)) = &mut self.retiring_device else {
-            return;
-        };
-        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
-            && previous
-                .composition
-                .as_ref()
-                .is_some_and(|c| !c.reported_display)
-        {
-            if let Ok(ms) = previous.presented_process_ms() {
-                eprintln!("exact-ink: process to displayed WARP frame {ms:.3} ms (DXGI)");
-                previous.composition.as_mut().unwrap().reported_display = true;
+    pub(super) fn collect_presented_devices(&mut self) {
+        self.retiring_devices.retain_mut(|(previous, present)| {
+            previous.collect_presented_devices();
+            if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
+                && previous
+                    .composition
+                    .as_ref()
+                    .is_some_and(|c| !c.reported_display)
+            {
+                if let Ok(ms) = previous.presented_process_ms() {
+                    eprintln!("exact-ink: process to displayed WARP frame {ms:.3} ms (DXGI)");
+                    previous.composition.as_mut().unwrap().reported_display = true;
+                }
             }
-        }
-        let complete = previous
-            .completed()
-            .map_or(true, |done| done >= previous.submitted);
-        let displayed = self.composition.as_ref().is_some_and(|c| unsafe {
-            let mut stats = DXGI_FRAME_STATISTICS_MEDIA::default();
-            c.swap
-                .cast::<IDXGISwapChainMedia>()
-                .and_then(|s| s.GetFrameStatisticsMedia(&mut stats))
-                .is_ok()
-                && stats.PresentCount >= *present
+            let complete = match previous.completed() {
+                Ok(done) => done >= previous.submitted,
+                Err(Error::DeviceLost(_)) => true,
+                Err(_) => false,
+            };
+            let displayed = self.composition.as_ref().is_some_and(|c| unsafe {
+                let mut stats = DXGI_FRAME_STATISTICS_MEDIA::default();
+                c.swap
+                    .cast::<IDXGISwapChainMedia>()
+                    .and_then(|s| s.GetFrameStatisticsMedia(&mut stats))
+                    .is_ok()
+                    && stats.PresentCount >= *present
+            });
+            !(complete && displayed && previous.retiring_devices.is_empty())
         });
-        if complete && displayed {
-            self.retiring_device = None;
-        }
     }
 
     pub fn attach_window(&mut self, window: Window, size: [u32; 2]) -> Result<()> {
@@ -332,19 +341,29 @@ impl D3d11 {
             return Err(Error::Invalid("composition size".into()));
         }
         let composition = Composition::new(&self.device, window.clone(), size)?;
-        eprintln!(
-            "exact-ink: composition {:.3} ms (swap chain {:.3}, device and visual {:.3})",
-            composition.creation_ms, composition.swap_ms, composition.visual_ms
-        );
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            eprintln!(
+                "exact-ink: composition {:.3} ms (swap chain {:.3}, device and visual {:.3})",
+                composition.creation_ms, composition.swap_ms, composition.visual_ms
+            );
+        }
         self.composition = Some(composition);
         Ok(())
     }
     pub fn has_window(&self) -> bool {
         self.composition.is_some()
     }
+    pub fn presentation_pending(&self) -> bool {
+        self.presentation_pending
+    }
     pub fn present(&mut self, id: TextureId) -> Result<f64> {
+        let result = self.present_frame(id);
+        self.presentation_pending = matches!(result, Ok(ms) if ms == 0.);
+        result
+    }
+    fn present_frame(&mut self, id: TextureId) -> Result<f64> {
         let start = Instant::now();
-        self.collect_presented_device();
+        self.collect_presented_devices();
         let desc = self.texture(id)?.desc;
         let size = [desc.width, desc.height];
         let composition = self
@@ -357,13 +376,18 @@ impl D3d11 {
         let swap = composition.swap.clone();
         let mut did_present;
         unsafe {
+            // An unattached visual can TEST as occluded even in a visible window.
+            // Window visibility guards both paths before either waits or presents.
+            if !window_drawable(composition._window.hwnd) {
+                return Ok(0.);
+            }
             // Before Commit, DXGI can consider the unattached visual occluded.
             // A TEST present would prevent drawing its first image.
             if !activating && !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
                 return Ok(0.);
             }
-            if WaitForSingleObject(composition.latency, 1000) != WAIT_OBJECT_0 {
-                return Err(Error::Device("DXGI frame latency wait failed".into()));
+            if !latency_ready(WaitForSingleObject(composition.latency, 0))? {
+                return Ok(0.);
             }
             let back: ID3D11Texture2D = swap.GetBuffer(0)?;
             let mut view = None;
@@ -478,9 +502,93 @@ fn presented(status: windows::core::HRESULT) -> Result<bool> {
     Ok(true)
 }
 
+fn latency_ready(status: WAIT_EVENT) -> Result<bool> {
+    match status {
+        WAIT_OBJECT_0 => Ok(true),
+        WAIT_TIMEOUT => Ok(false),
+        _ => Err(windows::core::Error::from_thread().into()),
+    }
+}
+
+fn window_drawable(hwnd: HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindowVisible};
+    unsafe { IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() }
+}
+
+fn optional_backdrop(
+    set: impl FnOnce() -> windows::core::Result<()>,
+    extend: impl FnOnce() -> windows::core::Result<()>,
+) {
+    let results = [set(), extend()];
+    if let Some(error) = results.into_iter().find_map(std::result::Result::err) {
+        static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            eprintln!("exact-ink: Mica unavailable: {error}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_latency_timeout_skips_the_frame_without_losing_the_device() {
+        assert!(!latency_ready(WAIT_TIMEOUT).unwrap());
+        assert!(latency_ready(WAIT_OBJECT_0).unwrap());
+    }
+
+    #[test]
+    fn a_refused_backdrop_still_attempts_frame_extension() {
+        let extended = Cell::new(false);
+        optional_backdrop(
+            || {
+                Err(windows::core::Error::from_hresult(
+                    windows::Win32::Foundation::E_FAIL,
+                ))
+            },
+            || {
+                extended.set(true);
+                Err(windows::core::Error::from_hresult(
+                    windows::Win32::Foundation::E_FAIL,
+                ))
+            },
+        );
+        assert!(extended.get());
+    }
+
+    #[test]
+    #[ignore = "native Windows desktop; completion and display retirement"]
+    fn multiple_retiring_devices_survive_until_trim_observes_completion() {
+        let window = Window::fixture([80, 60]).unwrap();
+        let mut device = D3d11::new().unwrap();
+        device.attach_window(window, [80, 60]).unwrap();
+        let target = device.create_target(80, 60).unwrap();
+        device
+            .render(&Frame::default(), target, Some([0.; 4]))
+            .unwrap();
+        device.present(target).unwrap();
+        let composition = device.composition.take();
+        for _ in 0..2 {
+            let mut previous = D3d11::open(true).unwrap();
+            let target = previous.create_target(8, 8).unwrap();
+            previous
+                .render(&Frame::default(), target, Some([1.; 4]))
+                .unwrap();
+            device.retire_after_present(previous);
+        }
+        device.composition = composition;
+        assert_eq!(device.retiring_devices.len(), 2);
+        device.trim().unwrap();
+        assert_eq!(device.retiring_devices.len(), 2);
+        for (previous, present) in &mut device.retiring_devices {
+            previous.wait(previous.submitted).unwrap();
+            *present = 0;
+        }
+        super::super::super::compositor_sync_process_ms().unwrap();
+        device.resize_target(target, 90, 60).unwrap();
+        assert!(device.retiring_devices.is_empty());
+    }
 
     #[test]
     #[ignore = "native Windows desktop; recovery from WARP and Mica"]
@@ -611,9 +719,9 @@ mod tests {
             "Mica changed: {mica_before:06x} -> {mica_after:06x}"
         );
         println!("S2_MICA before={mica_before:06x}, after={mica_after:06x}, layered=false");
-        d.collect_presented_device();
+        d.trim().unwrap();
         assert!(
-            d.retiring_device.is_none(),
+            d.retiring_devices.is_empty(),
             "completed WARP device must retire"
         );
     }
