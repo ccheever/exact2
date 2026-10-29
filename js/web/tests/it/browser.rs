@@ -157,8 +157,9 @@ fn grant_sets() -> String {
         "fs.read app:/data/move\nfs.write app:/data/move",
         "fs.read app:/data",
         "sqlite.open app:/data/notes.db",
-        // apps/fieldnotes/app.ts's, as it declares them (its walk's motion since c6d72a0349).
-        "sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose",
+        // apps/fieldnotes/app.ts's, as it declares them (its walk's motion since c6d72a0349, the shared file's read
+        // since 170f2c104a).
+        "sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nfs.read app:/tmp/shared\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose",
     ];
     let sets = specs
         .into_iter()
@@ -1141,7 +1142,7 @@ try {
     const {createStorageRequests}=await import('/storage-request.js');
     const {createGrantSet,scopedGrantSet}=await import('/grant-admission.js');
     const encoder=new TextEncoder(),decoder=new TextDecoder();
-    const identity={appId:'com.exact.fieldnotes',grants:'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose'};
+    const identity={appId:'com.exact.fieldnotes',grants:'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nfs.read app:/tmp/shared\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose'};
     identity.grantSet=createGrantSet(grantSets[identity.grants]);
     const script=encoder.encode(app);
     const sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',script)),b=>b.toString(16).padStart(2,'0')).join('');
