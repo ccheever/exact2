@@ -102,6 +102,10 @@ impl Window {
         self.background.set(opaque_background(color));
     }
 
+    pub fn background(&self) -> [u8; 4] {
+        self.background.get()
+    }
+
     pub fn hwnd(&self) -> usize {
         self.hwnd.0 as usize
     }
@@ -142,6 +146,7 @@ pub(super) struct Composition {
     visual_ms: f64,
     active: bool,
     reported_display: bool,
+    occluded_checks: u32,
 }
 impl Drop for Composition {
     fn drop(&mut self) {
@@ -225,8 +230,17 @@ impl Composition {
                 visual_ms,
                 active: false,
                 reported_display: false,
+                occluded_checks: 0,
             })
         }
+    }
+
+    fn refresh_period(&self) -> Duration {
+        let rate = unsafe { self.scene.device.GetFrameStatistics() }
+            .ok()
+            .map(|s| s.currentCompositionRate);
+        rate.and_then(|r| refresh_period(r.Numerator, r.Denominator))
+            .unwrap_or(Duration::from_secs_f64(1. / 60.))
     }
 
     fn activate(&mut self) -> Result<()> {
@@ -278,32 +292,56 @@ impl Composition {
     }
 }
 
+pub(super) struct Retirement {
+    present: Option<u32>,
+    failed_checks: u8,
+}
+impl Retirement {
+    fn displayed(&mut self, count: Option<u32>) -> bool {
+        match (self.present, count) {
+            (Some(expected), Some(actual)) => actual >= expected,
+            _ => {
+                self.failed_checks = self.failed_checks.saturating_add(1);
+                self.failed_checks >= 3
+            }
+        }
+    }
+}
+
 impl D3d11 {
     /// Keep the old device until its commands and the replacement present finish.
     /// A swap-chain handoff never waits for either on the frame path.
     pub fn retire_after_present(&mut self, mut previous: D3d11) {
         // The completion query follows Present; no later WARP frame will flush it.
         unsafe { previous.context.Flush() };
-        // If statistics fail, keep the old device until this window closes.
         let present = self
             .composition
             .as_ref()
             .and_then(|c| unsafe { c.swap.GetLastPresentCount().ok() })
-            .map(|count| count.max(1))
-            .unwrap_or(u32::MAX);
+            .map(|count| count.max(1));
         // A later replacement covers every older chain. Keep each completion
         // query, but do not depend on statistics from an already-lost device.
-        self.retiring_devices.extend(
-            previous
-                .retiring_devices
-                .drain(..)
-                .map(|(d, _)| (d, present)),
-        );
-        self.retiring_devices.push((Box::new(previous), present));
+        self.retiring_devices
+            .extend(
+                previous
+                    .retiring_devices
+                    .drain(..)
+                    .map(|(device, mut retirement)| {
+                        retirement.present = present;
+                        (device, retirement)
+                    }),
+            );
+        self.retiring_devices.push((
+            Box::new(previous),
+            Retirement {
+                present,
+                failed_checks: 0,
+            },
+        ));
         self.collect_presented_devices();
     }
 
-    pub(super) fn collect_presented_devices(&mut self) {
+    pub fn collect_presented_devices(&mut self) -> usize {
         self.retiring_devices.retain_mut(|(previous, present)| {
             if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some()
                 && previous
@@ -321,16 +359,17 @@ impl D3d11 {
                 Err(Error::DeviceLost(_)) => true,
                 Err(_) => false,
             };
-            let displayed = self.composition.as_ref().is_some_and(|c| unsafe {
+            let count = self.composition.as_ref().and_then(|c| unsafe {
                 let mut stats = DXGI_FRAME_STATISTICS_MEDIA::default();
                 c.swap
                     .cast::<IDXGISwapChainMedia>()
                     .and_then(|s| s.GetFrameStatisticsMedia(&mut stats))
-                    .is_ok()
-                    && stats.PresentCount >= *present
+                    .ok()
+                    .map(|()| stats.PresentCount)
             });
-            !(complete && displayed)
+            !(complete && present.displayed(count))
         });
+        self.retiring_devices.len()
     }
 
     pub fn attach_window(&mut self, window: Window, size: [u32; 2]) -> Result<()> {
@@ -358,8 +397,32 @@ impl D3d11 {
     pub fn presentation_pending(&self) -> bool {
         self.presentation_pending
     }
+    pub fn presentation_retry_delay(&self) -> Option<Duration> {
+        if !self.presentation_pending {
+            return None;
+        }
+        let c = self.composition.as_ref()?;
+        Some(retry_delay(c.refresh_period(), c.occluded_checks))
+    }
+
     pub fn present(&mut self, id: TextureId) -> Result<f64> {
-        let result = self.present_frame(id);
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static PRESENTED: AtomicU32 = AtomicU32::new(0);
+        let inject = !self.software && fault("slow-warp-recovery");
+        let result = if inject
+            && PRESENTED
+                .compare_exchange(1, 2, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            Err(Error::DeviceLost(
+                "injected hardware loss with WARP pending".into(),
+            ))
+        } else {
+            self.present_frame(id)
+        };
+        if inject && matches!(result, Ok(ms) if ms > 0.) {
+            let _ = PRESENTED.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed);
+        }
         self.presentation_pending = matches!(result, Ok(ms) if ms == 0.);
         result
     }
@@ -387,13 +450,16 @@ impl D3d11 {
             // An unattached visual can TEST as occluded even in a visible window.
             // Window visibility guards both paths before either waits or presents.
             if !window_drawable(composition._window.hwnd) {
+                composition.occluded_checks = composition.occluded_checks.saturating_add(1);
                 return Ok(0.);
             }
             // Before Commit, DXGI can consider the unattached visual occluded.
             // A TEST present would prevent drawing its first image.
             if !activating && !presented(swap.Present(0, DXGI_PRESENT_TEST))? {
+                composition.occluded_checks = composition.occluded_checks.saturating_add(1);
                 return Ok(0.);
             }
+            composition.occluded_checks = 0;
             if !latency_ready(WaitForSingleObject(composition.latency, 0))? {
                 return Ok(0.);
             }
@@ -438,6 +504,10 @@ impl D3d11 {
             // A not-yet-attached composition swap chain can return OCCLUDED
             // from the real present too. Retry its populated buffer after Commit.
             did_present = presented(unsafe { swap.Present(1, DXGI_PRESENT(0)) })?;
+        }
+        if !did_present {
+            let c = self.composition.as_mut().unwrap();
+            c.occluded_checks = c.occluded_checks.saturating_add(1);
         }
         Ok(if did_present {
             start.elapsed().as_secs_f64() * 1000.
@@ -506,6 +576,17 @@ impl D3d11 {
                 - (now_qpc as f64 - displayed_qpc) * 1000. / frequency as f64)
         }
     }
+}
+
+fn refresh_period(numerator: u32, denominator: u32) -> Option<Duration> {
+    (numerator > 0 && denominator > 0)
+        .then(|| Duration::from_secs_f64(f64::from(denominator) / f64::from(numerator)))
+}
+
+fn retry_delay(period: Duration, occluded_checks: u32) -> Duration {
+    period
+        .saturating_mul(1 << occluded_checks.min(8))
+        .min(Duration::from_secs(1))
 }
 
 fn presented(status: windows::core::HRESULT) -> Result<bool> {
@@ -589,6 +670,51 @@ fn optional_backdrop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_statistics_release_after_three_completed_checks() {
+        let mut retirement = Retirement {
+            present: None,
+            failed_checks: 0,
+        };
+        assert!(!retirement.displayed(Some(8)));
+        assert!(!retirement.displayed(None));
+        assert!(retirement.displayed(None));
+        let mut retirement = Retirement {
+            present: Some(8),
+            failed_checks: 0,
+        };
+        assert!(!retirement.displayed(Some(7)));
+        assert!(!retirement.displayed(None));
+        assert!(!retirement.displayed(None));
+        assert!(retirement.displayed(None));
+    }
+
+    #[test]
+    fn skipped_present_follows_refresh_and_occlusion_backs_off() {
+        for hz in [60, 120, 144] {
+            let period = refresh_period(hz, 1).unwrap();
+            assert_eq!(retry_delay(period, 0), period);
+            assert!(retry_delay(period, 8) >= Duration::from_secs(1));
+        }
+        assert_eq!(refresh_period(0, 1), None);
+    }
+
+    #[test]
+    fn a_device_less_compositor_cannot_create_a_cpu_surface() {
+        use windows::Win32::Foundation::E_INVALIDARG;
+        unsafe {
+            let device: IDCompositionDevice =
+                DCompositionCreateDevice2(None::<&windows::core::IUnknown>).unwrap();
+            let result = device.CreateSurface(
+                8,
+                8,
+                DXGI_FORMAT_B8G8R8A8_UNORM,
+                DXGI_ALPHA_MODE_PREMULTIPLIED,
+            );
+            assert_eq!(result.unwrap_err().code(), E_INVALIDARG);
+        }
+    }
 
     #[test]
     fn mica_refusal_keeps_the_reported_window_colour_opaque() {
@@ -701,7 +827,7 @@ mod tests {
         assert_eq!(device.retiring_devices.len(), 2);
         for (previous, present) in &mut device.retiring_devices {
             previous.wait(previous.submitted).unwrap();
-            *present = 0;
+            present.present = Some(0);
         }
         super::super::super::compositor_sync_process_ms().unwrap();
         device.resize_target(target, 90, 60).unwrap();

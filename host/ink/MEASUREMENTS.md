@@ -2269,7 +2269,7 @@ not used for Shelf or any startup measurement. The app is unchanged.
 | `host/linux/src/surfaces/window.rs` | Reserve the last 25 ms of the 100 ms preparation budget for WARP; upload CPU frames to its composition swap chain while hardware is pending; replace it on the shared visual and retire it through the existing completion queue. A refused WARP leaves hardware preparation owned and polled. |
 | `host/ink/src/device/d3d11.rs`, `device/d3d11/cpu_window.rs` | Remove the bitmap/layered child path and add hardware-only delay/refusal combinations to the existing fault hook. |
 | `host/ink/src/device/d3d11/composition.rs` | Record backdrop availability once per shared visual. On refusal, clear to the host's resolved page/window colour and source-over the premultiplied frame. The background is opaque and follows scheme and reported palette changes. |
-| `host/windows/src/window.rs`, `jump_list.rs` | Start the jump-list worker only after a successful first present and data activation. It owns its COM apartment and is joined at shutdown. A skipped present cannot activate data or count as first pixel. |
+| `host/windows/src/window.rs`, `jump_list.rs` | Start the jump-list worker after the first successful present. It owns its COM apartment and is joined at shutdown. A skipped present cannot activate data or count as first pixel. |
 | `host/linux/src/app.rs`, `presenter.rs`, `host.rs`, `activation.rs` | Add gated plan, font, runner, layout and data-activation timestamps to the existing boot measurements. |
 | `host/ink/src/device/d3d11/desktop_tests.rs` | Assert WARP-first/hardware-later startup, hardware arrival despite WARP refusal, no WARP during ordinary launches, and jump-list work after first present. |
 
@@ -2295,7 +2295,8 @@ Mica refusal is injected through the existing fault hook; Windows policy
 was not changed. The desktop capture has an opaque white background behind
 the sidebar, rather than desktop content or black. The colour unit test
 covers light, dark and a custom reported RGB value and forces alpha to 255;
-the host supplies `paint::page_color`, the same resolved role used by CPU
+the literals do not exercise scheme resolution. The host supplies
+`paint::page_color`, the same resolved role used by CPU
 page painting (LLP 1095 D1). This qualifies the refusal branch and colour
 choice, not a separate policy-disabled Windows configuration.
 
@@ -2310,7 +2311,12 @@ frame two. Frame one precedes data activation and cannot stand in for it.
 Milliseconds, median [minimum–maximum]. The DWM synchronization proxy is the
 common endpoint for comparing painters. DXGI supplies the displayed frame's
 timestamp for composition; softbuffer has no equivalent display timestamp.
-The two endpoints must not be subtracted as if they were the same clock event.
+The two endpoints must not be subtracted as if they were the same clock event. The
+composition arm is also checked against its own proxy plus one refresh
+(16.667 ms here): the displayed medians are 13.189/13.204 ms later with fresh
+application storage, and 12.401/12.665 ms later with retained storage. All
+four medians meet that bound. This does not supply softbuffer's missing
+scanout timestamp or establish a displayed-versus-displayed relative gate.
 
 | Pixels | Painter | DWM first-screen proxy | DXGI displayed first screen |
 | --- | --- | ---: | ---: |
@@ -2322,7 +2328,7 @@ The two endpoints must not be subtracted as if they were the same clock event.
 The composition median differs from softbuffer by +2.57% at 1024×720 and
 −1.22% at 1920×1080. Paired differences, composition minus CPU in the same
 round, are 1.666 ms [−2.677–21.376] and −1.235 ms [−100.162–2.636]. Both
-medians pass the ≤10% relative gate. Neither painter passes the absolute
+medians pass the ≤10% relative gate **on the DWM proxy**. Neither painter passes the absolute
 100 ms gate: CPU's proxy is already 31.429/42.216 ms over; composition's
 DXGI display is 47.997/53.682 ms over.
 
@@ -2400,7 +2406,7 @@ overlaps this series.
 
 Relative median differences are +4.36% and −3.57%. Paired differences are
 7.981 ms [−76.391–89.018] and −3.488 ms [−39.086–11.633]. The ≤10% relative
-median gate passes; the absolute gate still fails. Retaining Shelf's cache
+median gate passes **on the DWM proxy**; the absolute gate still fails. Retaining Shelf's cache
 does not eliminate font setup or the post-first-pixel data activation.
 
 The longer retained samples have different phase boundaries from S2.6's
@@ -2530,3 +2536,134 @@ Mac results are `target/ink-s27-checks.json` and `target/ink-s27-*.log`;
 `ink-s27-final-caps.log` is the final passing staged rerun;
 `ink-s27-final-fmt.log` is the final format check. The temporary desktop tasks
 are removed after their children exit. No commit was pushed.
+
+
+## S2.8 — Failure-path review, implementation awaiting native qualification
+
+**Not ready to land with DirectX 11 as the default.** The Mac checks pass and
+the Windows host library cross-compiles, but these changes have not run on
+the NucBox. No new Windows first-pixel number or driver-cache-cold result is
+claimed. The NucBox's separate test checkout has uncommitted changes; the
+instruction to work only in this worktree prevents replacing it without
+clarification. Read-only hashes show eight of its ten pending files match
+this branch's starting point; `composition.rs` and `host.rs` differ.
+
+### Implementation and review disposition
+
+All reported defects and coverage gaps were confirmed against the code.
+None is refuted. “Implemented” below means the correction and regression
+fixture are present; Windows fixtures remain unexecuted.
+
+| Review finding | Disposition and regression fixture |
+| --- | --- |
+| Sol 1 / Muse 1: exhausted devices | Implemented: both refusals propagate as a terminal boot error through `boot_presenter_with_device` or `window_frame`. `both_refusals_are_a_terminal_boot_error`, `both_worker_refusals_are_delivered`, and `shelf_exhausted_devices_exit_with_both_refusals` cover missing DXBC and both opens refused. Native execution pending. |
+| Sol 2: pending WARP blocks hardware retry | Implemented: only a pending hardware attempt gates recovery. `shelf_hardware_recovers_while_startup_warp_is_pending` delays the first WARP worker, presents hardware, injects loss, and requires hardware recovery before that worker finishes. Native execution pending. |
+| Sol 3: idle retirement | Implemented: a separate 50 ms maintenance wake collects without requesting redraw, including while minimized. `idle_recovery_releases_the_old_device_without_repainting` requires draining within 250 ms. Native execution pending. |
+| Sol 4: agent state | Implemented: `state.painter` carries name, device, API, creation timings, cache status, recovery and last refusal. `agent_state_reports_the_current_painter_and_device` failed with the original serialization (`null` versus `"cpu"`) and passes with the fix. `forced_warp_state_reports_device_api_and_recovery` awaits native execution. |
+| Sol 5: preparation-independent first pixel | Platform limitation confirmed; qualification deferred. `DCompositionCreateDevice2(None)` cannot create a surface without a rendering device. D6.3 records the WARP dependency. `a_device_less_compositor_cannot_create_a_cpu_surface` and `shelf_both_late_devices_measure_the_first_pixel_trade` await native execution and measurement. |
+| Muse 2: bound's start and wait | Implemented: WARP is scheduled from host entry +75 ms; both workers send to one receiver, bounded at +100 ms. `warp_starts_at_the_deadline_without_a_waiter` and `hardware_at_eighty_ms_wins_while_warp_is_pending` await native execution. |
+| Muse 3: preparation after configuration | Implemented: preparation precedes `Config::from_env`; `Config::windowed` remains the second gate. Production agent-variable filtering precedes worker creation. `shelf_device_preparation_overlaps_slow_configuration` awaits native execution. |
+| Muse 4: failed retirement statistics | Implemented: after three failed display-statistics checks, GPU completion suffices. Older entries preserve their failure counts across another recovery. `failed_statistics_release_after_three_completed_checks` awaits native execution. |
+| Muse 5: relative endpoint and cold cache | Endpoint corrected here and in the RFC: the gate is on the DWM proxy; composition's displayed medians are checked against its proxy plus one refresh. The driver-cache-cold series is deferred. No cache was cleared and no new 25 ms reserve claim is made. |
+| Muse 6: skipped-present pacing | Implemented: retry uses the composition refresh period; occlusion backs off to one second. `skipped_present_follows_refresh_and_occlusion_backs_off` covers 60/120/144 Hz; native execution pending. |
+| Muse 7: Mica colour coverage | Fixture expanded: `mica_refusal_uses_page_color_in_both_schemes` drives the host under both schemes and checks the window's resolved colour. Native execution pending. Runtime backdrop-policy changes and RDP reconnect remain unqualified; the shared visual still retains its initial backdrop verdict. |
+| Muse 8: atlas ordering coverage | Fixed and verified on Metal and wgpu: `metal_draws_both_consecutive_atlas_uploads` and `wgpu_draws_both_consecutive_atlas_uploads` now render between inserts and overwrite the first region before reading either output. The D3D11 counterpart awaits native execution. |
+| Muse 9: jump list | Claim corrected to “after the first successful present.” `Builder` reports spawn failure, and the worker is detached. `a_pending_shell_call_does_not_block_exit` passes on the Mac. `shelf_quit_does_not_join_a_pending_shell_call` awaits native execution. |
+| Muse 10: S2.7 RFC record | Already fixed by `81d9e8a9d3`; its endpoint wording is clarified in this change. |
+
+The device race and its timing fixtures are in `device/d3d11/startup.rs`.
+`d3d11.rs` retains device/pipeline timing and adds the existing fault hook's
+late-device cases. `composition.rs` owns retirement and pacing.
+`host/linux/src/surfaces/window.rs` owns terminal propagation, recovery and
+idle collection; `paint/backend.rs` and `ink.rs` forward maintenance.
+`presenter/painter.rs` and `agent.rs` expose the device in state.
+`app.rs` and `host/windows/src/window.rs` start preparation before config and
+schedule maintenance; `jump_list.rs` detaches Shell work after presentation.
+Tests live beside those implementations, in `device/tests.rs`,
+`device/d3d11/desktop_tests.rs`, and `tests/pinned/paint/reviews.rs`.
+
+### Executed checks (Mac)
+
+All six checks pass: root build, root tests, clippy plus rustfmt, caps, boot,
+and workspace/all-targets compilation. `cargo test -p exact-linux --lib
+--tests --no-fail-fast`, `cargo test -p exact-ink`, and the platform-neutral
+`exact-windows` tests pass. The requested pinned filters and image filter
+ran separately with the default native Ink device (Metal on this Mac).
+Their result lines, verbatim:
+
+`cargo test -p exact-linux --test pinned -- paint`
+
+```text
+test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 48 filtered out; finished in 3.05s
+```
+
+`cargo test -p exact-linux --test pinned -- borders`
+
+```text
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 1.41s
+```
+
+`cargo test -p exact-linux --test pinned -- tint`
+
+```text
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.59s
+```
+
+`cargo test -p exact-linux --test pinned -- backdrop`
+
+```text
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 2.08s
+```
+
+`cargo test -p exact-linux --test pinned -- gradients`
+
+```text
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 1.64s
+```
+
+`cargo test -p exact-linux --test pinned -- visual`
+
+```text
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 2.09s
+```
+
+`cargo test -p exact-linux --test pinned -- materials`
+
+```text
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 2.04s
+```
+
+`cargo test -p exact-linux --test it -- image`
+
+```text
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 2.04s
+```
+
+`cargo test -p exact-ink`
+
+```text
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+`cargo test -p exact-windows (Mac)`
+
+```text
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+The full `exact-linux` run passes, including its library (1553 passed,
+20 ignored), `it` (130 passed), pinned (104 passed, 1 ignored), and its
+other integration binaries. Logs are under this worktree's
+`target/ink-s28-*.log`; the unmodified state serialization's failing run is
+`target/ink-s28-state-before.log`.
+
+`cargo check -p exact-ink --all-targets --target x86_64-pc-windows-msvc`
+and the Windows host library check for `x86_64-pc-windows-gnu` pass. The
+latter uses the repository's existing Zig cross-compiler invocation. The
+Mac has no `fxc`; these checks do not qualify DXBC or presentation. The
+full Windows test-target cross-check cannot resolve Hermes for Windows GNU;
+its stub mode also lacks three generated HBC inputs. That toolchain work
+was stopped; the native tests still require the NucBox. There is no
+before/after native execution claim for the Windows fixtures above.

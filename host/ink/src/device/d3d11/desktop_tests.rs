@@ -535,6 +535,118 @@ fn assert_picture(image: &tiny_skia::Pixmap) {
     );
 }
 
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_exhausted_devices_exit_with_both_refusals() {
+    let exe = std::env::var("INK_SHELF").unwrap();
+    for fault in ["no-devices", "no-dxbc"] {
+        let log = out().join(format!("terminal-{fault}.log"));
+        let file = File::create(&log).unwrap();
+        let mut child = Command::new(&exe)
+            .env("EXACT_PAINTER", "ink")
+            .env("EXACT_INK_DEVICE", "d3d11")
+            .env("EXACT_AGENT_WINDOW_READY", "library-count")
+            .env("EXACT_AGENT_INK_FAULT", fault)
+            .env_remove("EXACT_AGENT")
+            .env_remove("EXACT_DISPLAY")
+            .stdout(Stdio::from(file.try_clone().unwrap()))
+            .stderr(Stdio::from(file))
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!(
+                    "exhausted devices left a blank window: {}",
+                    fs::read_to_string(&log).unwrap()
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let text = fs::read_to_string(log).unwrap();
+        assert!(!status.success(), "{text}");
+        assert!(
+            text.contains("no composition device: hardware:") && text.contains("; WARP:"),
+            "{text}"
+        );
+        assert!(!text.contains("first-screen"), "{text}");
+    }
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_both_late_devices_measure_the_first_pixel_trade() {
+    let mut app = fallback_launch("slow-devices");
+    let text = app.text();
+    for line in text.lines().filter(|line| {
+        line.contains("first present") || line.contains("first-screen") || line.contains("prepared")
+    }) {
+        println!("S2_LATE_DEVICES {line}");
+    }
+    assert_picture(&app.capture("slow-devices"));
+    app.close();
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_hardware_recovers_while_startup_warp_is_pending() {
+    let mut app = fallback_launch("slow-warp-recovery");
+    until("hardware recovered with startup WARP pending", || {
+        app.alive();
+        let text = app.text();
+        let loss = text.find("injected hardware loss with WARP pending");
+        loss.is_some_and(|at| {
+            text[at..]
+                .lines()
+                .rev()
+                .find(|line| line.starts_with("exact-windows: frame "))
+                .is_some_and(|line| line.contains("painter ink"))
+        })
+    });
+    let text = app.text();
+    assert!(text.contains("injected pending startup WARP"), "{text}");
+    assert!(
+        !text.contains("injected startup WARP finished"),
+        "hardware waited for WARP: {text}"
+    );
+    assert_picture(&app.capture("pending-warp-hardware-recovery"));
+    app.close();
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_device_preparation_overlaps_slow_configuration() {
+    let app = fallback_launch("slow-config");
+    let text = app.close();
+    let ready = text.find("device worker at").unwrap();
+    let config = text.find("boot config-ready").unwrap();
+    assert!(
+        ready < config,
+        "device preparation waited for config: {text}"
+    );
+}
+
+#[test]
+#[ignore = "NucBox desktop; INK_SHELF names built Shelf.exe"]
+fn shelf_quit_does_not_join_a_pending_shell_call() {
+    let app = fallback_launch("slow-jump-list");
+    until("jump list worker started", || {
+        app.text().contains("jump-list-started")
+    });
+    assert!(!app.text().contains("jump-list-ready"));
+    let began = Instant::now();
+    app.close();
+    assert!(
+        began.elapsed() < Duration::from_secs(1),
+        "exit joined the pending Shell call"
+    );
+}
+
 fn warp_boot(fault: &str) {
     let mut app = fallback_launch(fault);
     until("WARP paints the first screen", || {
@@ -586,7 +698,7 @@ fn shelf_refused_warp_waits_for_prepared_hardware() {
     let mut app = fallback_launch("slow-hardware-no-warp");
     let first = app.text();
     assert!(
-        first.contains("startup WARP: device: injected device refusal"),
+        first.contains("WARP: device: injected device refusal"),
         "{first}"
     );
     assert!(

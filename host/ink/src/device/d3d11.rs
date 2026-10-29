@@ -27,6 +27,8 @@ mod desktop_tests;
 #[cfg(test)]
 mod rich_edit;
 mod setup;
+mod startup;
+pub use startup::Startup;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -128,14 +130,36 @@ impl Prepared {
     fn open(force_warp: bool) -> Result<Self> {
         let measured = std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some();
         let began = measured.then(super::process_ms).transpose()?;
-        if !force_warp && (fault("slow-hardware") || fault("slow-hardware-no-warp")) {
-            std::thread::sleep(Duration::from_millis(600));
+        if (!force_warp && (fault("slow-hardware") || fault("slow-hardware-no-warp")))
+            || fault("slow-devices")
+        {
+            std::thread::sleep(Duration::from_millis(
+                if fault("slow-devices") && !force_warp {
+                    1200
+                } else {
+                    600
+                },
+            ));
         }
         if fault("no-devices")
             || (!force_warp && fault("hardware-open"))
             || (force_warp && fault("slow-hardware-no-warp"))
         {
             return Err(Error::Device("injected device refusal".into()));
+        }
+        if fault("no-dxbc") {
+            return Err(Error::Unsupported("D3D11 shaders absent: build with fxc"));
+        }
+        if fault("slow-warp-recovery") {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static FIRST_WARP: AtomicBool = AtomicBool::new(true);
+            if force_warp && FIRST_WARP.swap(false, Ordering::Relaxed) {
+                eprintln!("exact-ink: injected pending startup WARP");
+                std::thread::sleep(Duration::from_millis(1500));
+                eprintln!("exact-ink: injected startup WARP finished");
+            } else if !force_warp {
+                std::thread::sleep(Duration::from_millis(80));
+            }
         }
         let start = Instant::now();
         let (device, context, adapter) = setup::open(force_warp)?;
@@ -207,7 +231,7 @@ pub struct D3d11 {
     software: bool,
     composition: Option<composition::Composition>,
     presentation_pending: bool,
-    retiring_devices: Vec<(Box<D3d11>, u32)>,
+    retiring_devices: Vec<(Box<D3d11>, composition::Retirement)>,
 }
 
 impl D3d11 {

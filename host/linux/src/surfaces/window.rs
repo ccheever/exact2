@@ -52,7 +52,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(mut direct) = self.surfaces.direct_window.take() {
             let frame = direct.frame(self);
             self.surfaces.direct_window = Some(direct);
-            return Ok(frame);
+            return frame;
         }
         let candidate = (self.brush.backend() == "cpu" && self.host.content_region().is_none())
             .then(|| self.surfaces.window_canvas())
@@ -186,59 +186,84 @@ impl<D: DataSource> Presenter<D> {
     }
 }
 
-/// Pending startup devices remain owned after the first-frame budget expires.
+/// The window retains late preparations and both refusal reasons until it presents.
 pub(crate) struct Startup {
-    primary: Option<exact_ink::device::d3d11::Preparing>,
+    attempts: Option<exact_ink::device::d3d11::Startup>,
     warp: Option<exact_ink::device::d3d11::Preparing>,
     force_warp: bool,
     warp_attempted: bool,
     ready_warp: Option<exact_ink::device::d3d11::D3d11>,
+    refusals: [Option<String>; 2],
 }
 
 impl Startup {
     pub(crate) fn wait(
-        mut preparing: exact_ink::device::d3d11::Preparing,
+        mut attempts: exact_ink::device::d3d11::Startup,
         started: std::time::Instant,
-    ) -> (Self, Option<exact_ink::device::d3d11::D3d11>) {
-        let deadline = started + std::time::Duration::from_millis(100);
-        let force_warp = preparing.force_warp();
-        // Reserve WARP's measured 14 ms device and 3 ms pipeline build, plus
-        // attachment, inside the 100 ms join budget. @ref LLP 1149 S0 C6, S2.7.
-        let hardware_deadline = if force_warp {
-            deadline
-        } else {
-            started + std::time::Duration::from_millis(75)
-        };
+    ) -> Result<(Self, Option<exact_ink::device::d3d11::D3d11>), String> {
         let joined = std::time::Instant::now();
-        let result = preparing.finish_until(hardware_deadline);
+        let deadline = started + std::time::Duration::from_millis(100);
+        let mut startup = Self::new(attempts.force_warp());
+        startup.warp_attempted = true;
+        let mut selected = None;
+        while let Some((warp, result)) = attempts.wait_until(deadline) {
+            match result {
+                Ok(device) => {
+                    if warp && attempts.hardware_pending() {
+                        startup.ready_warp = Some(device);
+                    } else {
+                        selected = Some(device);
+                    }
+                    break;
+                }
+                Err(error) => startup.refused(warp, error.to_string()),
+            }
+        }
         if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
             eprintln!(
                 "exact-ink: startup join {:.3} ms",
                 joined.elapsed().as_secs_f64() * 1000.
             );
         }
-        let mut startup = Self {
-            primary: None,
+        startup.attempts = Some(attempts);
+        if selected.is_none() && startup.ready_warp.is_none() {
+            startup.check_exhausted()?;
+        }
+        Ok((startup, selected))
+    }
+
+    fn new(force_warp: bool) -> Self {
+        Self {
+            attempts: None,
             warp: None,
             force_warp,
-            warp_attempted: force_warp,
+            warp_attempted: false,
             ready_warp: None,
-        };
-        match result {
-            Some(Ok(device)) => return (startup, Some(device)),
-            Some(Err(error)) => eprintln!("exact-ink: startup device: {error}"),
-            None => startup.primary = Some(preparing),
+            refusals: [None, None],
         }
-        startup.start_warp();
-        if let Some(result) = startup.warp.as_mut().and_then(|p| p.finish_until(deadline)) {
-            startup.warp = None;
-            match result {
-                Ok(device) if startup.primary.is_some() => startup.ready_warp = Some(device),
-                Ok(device) => return (startup, Some(device)),
-                Err(error) => eprintln!("exact-ink: startup WARP: {error}"),
-            }
+    }
+
+    fn refused(&mut self, warp: bool, error: String) {
+        eprintln!(
+            "exact-ink: {}: {error}",
+            if warp { "WARP" } else { "hardware" }
+        );
+        self.refusals[usize::from(warp)] = Some(error);
+    }
+
+    fn check_exhausted(&self) -> Result<(), String> {
+        if !self.pending() && self.warp_attempted {
+            return Err(format!(
+                "no composition device: hardware: {}; WARP: {}",
+                self.refusals[0].as_deref().unwrap_or(if self.force_warp {
+                    "not requested"
+                } else {
+                    "unavailable"
+                }),
+                self.refusals[1].as_deref().unwrap_or("unavailable")
+            ));
         }
-        (startup, None)
+        Ok(())
     }
 
     fn start_warp(&mut self) {
@@ -246,13 +271,16 @@ impl Startup {
             self.warp_attempted = true;
             match exact_ink::device::d3d11::Preparing::start(true) {
                 Ok(p) => self.warp = Some(p),
-                Err(e) => eprintln!("exact-ink: WARP preparation: {e}"),
+                Err(e) => self.refused(true, e.to_string()),
             }
         }
     }
 
     fn pending(&self) -> bool {
-        self.primary.is_some() || self.warp.is_some()
+        self.attempts.as_ref().is_some_and(|a| a.pending()) || self.warp.is_some()
+    }
+    fn hardware_pending(&self) -> bool {
+        self.attempts.as_ref().is_some_and(|a| a.hardware_pending())
     }
 }
 
@@ -263,6 +291,9 @@ pub(crate) struct DirectWindow {
     pub(crate) recovering: bool,
     retry: exact_ink::device::Retry,
     present_due: Option<std::time::Instant>,
+    ever_presented: bool,
+    pub(crate) last_refusal: Option<String>,
+    retire_due: Option<std::time::Instant>,
     poll_due: std::time::Instant,
     startup: Startup,
     open: fn(bool) -> exact_ink::device::Result<exact_ink::device::d3d11::D3d11>,
@@ -278,17 +309,14 @@ impl DirectWindow {
             recovering: false,
             retry: Default::default(),
             present_due: None,
+            ever_presented: false,
+            last_refusal: None,
+            retire_due: None,
             poll_due: std::time::Instant::now(),
-            startup: Startup {
-                primary: None,
-                warp: None,
-                force_warp: exact_ink::device::direct_d3d11(
-                    std::env::var("EXACT_INK_DEVICE").ok().as_deref(),
-                )
-                .unwrap_or(false),
-                warp_attempted: false,
-                ready_warp: None,
-            },
+            startup: Startup::new(
+                exact_ink::device::direct_d3d11(std::env::var("EXACT_INK_DEVICE").ok().as_deref())
+                    .unwrap_or(false),
+            ),
             open: exact_ink::device::d3d11::D3d11::open,
             fallback: None,
         }
@@ -299,23 +327,31 @@ impl DirectWindow {
         window: exact_ink::device::d3d11::Window,
         size: [u32; 2],
         startup: Startup,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let mut direct = Self::new(window);
+        direct.last_refusal = startup.refusals.iter().flatten().last().cloned();
         direct.startup = startup;
         match p.brush.attach_window(direct.window.clone(), size) {
-            Ok(true) => return direct,
+            Ok(true) => return Ok(direct),
             Ok(false) => {}
-            Err(error) => eprintln!("exact-ink: startup composition: {error}"),
+            Err(error) => {
+                direct.refused(direct.startup.force_warp, error);
+                // The scheduled WARP may have been cancelled when hardware opened.
+                direct.startup.warp_attempted = false;
+            }
         }
         direct.use_cpu(p, "CPU startup; composition pending");
         direct.startup.start_warp();
         if let Some(device) = direct.startup.ready_warp.take() {
             if let Err(error) = direct.install_fallback(p, device, size) {
-                eprintln!("exact-ink: startup WARP: {error}");
+                direct.refused(true, error.to_string());
             }
         }
         direct.retry.failed(std::time::Instant::now());
-        direct
+        if direct.fallback.is_none() {
+            direct.startup.check_exhausted()?;
+        }
+        Ok(direct)
     }
 
     fn use_cpu<D: DataSource>(&mut self, p: &mut Presenter<D>, reason: &str) {
@@ -324,6 +360,7 @@ impl DirectWindow {
         p.painter = crate::presenter::PainterInfo {
             name: "cpu",
             adapter: Some(reason.into()),
+            api: None,
             device_ms: 0.,
             shaders_ms: 0.,
             cached: false,
@@ -354,11 +391,13 @@ impl DirectWindow {
         p.painter = crate::presenter::PainterInfo {
             name: "ink",
             adapter: Some(format!("{} ({})", info.adapter, info.api)),
+            api: Some(info.api.clone()),
             device_ms: info.device_ms,
             shaders_ms: info.shaders_ms,
             cached: info.cached,
         };
         p.brush.replace_backend(Box::new(ink));
+        self.retire_due = Some(std::time::Instant::now());
         self.recovering = false;
         p.repaint();
         Ok(())
@@ -373,37 +412,54 @@ impl DirectWindow {
         use exact_ink::device::Device;
         device.attach_window(self.window.clone(), size)?;
         let target = device.create_target(size[0], size[1])?;
+        let info = device.info();
+        p.painter.adapter = Some(format!("{} ({})", info.adapter, info.api));
+        p.painter.api = Some(info.api.clone());
+        p.painter.device_ms = info.device_ms;
+        p.painter.shaders_ms = info.shaders_ms;
+        p.painter.cached = info.cached;
         self.fallback = Some((device, target));
-        p.painter.adapter = Some("WARP composition; hardware pending".into());
         Ok(())
     }
 
+    fn refused(&mut self, warp: bool, error: String) {
+        self.last_refusal = Some(error.clone());
+        self.startup.refused(warp, error);
+    }
+
     fn poll_startup<D: DataSource>(&mut self, p: &mut Presenter<D>, size: [u32; 2]) {
-        if let Some(result) = self.startup.primary.as_mut().and_then(|p| p.poll()) {
-            self.startup.primary = None;
-            if let Err(e) = result.and_then(|d| self.install(p, d, size)) {
-                eprintln!("exact-ink: startup device: {e}");
-                self.startup.start_warp();
+        loop {
+            let arrival = self.startup.attempts.as_mut().and_then(|a| a.poll());
+            let arrival = arrival.or_else(|| {
+                let result = self.startup.warp.as_mut().and_then(|p| p.poll())?;
+                self.startup.warp = None;
+                Some((true, result))
+            });
+            let Some((warp, result)) = arrival else { break };
+            if warp && !self.recovering {
+                continue;
             }
-        }
-        if let Some(result) = self.startup.warp.as_mut().and_then(|p| p.poll()) {
-            self.startup.warp = None;
-            if self.recovering {
-                let installed = result.and_then(|d| {
-                    if self.startup.primary.is_some() {
-                        self.install_fallback(p, d, size)
-                    } else {
-                        self.install(p, d, size)
-                    }
-                });
-                if let Err(e) = installed {
-                    eprintln!("exact-ink: startup WARP: {e}");
+            let installed = result.and_then(|device| {
+                if warp && self.startup.hardware_pending() {
+                    self.install_fallback(p, device, size)
+                } else {
+                    self.install(p, device, size)
+                }
+            });
+            if let Err(e) = installed {
+                self.refused(warp, e.to_string());
+                if !warp && !self.startup.pending() && self.startup.refusals[1].is_none() {
+                    self.startup.warp_attempted = false;
+                    self.startup.start_warp();
                 }
             }
         }
     }
 
-    fn frame<D: DataSource>(&mut self, p: &mut Presenter<D>) -> Option<Arc<Pixmap>> {
+    fn frame<D: DataSource>(
+        &mut self,
+        p: &mut Presenter<D>,
+    ) -> Result<Option<Arc<Pixmap>>, String> {
         use crate::paint::FrameTarget;
         use exact_ink::device::Device;
         let now = std::time::Instant::now();
@@ -413,31 +469,32 @@ impl DirectWindow {
         self.window
             .set_background(crate::paint::page_color(p.dark()));
         self.poll_startup(p, size);
-        let retry_due = self.retry.ready(now) && !self.startup.pending();
+        if !self.ever_presented && self.recovering && self.fallback.is_none() {
+            self.startup.check_exhausted()?;
+        }
+        let retry_due = self.retry.ready(now) && !self.startup.hardware_pending();
         // WARP refusal must not prevent a later hardware attempt.
         if self.recovering && retry_due {
             let result = (self.open)(self.startup.force_warp)
                 .and_then(|device| self.install(p, device, size));
             if let Err(error) = result {
-                eprintln!("exact-ink: hardware recovery: {error}");
+                self.refused(self.startup.force_warp, error.to_string());
             }
         }
         if !self.recovering {
             let frame = p.frame_for(FrameTarget::Window);
-            self.present_due = p
-                .brush
-                .presentation_pending()
-                .then(|| now + std::time::Duration::from_millis(16));
+            self.present_due = p.brush.presentation_retry_delay().map(|delay| now + delay);
             if self.present_due.is_some() {
                 p.repaint();
                 p.last_frame_succeeded = false;
             }
             if p.last_frame_succeeded() {
                 self.retry = Default::default();
-                return frame;
+                self.ever_presented = true;
+                return Ok(frame);
             }
             if !p.brush.device_lost() {
-                return frame;
+                return Ok(frame);
             }
             eprintln!("exact-ink: device lost; painting on the CPU through WARP composition");
             self.use_cpu(p, "WARP composition recovery");
@@ -452,10 +509,15 @@ impl DirectWindow {
             })();
             match opened {
                 Ok(d) => {
+                    let info = d.0.info();
+                    p.painter.adapter = Some(format!("{} ({})", info.adapter, info.api));
+                    p.painter.api = Some(info.api.clone());
+                    p.painter.device_ms = info.device_ms;
+                    p.painter.shaders_ms = info.shaders_ms;
+                    p.painter.cached = info.cached;
                     self.fallback = Some(d);
-                    p.painter.adapter = Some("WARP composition recovery".into());
                 }
-                Err(e) => eprintln!("exact-ink: recovery: {e}"),
+                Err(e) => self.refused(true, e.to_string()),
             }
         }
         p.last_frame_succeeded = false;
@@ -472,9 +534,9 @@ impl DirectWindow {
                     self.fallback = None;
                 }
                 Ok(ms) => {
-                    self.present_due =
-                        (ms == 0.).then(|| now + std::time::Duration::from_millis(16));
+                    self.present_due = device.presentation_retry_delay().map(|delay| now + delay);
                     p.last_frame_succeeded = ms > 0.;
+                    self.ever_presented |= ms > 0.;
                     if ms > 0. && std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
                         eprintln!("exact-ink: CPU recovery frame presented through composition");
                     }
@@ -484,11 +546,24 @@ impl DirectWindow {
         if retry_due {
             self.retry.failed(std::time::Instant::now());
         }
-        None
+        Ok(None)
     }
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// Drain completed devices on an idle wake without painting. @ref LLP 1149 D11.
+    pub fn collect_painter_retirement(
+        &mut self,
+        now: std::time::Instant,
+    ) -> Option<std::time::Instant> {
+        let direct = self.surfaces.direct_window.as_mut()?;
+        if direct.retire_due.is_some_and(|due| now >= due) {
+            let pending = self.brush.collect_retired_devices();
+            direct.retire_due = (pending > 0).then(|| now + std::time::Duration::from_millis(50));
+        }
+        direct.retire_due
+    }
+
     /// Next readiness or recovery attempt for a directly presenting painter.
     pub fn painter_retry_deadline(&self) -> Option<std::time::Instant> {
         self.surfaces.direct_window.as_ref().and_then(|d| {
@@ -508,6 +583,102 @@ mod tests {
     use super::*;
     use crate::paint::{Backend, GradientPaint, Rect4, Shape};
     use tiny_skia::Transform;
+
+    #[test]
+    fn both_refusals_are_a_terminal_boot_error() {
+        for reason in [
+            "injected device refusal",
+            "D3D11 shaders absent: build with fxc",
+        ] {
+            let mut startup = Startup::new(false);
+            startup.warp_attempted = true;
+            startup.refused(false, reason.into());
+            startup.refused(true, reason.into());
+            let error = startup.check_exhausted().unwrap_err();
+            assert!(
+                error.contains(&format!("hardware: {reason}; WARP: {reason}")),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "native Windows fixture requires a desktop session"]
+    fn mica_refusal_uses_page_color_in_both_schemes() {
+        let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
+        let mut p = cpu_presenter();
+        p.brush.replace_backend(Box::new(Lost(false)));
+        p.surfaces.direct_window = Some(DirectWindow::new(window.clone()));
+        for dark in [false, true] {
+            p.set_system_scheme(dark);
+            p.window_frame(window.clone()).unwrap();
+            let color = crate::paint::page_color(dark);
+            assert_eq!(window.background(), [color[0], color[1], color[2], 255]);
+        }
+    }
+
+    #[test]
+    #[ignore = "native Windows composition requires fxc and a desktop session"]
+    fn forced_warp_state_reports_device_api_and_recovery() {
+        let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
+        let mut p = cpu_presenter();
+        let mut direct = DirectWindow::new(window);
+        direct.last_refusal = Some("hardware refused".into());
+        direct
+            .install(
+                &mut p,
+                exact_ink::device::d3d11::D3d11::open(true).unwrap(),
+                [80, 60],
+            )
+            .unwrap();
+        p.surfaces.direct_window = Some(direct);
+        let state: serde_json::Value =
+            serde_json::from_str(&crate::agent::answer(&mut p, r#"{"op":"state"}"#)).unwrap();
+        let info = &state["painter"];
+        assert_eq!(info["name"], "ink");
+        assert!(info["device"].as_str().unwrap().contains("WARP"));
+        assert!(info["api"].as_str().unwrap().contains("11"));
+        assert_eq!(info["recovering"], false);
+        assert_eq!(info["lastRefusal"], "hardware refused");
+    }
+
+    #[test]
+    #[ignore = "native Windows composition requires fxc and a desktop session"]
+    fn idle_recovery_releases_the_old_device_without_repainting() {
+        let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
+        let mut p = cpu_presenter();
+        let mut direct = DirectWindow::new(window.clone());
+        direct
+            .install_fallback(
+                &mut p,
+                exact_ink::device::d3d11::D3d11::open(true).unwrap(),
+                [80, 60],
+            )
+            .unwrap();
+        direct.recovering = true;
+        direct.retry.failed(std::time::Instant::now());
+        p.surfaces.direct_window = Some(direct);
+        p.window_frame(window.clone()).unwrap();
+        let mut direct = p.surfaces.direct_window.take().unwrap();
+        direct
+            .install(
+                &mut p,
+                exact_ink::device::d3d11::D3d11::open(false).unwrap(),
+                [80, 60],
+            )
+            .unwrap();
+        p.surfaces.direct_window = Some(direct);
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(250);
+        while let Some(due) = p.collect_painter_retirement(std::time::Instant::now()) {
+            assert!(
+                std::time::Instant::now() < end,
+                "retirement did not drain while idle"
+            );
+            window.dispatch_pending();
+            std::thread::sleep(due.saturating_duration_since(std::time::Instant::now()));
+        }
+        assert_eq!(p.brush.collect_retired_devices(), 0);
+    }
 
     struct Lost(bool);
     impl Backend for Lost {
@@ -623,14 +794,8 @@ mod tests {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
         p.brush.replace_backend(Box::new(Lost(true)));
-        let startup = Startup {
-            primary: None,
-            warp: None,
-            force_warp: false,
-            warp_attempted: false,
-            ready_warp: None,
-        };
-        let direct = DirectWindow::attach(&mut p, window.clone(), [80, 60], startup);
+        let startup = Startup::new(false);
+        let direct = DirectWindow::attach(&mut p, window.clone(), [80, 60], startup).unwrap();
         p.surfaces.direct_window = Some(direct);
         let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while p.painter.name != "ink" || !p.last_frame_succeeded() {
@@ -694,7 +859,9 @@ mod tests {
         let window = exact_ink::device::d3d11::Window::fixture([80, 60]).unwrap();
         let mut p = cpu_presenter();
         let mut direct = DirectWindow::new(window.clone());
-        direct.startup.primary = Some(exact_ink::device::d3d11::Preparing::start(false).unwrap());
+        direct.startup.attempts = Some(
+            exact_ink::device::d3d11::Startup::start(false, std::time::Instant::now()).unwrap(),
+        );
         let due = std::time::Instant::now() - std::time::Duration::from_millis(1);
         direct.poll_due = due;
         p.surfaces.direct_window = Some(direct);

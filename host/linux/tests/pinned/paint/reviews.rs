@@ -320,3 +320,18 @@ fn pointer_ignores_the_content_clip() {
     let (mean, bad) = band(&cpu, &ink);
     assert!(mean < 5. && bad < 6., "{mean}, {bad}");
 }
+
+#[test]
+fn agent_state_reports_the_current_painter_and_device() {
+    for choice in painters() {
+        let mut p = compiled("component App\n  view\n    text \"hello\"\n", 1., choice);
+        let state: serde_json::Value =
+            serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+        let painter = &state["painter"];
+        assert_eq!(painter["name"], p.painter.name);
+        assert_eq!(painter["device"], serde_json::json!(p.painter.adapter));
+        assert_eq!(painter["api"], serde_json::json!(p.painter.api));
+        assert_eq!(painter["recovering"], false);
+        assert!(painter["lastRefusal"].is_null());
+    }
+}

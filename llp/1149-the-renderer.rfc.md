@@ -450,6 +450,16 @@ inside that rule is Charlie's (§5 Q14); the proposal is a **replacement excepti
 in §8 with S0's and S3's measured numbers per platform, not a withdrawal that leaves the
 behaviour the exception was written for.
 
+**Windows (S2.8):** the bounded fallback is CPU painting through WARP. It still
+requires a prepared D3D11 device. A composition device created with
+`DCompositionCreateDevice2(None)` cannot provide a device-independent CPU surface:
+Microsoft specifies `E_INVALIDARG` from `CreateSurface` and `CreateVirtualSurface`
+when no rendering device was supplied ([API contract](https://learn.microsoft.com/windows/win32/api/dcomp/nf-dcomp-dcompositioncreatedevice2)).
+For a `WS_EX_NOREDIRECTIONBITMAP` window, delayed hardware and delayed WARP therefore
+delay first pixel beyond the preparation deadline. The 25 ms WARP allowance is a
+warm-driver observation, not a cache-cold guarantee. The forced late-WARP measurement
+and driver-cache-cold series remain required before qualifying this exception.
+
 ### D7 — Presentation and pacing
 
 A frame is drawn when the painter has damage or the reader has motion, never otherwise; an
@@ -848,14 +858,18 @@ proxy is now 131.4 ms on `softbuffer` and 134.8 on composition at 1024×720 (+2.
 140.5 at 1920×1080 (−1.2%), fresh cache, ten interleaved launches; the retained-cache
 medians pass the same 10% gate; a refused Mica shows the platform's opaque window colour
 (LLP 1095's), tested by injection. **The orchestrator's reading of D15**: the relative gate
-holds (within 10% of the platform's painter, no late frames); the absolute 100 ms p50 is not
+holds **on the DWM proxy** (within 10% of the platform's painter, no late frames); the absolute 100 ms p50 is not
 met by either painter (the displayed first screen 148 to 158 ms on composition, the
 `softbuffer` proxy 131 to 142), and D15 as the panel wrote it says a baseline already past
 the budget makes further regression an explicit trade, which a −1.2% to +2.6% change is not:
 the remaining debt is the app's boot, written phase by phase in `MEASUREMENTS.md` S2.7 for
 LLP 1030's and the host's owners, and the `gpu-dev` build is not the shipped profile. The
 default therefore stands, and the branch lands after a review of S2.6 and S2.7's failure
-paths. Unqualified: a driver-cache-cold launch; lock and unlock.
+paths. Composition's displayed medians are bounded against its own proxy plus one
+refresh: 13.189/13.204 ms later with fresh storage and 12.401/12.665 ms later with
+retained storage, below this display's 16.667 ms refresh. Softbuffer has no measured
+scanout timestamp; this is not a displayed-versus-displayed comparison.
+Unqualified: a driver-cache-cold launch; lock and unlock.
 
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,

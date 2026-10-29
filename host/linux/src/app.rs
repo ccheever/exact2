@@ -176,9 +176,7 @@ impl Config {
         // A production bake never enters agent mode (LLP 1069.007 D2, ruled):
         // the agent's variables are dropped before anything reads them —
         // this config, the zone and seed, storage, the update store.
-        if exact_runner::delivery::production(compat) {
-            ignore_agent_variables();
-        }
+        prepare_environment(compat);
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let exact_plan = env("EXACT_PLAN");
         let exact_dev_plan = env("EXACT_DEV_PLAN");
@@ -355,7 +353,7 @@ pub(crate) fn boot_phase(name: &str) {
 pub fn boot_presenter_with_device<D: DataSource + Default>(
     config: &mut Config,
     viewport: (f32, f32),
-    preparing: exact_ink::device::d3d11::Preparing,
+    preparing: exact_ink::device::d3d11::Startup,
 ) -> Result<(Presenter<D>, Option<String>), String> {
     let (mut presenter, warning) = boot_presenter_with_painter(
         config,
@@ -365,7 +363,7 @@ pub fn boot_presenter_with_device<D: DataSource + Default>(
     presenter.install_prepared_painter(
         preparing,
         config.clock_started.unwrap_or_else(std::time::Instant::now),
-    );
+    )?;
     Ok((presenter, warning))
 }
 
@@ -654,6 +652,13 @@ fn run_composed_with<D: DataSource + Default>(
     config.hatches = composed.hatches;
     config.packages = composed.packages;
     run_config::<D>(&mut config, started)
+}
+
+/// Apply the baked development boundary before a carrier starts worker threads.
+pub fn prepare_environment(compat: &str) {
+    if exact_runner::delivery::production(compat) {
+        ignore_agent_variables();
+    }
 }
 
 /// Drop `EXACT_AGENT`, every `EXACT_AGENT_*` variable and `EXACT_HATCHES`
