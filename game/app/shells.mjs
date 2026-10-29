@@ -272,7 +272,10 @@ fn main() {
     // These adapters contain entry points only; tests live in authored crates.
     const target = ['linux', 'windows'].includes(kind)
       ? `[[bin]]\nname = "${name}-${kind}"\npath = "src/main.rs"\ntest = false`
-      : `[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}"]\ntest = false\ndoctest = false`;
+      : `[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}"]\ntest = false\ndoctest = false`
+        // A game with data of its own bakes with it in the web dev loop, as an app's web crate does: host/web/dev.mjs
+        // takes a web crate's `<app>-dev` bin, else the generic compiler, which has no game's data.
+        + (kind === 'web' && data ? `\n\n[[bin]]\nname = "${name}-dev"\npath = "src/bin/${name}-dev.rs"\ntest = false` : '');
     const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\n\n${target}\n\n[dependencies]\n`;
     const dataDependency = data ? `exact-data-host.workspace = true\napp-data = { package = "${data.crate}", path = ${JSON.stringify(relative(shell, dataDir))} }\n` : '';
     const dataBuildDependency = data ? `app-data = { package = "${data.crate}", path = ${JSON.stringify(relative(shell, dataDir))} }\n` : '';
@@ -283,6 +286,7 @@ fn main() {
       : kind === 'android' ? `\n[target.'cfg(target_os = "android")'.dependencies]\nexact-runner.workspace = true\nexact-linux.workspace = true\n${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`
       : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n${kind === 'web' ? 'exact-web-capabilities.workspace = true\n' : ''}${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
     const files = {
+      ...(kind === 'web' && data ? { [`src/bin/${name}-dev.rs`]: `//! The resident dev driver for the game's web shell: \`${name}-dev <source> <out>\`, baking with its data.\n\nfn main() -> std::process::ExitCode {\n    exact_web::dev::main::<app_data::${data.type}>()\n}\n` } : {}),
       'Cargo.toml': header + dependencies,
       [['linux', 'windows'].includes(kind) ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""}${render ? `, hooks = game_render::${render.hooks}${render.shaders ? `, shaders = game_render::${render.shaders}` : ''}` : ''});\n` : (kind === 'windows' ? '#![cfg_attr(\n    all(target_os = "windows", not(debug_assertions)),\n    windows_subsystem = "windows"\n)]\n' : '') + 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
       'build.rs': kind === 'gpu'
