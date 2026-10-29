@@ -125,6 +125,8 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
         },
         due_ms: None,
         wake_ms: None,
+        // Set when its answer awaits it (`Module::begin`), the name an abort uses.
+        fetch: None,
     };
     // A long poll's terms, checked as every host checks them (LLP 1016.000 D8), and an upload's.
     match (request.long_poll_refusal().or(request.ceiling_refusal()))

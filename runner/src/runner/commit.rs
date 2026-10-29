@@ -600,6 +600,7 @@ impl<D: DataSource> Runner<D> {
             if let Some(pos) = (self.pending.iter()).position(|p| p.target == Target::Mutation(m)) {
                 let p = self.pending.remove(pos);
                 let_go.push((p.ticket, m));
+                self.note_retired(&p);
                 self.let_go_request(p);
             }
         }
@@ -802,6 +803,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn forget_ticket(&mut self, target: Target) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let p = self.pending.remove(pos);
+            self.note_retired(&p);
             let t = p.ticket;
             self.note_let_go(t, target);
             self.let_go_request(p);
@@ -881,6 +883,7 @@ impl<D: DataSource> Runner<D> {
         let reasks = self.overrun_reasks(target, &args, forced);
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let p = self.pending.remove(pos);
+            self.note_retired(&p);
             let t = p.ticket;
             self.note_let_go(t, target);
             self.let_go_request(p);
@@ -910,6 +913,7 @@ impl<D: DataSource> Runner<D> {
             source,
             args,
             continuation: request.continuation,
+            fetch: request.fetch,
             keepable: keepable.then(|| request.clone()),
             stream: sockets::stream_count(&request),
             upload: request.stream && request.upload_progress,
@@ -953,6 +957,9 @@ impl<D: DataSource> Runner<D> {
             request,
             forced,
         });
+        // An abort heard before this request was enqueued (in the same
+        // commit, or a worker's turn that landed late) names it now.
+        self.match_aborts();
         self.sync_pending_flags();
     }
 
@@ -986,7 +993,10 @@ impl<D: DataSource> Runner<D> {
     pub fn take_requests(&mut self) -> Vec<RequestOut> {
         self.take_data_logs();
         self.arm_background();
-        let requests = std::mem::take(&mut self.requests);
+        let mut requests = std::mem::take(&mut self.requests);
+        // A request the app aborted before it was handed out is never sent:
+        // the next pump answers it aborted.
+        requests.retain(|r| !self.module_aborts.contains(&r.ticket));
         self.hold_data_timers(requests)
     }
 
@@ -1145,6 +1155,8 @@ impl<D: DataSource> Runner<D> {
         outcome: Outcome,
         elapsed_ms: Option<u64>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        // A let-go request's reply: it has ended, and an abort names it no more.
+        self.retired_fetches.retain(|r| r.1 != ticket);
         let answering = std::mem::replace(&mut self.churn.answering, true);
         let out = self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms));
         self.churn.answering = answering;
@@ -1363,6 +1375,7 @@ impl<D: DataSource> Runner<D> {
             self.store.take_sockets();
         }
         self.stage_answer(p.target);
+        self.hear_aborted();
         for line in self.data.take_logs() {
             self.log(line);
         }

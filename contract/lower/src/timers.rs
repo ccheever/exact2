@@ -51,6 +51,58 @@ impl Lowerer<'_> {
                 }
                 self.b.timer(*ms as u32, action, t.kind == TaskKind::After)
             };
+            let mut wait = 0;
+            let mut maximum = 0;
+            let mut tolerance = 0;
+            let mut seen = std::collections::HashSet::new();
+            for (name, value, span) in &t.options {
+                let invalid = || {
+                    err_one("lower-timer-wait", "Use one `wait=frame|update|scrollend|idle` with optional `max=1..4294967295` for scrollend or idle, or `tolerance=0..4294967295`. Values must be literal whole milliseconds; specify each option once", *span)
+                };
+                if !seen.insert(name) {
+                    return Err(invalid());
+                }
+                match (name.as_str(), value) {
+                    ("wait", Expr::Ident(word, _)) => {
+                        wait = match word.as_str() {
+                            "frame" => 1,
+                            "update" => 2,
+                            "scrollend" => 3,
+                            "idle" => 4,
+                            _ => return Err(invalid()),
+                        };
+                    }
+                    ("max", Expr::Number(ms, _))
+                        if ms.is_finite()
+                            && ms.fract() == 0.0
+                            && *ms >= 1.0
+                            && *ms <= u32::MAX as f64 =>
+                    {
+                        maximum = *ms as u32
+                    }
+                    ("tolerance", Expr::Number(ms, _))
+                        if ms.is_finite()
+                            && ms.fract() == 0.0
+                            && *ms >= 0.0
+                            && *ms <= u32::MAX as f64 =>
+                    {
+                        tolerance = *ms as u32
+                    }
+                    _ => return Err(invalid()),
+                }
+            }
+            if (tolerance != 0 && (wait != 0 || t.kind == TaskKind::Frame))
+                || (wait != 0 && t.kind == TaskKind::Frame)
+                || (maximum != 0 && wait < 3)
+            {
+                return Err(err_one(
+                    "lower-timer-wait",
+                    "Use `wait=` on a millisecond timer and `max=` only with scrollend or idle. Positive `tolerance=` is an alternative to `wait=`, and cannot be used on a frame task",
+                    t.timer.2,
+                ));
+            }
+            self.b.set_timer_wait(id, wait, maximum);
+            self.b.set_timer_tolerance(id, tolerance);
             self.b.set_timer_name(id, &t.name);
             let code = |l: &mut Self, e: &Option<Expr>| {
                 e.as_ref()

@@ -55,6 +55,10 @@ impl DataSource for Module {
         self.journal_lines()
     }
 
+    fn take_aborted(&mut self) -> Vec<u64> {
+        Module::take_aborted(self)
+    }
+
     fn background(&mut self, store: &Store) -> Option<Request> {
         let _ = store;
         self.background_request()

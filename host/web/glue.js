@@ -106,12 +106,12 @@ async function loadRust() {
   await rustLoading;
 }
 // @ref LLP 1043.000 §3 D7/D8 — optional executor, absent from ordinary boots.
-let textflow = null, flowLoading = null, flowContexts = [], flowDue = null, flowLanding = false, flowFrames = false, present = timestamp => send(wasm.exact_frame(timestamp - t0)); // an animation frame (LLP 1073 D5)
+let textflow = null, flowLoading = null, flowContexts = [], flowDue = null, flowLanding = false, flowFrames = false, flowWaits = [], flowTolerance = 0, present = timestamp => send(flowWaits.length ? wasm.exact_advance(timestamp - t0, 8) : wasm.exact_frame(timestamp - t0)); // an animation frame (LLP 1073 D5)
 function flowBatch(batch) {
   const op = batch.ops?.find(op => op.op === "textflow");
   if (op) flowContexts = op.contexts;
-  flowDue = batch.timer_due_ms ?? null; flowLanding = !!batch.landing; flowFrames = !!batch.frames; // `landing`: a data module's timer the last step released is still out
-  ticker?.update(flowDue, flowFrames);
+  flowDue = batch.timer_due_ms ?? null; flowLanding = !!batch.landing; flowFrames = !!batch.frames; flowWaits = batch.waits ?? []; flowTolerance = batch.timer_tolerance_ms ?? 0;
+  ticker?.update(flowDue, flowFrames, flowWaits, flowTolerance);
   if (textflow) { textflow.afterBatch(batch); return; }
   if (!flowContexts.length || flowLoading) return;
   ticker?.dispose(); ticker = null;
@@ -119,10 +119,10 @@ function flowBatch(batch) {
   flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(async create => {
     if (generation !== incarnation) return;
     const controller = await create({ views, agentMode, log, now,
-      advance: () => { followOffset(now()); send(wasm.exact_advance(now(), 0)); }, present });
+      advance: () => { followOffset(now()); send(wasm.exact_advance(now(), 0)); }, present, admitTimers: (kinds, cutoff) => { const batch = JSON.parse(readOut(wasm.exact_advance(cutoff, 16 | kinds << 8))); applyBatch(batch); return batch; } });
     if (generation !== incarnation) { controller.dispose(); return; }
     textflow = controller;
-    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames });
+    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames, waits: flowWaits, timer_tolerance_ms: flowTolerance });
   });
   flowLoading.catch(error => { if (generation === incarnation) log(`textflow module: ${error}`); });
 }
@@ -710,6 +710,7 @@ function apply(batch) {
         track(p,op.ticket);break;
       }
       case "refuse": { deferFulfill(...refusal(op, incarnation)); break; }
+      case "abort": { const c = byTicket.get(op.ticket); byTicket.delete(op.ticket); forgettable.delete(c); c?.abort(); break; } // the app aborted it: cancelled whatever its method, as a browser's fetch is
       case "continue": {
         const requestIncarnation = incarnation;
         const p = Promise.resolve().then(() => moduleLoader.run(op.token))
@@ -751,10 +752,11 @@ function apply(batch) {
         };
         controllers.add(controller); if (op.longPoll) controller.replied = () => { first(); if (!heldAsks.has(op.ticket)) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } }; // a long poll's reply of any kind (LLP 1016.000 D8 on D9): out of the clocks' count, held and named
         if (op.url !== "exact-native:" && (/^(GET|HEAD)$/i.test(op.method) || op.upload)) forgettable.set(controller, op.ticket); // an upload let go is aborted, as natively (LLP 1016.000 D10)
+        if (op.url !== "exact-native:") byTicket.set(op.ticket, controller);
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
-        if (op.held) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } else { const counted = op.upload ? p : Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); } p.finally(() => { forgettable.delete(controller); controllers.delete(controller); }); // a reply the server holds (`exactHeld`, LLP 1016.000 D9) is in flight, but no clock waits on it: listed, not tracked
+        if (op.held) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } else { const counted = op.upload ? p : Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); } p.finally(() => { forgettable.delete(controller); controllers.delete(controller); if (byTicket.get(op.ticket) === controller) byTicket.delete(op.ticket); }); // a reply the server holds (`exactHeld`, LLP 1016.000 D9) is in flight, but no clock waits on it: listed, not tracked
         break;
       }
       case "command": { if (op.name === "relaunch") { location.reload(); break; }
@@ -940,7 +942,7 @@ function commitFonts(faces) {
 let grants = [], grantSet = null, unparsed = "";
 let storageRequests = null;
 const inflight = new Set(), heldAsks = new Map(); // `heldAsks`: requests the server holds (LLP 1016.000 D9), ticket to target
-const controllers = new Set(), forgettable = new Map();
+const controllers = new Set(), forgettable = new Map(), byTicket = new Map(); // `byTicket`: each request's controller, for the app's abort
 let incarnation = 0, authHost = null; // auth-glue.js once an auth.session grant asks for it (LLP 1069.006 D4)
 // A ticket's work, in flight while the runner holds the ticket (LLP 1016 D5):
 // a superseded or forgotten one never holds `clock settle`. Work without a
@@ -1256,7 +1258,7 @@ let ticker = null, timerFactory = null, toldOffset = null;
 const followOffset = at => { const [epoch, offset] = reportTime(at); if (wasm.exact_set_time && offset !== toldOffset) { toldOffset = offset; applyBatch(JSON.parse(readOut(wasm.exact_set_time(epoch, offset)))); } };
 function startClock() {
   if (timerFactory && !agentMode && !textflow && !flowLoading) {
-    ticker ??= timerFactory({ now, advance: time => { followOffset(time); send(wasm.exact_advance(time, 0)); }, present }); ticker.update(flowDue, flowFrames);
+    ticker ??= timerFactory({ now, advance: time => { followOffset(time); send(wasm.exact_advance(time, 0)); }, present, release: (kinds, cutoff) => { const batch = JSON.parse(readOut(wasm.exact_advance(cutoff, 16 | kinds << 8))); applyBatch(batch); return batch; } }); ticker.update(flowDue, flowFrames, flowWaits, flowTolerance);
   }
 }
 function activateData() {
@@ -1368,7 +1370,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
 }
 // `agent`, `agentSettled` and `now` exist only in agent mode; a normal page uses the browser's clock.
 let ready;
-globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(), pageFacts: Object.assign(pageFacts, { changed: () => pageChanged() }), keptChanged: () => { if (wasm?.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn("doc-watch:doc:/"))))); }, // the GPU tier's reader and teller (gpu-tier.js); the kept documents' list changed (documents-glue.js, LLP 1069.010.000 D5)
+globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(), pageFacts: Object.assign(pageFacts, { changed: () => pageChanged() }), abortWake: function wake() { if (wake.due || !wasm?.exact_collect_aborts) return; wake.due = true; setTimeout(() => { wake.due = false; send(wasm.exact_collect_aborts()); }); }, keptChanged: () => { if (wasm?.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn("doc-watch:doc:/"))))); }, // the GPU tier's reader and teller (gpu-tier.js); a fetch a realm aborted between batches (module-glue.js door 23); the kept documents' list changed (documents-glue.js, LLP 1069.010.000 D5)
   // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
   navigate: (location) => {
     const nav = root.firstElementChild;

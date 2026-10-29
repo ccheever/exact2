@@ -62,6 +62,9 @@ struct Running {
     limit: usize,
     /// A safe read's own abort, which forgetting fires; other work has none.
     abort: Option<AbortController>,
+    /// Any plain HTTP exchange's abort, whatever its method: what an app's
+    /// explicit abort fires ([`Core::cancel`]). None for work and streams.
+    exchange: Option<AbortController>,
     forgotten: bool,
     stream: bool,
     /// An ordered safe read: once complete it holds no effect slot.
@@ -580,6 +583,7 @@ impl Core {
                 charge,
                 limit,
                 abort: Some(abort.clone()),
+                exchange: None,
                 forgotten: false,
                 stream: !upload,
                 read: false,
@@ -674,108 +678,6 @@ impl Core {
         // A stream's place, which an upload waiting may take.
         stream::place_freed(&self.shared, state, done.stream && !done.message);
         vec![(done.ticket, done.outcome, Some(done.elapsed_ms))]
-    }
-
-    /// Let go of the work for every ticket the runner no longer `held`
-    /// (LLP 1016 D5): its reply would only be dropped there. A completed
-    /// outcome is dropped undrained and a queued safe HTTP read unrun; a
-    /// running one is aborted. Other work (a write, a module turn) still runs,
-    /// since a write that was sent, or a turn that has begun, is not undone.
-    /// None of it holds a later ordered completion back, and each releases
-    /// its count and bytes when it ends.
-    pub(super) fn forget(&self, held: impl Fn(u64) -> bool) {
-        let mut aborts = Vec::new();
-        let mut cancels = Vec::new();
-        {
-            let mut guard = self.shared.state.lock().unwrap();
-            let state = &mut *guard;
-            let busy = state.counts[0] > 0;
-            for lane in 0..2 {
-                let (counts, bytes) = (&mut state.counts[lane], &mut state.bytes[lane]);
-                let (streams, light) = (&mut state.streams, &mut state.light);
-                let agains = &mut state.agains;
-                state.jobs[lane].retain_mut(|job| {
-                    if held(job.ticket) {
-                        return true;
-                    }
-                    if job.work.is_none() && safe(&job.request) {
-                        *counts -= 1;
-                        *streams -= usize::from(job.request.stream);
-                        *bytes -= job.charge;
-                        return false;
-                    }
-                    job.forgotten = true;
-                    true
-                });
-                let running = &mut state.running;
-                state.completed[lane].retain(|done| {
-                    if held(done.ticket) {
-                        return true;
-                    }
-                    // Its bytes held by a job still physically running go
-                    // when that ends (LLP 1120 D5).
-                    if let Some(run) = running.iter_mut().find(|r| r.ticket == done.ticket) {
-                        run.drained = true;
-                    }
-                    // A forgotten stream's message: the stream itself
-                    // releases the reservation when its reader ends.
-                    if !done.message {
-                        *counts -= 1;
-                        *light -= usize::from(done.light);
-                        *agains -= usize::from(done.again);
-                        *streams -= usize::from(done.stream);
-                        *bytes -= done.bytes;
-                    }
-                    false
-                });
-            }
-            for run in &mut state.running {
-                if !run.forgotten && !held(run.ticket) {
-                    run.forgotten = true;
-                    let stream = run.stream.then_some(run.ticket);
-                    aborts.extend(run.abort.clone().map(|abort| (stream, abort)));
-                    // On the machine, cancelling a safe read claims it now.
-                    if self.machine.is_some() && asynch::cancel(run) {
-                        cancels.push((run.lane, (run.ticket, run.generation)));
-                    }
-                }
-            }
-            state.ordered.retain(|ticket| held(*ticket));
-            // A parked upload let go unsent takes its size with it.
-            let queued: std::collections::HashSet<u64> =
-                state.jobs.iter().flatten().map(|job| job.ticket).collect();
-            state.book.sized.retain(|ticket, _| queued.contains(ticket));
-            // A re-ask let go before it found room: dropped, never settled.
-            state.waiting.retain(|ticket| held(*ticket));
-            state.waiting_set.retain(|ticket| held(*ticket));
-            // A held request has not begun: one let go is dropped unsent,
-            // its work destroyed by a worker.
-            let (kept, gone): (VecDeque<_>, VecDeque<_>) = std::mem::take(&mut state.fenced)
-                .into_iter()
-                .partition(|f| held(f.ticket()));
-            state.fenced = kept;
-            state.fenced_bytes = fenced_bytes(&state.fenced);
-            for f in gone {
-                if let Fenced::Held(_, work, _) = f {
-                    self.discard(state, work);
-                }
-            }
-            rouse(&self.shared, state);
-            place_waiting(state);
-            // As in `complete`: emptying the lane can let a refusal settle.
-            if has_ready(state) || (busy && state.counts[0] == 0) {
-                wake(state);
-            }
-        }
-        // Transport callbacks run outside the lock, as retirement's do.
-        if let Some(machine) = &self.machine {
-            for (lane, run) in cancels {
-                machine.cancelled(lane, run);
-            }
-        }
-        stream::release(&self.shared, aborts);
-        // An upload let go while it waits ends unsent; the places freed may start others.
-        stream::forget_uploads(&self.shared, &held);
     }
 
     pub(super) fn ordered_idle(&self) -> bool {
@@ -1035,6 +937,7 @@ fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
         charge: job.charge,
         limit: job.limit,
         abort: safe(&job.request).then(|| abort.clone()),
+        exchange: (job.work.is_none() && !job.request.stream).then(|| abort.clone()),
         forgotten: job.forgotten,
         stream: job.request.stream,
         read: lane == 0 && read(&job.request, job.work.is_some()),
@@ -1481,6 +1384,8 @@ use outcome::{
     bounded_outcome, build_number, check_headers, fetch_failure, fetch_request, retained,
 };
 
+#[path = "executor_forget.rs"]
+mod forget;
 #[path = "executor_reach.rs"]
 mod reach;
 
@@ -1494,4 +1399,4 @@ mod body_to;
 mod idle_tests;
 #[cfg(test)]
 #[path = "executor_tests.rs"]
-mod tests;
+pub(super) mod tests;

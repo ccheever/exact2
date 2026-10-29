@@ -77,18 +77,10 @@ pub struct Bridge<D: DataSource> {
     cold_share: Option<(exact_runner::share_in::Claimed, bool)>,
     /// The host's live clock while it owns time, kept for every boot (`set_live_clock`)
     live_clock: Option<LiveClockFn>,
+    wait_kinds: u8,
+    native_timers: bool,
     input: Vec<u8>,
     output: Vec<u8>,
-}
-
-struct PreparedHost<D: DataSource> {
-    host: Host<D>,
-    batch: String,
-    bindings: Option<ibex2::host::Bindings>,
-    hooks: Hooks,
-    module: bool,
-    let_go: bool,
-    carried_from: Option<exact_runner::Carried>,
 }
 
 fn not_booted() -> String {
@@ -133,6 +125,8 @@ impl<D: DataSource> Bridge<D> {
             launch_facts: exact_runner::time::Launch::NONE,
             cold_share: None,
             live_clock: None,
+            wait_kinds: 0,
+            native_timers: false,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -253,6 +247,8 @@ impl<D: DataSource> Bridge<D> {
             if !h.runner_mut().intersect_due().is_empty() {
                 x.notify();
             }
+            // An app's aborted fetches first (any method), then what the runner let go.
+            x.cancel(&h.runner_mut().take_explicit_aborts());
             x.forget(&|ticket| h.runner().holds(ticket));
             if !h.has_ordered_request_refusals() {
                 for (ticket, reason) in x.resume_ordered() {
@@ -306,6 +302,10 @@ impl<D: DataSource> Bridge<D> {
                     Self::run_dispatch(h, x, parked, r, dispatch);
                 }
             }
+            // An abort made in this batch's turns is answered at the next pump: wake it.
+            if h.runner_mut().collected_aborts() {
+                x.notify();
+            }
             presenter.presences(h.runner_mut().take_presence_asks());
             h.runner_mut().publish_sockets(|batch| x.socket(batch)); // LLP 1016.000 D7
             presenter.prepend_to(&mut s);
@@ -339,46 +339,6 @@ impl<D: DataSource> Bridge<D> {
             h.refuse_request(ticket, reason, ordered);
             x.notify();
         }
-    }
-
-    /// The executor's queued outcomes into the runner (LLP 1016 D2): the
-    /// presenter calls this on its thread after the wake; the output is the
-    /// batch of every reply's commit.
-    pub fn pump(&mut self, now_ms: f64) -> u32 {
-        self.refusal_turn = !self.refusal_turn;
-        let outcomes = match (self.host.as_mut(), self.executor.as_deref()) {
-            (Some(host), Some(executor)) => {
-                executor.begin_pump();
-                let mut outcomes = if self.refusal_turn {
-                    host.take_request_refusal(executor.ordered_idle())
-                        .into_iter()
-                        .map(|(ticket, outcome)| (ticket, outcome, None))
-                        .collect()
-                } else {
-                    executor.drain()
-                };
-                if outcomes.is_empty() {
-                    outcomes = if self.refusal_turn {
-                        executor.drain()
-                    } else {
-                        host.take_request_refusal(executor.ordered_idle())
-                            .into_iter()
-                            .map(|(ticket, outcome)| (ticket, outcome, None))
-                            .collect()
-                    };
-                }
-                if host.has_request_refusals(executor.ordered_idle()) {
-                    executor.notify();
-                }
-                outcomes
-            }
-            _ => vec![],
-        };
-        let out = match self.host.as_mut() {
-            Some(h) => h.fulfill_all(outcomes, now_ms),
-            None => not_booted(),
-        };
-        self.emit(out)
     }
 
     /// Whether the current runner still owns a presenter-work ticket.
@@ -529,6 +489,8 @@ impl<D: DataSource> Bridge<D> {
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
+        let native_timers = self.native_timers;
+        let wall = self.live_clock;
         let ctx = hooks.ctx;
         let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
@@ -550,6 +512,10 @@ impl<D: DataSource> Bridge<D> {
                 self.links.clone(),
                 fonts.map(|callback| (callback, fonts_ctx)),
                 move |runner| {
+                    if native_timers {
+                        runner.use_native_timers(true);
+                        runner.set_live_clock(wall.map(preferences::sampler));
+                    }
                     if let Some(callback) = fonts {
                         let stacks = runner.runtime_font_stacks();
                         install_fonts(runner.plan(), &stacks, callback, fonts_ctx);
@@ -858,6 +824,8 @@ impl<D: DataSource> Bridge<D> {
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         let control_text = self.control_text;
+        let native_timers = self.native_timers;
+        let wall = self.live_clock;
         let ctx = hooks.ctx;
         let launch = self.launch();
         match exact_runner::time::launching_with(launch, || {
@@ -879,6 +847,10 @@ impl<D: DataSource> Bridge<D> {
                 self.links.clone(),
                 fonts.map(|callback| (callback, fonts_ctx)),
                 move |runner| {
+                    if native_timers {
+                        runner.use_native_timers(true);
+                        runner.set_live_clock(wall.map(preferences::sampler));
+                    }
                     if let Some(callback) = fonts {
                         let stacks = runner.runtime_font_stacks();
                         install_fonts(runner.plan(), &stacks, callback, fonts_ctx);
@@ -1228,12 +1200,6 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Whether the display drives frame tasks (LLP 1073 D4).
-    pub fn present_frames(&mut self, on: bool) {
-        if let Some(h) = self.host.as_mut() {
-            h.present_frames(on);
-        }
-    }
-
     /// A presented display frame (LLP 1073 D5).
     pub fn frame(&mut self, now_ms: f64) -> u32 {
         let out = self
@@ -1465,8 +1431,10 @@ fn escape(s: &str) -> String {
 pub type Cell<D> = RefCell<Bridge<D>>;
 
 mod boot;
+use boot::PreparedHost;
 mod colors;
 mod preparation;
+mod pump;
 mod registry;
 mod snapshot;
 #[cfg(test)]

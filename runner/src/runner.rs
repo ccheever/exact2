@@ -6,6 +6,9 @@
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 mod admission;
 mod advance;
+mod native_timers;
+pub use native_timers::NativeTimer;
+use native_timers::Timer;
 mod background;
 mod commit;
 mod control;
@@ -78,6 +81,10 @@ pub use picker::{Picked, PickerRequest, PICKED};
 mod dated;
 mod fragments;
 mod gates;
+mod waits;
+pub use waits::{
+    frame_at_or_after, virtual_frame, Admitted, IdleObservation, TaskTiming, Wait, WaitKinds, Waits,
+};
 mod into_view;
 pub(crate) mod kept;
 #[cfg(test)]
@@ -105,6 +112,8 @@ mod live_time;
 pub mod midi;
 mod modules;
 pub use modules::{AppState, CallHow, CallOrigin, PresenceAnswer, PresenceAsk, WakeHow};
+#[cfg(test)]
+mod abort_tests;
 mod split;
 mod surface_record;
 mod text_axes;
@@ -226,6 +235,9 @@ struct PendingReq {
     args: Vec<Value>,
     /// The source's continuation token, when the request is one.
     continuation: Option<u64>,
+    /// The module's own ticket for the fetch this request is
+    /// ([`crate::Request::fetch`]): what an app's abort names it by.
+    fetch: Option<u64>,
     /// The request itself when a re-ask may keep it: a resource's plain
     /// HTTP request (LLP 1054.000.000 D3).
     keepable: Option<Request>,
@@ -287,22 +299,6 @@ impl PendingReq {
     fn waited(&self) -> bool {
         self.in_flight() && !self.quiet() && !self.replied && self.reask_at.is_none()
     }
-}
-
-#[derive(Clone)]
-struct Timer {
-    /// The next due time; infinite once a one-shot timer has fired, and
-    /// while a gated task is idle (LLP 1092 D8); a frame task's next
-    /// virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
-    next_ms: f64,
-    /// Whether the task's gate holds (always, for `mount`).
-    armed: bool,
-    /// The key it was armed with (`key=`), as `for` compares keys.
-    key: Option<String>,
-    /// A frame task's last presented frame (or mount) …
-    base: f64,
-    /// … and which virtual frame after it is next.
-    k: u32,
 }
 
 type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
@@ -372,6 +368,22 @@ pub struct Runner<D: DataSource> {
     pending: Vec<PendingReq>,
     /// This commit let a request go: `conclude` tells the source what is still in flight.
     forgot: bool,
+    /// The fetches the app aborted ([`DataSource::take_aborted`]) that name no
+    /// request in flight yet (one a commit is still to hand out, a worker's
+    /// turn still to land), by the module's ticket, with how many
+    /// collections they have waited: matched as their request is enqueued.
+    heard_aborts: Vec<(u64, u32)>,
+    /// The requests whose fetch the app aborted, by ticket, until the host's
+    /// next pump answers them aborted (`take_request_refusal`). Both lists are
+    /// kept outside any commit's rollback: the module has already rejected
+    /// the fetch.
+    module_aborts: Vec<u64>,
+    /// The tickets answered aborted, until the host cancels their requests
+    /// whatever their method ([`Runner::take_explicit_aborts`]).
+    explicit_aborts: Vec<u64>,
+    /// Requests let go while still running, by module fetch ticket and
+    /// runner ticket, until their reply ([`Runner::note_retired`]).
+    retired_fetches: Vec<(u64, u64)>,
     /// Failed arguments suppress another ask until they change or refresh.
     failed_args: Vec<Option<Vec<Value>>>,
     /// The uploads asked and how each stands (LLP 1016.000 D10): none is
@@ -543,12 +555,6 @@ pub const TIMER_FIRE_LIMIT: usize = 4096;
 /// The seekable clock's virtual display: a frame every 1000/60 ms after a
 /// frame task last fired (LLP 1073 D3).
 pub const VIRTUAL_FRAME_MS: f64 = 1000.0 / 60.0;
-
-/// A frame task's `k`th virtual frame after `base`: `base + k·1000/60`, the
-/// product first, so sixty frames are exactly a second on every host.
-pub fn virtual_frame(base: f64, k: u32) -> f64 {
-    base + f64::from(k) * 1000.0 / 60.0
-}
 
 impl<D: DataSource> Runner<D> {
     /// This runner, linking every device capability: the plain boots'.
@@ -807,6 +813,10 @@ impl<D: DataSource> Runner<D> {
             module_work: Default::default(),
             picked_count: 0,
             forgot: false,
+            heard_aborts: Vec::new(),
+            module_aborts: Vec::new(),
+            explicit_aborts: Vec::new(),
+            retired_fetches: Vec::new(),
             failed_args: Vec::new(),
             uploads: Default::default(),
             failed_why: Vec::new(),
@@ -954,6 +964,7 @@ impl<D: DataSource> Runner<D> {
                     now + t.interval_ms as f64
                 },
                 armed: !(t.gated || t.keyed),
+                generation: 0,
                 key: None,
                 base: now,
                 k: 1,

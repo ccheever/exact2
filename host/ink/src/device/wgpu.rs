@@ -64,7 +64,7 @@ pub struct Wgpu {
     retired_textures: Vec<(Submission, Texture)>,
     retired_buffers: Vec<(Submission, ::wgpu::Buffer)>,
     info: Info,
-    errors: Arc<Mutex<Option<String>>>,
+    errors: Arc<Mutex<Option<Error>>>,
 }
 
 impl Wgpu {
@@ -114,8 +114,12 @@ impl Wgpu {
             errors
                 .lock()
                 .unwrap()
-                .get_or_insert_with(|| format!("{error}"));
+                .get_or_insert_with(|| Error::Device(error.to_string()));
         }));
+        let lost = failures.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            *lost.lock().unwrap() = Some(Error::DeviceLost(format!("{reason:?}: {message}")));
+        });
         let device_ms = started.elapsed().as_secs_f64() * 1000.;
         let started = Instant::now();
         let errors = device.push_error_scope(::wgpu::ErrorFilter::Validation);
@@ -297,6 +301,7 @@ impl Wgpu {
     }
 
     fn texture(&self, id: TextureId) -> Result<&Texture> {
+        failure(&self.errors)?;
         self.textures
             .get(&id)
             .ok_or_else(|| Error::Invalid(format!("unknown texture {}", id.0)))
@@ -370,16 +375,18 @@ impl Wgpu {
         }))
     }
 
-    fn submit(&mut self, commands: ::wgpu::CommandBuffer) -> Submission {
+    fn submit(&mut self, commands: ::wgpu::CommandBuffer) -> Result<Submission> {
+        failure(&self.errors)?;
+        let index = self.queue.submit([commands]);
+        failure(&self.errors)?;
         self.submitted.0 += 1;
         let id = self.submitted;
-        let index = self.queue.submit([commands]);
         self.pending.insert(id.0, index);
         let done = self.done.clone();
         self.queue.on_submitted_work_done(move || {
             done.fetch_max(id.0, Ordering::Release);
         });
-        id
+        Ok(id)
     }
 
     fn encode_pass(
@@ -465,7 +472,7 @@ impl Wgpu {
             },
             extent([width, height]),
         );
-        let submitted = self.submit(encoder.finish());
+        let submitted = self.submit(encoder.finish())?;
         self.textures.get_mut(&id).unwrap().last = submitted;
         #[derive(Default)]
         struct Mapped {
@@ -515,9 +522,7 @@ impl Wgpu {
         }
         drop(mapped);
         buffer.unmap();
-        if let Some(error) = &*self.errors.lock().unwrap() {
-            return Err(Error::Device(error.clone()));
-        }
+        failure(&self.errors)?;
         Ok(pixels)
     }
 }
@@ -557,7 +562,7 @@ impl Device for Wgpu {
             self.device
                 .create_command_encoder(&Default::default())
                 .finish(),
-        );
+        )?;
         buffer.last.store(submission.0, Ordering::Release);
         Ok(submission)
     }
@@ -600,7 +605,7 @@ impl Device for Wgpu {
             self.device
                 .create_command_encoder(&Default::default())
                 .finish(),
-        );
+        )?;
         self.textures.get_mut(&id).unwrap().last = submission;
         Ok(submission)
     }
@@ -671,7 +676,7 @@ impl Device for Wgpu {
                 Some([0.; 4]),
             );
         }
-        let submission = self.submit(encoder.finish());
+        let submission = self.submit(encoder.finish())?;
         self.textures.get_mut(&id).unwrap().last = submission;
         Ok(submission)
     }
@@ -718,7 +723,7 @@ impl Device for Wgpu {
             },
             extent(size),
         );
-        let submission = self.submit(encoder.finish());
+        let submission = self.submit(encoder.finish())?;
         for id in [source, target] {
             self.textures.get_mut(&id).unwrap().last = submission;
         }
@@ -803,7 +808,7 @@ impl Device for Wgpu {
             &groups,
             clear,
         );
-        let submission = self.submit(encoder.finish());
+        let submission = self.submit(encoder.finish())?;
         self.buffers[slot]
             .buffer
             .last
@@ -835,6 +840,7 @@ impl Device for Wgpu {
     }
 
     fn wait(&mut self, submission: Submission) -> Result<()> {
+        failure(&self.errors)?;
         if submission > self.submitted {
             return Err(Error::Invalid("unknown submission".into()));
         }
@@ -847,24 +853,22 @@ impl Device for Wgpu {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.device
-                .poll(::wgpu::PollType::Wait {
-                    submission_index: self.pending.get(&submission.0).cloned(),
-                    timeout: Some(std::time::Duration::from_secs(30)),
-                })
-                .map_err(|e| Error::Device(e.to_string()))?;
+            let polled = self.device.poll(::wgpu::PollType::Wait {
+                submission_index: self.pending.get(&submission.0).cloned(),
+                timeout: Some(std::time::Duration::from_secs(30)),
+            });
+            failure(&self.errors)?;
+            polled.map_err(|e| Error::Device(e.to_string()))?;
             self.completed()?;
             Ok(())
         }
     }
 
     fn completed(&mut self) -> Result<Submission> {
-        if let Some(e) = self.errors.lock().unwrap().as_ref() {
-            return Err(Error::Device(e.clone()));
-        }
-        self.device
-            .poll(::wgpu::PollType::Poll)
-            .map_err(|e| Error::Device(e.to_string()))?;
+        failure(&self.errors)?;
+        let polled = self.device.poll(::wgpu::PollType::Poll);
+        failure(&self.errors)?;
+        polled.map_err(|e| Error::Device(e.to_string()))?;
         let done = Submission(self.done.load(Ordering::Acquire));
         self.pending.retain(|id, _| *id > done.0);
         self.retired_textures.retain(|(last, _)| *last > done);
@@ -904,7 +908,7 @@ impl Device for Wgpu {
 
 fn instance_buffer(
     device: &::wgpu::Device,
-    failures: &Arc<Mutex<Option<String>>>,
+    failures: &Arc<Mutex<Option<Error>>>,
     size: u64,
 ) -> Result<Buffer> {
     let raw = checked(device, failures, || {
@@ -923,7 +927,7 @@ fn instance_buffer(
 
 fn allocate_texture(
     device: &::wgpu::Device,
-    failures: &Arc<Mutex<Option<String>>>,
+    failures: &Arc<Mutex<Option<Error>>>,
     desc: TextureDesc,
 ) -> Result<Texture> {
     let raw = checked(device, failures, || {
@@ -1001,12 +1005,10 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
 
 fn checked<T>(
     device: &::wgpu::Device,
-    failures: &Arc<Mutex<Option<String>>>,
+    failures: &Arc<Mutex<Option<Error>>>,
     make: impl FnOnce() -> T,
 ) -> Result<T> {
-    if let Some(error) = &*failures.lock().unwrap() {
-        return Err(Error::Device(error.clone()));
-    }
+    failure(failures)?;
     let scopes = [
         ::wgpu::ErrorFilter::OutOfMemory,
         ::wgpu::ErrorFilter::Internal,
@@ -1021,6 +1023,9 @@ fn checked<T>(
             if let Some(error) = block_on(scope.pop()) {
                 failure = Some(Error::Device(error.to_string()));
             }
+        }
+        if let Some(lost) = failures.lock().unwrap().clone() {
+            return Err(lost);
         }
         if let Some(error) = failure {
             return Err(error);
@@ -1037,10 +1042,17 @@ fn checked<T>(
                     failures
                         .lock()
                         .unwrap()
-                        .get_or_insert_with(|| error.to_string());
+                        .get_or_insert_with(|| Error::Device(error.to_string()));
                 }
             });
         }
     }
     Ok(value)
+}
+
+fn failure(failures: &Mutex<Option<Error>>) -> Result<()> {
+    match failures.lock().unwrap().clone() {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }

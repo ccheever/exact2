@@ -158,6 +158,7 @@ pub enum Mode {
 
 /// One runner, one grid.
 pub struct Host<D: DataSource> {
+    idle_timer_retry: bool,
     pub(crate) runner: Runner<D>,
     input_clock: Option<std::time::Instant>,
     pub(crate) cols: usize,
@@ -278,6 +279,7 @@ impl<D: DataSource> Host<D> {
         runner.set_module_target("terminal");
         let mut host = Host {
             runner,
+            idle_timer_retry: false,
             input_clock: None,
             cols,
             rows,
@@ -657,6 +659,7 @@ impl<D: DataSource> Host<D> {
     /// observes the clock.
     pub fn live_from(&mut self, start: std::time::Instant) {
         self.input_clock = Some(start);
+        self.runner.hold_waits(exact_runner::WaitKinds::ALL);
         let sample = move || start.elapsed().as_secs_f64() * 1000.0;
         self.runner.set_live_clock(Some(Box::new(sample)));
     }
@@ -672,14 +675,48 @@ impl<D: DataSource> Host<D> {
 
     /// Advance the app's clock: timers fire.
     pub fn tick(&mut self, now_ms: f64) {
-        if !self.runner.advance_timed(now_ms).receipts.is_empty() {
-            self.after_commit();
+        let kinds = exact_runner::WaitKinds::FRAME
+            .union(exact_runner::WaitKinds::UPDATE)
+            .union(exact_runner::WaitKinds::SCROLLEND);
+        loop {
+            let batch = self.runner.release_waits(kinds, now_ms);
+            if !batch.advanced.receipts.is_empty() {
+                self.after_commit();
+            }
+            if !batch.continuing {
+                break;
+            }
+        }
+    }
+
+    /// Admit one idle firing after pending terminal input has been drained.
+    pub fn idle_timer(&mut self, now_ms: f64) {
+        self.idle_timer_retry = false;
+        let waits = self.runner.waits();
+        if waits.idle.held
+            && self
+                .runner
+                .timer_due_ms()
+                .is_none_or(|at| at > now_ms + 1000.0 / 60.0)
+        {
+            let batch = self
+                .runner
+                .release_waits(exact_runner::WaitKinds::IDLE, now_ms);
+            if !batch.advanced.receipts.is_empty() {
+                self.after_commit();
+                self.idle_timer_retry = self.runner.waits().idle.held;
+            }
         }
     }
 
     /// When the next timer is due, in the app's clock.
     pub fn timer_due_ms(&self) -> Option<f64> {
-        self.runner.timer_due_ms()
+        self.runner
+            .timer_wake_ms()
+            .into_iter()
+            .chain(self.runner.waits().next_check())
+            .chain(self.idle_timer_retry.then_some(self.runner.now_ms()))
+            .reduce(f64::min)
     }
 
     /// Dispatch, then lay out. Whether a handler prevented the default is

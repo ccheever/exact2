@@ -35,6 +35,8 @@ impl<D: DataSource> Host<D> {
             self.preload_wake.ask(self.runner.data_ref());
             return Ok(false);
         }
+        #[cfg(windows)]
+        crate::app::boot_phase("data-activation-entered");
         if let Err(error) = self
             .configure_storage()
             .and_then(|()| self.runner.data().activate())
@@ -42,7 +44,9 @@ impl<D: DataSource> Host<D> {
             return Err(format!("activate data: {error:?}"));
         }
         self.data_activated = true;
-        match self.runner.data_ready() {
+        #[cfg(windows)]
+        crate::app::boot_phase("data-source-ready");
+        let result = match self.runner.data_ready() {
             Ok(Some(receipt)) => match self.commit(
                 &[Timed {
                     at_ms: self.now_ms,
@@ -55,7 +59,10 @@ impl<D: DataSource> Host<D> {
             },
             Ok(None) => Ok(false),
             Err(error) => Err(format!("data ready: {error:?}")),
-        }
+        };
+        #[cfg(windows)]
+        crate::app::boot_phase("data-activation-ready");
+        result
     }
 
     /// Deferred image preparation needs another turn after first pixel.

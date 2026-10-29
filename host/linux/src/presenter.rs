@@ -69,6 +69,7 @@ mod painter;
 mod pan_release;
 mod picker;
 mod pointer;
+mod pump;
 mod radio;
 mod range_frame;
 #[cfg(test)]
@@ -161,6 +162,11 @@ pub struct Presenter<D: DataSource> {
     last_wheel: Option<ViewId>,
     /// The display's clock while it owns time, given to every host (`clock.rs`)
     live_clock: Option<clock::Wall>,
+    native_timers: bool,
+    timers_hidden: bool,
+    clock_generation: u64,
+    timer_observations: Option<(bool, bool, bool)>,
+    idle_timer_retry: bool,
     pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
@@ -321,50 +327,6 @@ fn r2(x: f32) -> f64 {
     (x as f64 * 100.0).round() / 100.0
 }
 impl<D: DataSource> Presenter<D> {
-    /// Boot the app under a viewport (points) at a device scale, with its
-    /// asset root. The boot error, if any, is reported beside the presenter
-    /// (the tree is what booted).
-    pub fn boot(
-        plan: &[u8],
-        data: D,
-        viewport: (f32, f32),
-        scale: f32,
-        assets: PathBuf,
-    ) -> Result<(Presenter<D>, Option<String>), HostError> {
-        Presenter::boot_with(
-            plan,
-            data,
-            viewport,
-            scale,
-            assets,
-            PainterChoice::from_env(PainterChoice::Auto),
-        )
-    }
-
-    /// Boot with a chosen painter (`boot` reads `EXACT_PAINTER`).
-    pub fn boot_with(
-        plan: &[u8],
-        data: D,
-        viewport: (f32, f32),
-        scale: f32,
-        assets: PathBuf,
-        choice: PainterChoice,
-    ) -> Result<(Presenter<D>, Option<String>), HostError> {
-        let (mut presenter, error) = Self::boot_with_assets(
-            PlanBytes::Copied(plan),
-            data,
-            viewport,
-            scale,
-            Assets::embedded(assets),
-            PainterBoot::selected(choice),
-            None,
-            "/",
-            None,
-        )?;
-        presenter.measure();
-        Ok((presenter, error))
-    }
-
     /// Boot from entry zero or one selected generation. The selected asset
     /// roster is complete: absent names cannot fall through to `root`.
     #[allow(clippy::too_many_arguments)]
@@ -424,11 +386,24 @@ impl<D: DataSource> Presenter<D> {
         }
         let t = std::time::Instant::now();
         let decoded = plan.decode().map_err(HostError::Plan)?;
+        #[cfg(windows)]
+        crate::app::boot_phase("plan-ready");
+        #[cfg(windows)]
+        let preparing = painter.prepare_direct();
         let text = TextEngine::shared_for_assets(&decoded, &assets);
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
+        #[cfg(windows)]
+        crate::app::boot_phase("fonts-ready");
+        #[cfg(windows)]
+        let opened = preparing
+            .is_none()
+            .then(|| painter.open())
+            .transpose()
+            .map_err(HostError::Painter)?;
+        #[cfg(not(windows))]
         let (backend, painter) = painter.open().map_err(HostError::Painter)?;
         let (mut host, error) = Host::boot_decoded(
             decoded,
@@ -444,6 +419,12 @@ impl<D: DataSource> Presenter<D> {
         )?;
         // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
         let error = error.or(host.set_display_scale(f64::from(scale)));
+        #[cfg(windows)]
+        let (backend, painter) = match preparing {
+            Some(preparing) => PainterBoot::finish_direct(preparing.map_err(HostError::Painter)?)
+                .map_err(HostError::Painter)?,
+            None => opened.expect("synchronous painter"),
+        };
         let mut images = Images::with_assets(assets.clone());
         images.fit(viewport, scale);
         if assets.is_selected() {
@@ -530,6 +511,11 @@ impl<D: DataSource> Presenter<D> {
             dirty: true,
             deferred_collections: None,
             live_clock: None,
+            native_timers: false,
+            timers_hidden: false,
+            clock_generation: 0,
+            idle_timer_retry: false,
+            timer_observations: cfg!(target_os = "android").then_some((false, false, true)),
             scheme: (None, false),
             device: None,
             text_scale: 1.0,
@@ -806,6 +792,9 @@ impl<D: DataSource> Presenter<D> {
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
         // is parked and released after a later commit.
+        // An app's aborted fetches first (any method), then what the runner let go.
+        self.executor
+            .cancel(&self.host.runner_mut().take_explicit_aborts());
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
@@ -855,6 +844,10 @@ impl<D: DataSource> Presenter<D> {
             if let Some(r) = self.parked.remove(&token) {
                 self.run_dispatch(r, dispatch);
             }
+        }
+        // An abort made in this batch's turns is answered at the next pump: wake it.
+        if self.host.runner_mut().collected_aborts() {
+            self.executor.notify();
         }
         // The platform's checks for presence calls: the shell's (LLP 1133.010 D8).
         for ask in self.host.runner_mut().take_presence_asks() {
@@ -1318,50 +1311,6 @@ impl<D: DataSource> Presenter<D> {
         Ok(format!("{{\"tapped\":{id},\"into\":true}}"))
     }
 
-    /// The executor's replies into the runner (LLP 1016 D2), each a
-    /// commit: the display loop calls this when the executor's fd is
-    /// readable, the agent when it waits. `None` when nothing was queued.
-    pub fn pump(&mut self, now_ms: f64) -> Option<String> {
-        let region_error = self.poll_content_region();
-        self.executor.begin_pump();
-        let region_error = region_error.or(self.dispatch_authored_scroll());
-        self.refusal_turn = !self.refusal_turn;
-        let mut outcomes = if self.refusal_turn {
-            self.host
-                .take_request_refusal(self.executor.ordered_idle())
-                .into_iter()
-                .map(|(ticket, outcome)| (ticket, outcome, None))
-                .collect()
-        } else {
-            self.executor.drain()
-        };
-        if outcomes.is_empty() {
-            outcomes = if self.refusal_turn {
-                self.executor.drain()
-            } else {
-                self.host
-                    .take_request_refusal(self.executor.ordered_idle())
-                    .into_iter()
-                    .map(|(ticket, outcome)| (ticket, outcome, None))
-                    .collect()
-            };
-        }
-        if self.host.has_request_refusals(self.executor.ordered_idle()) {
-            self.executor.notify();
-        }
-        if outcomes.is_empty() && !self.host.has_announced() {
-            let refined = self.refine_collections();
-            return region_error
-                .or(refined)
-                .or(self.refresh_transform_geometry())
-                .or(self.deliver_scroll_ends());
-        }
-        let e = self.host.fulfill_all(outcomes, now_ms);
-        let after = self.after_commit();
-        let ends = self.deliver_scroll_ends();
-        region_error.or(e).or(after).or(ends)
-    }
-
     /// The executor's wake: readable when a reply is queued (for `poll`).
     #[cfg(unix)]
     pub fn executor_fd(&self) -> std::os::unix::io::RawFd {
@@ -1426,27 +1375,6 @@ impl<D: DataSource> Presenter<D> {
         let e = self.host.set_delivery_from_compat(json);
         let after = self.after_commit();
         e.or(after)
-    }
-
-    /// The runner's clock (timers), from the presenter's loop.
-    pub fn advance(&mut self, now_ms: f64) -> Option<String> {
-        let (e, paint) = self.host.advance_effects(now_ms);
-        self.dirty |= paint;
-        let after = self.finish_commit();
-        self.hatch_timers(now_ms);
-        let ends = self.deliver_scroll_ends();
-        e.or(after).or(ends)
-    }
-
-    /// A display frame for the frame tasks (LLP 1073 D5): timers due by
-    /// `now_ms`, then every frame task once at it.
-    pub fn animation_frame(&mut self, now_ms: f64) -> Option<String> {
-        let (e, paint) = self.host.frame(now_ms);
-        self.dirty |= paint;
-        let after = self.finish_commit();
-        self.hatch_presented(now_ms);
-        let ends = self.deliver_scroll_ends();
-        e.or(after).or(ends)
     }
 
     /// A motion frame.

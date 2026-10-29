@@ -19,6 +19,9 @@ pub(super) const NAME: &str = "module work";
 pub(super) struct ModuleWork {
     /// Kept requests in flight: the runner's ticket, the source's token.
     tickets: BTreeMap<u64, u64>,
+    /// Their module fetch tickets, so the app's abort still names one
+    /// (`Runner::match_aborts`) for as long as it runs, with no cap.
+    pub(super) fetches: BTreeMap<u64, u64>,
     /// Requests with effects the commit being made let go, offered to the
     /// source when it ends.
     letting: Vec<PendingReq>,
@@ -158,6 +161,9 @@ impl<D: DataSource> Runner<D> {
         for (p, token) in letting.iter().zip(kept) {
             if let Some(token) = token {
                 self.module_work.tickets.insert(p.ticket, token);
+                if let Some(fetch) = p.fetch {
+                    self.module_work.fetches.insert(fetch, p.ticket);
+                }
                 let name = self.target_name(p.target);
                 self.log(format!(
                     "keep request {} ({name}): it may have changed its server, so it runs to its end",
@@ -177,6 +183,7 @@ impl<D: DataSource> Runner<D> {
         let Some(token) = self.module_work.tickets.remove(&ticket) else {
             return Ok(None);
         };
+        self.module_work.fetches.retain(|_, t| *t != ticket);
         let (revision, writes) = (self.store.revision(), self.store.writes().len());
         self.log(format!("{NAME} {ticket}: {}", outcome.summary()));
         if let Err(e) = self.data.module_landed(&mut self.store, token, outcome) {

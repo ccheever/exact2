@@ -1491,6 +1491,8 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
   component-scoped and action-started timers, computed intervals, a gate
   that reads `performanceNow()`, and cancelling a queued send.
+  **Expanded (user request, 2026-10-27/28; LLP 1147):** root timers accept `wait=frame|update|scrollend|idle` and bounded scroll or idle waits, or `tolerance=` for wake coalescing. The request explicitly includes all host platforms and deterministic coverage; the follow-up admits wake tolerance. Computed intervals, combined waits and per-node timer callbacks remain deferred.
+  **Qualification deferred (user request, 2026-10-28; LLP 1147):** actual energy-savings measurements, including iPhone battery and full-app Mac power measurements, and timer qualification with GPU rendering. Timer correctness, cancellation, admission instrumentation and `wait=update` performance remain in scope; Windows JavaScript qualification is not deferred.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none

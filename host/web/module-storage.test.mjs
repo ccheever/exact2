@@ -110,7 +110,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     globalThis.exact = {};
     if (placement === 'main') {
       const win = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {}, debug() {} }, TextEncoder, TextDecoder, structuredClone, setTimeout, clearTimeout,
-        queueMicrotask, URL, Headers, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, addEventListener() {} });
+        queueMicrotask, URL, Headers, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, AbortController, AbortSignal, addEventListener() {} });
       win.window = win;
       for (const name of ['Promise', 'Error', 'Object', 'Array', 'JSON', 'Symbol']) win[name] = vm.runInContext(name, win);
       win.document = { createElement: () => ({}), head: { append: el => vm.runInContext(el.textContent, win) } };
@@ -128,7 +128,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     realm = await glue.prepare({ receipt, script: bytes }, { appId: 'test.storage', grants, grantSet: createGrantSet(GRANTS), placement });
     const request = (op, source, extra = {}) => ({ op, id: realm.id, target: source, source, args: [], store: [['recovery-owner', source]], grants: [], ...extra });
     return {
-      done, door: () => captured.door,
+      done, door: () => captured.door, aborted: () => glue.call({ op: 'aborted', id: realm.id }).tickets,
       ask: source => glue.run(glue.call(request('answer', source)).continuation),
       resume: source => glue.run(glue.call(request('resume', source, { outcome: { response: { status: 200, headers: [], body: 'fresh' } } })).continuation),
       forget: inFlight => glue.call({ op: 'forget', id: realm.id, inFlight: inFlight.map(s => request('answer', s)) }),
@@ -257,5 +257,40 @@ test('outside an answer the realm newly answers only the load-time listen ask', 
     expect(() => door(12, 'callback', '')).toThrow('host call outside an answer');
     expect(() => door(2, 'name', '')).toThrow('host call outside an answer');
     expect(() => door(1, '1', '{}')).toThrow('host call outside an answer');
+    // An abort made outside a turn (a background round, a mapper) waits in the realm until the runner asks,
+    // and wakes the host to ask, since no turn's batch follows it.
+    let wakes = 0;
+    globalThis.exact.abortWake = () => wakes++;
+    expect(door(23, '9', '')).toBeUndefined();
+    expect([wakes, w.aborted(), w.aborted()]).toEqual([1, [9], []]);
   } finally { w.done(); }
 }, 20000);
+
+// A fetch the app aborts (the abort runtime gap): another answer's turn aborts an awaited POST, and that
+// turn's result names its ticket (door 23) for the runner to answer aborted and the page to cancel; the
+// awaiting answer, resumed, has the rejection. A fetch aborted before it is awaited is withdrawn (16).
+for (const placement of ['main', 'worker']) {
+  test(`an aborted fetch is reported with the turn that aborted it and withdrawn when unsent (${placement})`, async () => {
+    const w = await moduleRealm(`if (source === 'held') { globalThis.held = new AbortController();
+    return fetch('https://api.castle.test/held', { method: 'POST', body: 'x', signal: globalThis.held.signal }).then(() => 'fetched', e => 'aborted: ' + e.message); }
+  if (source === 'halt') { globalThis.held.abort(new Error('by the app')); return 'halted'; }
+  if (source === 'pair') { const c = new AbortController(), first = fetch('https://api.castle.test/first'), second = fetch('https://api.castle.test/second', { signal: c.signal });
+    c.abort(); return second.then(() => 'sent', e => e.name).then(async why => (await (await first).text()) + ' ' + why); }
+  return read('app:/data/' + source);`, { placement });
+    try {
+      const held = await race(w.ask('held'));
+      expect([held.tag, held.request?.method]).toEqual([1, 'POST']);
+      let wakes = 0;
+      globalThis.exact.abortWake = () => wakes++;
+      const halt = await race(w.ask('halt'));
+      // The realm keeps the abort until the runner asks, the worker's posted to the page as it was made. Each
+      // wakes the host, since a let-go's turn (its storage delivery included) has no batch to follow it.
+      expect([halt.value, halt.aborted, w.aborted(), w.aborted()]).toEqual(['halted', undefined, [held.ticket], []]);
+      expect(wakes).toBe(1);
+      expect((await race(w.resume('held'))).value).toBe('aborted: by the app');
+      const pair = await race(w.ask('pair'));
+      expect([pair.tag, pair.request?.url, w.aborted()]).toEqual([1, 'https://api.castle.test/first', []]);
+      expect((await race(w.resume('pair'))).value).toBe('fresh AbortError');
+    } finally { w.done(); }
+  }, 20000);
+}

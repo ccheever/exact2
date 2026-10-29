@@ -148,7 +148,7 @@ a confirmation: What can't be undone (Delete) asks first. `aria-label` is the qu
       text "Delete"
     button commandfor="remove" command="close"
       text "Cancel"
-a timer: `every(ms, action)` repeats, `after(ms, action)` fires once, `when cond` arms the task. An action writes `performanceNow()` to state; a `derive` never rereads it.
+a timer: `every(ms, action)` repeats; `after(ms, action)` runs once. Options: `wait=frame|update|scrollend|idle`, `max=ms`, `tolerance=ms`. See `contract vocab timers`.
   state now = 0
   task tick mount
     every(1000, step)

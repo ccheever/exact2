@@ -44,15 +44,21 @@ pub(crate) const RUST_ABI: u32 = 4;
 /// `exactLongPoll` (LLP 1016.000 D8), which an older prelude would ignore and
 /// open as an event stream. 4: `fetch`'s `exactBodyTo` (LLP 1108 D6 R2),
 /// which an older prelude would ignore, reading the body into memory and
-/// writing no file. 5: `fetch`'s `exactUploadProgress` (LLP 1016.000
-/// D10), which an older prelude would ignore, giving the mapper no progress
-/// and the reply as a byte stream's messages.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 5;
+/// writing no file. 5: an aborted `fetch`'s request cancelled on the wire and
+/// its answer resumed at the abort (docs/reference.md), which an older
+/// prelude would leave running, its reply (a 429 included) dropped. 6:
+/// `fetch`'s `exactUploadProgress` (LLP 1016.000 D10), which an older
+/// prelude would ignore, giving the mapper no progress and the reply as a
+/// byte stream's messages.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 6;
 
-/// What each runtime past the first added that a bundle names to use: the
-/// `fetch` option an older prelude would ignore (see [`TYPESCRIPT_RUNTIME`]).
-const RUNTIME_OPTIONS: [(u32, &str); 5] = [
-    (5, "exactUploadProgress"),
+/// What each runtime past the first added that a bundle names to use (see
+/// [`TYPESCRIPT_RUNTIME`]): a `fetch` option an older prelude would ignore,
+/// or for 5 what makes an abort signal.
+const RUNTIME_OPTIONS: [(u32, &str); 7] = [
+    (6, "exactUploadProgress"),
+    (5, "AbortController"),
+    (5, "AbortSignal"),
     (4, "exactBodyTo"),
     (3, "exactLongPoll"),
     (2, "redirect"),

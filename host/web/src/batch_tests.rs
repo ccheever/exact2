@@ -92,6 +92,7 @@ fn cases() -> Vec<(&'static str, String)> {
         ),
         ("collections", one(|b| b.collections("[{\"view\":1}]"))),
         ("refuse", one(|b| b.refuse(9, "no \"way\"\n"))),
+        ("abort", one(|b| b.abort(7))),
         (
             "grants",
             one(|b| {
@@ -315,6 +316,10 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "refuse",
         r#"{"ops":[{"op":"refuse","ticket":9,"message":"no \"way\"\n"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "abort",
+        r#"{"ops":[{"op":"abort","ticket":7}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "grants",

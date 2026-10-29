@@ -6,13 +6,13 @@ import {fileURLToPath} from 'node:url';
 import {classifyArtifacts} from './app.mjs';
 
 // The publisher's functions with boundary doubles, for an app at a fresh
-// root whose cohort's binary has prelude runtime 4 and whose baked module
+// root whose cohort's binary has prelude runtime 5 and whose baked module
 // needs `runtime` (its receipt's). Bun's native subprocess import bypasses
 // module mocks; explicit bindings also isolate deployment tests.
-function harness(classify=()=>({bundle:true}), runtime=4) {
+function harness(classify=()=>({bundle:true}), runtime=5) {
   const root=fs.mkdtempSync(resolve(tmpdir(),'exact-push-profile-'));
   const app={id:'fixture',name:'fixture',dir:root,target:root,manifest:{deploy:{signing:{keys:{test:'public'}}}}};
-  const compat={id:'a'.repeat(32),target:'fixture',inputs:{app:'fixture',platform:'linux',store:{L:'A'},rustMode:'native',grantCeiling:'',keys:{test:'public'},typescriptRuntime:4}};
+  const compat={id:'a'.repeat(32),target:'fixture',inputs:{app:'fixture',platform:'linux',store:{L:'A'},rustMode:'native',grantCeiling:'',keys:{test:'public'},typescriptRuntime:5}};
   const graph={artifacts:[{name:'app.plan',requires:{sources:{}},sha256:'plan'}]};
   const cohort={version:1,compat,binary:'binary',sources:{}};
   const build={trust:'production',compat,graph};
@@ -71,26 +71,26 @@ test('push seals every Rust, TypeScript and graph bake against an inherited proo
       expect(calls).toEqual(['tools','resident',typescript?'typescript':'rust','graph','publish','close']);
       expect(bindings.process.env).toEqual({EXACT_GAME_PROOF_PROFILE:'gpu-dev',EXACT_UPDATE_TRUST:'development'});
       // A module needs the runtime its receipt names, not the cohort's (LLP 1016.000 D10).
-      if(typescript)for(const artifact of published[0].graph.artifacts)expect(artifact.requires.typescriptRuntime).toBe(4);
+      if(typescript)for(const artifact of published[0].graph.artifacts)expect(artifact.requires.typescriptRuntime).toBe(5);
     }
   } finally {fs.rmSync(root,{recursive:true,force:true})}
 });
 
 test('push sends a TypeScript module that uses nothing newer to an older binary', async () => {
-  const {root,calls,published,pusher}=harness(classifyArtifacts,4);
+  const {root,calls,published,pusher}=harness(classifyArtifacts,5);
   try {
     fs.writeFileSync(resolve(root,'app.ts'),'');
     expect(await pusher({_:[root],origin:root,keys:root})).toBe(0);
     expect(calls).toContain('publish');
-    expect(published[0].graph.artifacts.every(a=>a.requires.typescriptRuntime===4)).toBe(true);
+    expect(published[0].graph.artifacts.every(a=>a.requires.typescriptRuntime===5)).toBe(true);
   } finally {fs.rmSync(root,{recursive:true,force:true})}
 });
 
 test('push refuses a TypeScript module that needs a newer prelude than the cohort has', async () => {
-  const {root,calls,pusher}=harness(classifyArtifacts,5);
+  const {root,calls,pusher}=harness(classifyArtifacts,6);
   try {
     fs.writeFileSync(resolve(root,'app.ts'),'');
-    await expect(pusher({_:[root],origin:root,keys:root})).rejects.toThrow(/typescriptRuntime \(requires a prelude of runtime 5 or later; this cohort's is 4\).*It needs a new binary/);
+    await expect(pusher({_:[root],origin:root,keys:root})).rejects.toThrow(/typescriptRuntime \(requires a prelude of runtime 6 or later; this cohort's is 5\).*It needs a new binary/);
     expect(calls).not.toContain('publish');
   } finally {fs.rmSync(root,{recursive:true,force:true})}
 });

@@ -470,6 +470,23 @@ pub trait DataSource {
         Vec::new()
     }
 
+    /// The fetches the app aborted since the last take, as a browser's
+    /// `AbortController` does, each by the module's own ticket for it
+    /// ([`crate::Request::fetch`]; one JavaScript engine numbers them, and a
+    /// Rust source's requests carry none). The runner answers that request
+    /// aborted at the host's next pump, resuming the answer, and the host
+    /// cancels it whatever its method; a ticket no longer in flight names
+    /// nothing. Taken after each answer and reply, where the logs are.
+    fn take_aborted(&mut self) -> Vec<u64> {
+        Vec::new()
+    }
+
+    /// The host's wake, for a source that hears an abort off the host's
+    /// thread (a worker's let-go): it calls `wake` after it has one to take.
+    fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        let _ = wake;
+    }
+
     /// Activate deferred logic after first pixel; binary-bound sources do nothing.
     fn activate(&mut self) -> Result<(), DataError> {
         Ok(())

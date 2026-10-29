@@ -150,7 +150,7 @@ structs! {
     MutationDecl { name, shape, queue, refreshes, then, span }
     Param { name, ty, span }
     Action { name, params, body, span }
-    Task { name, kind, gate, key, timer, span }
+    Task { name, kind, gate, key, timer, options, span }
     Attr { name, value, span, written }
 }
 

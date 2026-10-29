@@ -283,3 +283,26 @@ fn settle_is_a_reasks_time() {
     assert_eq!(host.runner().resource("value"), Some(&Value::Number(1.)));
     assert_eq!(host.agent("{\"op\":\"settle\"}"), "{\"settle\":250}");
 }
+
+#[test]
+fn wait_admission_crosses_the_wasm_batch_boundary() {
+    for (kind, mask) in [("frame", 2), ("update", 4), ("scrollend", 8), ("idle", 16)] {
+        PAGE.set(0.0);
+        let plan = contract::compile(&TICKER.replace(
+            "every(1000, tick)",
+            &format!("after(10, tick, wait={kind})"),
+        ))
+        .unwrap()
+        .encode();
+        let mut bridge = Bridge::<NoData>::new();
+        bridge.set_live_clock(Some(page));
+        bridge.boot(&plan, NoData, 400., 400., "/");
+        PAGE.set(10.0);
+        bridge.advance(10.0, 0);
+        assert_eq!(ticks(&bridge), 0.0, "{kind}");
+        bridge.advance(10.0, 16 | mask << 8);
+        assert_eq!(ticks(&bridge), 1.0, "{kind}");
+        bridge.advance(110.0, 0);
+        assert_eq!(ticks(&bridge), 1.0);
+    }
+}

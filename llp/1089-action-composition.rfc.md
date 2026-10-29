@@ -161,6 +161,8 @@ assignments. Letting it see them was not chosen:
 
 ### D3 — A slot read that a call would make stale is refused
 
+> **As built since 2026-10-28 (LLP 1035.005.002 C2):** the read is a warning, not a refusal, under the body's id `analyze-read-after-assign`, with the body's exemptions (exclusive paths, a condition the assignment's path decides, a field a record copy left unchanged). In 1,029 bake-off builds the body's warning was met in 86 and this refusal in 2; one rule at one severity replaced the two. The rest of D3 (what is stale, the walk, the message naming both frames) stands.
+
 Inside one body, a snapshot read is visible on the page (the docs'
 `doubled = count * 2`). Behind a call, the write and the read are in
 different bodies, and neither page shows the read is stale. It is refused,
