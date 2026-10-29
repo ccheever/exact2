@@ -29,7 +29,7 @@ export function fixture(agentMode = true) {
   const root = { dataset: {}, replaceChildren() { events.push('replace'); } };
   // glue.js: `agentKeepsStore = !agentMode || ?storage`; the fixture's drive names no store.
   const context = vm.createContext({ events, agentMode, agentKeepsStore: !agentMode, root, views: new Map([[1, el]]),
-    state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowLanding: false, flowFrames: false, present() {}, lists: new Map(),
+    state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowLanding: false, flowFrames: false, flowWaits: [], flowTolerance: 0, present() {}, lists: new Map(),
     Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
     foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
