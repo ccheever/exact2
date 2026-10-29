@@ -1171,6 +1171,12 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   macOS, `/var` aliases `/private/var`; mixing those paths makes the containment
   check reject the sibling. (`contract-property-cone`, 2026-10-28.)
 
+- **A private preview fixture cannot import an app's components.**
+  The entry file's parent is its app root. An unnamed relative `use` must stay
+  inside that root. Put the temporary entry beside the app's components,
+  compile its plan into private output, and remove the entry in `finally`.
+  [Source boundary](../contract/cli/src/lib.rs), `app_root`.
+
 - **A timer has fired before the next assertion although the test has no clock line.**
   The test driver advances one millisecond per mutation request after each step,
   including requests answered synchronously and those issued by an automatic advance.

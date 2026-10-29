@@ -71,8 +71,9 @@ These earlier implementation checkpoints are available on GitHub:
   Root retains state, request ownership and declaration order. The fixture
   assembles members at their listing positions. All 7,159 desktop TypeScript
   tests, 19 compiler members tests, strict application TypeScript and the six
-  repository checks pass, including caps. An unchanged `.mjs` adapter test
-  cannot register in Bun and remains unqualified. The normal native desktop
+  repository checks pass, including caps. With `BUN` explicitly set to the
+  pinned executable, the complete desktop `tests/` command passes 6,909 tests,
+  including the previously unregistered `.mjs` adapter test. The normal native desktop
   bake initially times out after 1,200 seconds. A build with
   `CARGO_PROFILE_HOST_DEV_BUILD_OVERRIDE_OPT_LEVEL=3` succeeds and preserves
   the clone identity and native package qualification. The signed bundle
