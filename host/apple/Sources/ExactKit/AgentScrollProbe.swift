@@ -7,6 +7,16 @@ import AppKit
 #endif
 
 extension Agent {
+    /// Node `id`'s own native scroller, for a scroll track (`perf frames track`), or nil when it has none.
+    func trackedScroller(_ id: Int) -> AnyObject? {
+        guard let key = UInt32(exactly: id) else { return nil }
+        #if canImport(UIKit)
+        return presenter.views[key]?.scrollView
+        #else
+        return presenter.views[key]?.scroll
+        #endif
+    }
+
     /// A reader of node `id`'s scroller, or nil when it has none.
     func scrollProbe(_ id: Int) -> (() -> (Double, String)?)? {
         guard let node = presenter.views[UInt32(id)] else { return nil }

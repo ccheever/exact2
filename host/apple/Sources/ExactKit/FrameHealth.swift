@@ -43,6 +43,8 @@ final class FrameHealth {
     let unavailableCode: String?
     var captureID: UInt64 = 0
     var agentCaptureUntil: Double = 0
+    /// An agent's scroll track (`FrameHealthTrack`), nil unless one is leased.
+    var track: FrameHealthTrack?
     var reportInFlight = false
     var requestedPeriodNs: UInt64 = 0
     var requestedHertz: Float = 0
@@ -122,6 +124,7 @@ final class FrameHealth {
         stopScroll()
         #endif
         nativeHealth?.clockChanged(virtual: virtual)
+        track = nil
         window.invalidate()
         exact_frame_health_reset(handle)
         requestedPeriodNs = 0
@@ -151,6 +154,7 @@ final class FrameHealth {
     }
 
     func destroy() {
+        track = nil
         let native = nativeHealth
         nativeHealth = nil
         #if (os(iOS) || os(tvOS)) && !targetEnvironment(macCatalyst)

@@ -794,6 +794,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
         FrameSampler.scrolled(scrollView, in: presenter?.session, person: false)
+        presenter?.session?.frameHealth.trackScrolled(scrollView)
         repaintThrough()
         scrollEndMoved(scrollView)
         // User scrolling is already a coherent position. Deliver before the
