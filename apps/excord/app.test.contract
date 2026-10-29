@@ -1420,3 +1420,6 @@ test "a file that is not a picture goes up with the message, shown by its name"
   clock settle
   clock data
   expect state picked.length == 0
+
+always "ageGate is one of 3 values"
+  expect state ageGate in "" "asked" "confirmed"
