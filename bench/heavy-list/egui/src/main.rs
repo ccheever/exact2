@@ -21,6 +21,10 @@ struct HeavyList {
 
 impl eframe::App for HeavyList {
     fn ui(&mut self, ui: &mut Ui, _: &mut eframe::Frame) {
+        picture::diagnostic(format_args!(
+            "frame {} begin",
+            ui.ctx().cumulative_frame_nr()
+        ));
         self.images.begin_frame(ui.ctx());
         let screen = ui.max_rect();
         ui.painter().rect_filled(screen, 0, Color32::WHITE);
@@ -138,6 +142,7 @@ fn dimension(name: &str, default: f32) -> f32 {
 }
 
 fn main() -> eframe::Result {
+    picture::diagnostic(format_args!("main"));
     assert_ne!(
         std::env::var("BENCH_LIVE").as_deref(),
         Ok("1"),

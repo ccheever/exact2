@@ -1,7 +1,7 @@
 # Heavy list: egui on the Mac
 
 @ref LLP 1149 §4.1; G4a. This is benchmark apparatus, a separate Cargo workspace.
-G4b supplies the four-arm series; there are no performance results here.
+G4b uses the shared driver and probe; results belong in `../gpui/RESULTS.md`.
 
 ## Implementation
 
@@ -98,23 +98,37 @@ It reads `BENCH_DATA` or `../Resources/data` relative to the executable,
 `EXACT_WINDOW_WIDTH/HEIGHT` select the outer window, default 800×800 points;
 the content height reserves 32 points for the title bar, as GPUI does.
 
-The unchanged G1 probe selects its drawable hook only for `G1_ARM=gpui`.
-Use that alias for G4a's functional check, with an absolute `G1_OUTPUT`; it
-will label the output `gpui`. This is not an egui series result. Its `.ready`
-sidecar names the window for `screencapture -x -o -l <window> <file>`.
-`G1_COLD_ONLY=1` makes SIGUSR2 after readiness write the cold diagnostic and
-exit. Without it, three SIGUSR2 signals advance through fling, rest and exit;
-advancing them without input or a timed dwell only exercises probe reporting.
-Do not interpret those phase counters as measurements.
+The shared probe accepts `G1_ARM=egui`, preserves that name and records the
+logical top item and within-item offset. `G1_OUTPUT` is an absolute JSON path.
+Its `.ready` sidecar supplies the window number and complete-frame timing;
+`G1_COLD_ONLY=1` makes SIGUSR2 after readiness write the diagnostic and exit.
 
-## G4b handoff
+## G4b readiness and instrument
 
-Add the egui executable to `gpui/measure.m`'s arm-to-executable mapping and
-four-arm rotation, retaining the same launch environment, focus checks,
-wheel helper, cold-only mode and per-arm filenames. The ink lane's shared
-probe must recognize `egui` as a painted arm, preserve that name in output,
-and report its logical top item/within-item offset from `g1_ready` rather
-than looking for an `NSScrollView`. Apply the painted-arm movement check to
-egui too. Keep drawable presentation separate from native display-link cadence.
-Use `../gpui/g4-egui-top.png` for the top-of-list parity inspection before
-interpreting the four-arm series. Neither driver nor probe is changed by G4a.
+`G4_EGUI_BIN` adds this executable to `gpui/measure.m` alongside
+`G3_PAINTED_BIN` for Ink. Four arms rotate through five fling/rest rounds,
+then five cold-only rounds; omitting `G4_EGUI_BIN` preserves the three-arm
+commands. Egui receives `EXACT_WINDOW_HEIGHT=800`, as GPUI does: the verified
+content is 800×768 and the outer window 800×800 at 2×. Ink receives 768 because
+its window API adds the title bar outside that height.
+
+`G4_DIAGNOSTICS=1` logs each frame, image request, decode, completion, texture
+upload and worker repaint call to stderr, timed from main. It is off for the
+series. The probe's `.ready` adds `windowAt`, `firstComplete`, `coldMs` and
+`completeAfterWindowMs`; these timestamps distinguish presentation from the
+sidecar's two-second observation delay.
+
+G4a's retained `target/g4/functional.json` has **both** `firstDrawableMs` and
+`coldMs` equal to 14,668.34 ms. No earlier placeholder drawable was recorded;
+that file cannot establish a lost final-image wake. On the rebased source,
+the initial instrumented launch completed 103.40 ms after window attachment.
+Three following launches completed in **82.80, 36.10 and 41.29 ms** after
+attachment (**303.76, 352.24 and 369.45 ms** after process start). All workers
+sent their completion and called `request_repaint`; subsequent frames uploaded
+the results and marked the scene complete. Evidence is retained under
+`target/g4b/readiness-{before,1,2,3}.json`, their `.ready` files and logs.
+
+The original delay did not reproduce. Its cause remains unestablished; neither
+a lost wake nor first-use driver work is proven. No scheduling workaround or
+polling timer is added. These brief launches posted no input and are diagnostic
+runs, excluded from the cold-start series.

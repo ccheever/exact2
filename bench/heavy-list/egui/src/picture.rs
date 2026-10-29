@@ -3,8 +3,21 @@ use std::{
     collections::HashMap,
     ffi::CString,
     path::PathBuf,
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Mutex, OnceLock, mpsc},
+    time::Instant,
 };
+
+pub fn diagnostic(message: std::fmt::Arguments<'_>) {
+    static START: OnceLock<Instant> = OnceLock::new();
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    let start = START.get_or_init(Instant::now);
+    if *ENABLED.get_or_init(|| std::env::var_os("G4_DIAGNOSTICS").is_some()) {
+        eprintln!(
+            "g4 {:9.3} ms: {message}",
+            start.elapsed().as_secs_f64() * 1000.
+        );
+    }
+}
 
 unsafe extern "C" {
     fn g1_thumbnail(path: *const i8, w: u32, h: u32, ow: *mut u32, oh: *mut u32) -> *mut u8;
@@ -43,6 +56,10 @@ impl Pictures {
                     let Ok(key) = incoming.lock().unwrap().recv() else {
                         break;
                     };
+                    diagnostic(format_args!(
+                        "decode {} {}x{}",
+                        key.file, key.width, key.height
+                    ));
                     let path = CString::new(directory.join(&key.file).to_str().unwrap()).unwrap();
                     let (mut width, mut height) = (0, 0);
                     let image = unsafe {
@@ -72,10 +89,16 @@ impl Pictures {
                             ))
                         }
                     };
+                    diagnostic(format_args!(
+                        "complete {} {}x{}",
+                        key.file, key.width, key.height
+                    ));
                     if finished.send((key, image)).is_err() {
                         break;
                     }
+                    diagnostic(format_args!("worker request_repaint"));
                     ctx.request_repaint();
+                    diagnostic(format_args!("worker request_repaint returned"));
                 }
             });
         }
@@ -89,6 +112,10 @@ impl Pictures {
 
     pub fn begin_frame(&mut self, ctx: &Context) {
         for (key, image) in self.decoded.try_iter() {
+            diagnostic(format_args!(
+                "upload {} {}x{}",
+                key.file, key.width, key.height
+            ));
             let image = image.unwrap_or_else(|error| panic!("{error}"));
             let texture = ctx.load_texture(&key.file, image, TextureOptions::LINEAR);
             self.textures.insert(key, Some(texture));
@@ -103,6 +130,10 @@ impl Pictures {
             height: (rect.height() * ui.pixels_per_point()).ceil() as u32,
         };
         let texture = self.textures.entry(key.clone()).or_insert_with(|| {
+            diagnostic(format_args!(
+                "request {} {}x{}",
+                key.file, key.width, key.height
+            ));
             self.requests.send(key).unwrap();
             None
         });
@@ -118,6 +149,10 @@ impl Pictures {
     }
 
     pub fn finish_frame(&self, item: usize, offset: f32) {
+        diagnostic(format_args!(
+            "frame end complete={} item={item} offset={offset}",
+            self.complete
+        ));
         // egui-wgpu uploads textures after App::ui and acquires the drawable after that.
         unsafe { g1_scene_complete(i32::from(self.complete), item, offset) };
     }

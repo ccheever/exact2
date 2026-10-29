@@ -1,4 +1,4 @@
-// Linked into the native, GPUI and ink benchmark copies. @ref LLP 1149 §4; heavy-list/probe/probe.m.
+// Linked into the native, GPUI, ink and egui benchmark copies. @ref LLP 1149 §4.1.
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <Metal/Metal.h>
@@ -310,6 +310,9 @@ static NSData *signature(NSView *view) {
     NSPoint point = NSMakePoint(400, 400);
     NSPoint screen = [self.window convertPointToScreen:point];
     writeJSON(@{@"pid": @(getpid()), @"window": @(self.window.windowNumber),
+        @"windowAt": @(self.windowAt), @"firstComplete": @(firstComplete),
+        @"completeAfterWindowMs": @((firstComplete - self.windowAt) * 1000),
+        @"coldMs": self.result[@"coldMs"],
         @"point": @[@(point.x), @(self.window.frame.size.height - point.y)],
         @"screen": @[@(screen.x), @(NSScreen.screens.firstObject.frame.size.height - screen.y)],
         @"mark": @11490401, @"form": @"fling", @"wheel": @[@0, @600]},
@@ -351,7 +354,7 @@ static NSData *signature(NSView *view) {
         self.ticks = nil; self.link.paused = YES;
         NSScrollView *scroll = scrollView(self.window.contentView);
         if (scroll) self.result[@"nativeOffsetEnd"] = @(scroll.contentView.bounds.origin.y);
-        if (painted) self.result[[arm isEqual:@"ink"] ? @"inkOffsetEnd" : @"gpuiOffsetEnd"] = @{@"item": @(topItem), @"withinItem": @(topOffset)};
+        if (painted) self.result[[arm stringByAppendingString:@"OffsetEnd"]] = @{@"item": @(topItem), @"withinItem": @(topOffset)};
         self.start = usage(); self.peak = [self.start[@"footprint"] unsignedLongLongValue];
         self.samples = [NSMutableArray arrayWithObject:self.start];
         self.phase = 2;
@@ -379,6 +382,9 @@ __attribute__((constructor)) static void initialize(void) {
         tickSeconds = (double)timebase.numer / timebase.denom / 1e9;
         output = @(path);
         arm = @(getenv("G1_ARM") ?: "native");
+        if (![@[@"native", @"gpui", @"ink", @"egui"] containsObject:arm]) {
+            fprintf(stderr, "probe: unknown arm %s\n", arm.UTF8String); exit(2);
+        }
         painted = ![arm isEqual:@"native"];
         mainThread = mach_thread_self();
         struct rusage_info_v4 initial = {0};

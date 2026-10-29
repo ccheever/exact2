@@ -1,4 +1,4 @@
-// G3c's retained process samples. @ref LLP 1149 §4.1.
+// Retained three- or four-arm process samples. @ref LLP 1149 §4.1.
 // bun bench/heavy-list/gpui/aggregate.mjs target/g3c [--verify | --json]
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +6,9 @@ import assert from 'node:assert/strict';
 
 const [directory = 'target/g3c', mode] = process.argv.slice(2);
 assert([undefined, '--verify', '--json'].includes(mode), 'expected --verify or --json');
-const arms = ['native', 'gpui', 'ink'];
+const fourArms = readdirSync(join(directory, 'series', 'fling')).some(file => /^egui-/.test(file));
+const arms = ['native', 'gpui', 'ink', ...(fourArms ? ['egui'] : [])];
+const report = fourArms ? 'G4' : 'G3c';
 const samples = Object.fromEntries(arms.map(arm => [arm, []]));
 const rejected = [];
 const sum = values => values.reduce((a, b) => a + b, 0);
@@ -31,7 +33,7 @@ function distribution(values) {
 for (const phase of ['cold', 'fling']) {
   const folder = join(directory, 'series', phase);
   for (const file of readdirSync(folder).sort()) {
-    if (!/^(native|gpui|ink)-\d+(-retry)?\.json$/.test(file)) continue;
+    if (!/^(native|gpui|ink|egui)-\d+(-retry)?\.json$/.test(file)) continue;
     const path = join(folder, file);
     const raw = JSON.parse(readFileSync(path, 'utf8'));
     if (!raw.accepted) {
@@ -60,6 +62,7 @@ for (const phase of ['cold', 'fling']) {
       sample.received = raw.fling.wheelEvents;
       sample.received_fraction = sample.received / sample.posted;
       sample.maxGapMs = Math.max(...driver.map(row => row.maxGapMs));
+      sample.emptyCallbacks = sum(driver.map(row => row.emptyCallbacks));
       const windows = raw.inputWindows;
       assert.equal(windows.length, 4, `${path}: four input windows`);
       sample.gesture_seconds = sum(windows.map(([start, end]) => end - start));
@@ -88,8 +91,11 @@ for (const phase of ['cold', 'fling']) {
 
 const metrics = {};
 for (const arm of arms) {
-  assert.equal(samples[arm].length, 10, `${arm}: ten accepted launches`);
-  assert.equal(samples[arm].filter(sample => sample.fling_seconds).length, 5, `${arm}: five fling/rest samples`);
+  const flings = samples[arm].filter(sample => sample.fling_seconds).length;
+  assert(samples[arm].length > 0 && samples[arm].length <= 10, `${arm}: one to ten accepted launches`);
+  assert(flings > 0 && flings <= 5, `${arm}: one to five fling/rest samples`);
+  const slots = samples[arm].map(sample => sample.path.split('/').at(-1).replace('-retry', ''));
+  assert.equal(new Set(slots).size, slots.length, `${arm}: duplicate accepted slot`);
   const keys = new Set(samples[arm].flatMap(sample => Object.keys(sample)).filter(key => key !== 'path'));
   metrics[arm] = Object.fromEntries([...keys].map(key => [key,
     distribution(samples[arm].filter(sample => key in sample).map(sample => sample[key])),
@@ -99,11 +105,12 @@ const format = (arm, key, digits) => {
   const row = metrics[arm][key];
   return row ? `${row.median.toFixed(digits)} (${row.min.toFixed(digits)}–${row.max.toFixed(digits)})` : '—';
 };
-const header = '| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal |\n|---|---:|---:|---:|';
+const header = '| Metric | Native Apple host | GPUI 0.2.2 | Ink, direct Metal |'
+  + (fourArms ? ' egui 0.37.0 |' : '') + '\n|---|' + arms.map(() => '---:|').join('');
 const table = rows => [header, ...rows.map(([label, key, digits]) =>
   `| ${label} | ${arms.map(arm => format(arm, key, digits)).join(' | ')} |`)].join('\n');
 const resources = table([
-  ['Cold to first complete frame, ms; native snapshot / GPUI and Ink presented drawable', 'cold_ms', 2],
+  [fourArms ? 'Cold to first complete frame, ms; native snapshot / painted drawable' : 'Cold to first complete frame, ms; native snapshot / GPUI and Ink presented drawable', 'cold_ms', 2],
   ['Fling process CPU, ms/s', 'fling_cpu', 2],
   ['Fling process CPU per presented frame, ms', 'cpu_per_frame', 3],
   ['Fling main-thread CPU, ms/s', 'fling_main', 2],
@@ -120,6 +127,7 @@ let cadence = table([
   ['Late intervals/s', 'late_per_s', 3],
   ['Gesture-window duration, s', 'gesture_seconds', 3],
   ['Presented frames/s inside gesture windows', 'gesture_fps', 2],
+  ...(fourArms ? [['Presented frames/s over the full fling phase', 'fling_fps', 2]] : []),
 ]);
 cadence += '\n| Inputs received / posted per sample | ' + arms.map(arm => {
   const received = metrics[arm].received;
@@ -129,11 +137,14 @@ cadence += '\n| Inputs received / posted per sample | ' + arms.map(arm => {
 }).join(' | ') + ' |';
 cadence += '\n| Driver maxGapMs; maximum of four gestures | ' + arms.map(arm => format(arm, 'maxGapMs', 3)).join(' | ') + ' |';
 
+if (fourArms) cadence += '\n| Driver empty callbacks per sample | ' + arms.map(arm => format(arm, 'emptyCallbacks', 0)).join(' | ') + ' |';
+
 if (mode === '--verify') {
-  const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').split('## G3c:')[1];
-  assert(record, 'missing G3c results');
-  for (const output of [resources, cadence]) assert(record.includes(output), `G3c table differs:\n${output}`);
-  console.log(`G3c reproduced exactly: two tables, 30 retained launches, 15 fling/rest samples; ${rejected.length} rejected attempt.`);
+  const record = readFileSync(new URL('./RESULTS.md', import.meta.url), 'utf8').split(`## ${report}:`)[1];
+  assert(record, `missing ${report} results`);
+  for (const output of [resources, cadence]) assert(record.includes(output), `${report} table differs:\n${output}`);
+  const retained = Object.values(samples).flat();
+  console.log(`${report} reproduced exactly: two tables, ${retained.length} retained launches, ${retained.filter(sample => sample.fling_seconds).length} fling/rest samples; ${rejected.length} rejected attempts.`);
 } else if (mode === '--json') {
   console.log(JSON.stringify({ samples, metrics, rejected }, null, 2));
 } else {
