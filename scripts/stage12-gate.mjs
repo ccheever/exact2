@@ -20,7 +20,7 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realp
 import { homedir, release, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
-import { bindingShape, bindingsCheck, componentIR, irShape, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
+import { WASM_IMAGE_NOISE, bindingShape, bindingsCheck, componentIR, imageBoxes, irShape, namedCrops, namedOf, namedReport, pixelDiff, sameImageBoxes, unionNamed } from './stage12-named.mjs';
 import { s15b2Stage } from './stage12-s15b2.mjs';
 import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
 import { webDist } from './app.mjs';
@@ -208,7 +208,7 @@ function driveScreens(copy, host, dir, env) {
       // iOS's Dynamic Island, the capture's, where it meets no library box (theme2 15:32 (a)).
       const allow = r.ok ? allowOf(screen, r.out)?.concat(islandAllow(host, r.out)) ?? null : [];
       const shown = r.ok ? renderedIds(r.out) : null;
-      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], named: r.ok ? namedOf(NAMED, screen, r.out, host) : [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
+      rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], named: r.ok ? namedOf(NAMED, screen, r.out, host) : [], images: r.ok && host === 'web-wasm' ? imageBoxes(r.out) : [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
   }
   return rows;
@@ -287,8 +287,9 @@ export function comparePixels(before, after) {
     if (!b.ok || !a?.ok) return { shot: key(b), ok: false, said: !a ? 'no after shot' : `not shot: ${(b.ok ? a : b).said}` };
     const allow = [...b.allow ?? [], ...a.allow ?? []];
     const named = unionNamed(b.named, a.named);
-    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null, named);
-    return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow, ...(d.names ? { names: d.names, png: [b.png, a.png] } : {}) };
+    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null, named, b.host === 'web-wasm' ? sameImageBoxes(b.images, a.images) : []);
+    const imageNoise = (d.images ?? []).filter(i => i.count);
+    return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow, ...(imageNoise.length ? { imageNoise } : {}), ...(d.names || imageNoise.length ? { names: d.names ?? [], png: [b.png, a.png] } : {}) };
   });
 }
 
@@ -515,7 +516,7 @@ export function consumerPixels(opts) {
   const bad = r.filter(x => !x.ok);
   // Named changes: each name's pixels and box, and both sides' crops of every named box on every shot, for theme2 to read.
   const crops = join(ROOT, 'target', 'stage12-gate', 'named-crops');
-  const report = namedReport(NAMED, r), cropped = r.flatMap(x => (x.names ? namedCrops(x.png[0], x.png[1], x.names, crops, x.shot) : []));
+  const report = namedReport(NAMED, r), cropped = r.flatMap(x => (x.names ? namedCrops(x.png[0], x.png[1], [...x.names, ...(x.imageNoise ?? []).map(i => ({ target: `image-noise-${i.rect.join('-')}`, rect: i.rect }))], crops, x.shot) : []));
   const missingNames = report.filter(n => n.status === 'MISSING');
   // Rendered: each library component shown on the screens shot (a testId
   // only its package's view writes, which the copy's own sources don't),
@@ -553,6 +554,7 @@ export function consumerPixels(opts) {
       // For theme2's reading (10:47 (7)): each named box's rect (pad included) and its two crops, shot by shot.
       'each named box, shot by shot: its rect [x, y, w, h] and its crops (before, after) in the directory above:',
       ...r.flatMap(x => (x.names ?? []).map(m => `  ${x.shot} ${m.target}: [${m.rect.join(', ')}] ${m.differ} px; ${cropped.filter(f => f.includes(`${x.shot.replace(/[^\w.-]+/g, '-')}-${m.target.replace(/[^\w.-]+/g, '-')}-`)).map(f => f.split('/').pop()).join(', ')}`))] : []),
+    ...(r.some(x => x.imageNoise) ? [`web-wasm image-raster noise (theme2 22:01: at most ${WASM_IMAGE_NOISE} levels inside an Image box laid out alike on both sides), shot by shot, each box's crops in the directory above (image-noise-<rect>):`, ...r.filter(x => x.imageNoise).map(x => `  ${x.shot}: ${x.imageNoise.map(i => `[${i.rect.join(', ')}] ${i.count} px, at most ${i.max} levels`).join('; ')}`)] : []),
     ...(r.some(x => x.allow?.length) ? ['the allowlist, shot by shot (the caret strips and the iOS keyboard band):', ...r.filter(x => x.allow?.length).map(x => `  ${x.shot}: ${x.allow.map(a => `[${a.rect.join(', ')}] ${a.reason.split(',')[0]}`).join('; ')}`)] : []),
     ...conformEvidence(conform)];
   return missingNames.length || bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);

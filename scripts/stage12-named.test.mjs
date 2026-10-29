@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodePng, encodePng } from './png.mjs';
-import { bindingShape, bindingsCheck, componentIR, identityOf, irShape, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
+import { WASM_IMAGE_NOISE, bindingShape, bindingsCheck, componentIR, identityOf, imageBoxes, irShape, namedCrops, namedOf, namedReport, pixelDiff, sameImageBoxes, unionNamed } from './stage12-named.mjs';
 import { BINDINGS, NAMED, RETIRED, SCREENS, STAGES, comparePixels, useStage } from './stage12-gate.mjs';
 import { ISLAND, islandAllow } from './stage12-island.mjs';
 
@@ -207,4 +207,23 @@ test("iOS's Dynamic Island is allowed only where no library component's box meet
   // Another host, or a drive without a layout: none.
   expect(islandAllow('macos', out([app]))).toEqual([]);
   expect(islandAllow('ios', '{"op":"tap"}\n')).toEqual([]);
+});
+
+test("web-wasm's image-raster rule: at most 4 levels inside an Image box laid out alike on both sides (theme2 22:01)", () => {
+  const a = img(8, 8, black);
+  const by = d => [d, d, d, 255];
+  // Inside the box [2, 2, 4, 4]: 4 levels at (2, 3) and (4, 5), 5 levels at (5, 2); outside it, 3 levels at (7, 7).
+  const b = img(8, 8, (x, y) => ((x === 2 && y === 3) || (x === 4 && y === 5) ? by(4) : x === 5 && y === 2 ? by(5) : x === 7 && y === 7 ? by(3) : black()));
+  const d = pixelDiff(a, b, [], null, [], [[2, 2, 4, 4]]);
+  expect(d.differ).toBe(2);
+  expect(d.images).toEqual([{ rect: [2, 2, 4, 4], count: 2, max: 4 }]);
+  expect(pixelDiff(a, b).differ).toBe(4);
+  expect(WASM_IMAGE_NOISE).toBe(4);
+  // The boxes from a drive's layout, and only those both sides lay out at the same rect
+  const out = nodes => `${JSON.stringify({ viewport: { w: 420, h: 900 }, nodes })}\n`;
+  const avatar = { type: 'Image', x: 32, y: 248.4, w: 42, h: 42 }, moved = { ...avatar, y: 250 };
+  expect(imageBoxes(out([avatar, { type: 'View', x: 0, y: 0, w: 10, h: 10 }, { ...avatar, w: 0 }]))).toEqual([{ at: '32.00,248.40,42.00,42.00', rect: [32, 248, 42, 43] }]);
+  expect(sameImageBoxes(imageBoxes(out([avatar])), imageBoxes(out([avatar])))).toEqual([[32, 248, 42, 43]]);
+  expect(sameImageBoxes(imageBoxes(out([avatar])), imageBoxes(out([moved])))).toEqual([]);
+  expect(imageBoxes('{"op":"tap"}\n')).toEqual([]);
 });

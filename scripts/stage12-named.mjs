@@ -36,10 +36,13 @@ const within = ([rx, ry, rw, rh], x, y) => x >= rx && x < rx + rw && y >= ry && 
  * whose box holds it, and not in `differ`: `names` gives each one's count
  * and bounding box [x0, y0, x1, y1] (exclusive ends), null if none (only
  * where `named` has entries, so a stage without names reads as before). */
-export function pixelDiff(a, b, allow = [], noise = null, named = []) {
+export function pixelDiff(a, b, allow = [], noise = null, named = [], images = []) {
   const A = decodePng(a), B = decodePng(b);
   const names = named.map(n => ({ target: n.target, change: n.change, rect: n.rect, differ: 0, box: null }));
-  const said = r => (named.length ? { ...r, names } : r);
+  // web-wasm's image-raster rule (theme2 22:01): inside an Image box laid out alike on both sides, at most
+  // WASM_IMAGE_NOISE levels apart is noise, counted per box with its largest difference; over it still differs.
+  const boxes = images.map(rect => ({ rect, count: 0, max: 0 }));
+  const said = r => ({ ...r, ...(named.length ? { names } : {}), ...(images.length ? { images: boxes } : {}) });
   if (A.width !== B.width || A.height !== B.height) return said({ differ: A.width * A.height, total: A.width * A.height, size: [A.width, A.height, B.width, B.height] });
   let differ = 0;
   for (let y = 0; y < A.height; y++) {
@@ -51,6 +54,8 @@ export function pixelDiff(a, b, allow = [], noise = null, named = []) {
       // a named box; its crops are read instead); outside, the floor applies as before.
       const n = names.find(m => within(m.rect, x, y));
       if (!n) {
+        const box = d <= WASM_IMAGE_NOISE ? boxes.find(m => within(m.rect, x, y)) : null;
+        if (box) { box.count++; box.max = Math.max(box.max, d); continue; }
         if (!(noise && d <= noise.floor && edgeAt(A, x, y, noise.edge))) differ++;
         continue;
       }
@@ -59,6 +64,24 @@ export function pixelDiff(a, b, allow = [], noise = null, named = []) {
     }
   }
   return said({ differ, total: A.width * A.height });
+}
+
+/** web-wasm's image-raster noise ceiling, in levels (theme2 22:01): its scaled avatar images vary by up to 4 run to run. */
+export const WASM_IMAGE_NOISE = 4;
+
+/** The Image nodes a drive's whole layout shows, each its exact rect and the whole pixels it covers. */
+export function imageBoxes(out) {
+  const layout = wholeLayout(out);
+  return (layout?.nodes ?? []).filter(n => n.type === 'Image' && n.w > 0 && n.h > 0).map(n => {
+    const [x, y] = [Math.floor(n.x), Math.floor(n.y)];
+    return { at: [n.x, n.y, n.w, n.h].map(v => v.toFixed(2)).join(','), rect: [x, y, Math.ceil(n.x + n.w) - x, Math.ceil(n.y + n.h) - y] };
+  });
+}
+
+/** The image boxes both sides lay out at the same rect: the only ones the noise rule covers. */
+export function sameImageBoxes(before = [], after = []) {
+  const there = new Set(after.map(i => i.at));
+  return [...new Map(before.filter(i => there.has(i.at)).map(i => [i.at, i.rect])).values()];
 }
 
 /** The whole layout a drive's output ends with: the last op reply with nodes and a viewport. */
