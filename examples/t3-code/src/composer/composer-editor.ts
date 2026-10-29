@@ -1,4 +1,5 @@
 import { composerInput } from './requests';
+import { contextLinks, replaceLinks } from './context-links';
 import { removeStaged } from './composer-staged-copies';
 import { rememberCopiedChips, stagedInUse } from './composer-copied-chips';
 import { noteComposerFilePaths, refreshFileMetadata } from '../shared/file-metadata';
@@ -109,15 +110,22 @@ export function threadContextRecords(client: T3Client, text: string): Obj[] {
   });
 }
 /** The message `context` for a send, including shelf images without inline references. */
-export function messageContext(client: T3Client, text: string): Obj | undefined {
-  const images = imageContextRecords(client);
-  const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...images, ...composerFileRecords(client, text), ...terminalMessageRecords(client, text),
-    ...annotationMessageRecords(client, text, new Set(images.map(image => str(image.contextId).replace(/^image_/, ''))))];
-  return records.length ? { version: 1, records } : undefined;
+export function messageContext(client: T3Client, text: string): Obj | undefined { return pressContext(client, text)(client.snapshotDrafts); }
+/**
+ * messageContext as a send's press reads it, from the draft shown then; the records of its images come from the images
+ * it sends, `sent`, which may land after the press.
+ */
+export function pressContext(client: T3Client, text: string): (sent: Obj[]) => Obj | undefined {
+  const leading = [...threadContextRecords(client, text), ...pullRequestRecords(client, text)], trailing = [...composerFileRecords(client, text), ...terminalMessageRecords(client, text)];
+  return sent => {
+    const images = imageContextRecords(client, sent);
+    const records = [...leading, ...images, ...trailing, ...annotationMessageRecords(client, text, new Set(images.map(image => str(image.contextId).replace(/^image_/, ''))))];
+    return records.length ? { version: 1, records } : undefined;
+  };
 }
 /** Attach the prompt's context records to a dispatch or launch payload. */
-export function withMessageContext(client: T3Client, payload: Obj, text: string): Obj {
-  const context = messageContext(client, text);
+export function withMessageContext(client: T3Client, payload: Obj, text: string): Obj { return withContext(payload, messageContext(client, text)); }
+export function withContext(payload: Obj, context: Obj | undefined): Obj {
   if (!context) return payload;
   if (obj(payload.initialMessage).text !== undefined) return { ...payload, initialMessage: { ...obj(payload.initialMessage), context } };
   return { ...payload, context };
@@ -453,13 +461,15 @@ export function rememberReviewCommentRecord(client: T3Client, record: Obj): void
 export async function replaceComposerPrompt(client: T3Client, native: Native, text: string, effects: ComposerFieldCompletion = {}, expect?: string): Promise<void> { await replaceAll(client, native, text, effects, expect); }
 /** removeReviewComment: the chip leaves the prompt as one undoable edit, and its record goes. */
 export async function removeReviewCommentChip(client: T3Client, native: Native, contextId: string, effects: ComposerFieldCompletion = {}): Promise<void> {
-  const link = new RegExp(`\\[[^\\]\\n]{0,512}\\]\\(t3-context://v1/review-comment/${contextId.replace(/[^a-z0-9_-]/gi, '')}\\) ?`, 'g');
+  const href = `t3-context://v1/review-comment/${contextId.replace(/[^a-z0-9_-]/gi, '')}`;
+  // Each link to it goes, with the space after it.
+  const withoutChip = (value: string) => replaceLinks(value, contextLinks(value).filter(link => link.href === href).map(link => ({ ...link, end: value[link.end] === ' ' ? link.end + 1 : link.end })), () => '');
   const field = composerFieldCurrent(client, composerFieldOwner(client));
   if (!field) throw new ClientError('The composer is not ready.');
-  const next = field.value.replace(link, '');
+  const next = withoutChip(field.value);
   const applied = async (current: Native) => {
     const latest = composerFieldCurrent(client, composerFieldOwner(client));
-    if (!latest || latest.value.replace(link, '') !== latest.value) throw new ClientError('The review comment is still referenced by the prompt.');
+    if (!latest || withoutChip(latest.value) !== latest.value) throw new ClientError('The review comment is still referenced by the prompt.');
     delete reviewCommentRecords(client)[contextId]; await effects.applied?.(current);
   };
   if (next !== field.value) await replaceAll(client, native, next, { ...effects, applied }, field.value);

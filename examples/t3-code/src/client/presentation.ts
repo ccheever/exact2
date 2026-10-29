@@ -47,6 +47,7 @@ import { serverUpdateView } from '../connections/server-update-notices';
 import { composerOwner } from '../composer/auto-balance-owner';
 import { providerBanner } from '../providers/provider-status-message'; // the banner and its setup button
 import { feedbackUploading, withFeedbackRows } from '../composer/composer-feedback'; // Codex /feedback
+import { waitingSend } from '../composer/composer-uploads';
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -164,7 +165,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     renameDir: headerRenameDir(client, str(obj(client.projection.thread).title, 'New thread')), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
     running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
-    canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)
+    canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client) && !waitingSend(client), // a cloning project waits (project-clones-live.ts), and a draft sends one press at a time (composer-uploads.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
     // ProviderModelPicker: the trigger's accessible name is the full name (triggerLabel); its text is the name said on
     // the model's provider (triggerTitle: the catalog's shortName, else model-short-name.ts), and an unavailable

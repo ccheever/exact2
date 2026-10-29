@@ -16,7 +16,7 @@ import type { T3Client } from '../client/client';
 import { followUpBehavior, isCompacting, planFollowUp, resolveDispatchMode, resumeState, sendQueuesBehindSetup } from './composer-controls';
 import { usageNotices, type UsageAccountView } from './composer-controls-usage';
 import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Codex /feedback
-import { uploadBlock } from './composer-uploads'; // attachmentUploadBlockReason
+import { uploadBlock, waitingSend } from './composer-uploads'; // attachmentUploadBlockReason
 import { subagentTitle } from '../timeline/timeline-events';
 import { keepsFullHistory, latestTokenUsage, resumeCompactionTokens } from './composer-controls-resume';
 import { pendingRequests } from './requests';
@@ -108,7 +108,8 @@ export function primaryAction(client: T3Client, phase: string) {
   const queueing = resolveDispatchMode(running, followUp, false, canSteer) === 'queue', queueingHeld = resolveDispatchMode(running, followUp, true, canSteer) === 'queue';
   const resume = client.threadId ? resumeState(client.projection) : { runId: '', heldQueue: false };
   const unavailable = client.connection !== 'connected';
-  const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch';
+  // A press kept until its images land is a send in flight too (useComposerSend awaits them inside onSend).
+  const sending = client.busy && !!client.pending && str(client.pending.payload.type) === 'message.dispatch' || !!waitingSend(client);
   const preparing = !!client.threadId && !setupQueue && threadWorktreeSetup(client).preparing;
   // sendDisabledReason: !canOperateThread first, the provider's own block reason after the thread's.
   const chosen = fanoutSelections(client) ? null : composerSelection(client);

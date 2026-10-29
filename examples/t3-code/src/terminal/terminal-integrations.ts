@@ -3,6 +3,7 @@
 // from ChatMarkdown's CodeBlockActions; links honor the configured browser target.
 import { obj, str, type Obj } from '../client/domain';
 import { contextId, contextLabel, contextLink, contextReferences } from '../composer/composer-editor-menu';
+import { contextLinks, contextTarget, replaceLinks } from '../composer/context-links';
 import type { T3Client } from '../client/client';
 import { pushToast } from '../shell/toast';
 import type { Native } from '../client/protocol';
@@ -90,7 +91,7 @@ export function omitExpiredTerminalContexts(client: T3Client, text: string, hasA
   const expired = contextReferences(text).filter(reference => reference.kind === 'terminal' && !records.has(reference.id));
   if (!expired.length) return { text, empty: false };
   const ids = new Set(expired.map(reference => reference.id));
-  const cleaned = text.replace(/\[[^\]\n]*\]\(t3-context:\/\/v1\/terminal\/([a-z0-9_-]+)\)/gi, (source, id: string) => ids.has(id) ? '' : source);
+  const cleaned = replaceLinks(text, contextLinks(text).filter(link => { const target = contextTarget(link.href); return target?.kind === 'terminal' && ids.has(target.id); }), () => '');
   const empty = !cleaned.trim() && !hasAttachments;
   pushToast(client, { kind: 'warning', ...buildExpiredTerminalContextToastCopy(expired.length, empty ? 'empty' : 'omitted') });
   return { text: cleaned, empty };

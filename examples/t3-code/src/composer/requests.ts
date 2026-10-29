@@ -8,6 +8,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { queuedEdit } from './composer-controls-queue';
+import { uploadBlock } from './composer-uploads';
 import { promptRewriteKey } from './composer-ultrathink';
 import { heldRequestIds } from './composer-typing-guard';
 import { markdownEnv, messageChips } from '../timeline/message-chips';
@@ -223,7 +224,7 @@ export function requestPresentation(client: T3Client) {
       multiSelect: entry.multiSelect, customAllowed: entry.allowCustom, canRespond: !reason, operable: operable(client), live: input.resumable, responseReason: reason,
       responding: responding(input.requestId), dismissible: input.dismissible, answer: active.custom,
       position: input.questions.length > 1 ? `${index + 1}/${input.questions.length}` : '', index, last: active.last,
-      canAdvance: active.canAdvance, complete: active.complete,
+      canAdvance: active.canAdvance, complete: active.complete, uploading: uploadBlock(client) !== '',
       action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next', md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, root, client.shell.threads)), threadGlyphs: markdownThreadGlyphs(client, text) },
       options: entry.options.map((option, position) => ({ id: option.value, label: option.label,
         description: option.description !== option.label ? option.description : '',

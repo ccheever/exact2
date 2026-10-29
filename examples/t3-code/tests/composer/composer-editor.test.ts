@@ -3,6 +3,14 @@ import {
   contextId, contextLink, contextLinks, contextReferences, emptyText, entryIcon, expandCitations, fileLink, historyEntries, pathRows, promptLengthMessage,
   recallablePrompt, replaceContextReferences, scoreQueryMatch, skillChipLabels, skillRows, slashRows, stripContextReferences, threadRows,
 } from '../../src/composer/composer-editor-menu';
+import { composerChips } from '../../src/composer/composer-source-chips';
+import { removeInlineContextReference } from '../../src/composer/composer-attachments';
+import { foldedMessageSummary, plainContextReferences } from '../../src/timeline/user-message';
+import { messageChips } from '../../src/timeline/message-chips';
+import { withoutSoundReferences } from '../../src/timeline/timeline-attachments';
+import { removeInlineContextReference as removeHandoffReference } from '../../src/pull-requests/pages-pr-handoffs-logic';
+import { formatThreadLink, projectPendingUserInputAnswer } from '../../src/timeline/thread-links';
+import { omitExpiredTerminalContexts } from '../../src/terminal/terminal-integrations';
 import { composerEditorView, editorLocal, messageContext, threadContextRecords, withMessageContext } from '../../src/composer/composer-editor';
 import { composerRichSource } from '../../src/composer/composer-rich-source';
 import { T3Client } from '../../src/client/client';
@@ -297,13 +305,61 @@ describe('context links in one pass', () => {
     // A reference the expression matches but whose href names no context stays (parseComposerContextHref).
     expect(recallablePrompt('see [a](t3-context://v1/x/y/z) now')).toBe('see [a](t3-context://v1/x/y/z) now');
   });
-  // The expression took 110 ms here for each (500–600 ms a turn in the app); one pass takes under 5.
-  test('a 256,000-character line of `![` takes the history a few milliseconds, with a link after it too', () => {
+  // Each reader finds links as collectComposerContextReferences does (CONTEXT_LINK, a link's href running to its `)`),
+  // then keeps its own rule for which links it takes.
+  test('the other readers of context links take the links upstream\'s expression finds, each by its own rule', () => {
+    const replaced = (text: string, take: (match: RegExpMatchArray) => string | null) =>
+      text.replace(CONTEXT_LINK, (...args) => { const match = Object.assign([...args.slice(0, 4)], { index: args[4] }) as unknown as RegExpMatchArray; return take(match) ?? match[0]!; });
+    const removed = (text: string, matches: RegExpMatchArray[]) => {
+      let result = text, cursor = text.length;
+      for (const match of [...matches].reverse()) {
+        let start = match.index!, end = start + match[0].length;
+        if (result[end] === ' ') end += 1; else if (result[start - 1] === ' ') start -= 1;
+        result = `${result.slice(0, start)}${result.slice(end)}`; cursor = start;
+      }
+      return { result, cursor };
+    };
+    const kindOf = (href: string) => /^t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/[^\s)]{1,128}$/i.exec(href)?.[1];
+    const target = (href: string) => parses(href) ? href.slice(16).split('/') as [string, string] : null;
+    for (const text of corpus(3000)) {
+      const matches = [...text.matchAll(CONTEXT_LINK)];
+      expect(composerChips(text).filter(chip => chip.kind === 'context').map(chip => [chip.start, chip.end, chip.source]))
+        .toEqual(matches.filter(match => parses(match[3]!)).map(match => [match.index, match.index! + match[0].length, match[0]]));
+      expect(foldedMessageSummary('agent', text, '')).toBe(replaced(text, match => { const kind = kindOf(match[3]!); return kind === undefined ? null : match[2]!.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim() || kind; })
+        .split(/\r?\n/).find(line => line.trim().length > 0)?.trim() ?? '');
+      expect(plainContextReferences(text)).toBe(replaced(text, match => { const found = target(match[3]!); return found ? (match[2]!.trim() || found[1]).replace(/[\\`*_[\]()<>!|~#]/g, '\\$&') : null; }));
+      for (const id of ['img_1', 'i', 't_1', 'f-2']) {
+        const own = removed(text, matches.filter(match => target(match[3]!)?.[1] === id));
+        expect(removeInlineContextReference(text, id)).toEqual(own.cursor === text.length && own.result === text ? { prompt: text, cursor: text.length }
+          : own.cursor >= own.result.length ? { prompt: own.result.trimEnd(), cursor: own.result.trimEnd().length } : { prompt: own.result, cursor: own.cursor });
+        const handoff = removed(text, matches.filter(match => match[3]!.split('/').pop() === id));
+        expect(removeHandoffReference(text, id)).toBe(handoff.result === text && handoff.cursor === text.length ? text : handoff.cursor >= handoff.result.length ? handoff.result.trimEnd() : handoff.result);
+      }
+      const records = [{ contextId: 't_1', threadId: 'thread-1' }, { contextId: 'i', threadId: 'thread-i' }];
+      expect(projectPendingUserInputAnswer(text, records)).toBe(replaced(text, match => {
+        const found = target(match[3]!), record = found?.[0] === 'thread' ? records.find(record => record.contextId === found[1]) : undefined;
+        return record ? formatThreadLink(record.threadId, match[2]!) : null;
+      }));
+    }
+  });
+  // The expression took 100 to 125 ms here for each (500–600 ms a turn in the app); one pass takes under 5.
+  test('a 256,000-character line of `![` takes each reader of context links a few milliseconds, with links after it too', () => {
     const line = '!['.repeat(128_000), timed = (run: () => unknown) => { const start = performance.now(); run(); return performance.now() - start; };
-    for (const body of [line, `${line}](t3-context://v1/image/i) and [A](t3-context://v1/thread/t_1)`]) {
+    const sound = { attachments: [{ type: 'file', id: 'att-s', name: 'memo.wav', mimeType: 'audio/wav' }], context: { records: [{ contextId: 'file_s', kind: 'file', attachmentId: 'att-s' }] } };
+    for (const body of [line, `${line}](t3-context://v1/image/i) and [A](t3-context://v1/thread/t_1) [memo.wav](t3-context://v1/file/file_s)`]) {
       expect(timed(() => historyEntries([{ id: '1', kind: 'user', body }]))).toBeLessThan(30);
       expect(timed(() => contextReferences(body))).toBeLessThan(30);
       expect(timed(() => stripContextReferences(body))).toBeLessThan(30);
+      expect(timed(() => composerChips(body))).toBeLessThan(30);
+      expect(timed(() => foldedMessageSummary('agent', body, ''))).toBeLessThan(30);
+      expect(timed(() => plainContextReferences(body))).toBeLessThan(30);
+      expect(timed(() => removeInlineContextReference(body, 'i'))).toBeLessThan(30);
+      expect(timed(() => messageChips({ text: body }, '/repo', []))).toBeLessThan(30);
+      expect(timed(() => withoutSoundReferences(body, sound))).toBeLessThan(30);
+      expect(timed(() => removeHandoffReference(body, 'i'))).toBeLessThan(30);
+      expect(timed(() => projectPendingUserInputAnswer(body, [{ contextId: 't_1', threadId: 'thread-1' }]))).toBeLessThan(30);
+      // A terminal chip whose output expired is cut from the message.
+      expect(timed(() => omitExpiredTerminalContexts(new T3Client(), `${body} [Terminal 1](t3-context://v1/terminal/t_9)`, false))).toBeLessThan(30);
     }
     expect(recallablePrompt(line)).toBe(line);
   });

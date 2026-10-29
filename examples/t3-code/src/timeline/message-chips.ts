@@ -1,4 +1,5 @@
 import { workspaceFileIcon } from '../shared/file-metadata';
+import { contextLinks, contextTarget } from '../composer/context-links';
 // Context chips in sent messages, adapted from T3 Code 9c161462c9 (MIT, see LICENSE-T3):
 // MessagesTimeline.tsx userMessageContextPresentationRegistry (each
 // `[label](t3-context://v1/<kind>/<id>)` resolved against the message's
@@ -33,7 +34,6 @@ export interface ChipView {
 }
 export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[]; threadGlyphs: ThreadLinkGlyph[] }
 
-const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/([a-z0-9_-]{1,128}))\)/gi;
 
 // extractMarkdownLinkHrefs (packages/shared/src/markdownLinks.ts at 9c161462c9): a forward scan
 // with cached delimiter searches, linear where the old link pattern backtracked quadratically.
@@ -199,9 +199,11 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] }); };
   // The thread's provider skills for its workspace, as the composer's `$` menu reads them (a sketch of a client has none).
   const skills = client?.config && client.projection ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [];
-  if (text.includes('](t3-context:')) for (const match of text.matchAll(CONTEXT_LINK)) {
-    const href = match[3]!, kind = match[4]!.toLowerCase(), label = match[2]!.trim() || kind;
-    const record = records.get(match[5]!);
+  for (const link of contextLinks(text)) {
+    const target = contextTarget(link.href);
+    if (!target) continue;
+    const href = link.href, kind = target.kind, label = link.label.trim() || kind;
+    const record = records.get(target.id);
     add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads, skills));
   }
   // A known `$skill` in the prose is its skill's chip (markdown.rs skill_runs): its details popover (SkillChipPopover).

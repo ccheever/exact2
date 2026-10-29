@@ -426,7 +426,8 @@ component PrimaryActions
   action hover(name: string, value: bool)
     over = value ? name : (over == name ? "" : over)
     overThread = value ? data.threadId : overThread
-  derive blocked = busy or not data.canSend
+  // Refine and Implement wait for the draft's uploads, as Send does (ComposerPrimaryActions' isSendDisabled).
+  derive blocked = busy or not data.canSend or data.composer.uploadBlock != ""
   // A pointer press's modifiers ride with it (⌘-click is the follow-up alternate); a keyboard or shortcut press
   // holds none. A send chord typed in the composer carries its own (app.contract composerKeyEvent).
   action sendPress(e: MouseEvent)

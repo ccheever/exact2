@@ -72,9 +72,11 @@ import { detachDraftLaunch, isDraftLaunch, launchId, restoreDetachedLaunch } fro
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { windowAppearanceMode } from '../appearance/settings-appearance-look'; // the window draws in the resolved mode
 import { heldImageIds } from '../composer/composer-copied-chips'; // the latest composer copy's images keep their bytes
-import { awaitDraftUploads, forgetMissingAttachments, forgetUnsentUploads, holdUploads, uploadsSupported } from '../composer/composer-uploads'; // a draft image's upload at attach
+import { forgetMissingAttachments, forgetUnsentUploads, stagedImages, uploadsSupported } from '../composer/composer-uploads'; // a draft image's upload at attach
 
 type Selection = { projectId: string; threadId: string };
+/** The images a send's press named, and whether this is that press sent again once they landed (composer-uploads.ts). */
+export type PressImages = { ids: readonly string[]; resume: boolean };
 export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean;
   /** A draft's launch a new-thread flow left while it was in flight, with the sent images the composer gave up (draft-launch.ts). */
   detached?: { images: Obj[] } };
@@ -1066,38 +1068,29 @@ export class T3Client {
     }
     await this.save(storage);
   }
-  /** Uploads the draft `key`'s images (the thread's draft, or a question's for its answer) and returns their attachments. */
-  async uploadSnapshots(native: Native, storage: Files, key = this.draftKey, assertOwner?: () => void): Promise<Obj[]> {
+  /**
+   * The attachments of the draft `key`'s images (the thread's draft, or a question's for its answer); `press`: the
+   * images a send's press named (useComposerSend's snapshot), and whether this is that press sent again.
+   */
+  async uploadSnapshots(native: Native, storage: Files, key = this.draftKey, assertOwner?: () => void, press?: PressImages): Promise<Obj[]> {
     const draftKey = this.draftKey, generation = this.generation, owner = this.snapshotOwner;
     const current = () => { assertOwner?.(); return draftKey === this.draftKey && generation === this.generation && owner === this.snapshotOwner; };
+    const drafted = this.local.snapshotDrafts[key] || [], images = press ? drafted.filter(image => press.ids.includes(str(image.id))) : drafted;
+    const attachment = (image: Obj, id: string) => ({ type: 'image', id, name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes, source: image.source });
+    // A server that stages uploads has them from each image's attach: the send names their attachments once every one
+    // has landed, and is kept until then (composer-uploads.ts stagedImages); it uploads nothing itself.
+    if (uploadsSupported(this)) return stagedImages(this, key, images, press ? press.ids.length : images.length, press?.resume === true).map(image => attachment(image, str(image.uploadId)));
     const attachments: Obj[] = [];
-    // The uploads that started as each image was attached land first: the send waits for those in flight
-    // (composer-uploads.ts) and uploads the rest itself, as upstream's send retries a failed one.
-    await awaitDraftUploads(this, key, current);
-    const release = holdUploads(this, key);
-    let failed: { id: string; reason: string } | undefined;
-    try {
-      for (const image of this.local.snapshotDrafts[key] || []) {
-        if (!current()) throw new ClientError('The draft changed before upload.');
-        let attachmentId = str(image.uploadId);
-        if (!attachmentId) {
-          try { attachmentId = await this.uploadDraftImage(native, storage, image, current); }
-          catch (error) {
-            if (!uploadsSupported(this) || !(error instanceof ClientError) || ['superseded', 'stale'].includes(error.kind)) throw error;
-            failed = { id: str(image.id), reason: error.message };
-            throw new ClientError('Retry or remove failed uploads before sending.');
-          }
-        }
-        attachments.push({ type: 'image', id: attachmentId, name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes, source: image.source });
-      }
-    } finally { release(failed); }
+    for (const image of images) {
+      if (!current()) throw new ClientError('The draft changed before upload.');
+      attachments.push(attachment(image, str(image.uploadId) || await this.uploadDraftImage(native, storage, image, current)));
+    }
     if (!current()) throw new ClientError('The draft changed before sending its attachments.');
     return attachments;
   }
   /**
-   * The send's own upload of a draft image whose upload at attach did not land (composer-uploads.ts), or of every image
-   * where the server stages no uploads: it returns the attachment id, one already uploaded its id. It is awaited, so it
-   * tells no progress.
+   * The send's own upload of a draft image, where the server stages no uploads (composer-uploads.ts has them from the
+   * attach otherwise): it returns the attachment id, one already uploaded its id.
    */
   async uploadDraftImage(native: Native, storage: Files, image: Obj, current: () => boolean = () => true): Promise<string> {
     const id = str(image.id), uploaded = str(image.uploadId);

@@ -12,6 +12,7 @@
 // links in the prompt (the clone's drafts have no separate reviewComments list), so the caller passes the
 // chips a prompt already holds.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { contextLinks } from '../composer/context-links';
 import { contextLink, contextReferences } from '../composer/composer-editor-menu';
 import { inferReviewCommentFenceLanguage, reviewCommentContextId, reviewCommentContextLabel, reviewCommentContextRecord, type ReviewCommentContext } from '../diff/diff-comments';
 import { visibleBody } from './pages-pr-logic';
@@ -76,11 +77,9 @@ const isBoundaryWhitespace = (char: string | undefined) => char === undefined ||
 export function appendInlineContextReference(prompt: string, link: string): string {
   return `${prompt}${isBoundaryWhitespace(prompt[prompt.length - 1]) ? '' : ' '}${link} `;
 }
-const LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/[^\s)]{1,200})\)/g;
 /** removeInlineContextReference: every link to `contextId` and one neighbouring space each; a removal at the end trims it. */
 export function removeInlineContextReference(prompt: string, contextId: string): string {
-  const occurrences = [...prompt.matchAll(LINK)].filter(match => match[3]!.split('/').pop() === contextId)
-    .map(match => ({ start: match.index!, end: match.index! + match[0].length }));
+  const occurrences = contextLinks(prompt).filter(link => link.href.split('/').pop() === contextId);
   if (!occurrences.length) return prompt;
   let result = prompt, cursor = prompt.length;
   for (const occurrence of occurrences.reverse()) {

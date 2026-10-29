@@ -6,7 +6,7 @@ import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real ter
 // Retry of a submission T3 may already have taken. Send's submission text and
 // its redirect past pending approvals follow T3 Code 74541bab17 ChatView.tsx onSend (MIT; see LICENSE-T3).
 import { projectCloneBlock } from '../shell/project-clones-live';
-import type { T3Client } from './client';
+import type { PressImages, T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { forgetDraftThreadId, launchThreadId } from '../composer/draft-thread-id';
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission, sendQueuesBehindSetup, isCompacting } from '../composer/composer-controls';
@@ -22,7 +22,7 @@ import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from '../compose
 import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection'; // the sent selection
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../composer/composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from '../composer/composer-feedback';
-import { messageContext, threadContextRecords, withMessageContext } from '../composer/composer-editor';
+import { messageContext, pressContext, threadContextRecords, withContext } from '../composer/composer-editor';
 import { projectPendingUserInputAnswer } from '../timeline/thread-links';
 import { holdSubmitting, questionDraftKey } from '../composer/question-attachments';
 import { pendingThreadImports } from '../composer/composer-thread-import';
@@ -41,6 +41,7 @@ import { releaseHeldRequests } from '../composer/composer-typing-guard';
 import { threadPhase } from '../composer/composer-presentation';
 import { refreshNewThreadContext } from '../composer/new-thread-context';
 import { autoBalanceSend } from '../composer/auto-balance';
+import { deferSend, settleUploads, takeWaitingSend, uploadsSupported, waitingSend } from '../composer/composer-uploads';
 import { providersHost, routedNative } from '../providers/providers-scope';
 import { toggleModelFavorite } from '../providers/model-preferences';
 import { obj, str, arr, type Obj } from './domain';
@@ -94,6 +95,9 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
       if (!annotation) return true;
       op = 'send'; id = ''; value = annotation.value;
     }
+    // A press kept while its images uploaded, sent now they have landed (composer-uploads.ts): what it named, to its own
+    // thread, whichever is shown. It passed the shown composer's checks at the press.
+    if (op === 'send-resume') { resultMessage = await resumeSend(this, native, storage, id); return true; }
     if (['send', 'submit-answers', 'advance-question', 'pick-option'].includes(op) && pendingThreadImports(this)) throw new ClientError('Still bringing attached context into this message. Send again once its chip resolves.');
     if ((['submit-answers', 'advance-question', 'pick-option'].includes(op) || (op === 'send' && composerInput(this))) && questionAttachmentsStaging(this)) throw new ClientError('Still attaching files to this answer. Submit again once they appear.');
     // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
@@ -102,10 +106,12 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     const answering = op === 'send' && !!composerInput(this);
     if (answering && (annotation !== null || annotationSendMarked(this))) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
     else if (answering) await submitAnswers.call(this, native, storage, '', value);
+    else if (op === 'send' && waitingSend(this)) { if (annotation) resultMessage = annotationAttachedToDraft(this); } // sendInFlightRef: one send at a time
     else if (op === 'send') { try { await autoBalanceSend(this, native, async () => {
       if (citation && !composerChipFinishCurrent(this, citation)) return;
       if (annotation) { if (!annotationDispatchCurrent(this, annotation)) return; markAnnotationSend(this); }
-      resultMessage = (await send.call(this, native, storage, value, id)) || '';
+      // useComposerSend's snapshot: the images the press names go, whatever joins the draft after it.
+      resultMessage = (await send.call(this, native, storage, value, id, { ids: this.snapshotDrafts.map(image => str(image.id)), resume: false })) || '';
     }); } finally { releaseHeldRequests(this); } } // onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
@@ -129,7 +135,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     return true;
   } finally { Object.assign(out, { message: resultMessage, id, value }); }
 }
-async function send(this: T3Client, native: Native, storage: Files, value: string, pressed = ''): Promise<string | void> {
+async function send(this: T3Client, native: Native, storage: Files, value: string, pressed = '', press?: PressImages): Promise<string | void> {
   const selection = { generation: this.generation, environmentId: this.environmentId, origin: this.origin, projectId: this.projectId, threadId: this.threadId, providerId: this.providerId, modelId: this.modelId, options: JSON.stringify(this.modelOptions), runtimeMode: this.runtimeMode, interactionMode: this.interactionMode };
   const assertOwner = () => {
     if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
@@ -151,7 +157,19 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       description: `This machine's agent can't read "${unreadable.title}". Remove it, or switch back to ${machineLabel(unreadable.environmentId)} to send.` });
     return;
   }
-  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // new SnapShot images upload
+  const edit = queuedEdit(this);
+  if (edit) {
+    try { return await saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage, this.draftKey, undefined, press)); } // new SnapShot images upload
+    catch (error) {
+      if (!(press && error instanceof ClientError && error.kind === 'deferred')) throw error;
+      const draftKey = this.draftKey, again = { ids: press.ids, resume: true };
+      deferSend(this, { draftKey, environmentId: selection.environmentId, imageIds: [...press.ids], resume: async (native, storage) => {
+        if (this.draftKey !== draftKey || queuedEdit(this)?.runId !== edit.runId) return notSent(this);
+        return send.call(this, native, storage, value, pressed, again);
+      } });
+      return;
+    }
+  }
   const feedback = feedbackCommandFor(this, value || this.draft); // Codex /feedback uploads the thread instead of sending a turn
   if (feedback) return sendFeedback(this, native, value || this.draft, feedback);
   const plan = planFollowUp(this);
@@ -192,67 +210,112 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const setupQueue = sendQueuesBehindSetup(this);
   const serverWorkspace = selection.threadId && !setupQueue ? serverThreadWorkspace(this) : null;
   if (selection.threadId && feedbackTarget && (attachmentsAtSend || messageContext(this, text))) throw new ClientError('Send approval feedback without attachments or added context.');
-  const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
+  // What the press sends (useComposerSend's snapshot), read now: a press kept while its images upload sends it once they
+  // land, whichever thread is shown then. Its folded pastes upload first (composer-editor-files.ts), so their records join.
+  const files = await composerFileAttachments(this, native, text);
   assertOwner();
-  const title = launchTitle(text, attachments); // onSend's titleSeed
-  const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // a draft launches as its own id
-  assertOwner();
-  if (selection.threadId && !(await declineForRedirect.call(this, native, storage, { shownApprovals, feedbackTarget, text, draftKey, prompts: [promptAtSend, value, text], attachmentsAtSend, owner: selection }))) return;
-  assertOwner();
-  if (selection.threadId) {
-    const key = this.draftKey, staged = stagedFor(this);
-    for (const command of nextTurnCommands(obj(this.projection.thread), staged, submission?.interactionMode ?? '')) {
-      const [modeCommandId] = await this.ids(native, 1);
-      assertOwner();
-      await this.dispatch(native, storage, { ...command, commandId: modeCommandId, threadId: selection.threadId }, 'Change mode', assertOwner);
-    }
-    if (serverWorkspace) {
-      // startThreadTurn with bootstrap.prepareWorktree: launchThread on the existing thread (reuseExistingThread).
-      const payload = launchPayload(commandId, selection.threadId, messageId, selection.projectId, outgoingText,
-        dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, submission?.interactionMode || selection.interactionMode, attachments);
-      Object.assign(payload, { reuseExistingThread: true, workspaceStrategy: serverWorkspace, title });
-      await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
-        description: 'Send', threadId: selection.threadId, text, uncertain: false }, assertOwner);
-    } else {
-      // A stale Claude session compacts before this message, so the turn does not re-read the old history (the Compact chip,
-      // composer-controls-resume.ts). The message queues behind the /compact run, since steering into it is rejected. A
-      // typed `/compact`, with or without instructions, is already the compaction.
-      const compactFirst = compactOffered && !keepsFullHistory(this, selection.threadId) && !COMPACT_COMMAND.test(text);
-      const mode = compactFirst || setupQueue ? 'queue' : submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUp, intent === 'alternate', !isCompacting(this));
-      const turnSelection = dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options));
-      if (compactFirst) {
-        const [compactCommandId, compactMessageId] = await this.ids(native, 2);
-        assertOwner();
-        // T3 Code's own compaction says why it ran (OrchestrationV2IdleCompaction), so it reads as compacting after being idle.
-        await this.dispatch(native, storage, { ...withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), idleCompaction: 'onReturn' }, 'Compact context', assertOwner);
+  const contextFor = pressContext(this, text), staged = stagedFor(this), fanout = fanoutSelections(this) ? fanoutBase(this) : null;
+  const turnCommands = selection.threadId ? nextTurnCommands(obj(this.projection.thread), staged, submission?.interactionMode ?? '') : [];
+  const compacting = isCompacting(this), turnSelection = dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options));
+  const strategy = selection.threadId ? null : workspaceStrategy(this);
+  /** The send's rest, with the press's images' attachments: `shown`, whether its draft is still the one shown. */
+  const finish = async (native: Native, storage: Files, images: Obj[], check: () => void, shown: () => boolean): Promise<string | void> => {
+    check();
+    const attachments = [...images, ...files], title = launchTitle(text, attachments); // onSend's titleSeed
+    const context = contextFor((this.local.snapshotDrafts[draftKey] ?? []).filter(image => images.some(attachment => attachment.id === str(image.uploadId))));
+    const [commandId, messageId, freshThreadId] = await this.ids(native, 3), threadId = selection.threadId ? freshThreadId : launchThreadId(this, draftKey, freshThreadId); // a draft launches as its own id
+    check();
+    // Its thread left meanwhile, the approvals shown are another thread's: the message leaves them alone, and approval
+    // feedback is not sent (useComposerSend).
+    if (selection.threadId && !shown() && feedbackTarget) return;
+    if (selection.threadId && shown() && !(await declineForRedirect.call(this, native, storage, { shownApprovals, feedbackTarget, text, draftKey, prompts: [promptAtSend, value, text],
+      attachmentsAtSend, owner: { ...selection, generation: this.generation } }))) return; // a kept press may go on a connection made since
+    check();
+    if (selection.threadId) {
+      for (const command of turnCommands) {
+        const [modeCommandId] = await this.ids(native, 1);
+        check();
+        await this.dispatch(native, storage, { ...command, commandId: modeCommandId, threadId: selection.threadId }, 'Change mode', check);
       }
-      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, outgoingText, attachments, title), text), mode, turnSelection);
-      if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
-      await this.dispatch(native, storage, payload, 'Send', assertOwner);
-      setKeepFullHistory(this, false, selection.threadId); // a turn that starts clears the chip's choice; a failed send keeps it
+      if (serverWorkspace) {
+        // startThreadTurn with bootstrap.prepareWorktree: launchThread on the existing thread (reuseExistingThread).
+        const payload = launchPayload(commandId, selection.threadId, messageId, selection.projectId, outgoingText, turnSelection, selection.runtimeMode,
+          submission?.interactionMode || selection.interactionMode, attachments);
+        Object.assign(payload, { reuseExistingThread: true, workspaceStrategy: serverWorkspace, title });
+        await this.write(native, storage, { method: 'orchestration.launchThread', payload: withContext(payload, context),
+          description: 'Send', threadId: selection.threadId, text, uncertain: false }, check);
+      } else {
+        // A stale Claude session compacts before this message, so the turn does not re-read the old history (the Compact chip,
+        // composer-controls-resume.ts). The message queues behind the /compact run, since steering into it is rejected. A
+        // typed `/compact`, with or without instructions, is already the compaction.
+        const compactFirst = compactOffered && !keepsFullHistory(this, selection.threadId) && !COMPACT_COMMAND.test(text);
+        const mode = compactFirst || setupQueue ? 'queue' : submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUp, intent === 'alternate', !compacting);
+        if (compactFirst) {
+          const [compactCommandId, compactMessageId] = await this.ids(native, 2);
+          check();
+          // T3 Code's own compaction says why it ran (OrchestrationV2IdleCompaction), so it reads as compacting after being idle.
+          await this.dispatch(native, storage, { ...withDispatchMode(sendPayload(compactCommandId, selection.threadId, compactMessageId, '/compact', []), 'auto', turnSelection), idleCompaction: 'onReturn' }, 'Compact context', check);
+        }
+        const payload = withDispatchMode(withContext(sendPayload(commandId, selection.threadId, messageId, outgoingText, attachments, title), context), mode, turnSelection);
+        if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
+        await this.dispatch(native, storage, payload, 'Send', check);
+        setKeepFullHistory(this, false, selection.threadId); // a turn that starts clears the chip's choice; a failed send keeps it
+      }
+      clearStaged(this, draftKey);
+      if (submission && shown()) this.interactionMode = submission.interactionMode;
+      await acknowledgeWoke(this, selection.threadId, native);
+      // composer.sendAndNewThread: the sent thread keeps running; a fresh new-thread composer opens in its project.
+      if (intent === 'background' && this.threadId === selection.threadId) await this.openFreshDraft(native);
+    } else if (fanout) {
+      // Several models: one background thread each, in its own worktree (composer-controls-fanout.ts), from the draft shown.
+      if (!shown()) return notSent(this);
+      await sendFanout(this, native, storage, { text: outgoingText, attachments, ...fanout, runtimeMode: selection.runtimeMode, interactionMode: selection.interactionMode });
+    } else {
+      const payload = launchPayload(commandId, threadId, messageId, selection.projectId, outgoingText, turnSelection, selection.runtimeMode, selection.interactionMode, attachments);
+      Object.assign(payload, { workspaceStrategy: strategy, title });
+      const result = await this.write(native, storage, { method: 'orchestration.launchThread', payload: withContext(payload, context),
+        description: 'Create thread', threadId, text, uncertain: false }, check);
+      forgetDraftThreadId(this, draftKey);
+      check();
+      // composer.sendBackground: the thread starts out of view and a fresh draft stays open. A draft left while its images
+      // uploaded stays out of view too (finalizePromotedDraftThreadByRef).
+      if (intent === 'background') { backgroundStarted(this, str(result.threadId, threadId)); return; }
+      if (!shown()) return;
+      this.threadId = str(result.threadId, threadId);
+      await this.openThread(native, this.threadId);
     }
-    clearStaged(this, key);
-    if (submission) this.interactionMode = submission.interactionMode;
-    await acknowledgeWoke(this, selection.threadId, native);
-    // composer.sendAndNewThread: the sent thread keeps running; a fresh new-thread composer opens in its project.
-    if (intent === 'background' && this.threadId === selection.threadId) await this.openFreshDraft(native);
-  } else if (fanoutSelections(this)) {
-    // Several models: one background thread each, in its own worktree (composer-controls-fanout.ts).
-    await sendFanout(this, native, storage, { text: outgoingText, attachments, ...fanoutBase(this), runtimeMode: selection.runtimeMode, interactionMode: selection.interactionMode });
-  } else {
-    const payload = launchPayload(commandId, threadId, messageId, selection.projectId, outgoingText,
-      dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
-    payload.workspaceStrategy = workspaceStrategy(this);
-    payload.title = title;
-    const result = await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
-      description: 'Create thread', threadId, text, uncertain: false }, assertOwner);
-    forgetDraftThreadId(this, launchKey);
-    assertOwner();
-    // composer.sendBackground: the thread starts out of view and a fresh draft stays open.
-    if (intent === 'background') { backgroundStarted(this, str(result.threadId, threadId)); return; }
-    this.threadId = str(result.threadId, threadId);
-    await this.openThread(native, this.threadId);
+  };
+  let images: Obj[];
+  try { images = await this.uploadSnapshots(native, storage, draftKey, undefined, press); }
+  catch (error) {
+    if (!(press && error instanceof ClientError && error.kind === 'deferred')) throw error;
+    // The machine the press was on is the one it sends to; the root sends it only while that machine is focused.
+    const connected = () => { if (selection.environmentId !== this.environmentId || selection.origin !== this.origin) throw new ClientError('The machine changed before sending. Your original draft is preserved.'); };
+    const again = { ids: press.ids, resume: true };
+    deferSend(this, { draftKey, environmentId: selection.environmentId, imageIds: [...press.ids], resume: async (native, storage) =>
+      finish(native, storage, await this.uploadSnapshots(native, storage, draftKey, undefined, again), connected, () => this.draftKey === draftKey) });
+    return;
   }
+  return finish(native, storage, images, assertOwner, () => true);
+}
+/**
+ * The press kept under `token`, sent now its images have landed. A failure on a thread no longer shown says so in a toast
+ * (useComposerSend sets that thread's error), since the shown thread's banner is another's.
+ */
+async function resumeSend(client: T3Client, native: Native, storage: Files, token: string): Promise<string> {
+  const kept = takeWaitingSend(client, token);
+  if (!kept) return '';
+  try { return (await kept.resume(native, storage)) || ''; }
+  catch (error) {
+    if (kept.draftKey === client.draftKey || !(error instanceof ClientError) || ['superseded', 'stale'].includes(error.kind)) throw error;
+    pushToast(client, { kind: 'error', stacked: true, title: 'Message not sent', description: error.message });
+    return '';
+  } finally { releaseHeldRequests(client); }
+}
+/** A kept press that cannot go from another thread (a multi-model start, a queued message's edit): it stays in its draft. */
+function notSent(client: T3Client): string {
+  pushToast(client, { kind: 'warning', title: 'Message not sent', description: 'Its attachments finished uploading after you left its thread. It is still in that thread\'s draft.' });
+  return '';
 }
 /** COMPACT_COMMAND_PATTERN (ChatView.logic.ts): `/compact` alone or with instructions. */
 const COMPACT_COMMAND = /^\/compact(?:\s|$)/i;
@@ -403,6 +466,12 @@ async function submitAnswers(this: T3Client, native: Native, storage: Files, id:
     };
     const projected = Object.fromEntries(Object.entries(answers).map(([id, answer]) => [id, projectPendingUserInputAnswer(answer, threadContextRecords(this, typeof answer === 'string' ? answer : ''))]));
     const attachmentsByQuestionId: Obj = {};
+    // onRespondToUserInput: where the server stages uploads, an answer goes with its images' attachments, or not at all.
+    if (uploadsSupported(this)) {
+      settleUploads(this);
+      const drafts = Object.keys(answers).map(question => this.local.snapshotDrafts[questionDraftKey(owner.environmentId, owner.threadId, requestId, question)] ?? []);
+      if (drafts.some(images => images.some(image => !str(image.uploadId)))) throw new ClientError('Wait for attachments to finish uploading, or remove failed uploads.');
+    }
     // The request is submitting from its first upload: its shelves take no drop or SnapShot and give up no image.
     const release = holdSubmitting(this, requestId);
     try {

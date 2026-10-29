@@ -1,4 +1,5 @@
 import { toolImageAction, toolImagePreview, toolImageUrls } from './tool-images';
+import { contextLinks, contextTarget, replaceLinks } from '../composer/context-links';
 // Sent attachments in user messages, adapted from T3 Code (MIT, see
 // LICENSE-T3): MessagesTimeline.tsx UserTimelineRow (a two-column image grid
 // at most 210pt wide, a SnapShot spanning both columns in a 208×112 frame with
@@ -79,7 +80,6 @@ export function svgPreviewFailed(client: T3Client, id: string): boolean {
   const key = svgKey(client, id), failed = failedSvgs.get(client)?.get(key);
   return failed !== undefined && urls.get(key)?.url === failed;
 }
-const CONTEXT_FILE_REFERENCE = /!?\[[^\]\n]{0,512}\]\(t3-context:\/\/v1\/file\/([a-z0-9_-]{1,128})\)/gi;
 /**
  * A sent sound's reference leaves the prompt: TimelineUserMessageRow's renderContextReference returns null for a file
  * reference whose attachment plays in its audio chip, so only the text around it draws.
@@ -88,9 +88,9 @@ export function withoutSoundReferences(text: string, item: Obj): string {
   const sounds = new Set(arr(item.attachments).filter(attachment => attachment.type === 'file' && isSentAudio(attachment)).map(attachment => str(attachment.id)));
   if (!sounds.size || !text.includes('](t3-context://v1/file/')) return text;
   const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
-  return text.replace(CONTEXT_FILE_REFERENCE, (reference, id: string) => {
-    const record = records.get(id);
-    return record && str(record.kind) === 'file' && sounds.has(str(record.attachmentId)) ? '' : reference;
+  return replaceLinks(text, contextLinks(text), link => {
+    const target = contextTarget(link.href), record = target?.kind === 'file' ? records.get(target.id) : undefined;
+    return record && str(record.kind) === 'file' && sounds.has(str(record.attachmentId)) ? '' : null;
   });
 }
 const urls = new Map<string, { url: string; expiresAt: number }>();

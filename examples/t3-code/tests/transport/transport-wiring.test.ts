@@ -35,7 +35,7 @@ describe('app.contract', () => {
     // A Browser frame's package calls, which the root names but data code makes (app.contract frameCommand), ask no server.
     for (const name of ['siteCleared', 'promptAnswered']) exempt.add(name);
     // A draft image's upload is a stream over HTTP that no socket reply ends (composer-uploads.ts).
-    for (const name of ['composerUpload0', 'composerUpload1', 'composerUpload2']) exempt.add(name);
+    for (let slot = 0; slot < 6; slot++) exempt.add(`composerUpload${slot}`);
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);
     expect(contract).toMatch(/task transportRepublish when transportInbox\.table > transportTable\.rev key=transportInbox\.table\n    after\(1, transportPump\)/);
     expect(contract).not.toMatch(/every\(16, transportPump\)/);

@@ -224,11 +224,14 @@ members T3Code
         focus("surface-chooser")
     if what == "terminal" // the layout controls' toggle (toggleTerminalVisibility); closing returns to the composer
       send terminalChanged = command("terminallocal:toggle", "", "", 0)
-    if what == "reopen"
+    // ⇧⌘T waits for the command in flight, as the panel's other sends on `changed` do: a newer send there would let go
+    // an answer that holds state across a wait.
+    if what == "reopen" and not commandPending
       settingsOpen = false
       utilityPage = ""
       draftOwner = "__unset__"
       jumpRequest = jumpRequest + 1
+      commandPending = true
       send changed = command("shell:surface-reopen", "", "", 0)
     else if (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P" or id == "t" or id == "T"))) and (data.threadId != "" or id == "browser" or id == "b" or id == "B" or id == "files" or id == "f" or id == "F" or (shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T")) or (data.projectId != "" and (id == "device" or id == "m" or id == "M"))) and not commandPending
       commandPending = true

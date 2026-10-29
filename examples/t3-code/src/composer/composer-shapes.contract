@@ -117,6 +117,9 @@ shape ComposerUploads
   u0: ComposerUploadSlot
   u1: ComposerUploadSlot
   u2: ComposerUploadSlot
+  u3: ComposerUploadSlot
+  u4: ComposerUploadSlot
+  u5: ComposerUploadSlot
   supported: bool
   operate: bool
   pending: string
@@ -246,6 +249,8 @@ shape ComposerView
   // them ("Attachment still uploading"; "" when they need not).
   uploads: ComposerUploads
   uploadBlock: string
+  // The first send kept while its images uploaded that can go now ("" for none; composer-uploads.ts).
+  sendResume: string
   contextShow: bool
   contextAria: string
   contextPercent: string

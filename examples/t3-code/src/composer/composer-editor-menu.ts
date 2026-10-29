@@ -3,6 +3,8 @@
 // the ranking, labels and empty states are tested without the native editor.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { COMPOSER_CITATION } from './composer-source-chips';
+import { contextLinks, contextTarget, replaceLinks, type ContextLink } from './context-links';
+export { contextLinks } from './context-links';
 import { foldSearchQuery, rankSearchItems, scoreThreadSearch, threadSearchSubject } from '../palette/palette-search';
 
 export type EditorTrigger = { kind: string; query: string; start: number; end: number };
@@ -263,54 +265,6 @@ export function contextLabel(label: string, kind: string): string {
 export function contextLink(kind: string, id: string, label: string): string {
   return `${kind === 'image' ? '!' : ''}[${contextLabel(label, kind)}](t3-context://v1/${kind}/${id})`;
 }
-const CONTEXT_HREF = 't3-context://v1/';
-/** A `[label](t3-context://v1/…)` link of a prompt, an image's with `!` before it. */
-export type ContextLink = { start: number; end: number; image: boolean; label: string; href: string };
-/**
- * The matches of CONTEXT_LINK, `(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/[^\s)]{1,200})\)`, leftmost first and
- * none overlapping, found in one pass: the expression reads up to 512 characters after every `[`, so a long line of `![`
- * held a turn for half a second. Each `[` reads where its label would end from `stop`, and each `]` its link once.
- */
-export function contextLinks(text: string): ContextLink[] {
-  const links: ContextLink[] = [];
-  if (!text.includes('](t3-context:')) return links;
-  const n = text.length, stop = new Int32Array(n + 1); // the next `]` or line break at or after each index
-  stop[n] = n;
-  for (let at = n - 1; at >= 0; at--) stop[at] = text[at] === ']' || text[at] === '\n' ? at : stop[at + 1]!;
-  const ends = new Map<number, number>(); // by a `]`: the end of the link it closes, or -1
-  const linkEnd = (close: number): number => {
-    let end = ends.get(close);
-    if (end === undefined) {
-      end = -1;
-      if (text.startsWith(`](${CONTEXT_HREF}`, close)) {
-        const from = close + 2 + CONTEXT_HREF.length;
-        let at = from;
-        while (at < n && at - from < 200 && text[at] !== ')' && !/\s/.test(text[at]!)) at++;
-        if (at > from && text[at] === ')') end = at + 1;
-      }
-      ends.set(close, end);
-    }
-    return end;
-  };
-  for (let at = 0; at < n;) {
-    const image = text[at] === '!' && text[at + 1] === '[', open = image ? at + 1 : at;
-    if (text[open] === '[') {
-      const close = stop[open + 1]!, end = text[close] === ']' && close - open - 1 <= 512 ? linkEnd(close) : -1;
-      if (end > 0) {
-        links.push({ start: at, end, image, label: text.slice(open + 1, close), href: text.slice(close + 2, end - 1) });
-        at = end;
-        continue;
-      }
-    }
-    at++;
-  }
-  return links;
-}
-/** parseComposerContextHref: a link's kind and context id, or null where its href names none. */
-function contextTarget(href: string): { kind: string; id: string } | null {
-  const parts = href.slice(CONTEXT_HREF.length).split('/');
-  return parts.length === 2 && /^[a-z][a-z0-9-]{0,39}$/.test(parts[0]!) && CONTEXT_ID.test(parts[1]!) ? { kind: parts[0]!, id: parts[1]! } : null;
-}
 /** `kind/contextId` of every context reference in the prompt, first occurrence first. */
 export function contextReferences(text: string): Array<{ kind: string; id: string; label: string }> {
   const seen = new Set<string>(), out: Array<{ kind: string; id: string; label: string }> = [];
@@ -356,14 +310,10 @@ export function citationsToPlainText(prompt: string): string {
 }
 /** replaceComposerContextReferences: each context chip replaced by what `replace` makes of it (its label, for a draft row). */
 export function replaceContextReferences(prompt: string, replace: (reference: { kind: string; id: string; label: string; image: boolean }) => string): string {
-  let out = '', cursor = 0;
-  for (const link of contextLinks(prompt)) {
+  return replaceLinks(prompt, contextLinks(prompt), link => {
     const target = contextTarget(link.href);
-    if (!target) continue;
-    out += prompt.slice(cursor, link.start) + replace({ ...target, label: contextLabel(link.label, target.kind), image: link.image });
-    cursor = link.end;
-  }
-  return cursor === 0 ? prompt : out + prompt.slice(cursor);
+    return target ? replace({ ...target, label: contextLabel(link.label, target.kind), image: link.image }) : null;
+  });
 }
 /** stripInlineContextReferences: the prompt without its context chips. */
 export function stripContextReferences(prompt: string): string {

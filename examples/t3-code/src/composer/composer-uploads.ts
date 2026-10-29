@@ -1,26 +1,30 @@
 // attachmentUploadQueue.ts and attachmentUploadState.ts at T3 Code 7c3b3b3605ef (MIT; see LICENSE-T3): a draft image
-// uploads as soon as it is attached, at most three at once, and its tile draws the upload's percentage while the person
-// types. Each upload runs in one of the root's three upload resources (composerUpload0 to 2,
+// uploads as soon as it is attached, at most three at once on each machine, and its tile draws the upload's percentage
+// while the person types. Each upload runs in one of the root's six upload resources (composerUpload0 to 5,
 // composer-controls-members.contract), a stream whose fetch tells the bytes it has sent (`exactUploadProgress`, LLP
 // 1016.000 D10), so no answer waits on it. The table here says which image each resource carries. An image keeps its
 // resource until its upload ends, since new arguments let a running upload go; the server's attachment id then lands in
 // the image's own draft entry (`uploadId`), which the send names. An upload belongs to its draft entry, not to the image
 // id: a chip pasted into another draft is that draft's image, and uploads again for it. The uploads go on whichever draft
-// is shown; one waiting for a slot on another machine waits until that machine is focused again, since the requests go
-// to the focused one (upstream's queue runs each environment's at once). The ids last the session: the server deletes
-// an attachment that was never sent after a day, so a relaunch uploads again, as upstream's in-memory queue does.
+// is shown; one waiting on another machine waits until that machine is focused again, since the requests go to the
+// focused one (upstream's queue runs each environment's at once). The ids last the session: the server deletes an
+// attachment that was never sent after a day, so a relaunch uploads again, as upstream's in-memory queue does.
+//
+// A send waits for its images on no timer of its own: an answer let go meanwhile would never resume (LLP 1027.000 D1).
+// A press whose images have not all landed is kept with what it sends (useComposerSend's snapshot at the press), its
+// failed images go back to the queue, and the root sends it once they land (`sendResume`), whichever thread is shown.
 import type { T3Client } from '../client/client';
-import { ClientError, type Native } from '../client/protocol';
+import { ClientError, type Files, type Native } from '../client/protocol';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { draftUpload } from '../snapshot/snapshot-upload';
 import { path as onOrigin } from '../transport/transport-wire';
 import { editStashImages } from './composer-controls-queue';
 
-/** MAX_UPLOADS_PER_ENVIRONMENT: the root's upload resources. */
-export const UPLOAD_SLOTS = 3;
+/** The root's upload resources: MAX_UPLOADS_PER_ENVIRONMENT for the focused machine, and as many for one focused before. */
+export const UPLOAD_SLOTS = 6;
+/** MAX_UPLOADS_PER_ENVIRONMENT. */
+export const UPLOADS_PER_MACHINE = 3;
 const UPLOAD_TIMEOUT_MS = 5 * 60_000;
-/** How often a send waiting for its draft's uploads looks again. */
-const SEND_WAIT_MS = 250;
 /** PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES. */
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
@@ -61,7 +65,7 @@ function draftImage(client: T3Client, draftKey: string, id: string): Obj | undef
     ?? editStashImages(client, draftKey).find(image => str(image.id) === id);
 }
 
-/** Whether the draft entry's upload is in flight: its URL being minted (or the send uploading it), or in a slot. */
+/** Whether the draft entry's upload is in flight: its URL being minted, or in a slot. */
 function inFlight(client: T3Client, draftKey: string, id: string): boolean {
   const entry = uploads(client), key = keyOf(draftKey, id);
   return entry.minting.has(key) || entry.slots.some(job => job !== null && keyOf(job.draftKey, job.id) === key && job.value.status === 'uploading');
@@ -127,6 +131,16 @@ export function settleUploads(client: T3Client): void {
 }
 
 /**
+ * A resource free for the focused machine's next upload, or -1: MAX_UPLOADS_PER_ENVIRONMENT counts that machine's
+ * uploads (the ones being minted are its own), whatever another machine still sends.
+ */
+function freeSlot(client: T3Client): number {
+  const entry = uploads(client);
+  const busy = entry.slots.filter(job => job !== null && job.environmentId === client.environmentId).length + entry.claimed.size;
+  return busy >= UPLOADS_PER_MACHINE ? -1 : entry.slots.findIndex((job, index) => !job && !entry.claimed.has(index));
+}
+
+/**
  * The snapshot's `composer.uploads`: what each upload resource carries, the images waiting while one is free (the root
  * then starts them), the slots and attachments to settle, and the shown draft's images' uploads.
  */
@@ -144,10 +158,10 @@ export function uploadTable(client: T3Client) {
     if (running(client, draftKey, id) || unstarted.includes(image)) return [{ id, attachmentId: '', status: 'queued', progress: 0, reason: '' }];
     return [];
   });
-  const free = entry.slots.some((job, index) => !job && !entry.claimed.has(index));
+  const free = freeSlot(client) >= 0;
   const waiting = [...unstarted.map(image => str(image.id)), ...entry.queue.filter(queued => queued.environmentId === client.environmentId).map(queued => queued.id)];
   const settle = entry.slots.filter(job => settles(client, job)).length + entry.releases.filter(release => release.environmentId === client.environmentId).length;
-  return { u0: slot(0), u1: slot(1), u2: slot(2), supported, operate: client.scopes.includes('orchestration:operate'),
+  return { u0: slot(0), u1: slot(1), u2: slot(2), u3: slot(3), u4: slot(4), u5: slot(5), supported, operate: client.scopes.includes('orchestration:operate'),
     // ChatComposer's effect starts each image as it joins the draft; here the root asks while a slot is free.
     pending: free ? [...new Set(waiting)].join(' ') : '', settle, images };
 }
@@ -178,7 +192,7 @@ export async function runDraftUploads(client: T3Client, native: Native, failedSl
   entry.releases = entry.releases.filter(release => !releases.includes(release));
   for (const release of releases) await client.request(native, 'attachments.delete', { attachmentId: release.attachmentId }).catch(() => undefined);
   for (let queued = nextQueued(client); queued; queued = nextQueued(client)) {
-    const slot = entry.slots.findIndex((job, index) => !job && !entry.claimed.has(index));
+    const slot = freeSlot(client);
     if (slot < 0) break;
     entry.queue.splice(entry.queue.indexOf(queued), 1);
     entry.claimed.add(slot);
@@ -186,36 +200,61 @@ export async function runDraftUploads(client: T3Client, native: Native, failedSl
   }
 }
 
+/** RETRY_FAILED_UPLOADS: what a kept send says when an image it names failed again or left the draft. */
+export const RETRY_FAILED_UPLOADS = 'Retry or remove failed uploads before sending.';
+
 /**
- * useComposerSend's wait: a send waits, on its own timer, for its draft's uploads in flight to land while the root's
- * pump runs them. It returns once none is in flight, or the uploads' deadline passed.
+ * A press kept until its images land, as useComposerSend snapshots it at the press: `resume` sends what it named, from
+ * whichever thread is shown then.
  */
-export async function awaitDraftUploads(client: T3Client, draftKey: string, current: () => boolean = () => true): Promise<void> {
-  if (!uploadsSupported(client)) return;
-  const images = () => client.local.snapshotDrafts[draftKey] ?? [];
-  for (let waited = 0; ; waited += SEND_WAIT_MS) {
-    settleUploads(client);
-    if (!current()) throw new ClientError('The draft changed before upload.');
-    if (!images().some(image => !str(image.uploadId) && inFlight(client, draftKey, str(image.id)))) return;
-    if (waited >= UPLOAD_TIMEOUT_MS) return;
-    await new Promise<void>(resolve => { setTimeout(resolve, SEND_WAIT_MS); });
-  }
+export type WaitingSend = { token: string; draftKey: string; environmentId: string; imageIds: string[]; resume: (native: Native, storage: Files) => Promise<string | void> };
+const kept = new WeakMap<T3Client, WaitingSend[]>();
+let sends = 0;
+const keptSends = (client: T3Client) => kept.get(client) ?? [];
+
+/** The press the shown draft keeps, if any: a second press there sends nothing, as while upstream's send is in flight. */
+export function waitingSend(client: T3Client): WaitingSend | undefined { return keptSends(client).find(press => press.draftKey === client.attachmentKey); }
+
+/**
+ * The images a send names (client.ts uploadSnapshots), where the server stages uploads: all of them once each has its
+ * attachment. Until then the press is kept (`deferred`): its failed images go back to the queue, as useComposerSend
+ * retries them. A kept press sent again (`resume`) asks instead to retry or remove one that failed again or left the draft.
+ */
+export function stagedImages(client: T3Client, draftKey: string, images: Obj[], named: number, resume: boolean): Obj[] {
+  settleUploads(client);
+  const missing = images.filter(image => !str(image.uploadId));
+  if (resume && (missing.length || images.length !== named)) throw new ClientError(RETRY_FAILED_UPLOADS);
+  if (!missing.length) return images;
+  for (const image of missing) uploads(client).failed.delete(keyOf(draftKey, str(image.id)));
+  throw new ClientError('Attachments still uploading', 'deferred');
+}
+
+/** Keeps a press whose images are still uploading, to be sent once they land (the root's `sendResume`). */
+export function deferSend(client: T3Client, press: Omit<WaitingSend, 'token'>): void {
+  kept.set(client, [...keptSends(client).filter(each => each.draftKey !== press.draftKey), { token: `send-${++sends}`, ...press }]);
 }
 
 /**
- * The send's own upload of its draft's images still without an attachment (client.ts uploadSnapshots): one that failed,
- * which upstream's send retries, or one not yet in a slot. No upload resource takes them until the returned release;
- * one that failed again keeps its reason for the tile's Retry.
+ * The first kept press on the focused machine that can be sent: each image it names has its attachment, failed, or left
+ * the draft, so none is still on its way (the send then says what failed). '' when none can, and while the connection
+ * may not write, so the root sends it once one can.
  */
-export function holdUploads(client: T3Client, draftKey: string): (failed?: { id: string; reason: string }) => void {
-  if (!uploadsSupported(client)) return () => undefined;
+export function readySend(client: T3Client): string {
+  if (!client.writable) return '';
   const entry = uploads(client);
-  const keys = (client.local.snapshotDrafts[draftKey] ?? []).filter(image => !str(image.uploadId)).map(image => keyOf(draftKey, str(image.id)));
-  for (const key of keys) { entry.minting.add(key); entry.failed.delete(key); }
-  return failed => {
-    for (const key of keys) entry.minting.delete(key);
-    if (failed) entry.failed.set(keyOf(draftKey, failed.id), { reason: failed.reason, generation: client.generation });
-  };
+  return keptSends(client).find(press => press.environmentId === client.environmentId && !press.imageIds.some(id => {
+    const image = draftImage(client, press.draftKey, id), key = keyOf(press.draftKey, id);
+    if (!image || str(image.uploadId)) return false;
+    const job = entry.slots.find(each => each !== null && keyOf(each.draftKey, each.id) === key);
+    return job ? job.value.status === 'uploading' : !failure(client, press.draftKey, id);
+  }))?.token ?? '';
+}
+
+/** The kept press `token`, taken, or undefined when none is kept under it. */
+export function takeWaitingSend(client: T3Client, token: string): WaitingSend | undefined {
+  const press = keptSends(client).find(each => each.token === token);
+  if (press) kept.set(client, keptSends(client).filter(each => each !== press));
+  return press;
 }
 
 /** The tile's Retry (retryAttachmentUpload): a failed image goes back to the queue. */

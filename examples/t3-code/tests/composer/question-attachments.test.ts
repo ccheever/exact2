@@ -11,6 +11,7 @@ import { draftRows } from '../../src/sidebar/sidebar-view';
 import { fileChipLink, foldLimit, stageTextAttachment } from '../../src/composer/composer-editor-files';
 import { toasts } from '../../src/shell/toast';
 import { memoryFiles, png } from '../support/app-files-fixture';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const uuid = (n: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
 const asked = (questions: Obj[] = [{ id: 'first', header: 'First', question: 'Which window?', allowCustomAnswer: true, options: [] }]) => ({
@@ -45,6 +46,15 @@ describe('question attachment drafts (questionAttachments.ts)', () => {
     expect(snapshotAttachmentKey(pins, 'b', 'thread', null)).toBe('thread');
     expect(snapshotAttachmentKey(pins, 'b', 'thread', 'question-1')).toBe('thread');
   });
+  test('Next and Submit wait while an image of the answer uploads (canAdvance\'s attachmentBlockReason)', () => {
+    const actions = contractComponent('requests.contract', 'QuestionActions');
+    const disabled = (uploading: boolean) => {
+      const q = { id: 'q', requestId: 'r', index: 0, responding: false, operable: true, uploading, last: true, complete: true, canAdvance: true, action: 'Submit' };
+      return actions.attribute('"advance-question"', 'disabled', {}, { data: { questions: [q], composer: { attach: false }, canStop: false }, busy: false, command: () => ({}), q });
+    };
+    expect([disabled(false), disabled(true)]).toEqual([false, true]);
+  });
+
   test('attachments alone answer a question that takes a custom answer, unless the server cannot take them', () => {
     const question = { id: 'q', header: '', question: '', multiSelect: false, allowCustom: true, options: [] };
     expect(resolveAnswer(question, undefined)).toBeNull();
@@ -103,20 +113,28 @@ describe('a question takes images beside its answer', () => {
     expect(native.committed.filter(request => request.type === 'runtime-request.respond')).toEqual([]);
     gate.open(); await attaching;
     expect(client.local.snapshotDrafts[first]).toMatchObject([{ name: 'shot.png' }]);
-    expect(requestPresentation(client).questions[0]).toMatchObject({ canAdvance: true, complete: true });
+    // Attached, it uploads (composer-uploads.ts): Next and Submit wait, and an answer meanwhile is refused.
+    expect(requestPresentation(client).questions[0]).toMatchObject({ canAdvance: true, complete: true, uploading: true });
     client.answers.questions = { selected: [], custom: '', index: 1 };
+    expect((await command('submit-answers', 'questions')).message).toBe('Wait for attachments to finish uploading, or remove failed uploads.');
+    expect(native.committed.filter(request => request.type === 'runtime-request.respond')).toEqual([]);
+    expect(requestPresentation(client).questions[0]?.responding).toBe(false);
+    // Its upload landed (the root's pump sets the attachment id): the answer goes with it.
+    client.local.snapshotDrafts[first]![0]!.uploadId = 'uploaded-shot.png';
+    expect(requestPresentation(client).questions[0]).toMatchObject({ uploading: false });
     await command('submit-answers', 'questions');
-    expect(native.committed.at(-1)).toMatchObject({ type: 'runtime-request.respond', attachmentsByQuestionId: { first: [{ type: 'image', name: 'shot.png' }] } });
+    expect(native.committed.at(-1)).toMatchObject({ type: 'runtime-request.respond', attachmentsByQuestionId: { first: [{ type: 'image', id: 'uploaded-shot.png', name: 'shot.png' }] } });
   });
-  test('while the answer uploads, its shelves take no drop or SnapShot and give up no image', async () => {
+  test('while the answer submits, its shelves take no drop or SnapShot and give up no image', async () => {
     const { client, native, command, first } = await questionClient();
-    client.local.snapshotDrafts[first] = [image(1)];
+    client.local.snapshotDrafts[first] = [image(1, { uploadId: 'uploaded-shot-1.png' })];
     client.answers.questions = { selected: [], custom: '', index: 1 };
     client.answers['questions::second'] = { selected: [], custom: 'Nothing else', index: 0 };
     const later = native.later.bind(native);
     let open!: () => void, reached!: () => void;
     const gate = new Promise<void>(resolve => { open = resolve; }), entered = new Promise<void>(resolve => { reached = resolve; });
-    native.later = async input => { if (obj(input).method === 'attachments.createUploadUrl') { reached(); await gate; } return later(input); };
+    // Held at the answer's command id, between its hold on the shelves and its write.
+    native.later = async input => { if (obj(input).op === 'ids') { reached(); await gate; } return later(input); };
     const submitting = command('submit-answers', 'questions');
     await entered;
     client.answers.questions = { selected: [], custom: '', index: 0 };
@@ -148,10 +166,11 @@ describe('a question takes images beside its answer', () => {
     // The sidebar lists new-thread drafts only; a question's shelf is not one.
     expect(draftRows(client, () => ({ projectMark: '', projectInk: '', projectSurface: '' }) as never)).toEqual([]);
   });
-  test('the answer uploads each question’s images and sends them as that question’s attachments', async () => {
+  test('the answer sends each question’s images, uploaded as they were attached, as that question’s attachments', async () => {
     const { client, native, command, first, second } = await questionClient();
-    client.local.snapshotDrafts[first] = [image(1, { source: { kind: 'snap-shot', appName: 'Fixture' } })];
-    client.local.snapshotDrafts[second] = [image(2), image(3)];
+    // The root's pump uploaded each image as it joined its shelf (composer-uploads.ts).
+    client.local.snapshotDrafts[first] = [image(1, { source: { kind: 'snap-shot', appName: 'Fixture' }, uploadId: 'uploaded-shot-1.png' })];
+    client.local.snapshotDrafts[second] = [image(2, { uploadId: 'uploaded-shot-2.png' }), image(3, { uploadId: 'uploaded-shot-3.png' })];
     client.answers.questions = { selected: [], custom: '', index: 1 };
     client.answers['questions::second'] = { selected: [], custom: 'Both of these', index: 0 };
     // The first question has no text: its image answers it.

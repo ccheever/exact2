@@ -5,6 +5,7 @@ import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { holdThreadDiff, reopenThreadDiff } from '../panel/panel-surfaces';
 import { fleet, fleetThreadId, focusFleetThread, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { contextLinks, contextTarget, replaceLinks } from '../composer/context-links';
 
 const PREFIX = 't3-thread://v1/';
 const validId = (id: string) => id.trim().length > 0;
@@ -75,9 +76,9 @@ export async function openThreadLinkTarget(client: T3Client, native: Native, tar
 }
 /** Question answers have no context-record field: project each thread chip to its actual id. */
 export function projectPendingUserInputAnswer(answer: string | string[], records: Obj[]): string | string[] {
-  if (typeof answer !== 'string') return answer;
-  return answer.replace(/\[([^\]\n]*)\]\(t3-context:\/\/v1\/thread\/([a-z0-9_-]{1,128})\)/gi, (source, label: string, id: string) => {
-    const record = records.find(record => record.contextId === id);
-    return record && str(record.threadId) ? formatThreadLink(str(record.threadId), label) : source;
+  if (typeof answer !== 'string' || !records.length) return answer;
+  return replaceLinks(answer, contextLinks(answer), link => {
+    const target = contextTarget(link.href), record = target?.kind === 'thread' ? records.find(record => record.contextId === target.id) : undefined;
+    return record && str(record.threadId) ? formatThreadLink(str(record.threadId), link.label) : null;
   });
 }

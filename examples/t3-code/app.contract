@@ -205,7 +205,7 @@ component T3Code
     optionsAnchorX
     optionsAnchorWidth
   members "./src/timeline/cite-members.contract"
-  mutation balanceLoaded as shape Change refreshes data // auto-balance.ts (issues/closed/20261009-typescript-failure-parity.md, issues/20261009-runner-owned-bidirectional-streams.md): an unresolved Auto draft asks its machines' host resources, at the window's time.
+  mutation balanceLoaded as shape Change queue refreshes data // auto-balance.ts (issues/closed/20261009-typescript-failure-parity.md, issues/20261009-runner-owned-bidirectional-streams.md): an unresolved Auto draft asks its machines' host resources, at the window's time. Queued: its move to another machine holds `moving` across polls on its own timers, which a newer send would let go.
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
     after(1, balanceLoadNow)
   action balanceLoadNow
@@ -995,7 +995,8 @@ component T3Code
   action submit(gesture: string)
     if not commandPending and editor.overLimit and data.requestMode != "question"
       send localChanged = command("editorlocal:arm-limit", "", "", 0)
-    if not commandPending and (not editor.overLimit or data.requestMode == "question") and data.composer.uploadBlock == ""
+    // Send and Return wait for the draft's uploads; a question's Return goes, and its answer says why it waits.
+    if not commandPending and (not editor.overLimit or data.requestMode == "question") and (data.requestMode == "question" or data.composer.uploadBlock == "")
       if data.requestMode == "question" or (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0))
         commandPending = true
         send changed = command("send", gesture, composerText, 0)

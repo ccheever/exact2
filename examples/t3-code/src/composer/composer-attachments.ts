@@ -12,15 +12,13 @@ import { ClientError, preferenceFiles, type Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { draftFiles, setDraftFiles } from './composer-editor-files';
 import { contextId, contextReferences } from './composer-editor-menu';
+import { contextLinks, contextTarget } from './context-links';
 import { videoMimeType } from './composer-video';
 export { videoMimeType } from './composer-video';
 
-const CONTEXT_LINK = /(!?)\[([^\]\n]{0,512})\]\((t3-context:\/\/v1\/([a-z][a-z0-9-]{0,39})\/([a-z0-9_-]{1,128}))\)/gi;
-
 /** removeInlineContextReference: every link to the context, with one adjoining space, and a trailing gap trimmed. */
 export function removeInlineContextReference(prompt: string, id: string): { prompt: string; cursor: number } {
-  const occurrences = [...prompt.matchAll(CONTEXT_LINK)].filter(match => match[5] === id)
-    .map(match => ({ start: match.index!, end: match.index! + match[0].length }));
+  const occurrences = contextLinks(prompt).filter(link => contextTarget(link.href)?.id === id);
   if (occurrences.length === 0) return { prompt, cursor: prompt.length };
   let result = prompt, cursor = prompt.length;
   for (const occurrence of occurrences.reverse()) {

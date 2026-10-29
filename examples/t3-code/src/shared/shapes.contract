@@ -243,6 +243,8 @@ shape Question
   index: number
   last: bool
   canAdvance: bool
+  // An image of this question's answer still uploads: Next and Submit wait (ChatComposer's attachmentBlockReason).
+  uploading: bool
   complete: bool
   action: string
   options: QuestionOption[]

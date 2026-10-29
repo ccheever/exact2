@@ -215,25 +215,39 @@ members T3Code
       case none
   action chooseAttachments
     showPicker("composer-attach-input")
-  // attachmentUploadQueue.ts: a draft image uploads as it joins the draft, three at once, each in one of these streams,
-  // whose fetch tells the bytes it has sent (composer-uploads.ts), so no answer waits on one. An image keeps its
-  // resource until its upload ends, since new arguments let a running upload go.
+  // attachmentUploadQueue.ts: a draft image uploads as it joins the draft, three at once on each machine, each in one of
+  // these streams, whose fetch tells the bytes it has sent (composer-uploads.ts), so no answer waits on one. An image
+  // keeps its resource until its upload ends, since new arguments let a running upload go.
   resource composerUpload0 = composerUpload(0, data.composer.uploads.u0.id, data.composer.uploads.u0.attachmentId) as shape ComposerUpload
   resource composerUpload1 = composerUpload(1, data.composer.uploads.u1.id, data.composer.uploads.u1.attachmentId) as shape ComposerUpload
   resource composerUpload2 = composerUpload(2, data.composer.uploads.u2.id, data.composer.uploads.u2.attachmentId) as shape ComposerUpload
-  derive composerUploads = [composerUpload0, composerUpload1, composerUpload2]
+  resource composerUpload3 = composerUpload(3, data.composer.uploads.u3.id, data.composer.uploads.u3.attachmentId) as shape ComposerUpload
+  resource composerUpload4 = composerUpload(4, data.composer.uploads.u4.id, data.composer.uploads.u4.attachmentId) as shape ComposerUpload
+  resource composerUpload5 = composerUpload(5, data.composer.uploads.u5.id, data.composer.uploads.u5.attachmentId) as shape ComposerUpload
+  derive composerUploads = [composerUpload0, composerUpload1, composerUpload2, composerUpload3, composerUpload4, composerUpload5]
   // An upload that ended, by its resource's answer for the attachment it carries now; one cut off on its way fails
   // with no answer. The root's `cclocal:uploads` lands or fails them and starts the images waiting for a resource.
   derive composerUploadEnd0 = composerUpload0.attachmentId != "" and composerUpload0.attachmentId == data.composer.uploads.u0.attachmentId and (composerUpload0.status == "ready" or composerUpload0.status == "failed")
   derive composerUploadEnd1 = composerUpload1.attachmentId != "" and composerUpload1.attachmentId == data.composer.uploads.u1.attachmentId and (composerUpload1.status == "ready" or composerUpload1.status == "failed")
   derive composerUploadEnd2 = composerUpload2.attachmentId != "" and composerUpload2.attachmentId == data.composer.uploads.u2.attachmentId and (composerUpload2.status == "ready" or composerUpload2.status == "failed")
-  derive composerUploadsCut = [(data.composer.uploads.u0.id != "" and failed(composerUpload0) ? "0" : ""), (data.composer.uploads.u1.id != "" and failed(composerUpload1) ? "1" : ""), (data.composer.uploads.u2.id != "" and failed(composerUpload2) ? "2" : "")].filter((slot) => slot != "").join(" ")
-  derive composerUploadsDue = data.composer.uploads.pending != "" or data.composer.uploads.settle > 0 or composerUploadEnd0 or composerUploadEnd1 or composerUploadEnd2 or composerUploadsCut != ""
+  derive composerUploadEnd3 = composerUpload3.attachmentId != "" and composerUpload3.attachmentId == data.composer.uploads.u3.attachmentId and (composerUpload3.status == "ready" or composerUpload3.status == "failed")
+  derive composerUploadEnd4 = composerUpload4.attachmentId != "" and composerUpload4.attachmentId == data.composer.uploads.u4.attachmentId and (composerUpload4.status == "ready" or composerUpload4.status == "failed")
+  derive composerUploadEnd5 = composerUpload5.attachmentId != "" and composerUpload5.attachmentId == data.composer.uploads.u5.attachmentId and (composerUpload5.status == "ready" or composerUpload5.status == "failed")
+  derive composerUploadsCut = [(data.composer.uploads.u0.id != "" and failed(composerUpload0) ? "0" : ""), (data.composer.uploads.u1.id != "" and failed(composerUpload1) ? "1" : ""), (data.composer.uploads.u2.id != "" and failed(composerUpload2) ? "2" : ""), (data.composer.uploads.u3.id != "" and failed(composerUpload3) ? "3" : ""), (data.composer.uploads.u4.id != "" and failed(composerUpload4) ? "4" : ""), (data.composer.uploads.u5.id != "" and failed(composerUpload5) ? "5" : "")].filter((slot) => slot != "").join(" ")
+  derive composerUploadsDue = data.composer.uploads.pending != "" or data.composer.uploads.settle > 0 or composerUploadEnd0 or composerUploadEnd1 or composerUploadEnd2 or composerUploadEnd3 or composerUploadEnd4 or composerUploadEnd5 or composerUploadsCut != ""
   mutation uploadsChanged as shape Change queue refreshes data
-  task composerUploadsRun when composerUploadsDue key=`${data.composer.uploads.pending}|${data.composer.uploads.settle}|${composerUploadEnd0}:${data.composer.uploads.u0.attachmentId}|${composerUploadEnd1}:${data.composer.uploads.u1.attachmentId}|${composerUploadEnd2}:${data.composer.uploads.u2.attachmentId}|${composerUploadsCut}`
+  task composerUploadsRun when composerUploadsDue key=`${data.composer.uploads.pending}|${data.composer.uploads.settle}|${composerUploadEnd0}:${data.composer.uploads.u0.attachmentId}|${composerUploadEnd1}:${data.composer.uploads.u1.attachmentId}|${composerUploadEnd2}:${data.composer.uploads.u2.attachmentId}|${composerUploadEnd3}:${data.composer.uploads.u3.attachmentId}|${composerUploadEnd4}:${data.composer.uploads.u4.attachmentId}|${composerUploadEnd5}:${data.composer.uploads.u5.attachmentId}|${composerUploadsCut}`
     after(1, composerUploadsNow)
   action composerUploadsNow
     send uploadsChanged = command("cclocal:uploads", "", composerUploadsCut, 0)
+  // A send kept while its images uploaded (useComposerSend's await) goes once they have landed, as a command of its own,
+  // whichever thread is shown: no answer waits for them, so none let go meanwhile is left waiting (composer-uploads.ts).
+  task sendResume when data.composer.sendResume != "" and not commandPending key=data.composer.sendResume
+    after(1, sendResumeNow)
+  action sendResumeNow
+    if not commandPending and data.composer.sendResume != ""
+      commandPending = true
+      send changed = command("send-resume", data.composer.sendResume, "", 0)
   // The pump's requests (an upload URL, an attachment let go) wait on a server reply, so the tick publishes the
   // transport's table as it starts and ends, as transportAnswered does for the answers it names.
   task composerUploadsAnswered key=`${pending(uploadsChanged)}`
