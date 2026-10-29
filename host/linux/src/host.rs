@@ -1,12 +1,11 @@
 //! The runner wrapped for a painter: commits → layout → motion, with the
 //! kernel read directly — no batch, no mirror.
-//!
 //! @ref LLP 1015 §1; LLP 1008 §1 (the same orchestration, whose batch
 //! exists because a foreign view tree consumes it — here nothing does)
 //!
 //! After every commit the host lays the roots out with the kernel's layout
 //! under the viewport, feeds the motion engine the commit (LLP 1003 §4),
-//! seeks it to the app's clock, and keeps each node's presentation values.
+//! seeks the app's clock and keeps node presentation values.
 
 use crate::paint::Presented;
 use exact_kernel::motion::{layout_presented, motion_node, node_key, MotionSync, PaintMotion};
