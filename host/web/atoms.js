@@ -34,7 +34,8 @@ export function atomBox(a, css = '', editing = false) {
   if (a.icon && !a.icon.startsWith('symbol:')) {
     const img = box.appendChild(document.createElement('img'));
     img.src = a.icon; img.alt = ''; img.setAttribute('aria-hidden', 'true');
-    img.style.cssText = 'width:.75em;height:.75em;margin-inline-end:.25em;vertical-align:baseline;object-fit:contain';
+    // Inline before the label, over the page's `img { display: block }` (index.html).
+    img.style.cssText = 'display:inline-block;width:.75em;height:.75em;margin-inline-end:.25em;vertical-align:baseline;object-fit:contain';
   }
   box.append(a.label);
   return box;

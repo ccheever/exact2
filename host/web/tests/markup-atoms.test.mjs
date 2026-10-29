@@ -20,8 +20,15 @@ const CITE = '[Quote](cite:1)';
 const faces = list => JSON.stringify(list.map(([source, label, title = '', color = '', backgroundColor = '', direction = '', icon = '']) => ({ source, label, icon, title, color, backgroundColor, direction })));
 // An icon the web draws: a black square.
 const ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>');
-// Whether a pill's icon is on its right: its middle past the pill's.
-const iconOnTheRight = box => box.evaluate(b => { const i = b.querySelector('img').getBoundingClientRect(), r = b.getBoundingClientRect(); return i.left + i.width / 2 > r.left + r.width / 2; });
+// Whether a pill's icon is on its right: its middle past the pill's, on its
+// label's line, where the page's `img { display: block }` would put it above.
+const iconOnTheRight = box => box.evaluate(b => {
+  const i = b.querySelector('img').getBoundingClientRect(), r = b.getBoundingClientRect(), label = document.createRange();
+  label.selectNodeContents(b.lastChild);
+  const t = label.getBoundingClientRect();
+  if (i.bottom <= t.top + 1) throw new Error(`the icon is above its label: ${JSON.stringify([i, t])}`);
+  return i.left + i.width / 2 > r.left + r.width / 2;
+});
 const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 async function editor(engine, source, drive, { width = 500, faceList = [], styles = '{}' } = {}) {
@@ -29,7 +36,7 @@ async function editor(engine, source, drive, { width = 500, faceList = [], style
     const path = new URL(request.url).pathname;
     if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
-    return new Response(`<!doctype html><meta charset="utf-8"><style>body{font:16px/1.4 system-ui}</style>
+    return new Response(`<!doctype html><meta charset="utf-8"><style>body{font:16px/1.4 system-ui} img, video, svg { display: block; }</style>
       <textarea id="editor" markup="markdown" data-atoms="${attr(KINDS)}" data-atom-faces="${attr(faces(faceList))}" data-atom-styles="${attr(styles)}" style="width:${width}px;height:200px"></textarea>
       <script type="module">
         globalThis.exact = {};
@@ -214,7 +221,8 @@ for (const engine of engines) {
     const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
       const path = new URL(request.url).pathname;
       if (path.endsWith('.js')) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
-      return new Response(`<!doctype html><meta charset="utf-8"><p id="text" markup="markdown" data-exact-text style="direction:rtl"></p><script type="module">
+      // The host page's reset (index.html) makes an image a block.
+      return new Response(`<!doctype html><meta charset="utf-8"><style>img, video, svg { display: block; }</style><p id="text" markup="markdown" data-exact-text style="direction:rtl"></p><script type="module">
         globalThis.exact = {};
         const { renderMarkup } = await import('./navigation.js');
         await import('./atoms.js');
