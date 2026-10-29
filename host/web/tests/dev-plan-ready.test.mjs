@@ -59,7 +59,8 @@ async function fixtureTurn(loop) {
 function devLoop(loop, port, onReady = () => {}, delay = loop.delay) {
   const dist = mkdtempSync(join(tmpdir(), 'exact-plan-ready-dist-'));
   dists.add([loop.args[1], dist]);
-  const env = { ...process.env, EXACT_WEB_DIST: dist, ...(delay ? { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: String(delay) } : {}) };
+  const env = { ...process.env, EXACT_WEB_DIST: dist, EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: String(delay) };
+  if (!delay) delete env.EXACT_DEV_LISTEN_DELAY_MS;
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), ...loop.args, '--port', String(port)], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '', ready = false;
   // Once its output has all been read (a child's 'close' comes after its streams end).
@@ -94,7 +95,7 @@ const warm = loop => {
         await Bun.sleep(50);
       }
     } finally { await run.dev.stop(15_000); }
-  })());
+  })().catch(error => { warmed.delete(loop.name); throw error; })); // a failed warm run is tried again by the next case
   return warmed.get(loop.name);
 };
 
