@@ -20,7 +20,7 @@ const content = `<div style="display:flex;gap:16px;padding:16px">${img('odd', 'e
 // Each runtime's painter, its module's other parts stood in for.
 const RUNTIMES = {
   'host/web/glue.js': ['const views = new Map([...document.querySelectorAll("#exact-root img")].entries()), log = () => {};', ['tintFit', 'refreshSymbols'], 'refreshSymbols();'],
-  'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {};', ['inked', 'refresh'], 'refresh();'],
+  'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {}, Images = new Set(document.querySelectorAll("#exact-root img")), image = e => Images.add(e);', ['inked', 'refresh'], 'refresh();'],
 };
 
 for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: an even-odd icon draws its hole, a nonzero one is filled through (${file})`, async () => {
@@ -69,7 +69,7 @@ test('symbols.js iconForm and draw read a form as Icon::parse does', async () =>
   const { cases } = JSON.parse(readFileSync(resolve(ROOT, 'kernel/tests/fixtures/icon-forms.json'), 'utf8'));
   try {
     const page = await suite.newPage();
-    await page.setContent(`<script>const Table = {}; ${glueDeclarations(source, ['iconForm', 'draw'])} globalThis.iconForm = iconForm; globalThis.draw = draw;</script>`);
+    await page.setContent(`<script>const Table = {}, image = () => {}; ${glueDeclarations(source, ['iconForm', 'draw'])} globalThis.iconForm = iconForm; globalThis.draw = draw;</script>`);
     const read = await page.evaluate((names) => names.map((name) => {
       const e = document.createElement('img');
       e.setAttribute('data-symbol-viewbox', 'stale'); e.toggleAttribute('data-symbol-nonzero', true); e.toggleAttribute('data-symbol-evenodd', true);
