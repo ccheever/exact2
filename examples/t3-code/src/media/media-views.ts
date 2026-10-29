@@ -195,18 +195,17 @@ function firstFrom(positions: number[], from: number): number {
   return low;
 }
 /**
- * One line's brackets, parentheses and backtick runs, each found once (markdown_media.rs LineMarks), so each `![`, `[`
- * and run of backticks it holds is read in constant time: a line of many unclosed `![` or `(`, or of images inside an
- * unclosed link's text, reads in linear time, where reading on from each to the line's end did not.
+ * One line's brackets, parentheses and backtick runs, found in one pass (markdown_media.rs LineMarks), so a `![`, a `[`
+ * or a run of backticks is looked up (a binary search, or the table filled from the line's end) where the reads it
+ * replaces went on to the line's end from each: a line of many unclosed `![` or `(`, or of images inside an unclosed
+ * link's text, no longer takes time in the square of its length.
  */
 function lineMarks(line: string) {
-  const opens: number[] = [], closes: number[] = [], unclosed: number[] = [], brackets: number[] = [];
+  const opens: number[] = [], closes: number[] = [], unclosed: number[] = [];
   // The `)` that balances the `(` at each position, every parenthesis counted, as an image's destination counts them.
   const parens = new Map<number, number>();
   // The start of each run of backticks, by its length.
   const ticks = new Map<number, number[]>();
-  // Whether the `[` at each position starts a link's text: its matching `]`, escapes and code spans aside, is followed by `(`.
-  const linkTexts = new Map<number, boolean>();
   for (let at = 0; at < line.length;) {
     const character = line[at];
     if (character === '`') {
@@ -222,22 +221,27 @@ function lineMarks(line: string) {
     else if (character === ')') { const open = unclosed.pop(); if (open !== undefined) parens.set(open, at); }
     at++;
   }
-  // markdown_media.rs code_span_end: past the next run of as many backticks, or, with none, past its own run, which is
-  // then text.
-  const codeSpanEnd = (at: number) => {
-    const run = leading(line, '`', at), starts = ticks.get(run) ?? [], next = starts[firstFrom(starts, at + run)];
+  // markdown_media.rs code_span_end: past the next run of as many backticks (`run` of them start at `at`), or, with
+  // none, past its own run, which is then text.
+  const spanEnd = (at: number, run: number) => {
+    const starts = ticks.get(run) ?? [], next = starts[firstFrom(starts, at + run)];
     return next === undefined ? at + run : next + run;
   };
-  for (let at = 0; at < line.length;) {
+  // The `]` that a read one bracket deep, starting at each position, closes on (-1 for none): escapes skipped, code
+  // spans passed over and nested brackets matched, as the read from a link's `[` went, whatever came before the
+  // position. Filled from the line's end, so each position reads only answers already made after it.
+  const closers = new Int32Array(line.length + 2).fill(-1);
+  for (let at = line.length - 1, run = 0; at >= 0; at--) {
     const character = line[at];
-    if (character === '\\') at += 2;
-    else if (character === '`') at = codeSpanEnd(at);
-    else if (character === '[') brackets.push(at++);
-    else if (character === ']') { const open = brackets.pop(); if (open !== undefined) linkTexts.set(open, line[at + 1] === '('); at++; }
-    else at++;
+    run = character === '`' ? run + 1 : 0;
+    closers[at] = character === '\\' ? closers[at + 2]!
+      : character === '`' ? closers[spanEnd(at, run)]!
+      : character === '[' ? (closers[at + 1]! < 0 ? -1 : closers[closers[at + 1]! + 1]!)
+      : character === ']' ? at
+      : closers[at + 1]!;
   }
   return {
-    codeSpanEnd,
+    codeSpanEnd: (at: number) => spanEnd(at, leading(line, '`', at)),
     /** `![alt](inside)` at `at`: the first `]` after its `![`, followed by a `(` whose `)` balances it. */
     imageSpan(at: number): { close: number; end: number } | null {
       const close = closes[firstFrom(closes, at + 2)];
@@ -246,7 +250,8 @@ function lineMarks(line: string) {
     },
     /** Whether a `[` lies from `from` up to `to`. */
     opensWithin: (from: number, to: number) => (opens[firstFrom(opens, from)] ?? to) < to,
-    startsLinkText: (open: number) => linkTexts.get(open) === true,
+    /** Whether the `[` at `open` starts a link's text: the `]` that closes it is followed by `(`. */
+    startsLinkText: (open: number) => closers[open + 1]! >= 0 && line[closers[open + 1]! + 1] === '(',
   };
 }
 export type InlineImage = { alt: string; src: string; href: string; linked: boolean };

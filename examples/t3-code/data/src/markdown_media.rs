@@ -164,9 +164,10 @@ fn image_span(line: &str, at: usize) -> Option<(usize, usize)> {
     LineMarks::new(line).image_span(line.as_bytes(), at)
 }
 
-/// One line's brackets, parentheses and backtick runs, each found once, so each `![`, `[` and run of backticks the line
-/// holds is read in constant time: a line of many unclosed `![` or `(`, or of images inside an unclosed link's text,
-/// reads in linear time, where reading on from each to the line's end did not.
+/// One line's brackets, parentheses and backtick runs, found in one pass, so a `![`, a `[` or a run of backticks is
+/// looked up (a binary search, or the table filled from the line's end) where the reads it replaces went on to the
+/// line's end from each: a line of many unclosed `![` or `(`, or of images inside an unclosed link's text, no longer
+/// takes time in the square of its length.
 struct LineMarks {
     /// Where each `[` and each `]` is, in order.
     opens: Vec<usize>,
@@ -175,9 +176,10 @@ struct LineMarks {
     parens: std::collections::HashMap<usize, usize>,
     /// The start of each run of backticks, by its length.
     ticks: std::collections::HashMap<usize, Vec<usize>>,
-    /// Whether the `[` at each position starts a link's text: the `]` that matches it, escapes and code spans aside, is
-    /// followed by `(`.
-    link_texts: std::collections::HashMap<usize, bool>,
+    /// The `]` that a read one bracket deep, starting at each position, closes on (`usize::MAX` for none): escapes
+    /// skipped, code spans passed over and nested brackets matched, as the read from a link's `[` went, whatever came
+    /// before the position.
+    closers: Vec<usize>,
 }
 
 impl LineMarks {
@@ -188,7 +190,7 @@ impl LineMarks {
             closes: Vec::new(),
             parens: std::collections::HashMap::new(),
             ticks: std::collections::HashMap::new(),
-            link_texts: std::collections::HashMap::new(),
+            closers: Vec::new(),
         };
         let mut unclosed = Vec::new();
         let mut at = 0;
@@ -212,28 +214,32 @@ impl LineMarks {
             }
             at += 1;
         }
-        let mut brackets = Vec::new();
-        let mut at = 0;
-        while at < bytes.len() {
-            match bytes[at] {
-                b'\\' => at += 2,
-                b'`' => at = marks.code_span_end(bytes, at),
-                b'[' => {
-                    brackets.push(at);
-                    at += 1;
-                }
-                b']' => {
-                    if let Some(open) = brackets.pop() {
-                        marks
-                            .link_texts
-                            .insert(open, bytes.get(at + 1) == Some(&b'('));
-                    }
-                    at += 1;
-                }
-                _ => at += 1,
-            }
+        // From the line's end, so each position reads only answers already made after it: a `[` closes where the read
+        // after it does, and the read goes on past that `]`.
+        let mut closers = vec![usize::MAX; bytes.len() + 2];
+        // The backticks from each position on, counted as the read goes, so a position inside a run is not counted again.
+        let mut run = 0;
+        for at in (0..bytes.len()).rev() {
+            run = if bytes[at] == b'`' { run + 1 } else { 0 };
+            closers[at] = match bytes[at] {
+                b'\\' => closers[at + 2],
+                b'`' => closers[marks.span_end(at, run)],
+                b'[' => match closers[at + 1] {
+                    usize::MAX => usize::MAX,
+                    close => closers[close + 1],
+                },
+                b']' => at,
+                _ => closers[at + 1],
+            };
         }
+        marks.closers = closers;
         marks
+    }
+
+    /// Whether the `[` at `open` starts a link's text: the `]` that closes it is followed by `(`.
+    fn starts_link_text(&self, bytes: &[u8], open: usize) -> bool {
+        let close = self.closers[open + 1];
+        close != usize::MAX && bytes.get(close + 1) == Some(&b'(')
     }
 
     /// `![alt](inside)` at `at`: the first `]` after its `![`, followed by a `(` whose `)` balances it.
@@ -250,7 +256,11 @@ impl LineMarks {
     /// The end of the code span whose backticks start at `at`: past the next run of as many backticks, or, with none,
     /// past its own run, which is then text.
     fn code_span_end(&self, bytes: &[u8], at: usize) -> usize {
-        let run = bytes[at..].iter().take_while(|b| **b == b'`').count();
+        self.span_end(at, bytes[at..].iter().take_while(|b| **b == b'`').count())
+    }
+
+    /// `code_span_end` for the `run` backticks that start at `at`.
+    fn span_end(&self, at: usize, run: usize) -> usize {
         self.ticks
             .get(&run)
             .and_then(|starts| starts.get(starts.partition_point(|&start| start < at + run)))
@@ -311,7 +321,7 @@ fn image_links_in_line(line: &str, out: &mut String) {
                     continue;
                 };
                 let inside = &line[close + 2..end];
-                if opened.last().is_some_and(|open| marks.link_texts.get(open) == Some(&true)) {
+                if opened.last().is_some_and(|&open| marks.starts_link_text(bytes, open)) {
                     out.push_str(&line[copied..at]);
                     out.push(LINKED_IMAGE);
                     out.push_str(&hex(&line[at + 2..close]));
@@ -564,27 +574,44 @@ mod media_tests {
     }
 
     #[test]
-    fn a_line_of_unclosed_images_reads_in_linear_time() {
-        // Each of these once read on to the line's end from each `![`, `(`, bracket, run of backticks or `<`, or back
-        // over every open run of tildes: from half a second to two seconds for this size in a release build.
-        let ticks: String = (1..=1_000).map(|k| format!("{}x ", "`".repeat(k))).collect();
-        let lines = [
-            format!("x {}", "![a".repeat(85_000)),
+    fn long_lines_of_unclosed_marks_read_quickly() {
+        // Lines the scans read in time that grew with the square of their length: on to the line's end from each `![`,
+        // `(` or bracket (the image links, an image chip's `]`), from each run of backticks to the next of its length,
+        // from each `<` to a `>`, and back over every open run of tildes. The `![a` line took a second either way, and
+        // the others from 0.3 s to 31 s in a debug build.
+        let ticks: String = (1..=500).map(|k| format!("{}x ", "`".repeat(k))).collect();
+        let links = [
+            format!("x {}", "![a".repeat(170_000)),
             "![a](".repeat(51_000),
             format!("[{}", "[![a](b)".repeat(32_000)),
             format!("![a](b) {ticks}"),
+        ];
+        // A struck line's `](` destinations were read once before as well: that line holds their lookup to it.
+        let struck = [
             format!("~a~ {}", "](".repeat(128_000)),
             format!("~a~ {}", "<".repeat(255_000)),
-            format!("{}{}", " ~x".repeat(40_000), " x~~".repeat(40_000)),
+            format!("{}{}", " ~x".repeat(25_000), " x~~".repeat(25_000)),
         ];
-        // A release build renders each in under 100 ms (the link's 64,000 images the most); a debug build is about ten
-        // times slower.
-        let limit = std::time::Duration::from_millis(if cfg!(debug_assertions) { 3_000 } else { 150 });
-        for line in &lines {
+        let chips = format!("![c](t3-context://v1/image/a) {}", "![a".repeat(170_000));
+        // Each takes under 6 ms in a release build and under 80 ms in a debug one.
+        let limit = std::time::Duration::from_millis(if cfg!(debug_assertions) { 250 } else { 50 });
+        let timed = |what: &str, text: &str, read: &dyn Fn(&str)| {
             let start = std::time::Instant::now();
-            document_with_skills(Value::str("m"), line, None);
+            read(text);
             let took = start.elapsed();
-            assert!(took < limit, "{} bytes of {:?}… took {took:?}", line.len(), &line[..8]);
+            assert!(took < limit, "{what} of {} bytes of {:?}… took {took:?}", text.len(), &text[..8]);
+        };
+        for line in &links {
+            timed("image links", line, &|line| drop(inline_image_links(line)));
+        }
+        for line in &struck {
+            timed("struck runs", line, &|line| drop(strike_pairs(line)));
+        }
+        timed("image chips", &chips, &|text| drop(image_chip_links(text)));
+        timed("context images", &chips, &|text| drop(context_image_hrefs(text)));
+        // The whole document still renders each.
+        for text in links.iter().chain(&struck).chain([&chips]) {
+            document_with_skills(Value::str("m"), text, None);
         }
     }
 
