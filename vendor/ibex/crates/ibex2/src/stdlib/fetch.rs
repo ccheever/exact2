@@ -439,8 +439,12 @@ pub fn fetch_stream_gated(
         signal.check()?;
         admit_hop(grants, gate, &current.url, redirected)?;
         // An upload goes out now, its grant and gate passed (Exact patch 23).
+        // An abort that came while they were checked still stops it: the
+        // embedder aborts before it reads which uploads started, so one it
+        // read as unstarted never opens.
         if let (false, Some(Sent(_, Some(start)))) = (redirected, &current.sent) {
             start();
+            signal.check()?;
         }
 
         // The request guard applies here, where a header list becomes a
@@ -722,6 +726,34 @@ mod tests {
         .unwrap_err()
         .to_string()
         .starts_with("AbortError"));
+        assert!(transport.seen().is_empty());
+    }
+
+    /// An upload aborted while its grant and gate are checked, its start told
+    /// once they pass, never opens (Exact patch 23): an embedder that read it
+    /// as unstarted after aborting it is right.
+    #[test]
+    fn an_upload_aborted_as_it_starts_never_reaches_transport() {
+        let transport = StubTransport::new(vec![response(201, None)]);
+        let controller = crate::stdlib::abort::AbortController::new();
+        let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut request = Request::get("https://example.com/upload");
+        request.method = "POST".into();
+        request.body = Some(b"photo".to_vec());
+        request.sent = Some(Sent(
+            std::sync::Arc::new(|_, _| {}),
+            Some(std::sync::Arc::new({
+                let (starts, controller) = (starts.clone(), controller.clone());
+                move || {
+                    starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    controller.abort();
+                }
+            })),
+        ));
+        let signal = controller.signal();
+        let refused = fetch_stream(&transport, &granted("example.com"), request, &signal);
+        assert!(refused.unwrap_err().to_string().starts_with("AbortError"));
+        assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert!(transport.seen().is_empty());
     }
 
