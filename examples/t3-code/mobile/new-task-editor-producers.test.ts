@@ -43,6 +43,27 @@ test('preview with a stale native range has no navigation authority', async () =
   expect(effect(f.client, f.route)).toBeNull(); expect(f.calls.some(call => call.action === 'freeze')).toBe(false);
 });
 
+test('preview refused after freeze resumes the newest saved source for further editing', async () => {
+  const source = '[note](t3-context://v1/file/note)';
+  const f = await fixture((client, key) => { client.local.drafts[key] = source; }); picker(f);
+  f.resumeHook(async request => {
+    f.receipts([]);
+    return { ok: true, generation: request.generation, value: { event: {
+      ...event(f.identity, String(obj(request.document).value), 5, 'resumed'), selection: obj(request.document).selection,
+      operationId: request.operationId, operationRevision: request.operationRevision, receiptId: request.receiptId,
+    } } };
+  });
+  const token = JSON.stringify({ ...event(f.identity, source), kind: 'contextPress', richEventId: 'preview-press',
+    payload: { source, start: 0, end: source.length } });
+  expect((await action(f.client, f.route, { kind: 'preview', id: '', token }, f.native, f.storage)).accepted).toBe(true);
+  expect(view(f.client, f.route).kind).toBe('editing');
+  expect(obj(f.disk().drafts)[f.key]).toBe('🙂 picked here');
+  expect(effect(f.client, f.route)?.kind).not.toBe('preview');
+  await action(f.client, f.route, { kind: 'retry' }, f.native, f.storage);
+  expect((await action(f.client, f.route, { kind: 'observe', payload: event(f.identity, '🙂 continuing', 6, 'text') }, f.native, f.storage)).accepted).toBe(true);
+  expect(obj(f.disk().drafts)[f.key]).toBe('🙂 continuing');
+});
+
 test('actual automatic branch metadata keeps native source admitted while an unrelated revision still fences it', async () => {
   const f = await fixture();
   mobileNewTaskDraftNoteBranch(f.client, 'automatic');

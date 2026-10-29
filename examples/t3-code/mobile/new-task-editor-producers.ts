@@ -11,7 +11,6 @@ import { draftFiles } from './shared/composer-editor-files';
 import { obj, str } from './shared/domain';
 import { collectComposerContextReferences } from './composer-editor-document';
 import { mobileNewTaskContextRead } from './mobile-new-task-context';
-import { ClientError } from './shared/protocol';
 import { fleet } from './shared/settings-b-fleet';
 
 export type NewTaskDestination = 'model' | 'branch' | 'environment' | 'project' | 'back';
@@ -43,10 +42,10 @@ export async function newTaskEditorProduce(client: MobileDraftClient, route: New
       let id = intent.id;
       if (intent.token) {
         const raw = obj(JSON.parse(intent.token)), reference = obj(raw.payload), text = mobileComposerTargetText(client, target);
-        if (raw.value !== text) throw new ClientError('The attachment source changed.', 'superseded');
+        if (raw.value !== text) return { ...base, message: 'The attachment source changed.' };
         const token = collectComposerContextReferences(text ?? '').find(row => row.source === reference.source
           && row.start === reference.start && row.end === reference.end);
-        if (!token) throw new ClientError('The attachment range changed.', 'superseded');
+        if (!token) return { ...base, message: 'The attachment range changed.' };
         if (token.kind === 'file') id = draftFiles(client.local).find(file => file.draftKey === target.key
           && file.environmentId === target.environmentId && file.contextId === token.contextId)?.id ?? '';
         else if (token.kind === 'image') {
@@ -56,7 +55,7 @@ export async function newTaskEditorProduce(client: MobileDraftClient, route: New
       }
       const present = (client.local.snapshotDrafts[target.key] ?? []).some(row => row.id === id)
         || draftFiles(client.local).some(row => row.draftKey === target.key && row.environmentId === target.environmentId && row.id === id);
-      if (!id || !present) throw new ClientError('The attachment is no longer in this draft.', 'superseded');
+      if (!id || !present) return { ...base, message: 'The attachment is no longer in this draft.' };
       return { ...base, leave: true, effect: { kind: 'preview', destination: id, flow: null } };
     }
     case 'remove': {
