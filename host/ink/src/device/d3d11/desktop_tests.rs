@@ -503,12 +503,7 @@ fn shelf_startup_series() {
     let after = std::env::var("INK_SHELF").unwrap();
     for size in ["1024x720", "1920x1080"] {
         for round in 0..10 {
-            let arms = [
-                (&after, "cpu", "cpu"),
-                (&after, "wgpu", "wgpu"),
-                (&after, "warp", "warp-ink"),
-                (&after, "ink", "after"),
-            ];
+            let arms = [(&after, "cpu", "cpu"), (&after, "ink", "after")];
             for step in 0..arms.len() {
                 let (exe, painter, arm) = arms[(round + step) % arms.len()];
                 let name = format!("startup-{size}-{round}-{arm}");
