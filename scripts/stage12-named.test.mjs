@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodePng, encodePng } from './png.mjs';
@@ -226,4 +226,31 @@ test("web-wasm's image-raster rule: at most 4 levels inside an Image box laid ou
   expect(sameImageBoxes(imageBoxes(out([avatar])), imageBoxes(out([avatar])))).toEqual([[32, 248, 42, 43]]);
   expect(sameImageBoxes(imageBoxes(out([avatar])), imageBoxes(out([moved])))).toEqual([]);
   expect(imageBoxes('{"op":"tap"}\n')).toEqual([]);
+  // A box partly off the screen is clipped to it; one wholly off is none
+  expect(imageBoxes(out([{ type: 'Image', x: -5, y: 880, w: 20, h: 40 }])).map(i => i.rect)).toEqual([[0, 880, 15, 20]]);
+  expect(imageBoxes(out([{ type: 'Image', x: 0, y: 950, w: 20, h: 40 }]))).toEqual([]);
+  // A hundredth of a point apart is not alike; a box listed twice counts once
+  expect(sameImageBoxes(imageBoxes(out([avatar])), imageBoxes(out([{ ...avatar, x: 32.01 }])))).toEqual([]);
+  expect(sameImageBoxes(imageBoxes(out([avatar, avatar])), imageBoxes(out([avatar])))).toEqual([[32, 248, 42, 43]]);
+  // The order of the rules: the allowlist first, then a named box takes every pixel in it, then the image rule,
+  // then the web's edge floor
+  const both = img(8, 8, (x, y) => (y === 3 && x >= 2 && x <= 5 ? by(3) : black()));
+  const ordered = pixelDiff(a, both, [[2, 3, 1, 1]], { floor: 2, edge: 32 }, [{ target: 'n', change: '', rect: [3, 3, 1, 1] }], [[2, 2, 4, 4]]);
+  expect([ordered.differ, ordered.names[0].differ, ordered.images[0].count]).toEqual([0, 1, 2]);
+});
+
+test('only web-wasm shots take the image rule, through comparePixels, and its crops are written', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stage12-image-noise-'));
+  try {
+    const write = (name, f) => { const path = join(dir, name); writeFileSync(path, img(8, 8, f)); return path; };
+    const a = write('a.png', black), b = write('b.png', (x, y) => (x === 3 && y === 3 ? [3, 3, 3, 255] : black()));
+    const box = [{ at: '2.00,2.00,4.00,4.00', rect: [2, 2, 4, 4] }];
+    const shot = (host, png) => ({ host, scheme: 'light', screen: 'chat', png, ok: true, allow: [], named: [], images: box });
+    const r = comparePixels({ shots: [shot('web-wasm', a), shot('web', a)] }, { shots: [shot('web-wasm', b), shot('web', b)] });
+    expect(r[0]).toMatchObject({ ok: true, differ: 0, imageNoise: [{ rect: [2, 2, 4, 4], count: 1, max: 3 }] });
+    expect(r[1]).toMatchObject({ ok: false, differ: 1 });
+    expect(r[1].imageNoise).toBeUndefined();
+    const crops = namedCrops(r[0].png[0], r[0].png[1], r[0].imageNoise.map(i => ({ target: `image-noise-${i.rect.join('-')}`, rect: i.rect })), join(dir, 'crops'), r[0].shot);
+    expect(crops.map(f => f.split('/').pop())).toEqual(['web-wasm-light-chat-image-noise-2-2-4-4-before.png', 'web-wasm-light-chat-image-noise-2-2-4-4-after.png']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

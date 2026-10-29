@@ -69,12 +69,15 @@ export function pixelDiff(a, b, allow = [], noise = null, named = [], images = [
 /** web-wasm's image-raster noise ceiling, in levels (theme2 22:01): its scaled avatar images vary by up to 4 run to run. */
 export const WASM_IMAGE_NOISE = 4;
 
-/** The Image nodes a drive's whole layout shows, each its exact rect and the whole pixels it covers. */
+/** The Image nodes a drive's whole layout shows, each its exact rect and the whole pixels it covers on the
+ * screen (clipped to the viewport, so its crops read the shot); none wholly off it. */
 export function imageBoxes(out) {
   const layout = wholeLayout(out);
-  return (layout?.nodes ?? []).filter(n => n.type === 'Image' && n.w > 0 && n.h > 0).map(n => {
-    const [x, y] = [Math.floor(n.x), Math.floor(n.y)];
-    return { at: [n.x, n.y, n.w, n.h].map(v => v.toFixed(2)).join(','), rect: [x, y, Math.ceil(n.x + n.w) - x, Math.ceil(n.y + n.h) - y] };
+  const v = layout?.viewport ?? { w: 0, h: 0 };
+  return (layout?.nodes ?? []).filter(n => n.type === 'Image' && n.w > 0 && n.h > 0).flatMap(n => {
+    const [x, y] = [Math.max(0, Math.floor(n.x)), Math.max(0, Math.floor(n.y))];
+    const [w, h] = [Math.min(Math.round(v.w), Math.ceil(n.x + n.w)) - x, Math.min(Math.round(v.h), Math.ceil(n.y + n.h)) - y];
+    return w > 0 && h > 0 ? [{ at: [n.x, n.y, n.w, n.h].map(c => c.toFixed(2)).join(','), rect: [x, y, w, h] }] : [];
   });
 }
 

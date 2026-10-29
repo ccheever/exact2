@@ -287,8 +287,7 @@ export function comparePixels(before, after) {
     if (!b.ok || !a?.ok) return { shot: key(b), ok: false, said: !a ? 'no after shot' : `not shot: ${(b.ok ? a : b).said}` };
     const allow = [...b.allow ?? [], ...a.allow ?? []];
     const named = unionNamed(b.named, a.named);
-    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null, named, b.host === 'web-wasm' ? sameImageBoxes(b.images, a.images) : []);
-    const imageNoise = (d.images ?? []).filter(i => i.count);
+    const d = pixelDiff(readFileSync(b.png), readFileSync(a.png), allow.map(r => r.rect), b.host.startsWith('web') ? WEB_NOISE : null, named, b.host === 'web-wasm' ? sameImageBoxes(b.images, a.images) : []), imageNoise = (d.images ?? []).filter(i => i.count);
     return { shot: key(b), ok: d.differ === 0, differ: d.differ, total: d.total, allow, ...(imageNoise.length ? { imageNoise } : {}), ...(d.names || imageNoise.length ? { names: d.names ?? [], png: [b.png, a.png] } : {}) };
   });
 }
@@ -554,7 +553,7 @@ export function consumerPixels(opts) {
       // For theme2's reading (10:47 (7)): each named box's rect (pad included) and its two crops, shot by shot.
       'each named box, shot by shot: its rect [x, y, w, h] and its crops (before, after) in the directory above:',
       ...r.flatMap(x => (x.names ?? []).map(m => `  ${x.shot} ${m.target}: [${m.rect.join(', ')}] ${m.differ} px; ${cropped.filter(f => f.includes(`${x.shot.replace(/[^\w.-]+/g, '-')}-${m.target.replace(/[^\w.-]+/g, '-')}-`)).map(f => f.split('/').pop()).join(', ')}`))] : []),
-    ...(r.some(x => x.imageNoise) ? [`web-wasm image-raster noise (theme2 22:01: at most ${WASM_IMAGE_NOISE} levels inside an Image box laid out alike on both sides), shot by shot, each box's crops in the directory above (image-noise-<rect>):`, ...r.filter(x => x.imageNoise).map(x => `  ${x.shot}: ${x.imageNoise.map(i => `[${i.rect.join(', ')}] ${i.count} px, at most ${i.max} levels`).join('; ')}`)] : []),
+    ...(r.some(x => x.imageNoise) ? [`web-wasm image-raster noise (theme2 22:01: at most ${WASM_IMAGE_NOISE} levels inside an Image box laid out alike on both sides), box by box: its rect, count, largest difference and crops (before, after) in the directory above:`, ...r.filter(x => x.imageNoise).flatMap(x => x.imageNoise.map(i => `  ${x.shot}: [${i.rect.join(', ')}] ${i.count} px, at most ${i.max} levels; ${cropped.filter(f => f.includes(`${x.shot.replace(/[^\w.-]+/g, '-')}-image-noise-${i.rect.join('-')}-`)).map(f => f.split('/').pop()).join(', ')}`))] : []),
     ...(r.some(x => x.allow?.length) ? ['the allowlist, shot by shot (the caret strips and the iOS keyboard band):', ...r.filter(x => x.allow?.length).map(x => `  ${x.shot}: ${x.allow.map(a => `[${a.rect.join(', ')}] ${a.reason.split(',')[0]}`).join('; ')}`)] : []),
     ...conformEvidence(conform)];
   return missingNames.length || bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);
