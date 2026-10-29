@@ -159,19 +159,30 @@ impl Shelf {
     }
 
     fn place(&mut self, width: i32, height: i32) {
-        let mut outer = RECT::default();
+        let mut outer = RECT {
+            right: width,
+            bottom: height,
+            ..Default::default()
+        };
+        // The old outer-minus-client extent can retain the previous DPI's
+        // nonclient metrics during WM_DPICHANGED. Use the HWND's current DPI.
+        // https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-adjustwindowrectexfordpi
         unsafe {
-            GetWindowRect(self.hwnd, &mut outer).unwrap();
-        }
-        let client = self.client();
-        unsafe {
+            AdjustWindowRectExForDpi(
+                &mut outer,
+                WINDOW_STYLE(GetWindowLongPtrW(self.hwnd, GWL_STYLE) as u32),
+                !GetMenu(self.hwnd).is_invalid(),
+                WINDOW_EX_STYLE(GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE) as u32),
+                GetDpiForWindow(self.hwnd),
+            )
+            .unwrap();
             SetWindowPos(
                 self.hwnd,
                 Some(HWND_TOP),
                 80,
                 80,
-                width + outer.right - outer.left - client.right,
-                height + outer.bottom - outer.top - client.bottom,
+                outer.right - outer.left,
+                outer.bottom - outer.top,
                 SWP_SHOWWINDOW,
             )
             .unwrap();
@@ -512,8 +523,8 @@ fn shelf_startup_series() {
                         .lines()
                         .find(|s| s.starts_with("exact-windows: frame 1 at "))
                         .unwrap();
-                    assert!(first.contains("painter cpu"), "{first}");
-                    assert!(log.contains("composition migration on frame "), "{log}");
+                    assert!(first.contains("painter ink"), "{first}");
+                    assert!(!log.contains("migration") && !log.contains("WARP"), "{log}");
                 }
                 println!("S2_STARTUP {name}\n{}", app.text());
             }
@@ -523,7 +534,7 @@ fn shelf_startup_series() {
 
 #[test]
 #[ignore = "NucBox desktop; same startup series without the synchronization probe"]
-fn shelf_handoff_intervals() {
+fn shelf_startup_intervals() {
     std::env::set_var("EXACT_AGENT_WINDOW_PROBE", "off");
     shelf_startup_series();
     std::env::remove_var("EXACT_AGENT_WINDOW_PROBE");
@@ -672,6 +683,8 @@ fn shelf_dpi_roundtrip() {
                     .is_some_and(|s| s.contains(", scale 1,"))
         });
         app.place(1024, 720);
+        assert_eq!((app.client().right, app.client().bottom), (1024, 720));
+        println!("S2_DPI after-{pass} client=1024x720 dpi=96");
         app.capture(&format!("dpi-after-{pass}-100"));
         fs::write(out().join(format!("dpi-after-{pass}")), "at 100%").unwrap();
     }

@@ -483,8 +483,8 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "native Windows desktop; WARP handoff and Mica"]
-    fn warp_picture_migrates_without_layering_and_alpha_reaches_mica() {
+    #[ignore = "native Windows desktop; recovery from WARP and Mica"]
+    fn recovery_replaces_warp_after_completion_and_alpha_reaches_mica() {
         use windows::Win32::{Graphics::Gdi::*, UI::WindowsAndMessaging::*};
         let window = Window::fixture([320, 240]).unwrap();
         window.dispatch_pending();

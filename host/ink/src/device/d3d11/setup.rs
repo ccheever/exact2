@@ -15,6 +15,7 @@ pub(super) struct Pipeline {
 
 pub(super) fn open(warp: bool) -> Result<(ID3D11Device, ID3D11DeviceContext, String)> {
     let (mut device, mut context) = (None, None);
+    let start = Instant::now();
     // SAFETY: the API writes owned COM references; the feature list and outputs
     // remain live for the call. BGRA is required by Direct2D (LLP 1149 D5.2).
     unsafe {
@@ -33,6 +34,12 @@ pub(super) fn open(warp: bool) -> Result<(ID3D11Device, ID3D11DeviceContext, Str
             None,
             Some(&mut context),
         )?;
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            eprintln!(
+                "exact-ink: D3D11CreateDevice {:.3} ms",
+                start.elapsed().as_secs_f64() * 1000.
+            );
+        }
         let device =
             device.ok_or_else(|| Error::Device("D3D11CreateDevice returned no device".into()))?;
         let dxgi: IDXGIDevice = device.cast()?;

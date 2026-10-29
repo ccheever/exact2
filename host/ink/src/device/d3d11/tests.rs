@@ -2,30 +2,68 @@ use super::*;
 use crate::instance::Encoder;
 
 #[test]
-fn pending_device_never_waits_and_a_failed_worker_is_reported() {
+#[ignore = "fresh process; INK_UMD names the adapter's DX11 DLL, INK_UMD_PRELOAD=1 loads it first"]
+fn device_startup_phases() {
+    use windows::{
+        core::PCWSTR,
+        Win32::{Foundation::FreeLibrary, System::LibraryLoader::*},
+    };
+    let path = std::env::var("INK_UMD").expect("adapter's absolute UMD path");
+    assert!(std::path::Path::new(&path).is_absolute());
+    let wide: Vec<_> = path.encode_utf16().chain(Some(0)).collect();
+    let path = PCWSTR(wide.as_ptr());
+    assert!(
+        unsafe { GetModuleHandleW(path) }.is_err(),
+        "UMD already loaded"
+    );
+    let preload = std::env::var("INK_UMD_PRELOAD").as_deref() == Ok("1");
+    let start = Instant::now();
+    let library = preload.then(|| unsafe {
+        LoadLibraryExW(
+            path,
+            None,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
+        )
+        .unwrap()
+    });
+    let load_ms = start.elapsed().as_secs_f64() * 1000.;
+    let start = Instant::now();
+    let (device, context, adapter) = setup::open(false).unwrap();
+    let device_ms = start.elapsed().as_secs_f64() * 1000.;
+    assert!(
+        unsafe { GetModuleHandleW(path) }.is_ok(),
+        "DX11 did not load this UMD"
+    );
+    let start = Instant::now();
+    let pipeline = setup::pipeline(&device).unwrap();
+    let shaders_ms = start.elapsed().as_secs_f64() * 1000.;
+    println!(
+        "S2_DEVICE preload={preload} load_ms={load_ms:.3} device_ms={device_ms:.3} shaders_ms={shaders_ms:.3} adapter={adapter}"
+    );
+    drop((pipeline, context, device));
+    if let Some(library) = library {
+        unsafe { FreeLibrary(library).unwrap() };
+    }
+}
+
+#[test]
+fn failed_and_disconnected_device_workers_are_reported() {
     let (send, receive) = std::sync::mpsc::channel();
-    let mut preparing = Preparing(receive);
-    // The sender cannot complete until this poll returns.
-    assert!(preparing.try_finish().unwrap().is_none());
     send.send(Err(Error::Device("test device refusal".into())))
         .unwrap();
-    assert!(matches!(preparing.try_finish(), Err(Error::Device(e)) if e == "test device refusal"));
+    assert!(
+        matches!(Preparing(receive).finish(), Err(Error::Device(e)) if e == "test device refusal")
+    );
+    let (send, receive) = std::sync::mpsc::channel();
     drop(send);
-    assert!(matches!(preparing.try_finish(), Err(Error::Device(e)) if e.contains("disconnected")));
+    assert!(
+        matches!(Preparing(receive).finish(), Err(Error::Device(e)) if e.contains("disconnected"))
+    );
 }
 
 #[test]
 fn prepared_device_draws_on_the_receiving_thread() {
-    let (send, receive) = std::sync::mpsc::channel();
-    let mut preparing = Preparing::with_wake(true, move || {
-        send.send(()).unwrap();
-    })
-    .unwrap();
-    receive.recv().unwrap();
-    let mut device = preparing
-        .try_finish()
-        .unwrap()
-        .expect("wake follows publication");
+    let mut device = Preparing::start(true).unwrap().finish().unwrap();
     let target = device.create_target(3, 2).unwrap();
     device
         .render(&Frame::default(), target, Some([0.25, 0., 0., 0.5]))

@@ -34,7 +34,7 @@ mod text_host;
 pub use composition::Window;
 
 /// The worker transfers the immediate context once, before the paint thread
-/// uses it. A window polls; headless callers may wait. @ref LLP 1149 D6.3.
+/// uses it. App boot overlaps preparation and joins before paint. @ref LLP 1149 S2.4.
 pub struct Preparing(std::sync::mpsc::Receiver<Result<Prepared>>);
 
 struct Prepared {
@@ -45,30 +45,7 @@ struct Prepared {
 }
 
 impl Preparing {
-    /// Prepare WARP first so hardware initialization cannot delay its first frame.
-    /// Both devices overlap app boot; the returned workers are WARP, then hardware.
-    pub fn composition_startup(wake: impl FnOnce() + Send + 'static) -> Result<(Self, Self)> {
-        let (warp_send, warp_receive) = std::sync::mpsc::channel();
-        let (hardware_send, hardware_receive) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
-            .name("ink-device".into())
-            .spawn(move || {
-                for (warp, send) in [(true, warp_send), (false, hardware_send)] {
-                    let result = std::panic::catch_unwind(|| Prepared::open(warp))
-                        .unwrap_or_else(|_| Err(Error::Device("device worker panicked".into())));
-                    let _ = send.send(result);
-                }
-                wake();
-            })
-            .map_err(|e| Error::Device(e.to_string()))?;
-        Ok((Self(warp_receive), Self(hardware_receive)))
-    }
-
     pub fn start(force_warp: bool) -> Result<Self> {
-        Self::with_wake(force_warp, || {})
-    }
-
-    pub fn with_wake(force_warp: bool, wake: impl FnOnce() + Send + 'static) -> Result<Self> {
         let (send, receive) = std::sync::mpsc::channel();
         std::thread::Builder::new()
             .name("ink-device".into())
@@ -76,21 +53,9 @@ impl Preparing {
                 let result = std::panic::catch_unwind(|| Prepared::open(force_warp))
                     .unwrap_or_else(|_| Err(Error::Device("device worker panicked".into())));
                 let _ = send.send(result);
-                wake();
             })
             .map_err(|e| Error::Device(e.to_string()))?;
         Ok(Self(receive))
-    }
-
-    pub fn try_finish(&mut self) -> Result<Option<D3d11>> {
-        use std::sync::mpsc::TryRecvError;
-        match self.0.try_recv() {
-            Ok(prepared) => D3d11::from_prepared(prepared?).map(Some),
-            Err(TryRecvError::Empty) => Ok(None),
-            Err(TryRecvError::Disconnected) => {
-                Err(Error::Device("device worker disconnected".into()))
-            }
-        }
     }
 
     pub fn finish(self) -> Result<D3d11> {
@@ -104,12 +69,20 @@ impl Preparing {
 
 impl Prepared {
     fn open(force_warp: bool) -> Result<Self> {
+        let measured = std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some();
+        let began = measured.then(super::process_ms).transpose()?;
         let start = Instant::now();
         let (device, context, adapter) = setup::open(force_warp)?;
         let device_ms = start.elapsed().as_secs_f64() * 1000.;
         let start = Instant::now();
         let pipeline = setup::pipeline(&device)?;
         let shaders_ms = start.elapsed().as_secs_f64() * 1000.;
+        if let Some(began) = began {
+            eprintln!(
+                "exact-ink: device worker at {began:.3} ms, ready at {:.3} ms (process), warp {force_warp}",
+                super::process_ms()?
+            );
+        }
         Ok(Self {
             device,
             context,
