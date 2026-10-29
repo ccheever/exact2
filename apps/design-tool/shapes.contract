@@ -218,6 +218,8 @@ shape Held
   mapped: Mapped[]
   offers: Offer[]
   brands: Brand[]
+  // Why a re-hold left out its brand fills (the server's note), "" when none was.
+  brandsNote: string
   unmapped: Unmapped[]
   counted: string
   countOk: bool

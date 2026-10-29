@@ -112,11 +112,11 @@ test('ticked in the tool and accepted, FollowButton\'s fill is the accent and it
 }, 900_000);
 
 /** The design server on `app`, in process, and a call of its wire. */
-async function wire(app) {
+async function wire(app, options = {}) {
   const listener = createServer();
   await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
   const port = listener.address().port, gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
-  const server = tamberServer({ appDir: app, log: () => {}, settle: 250 });
+  const server = tamberServer({ appDir: app, log: () => {}, settle: 250, ...options });
   listener.on('request', async (req, res) => { if (!(await server.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); } });
   await server.ready;
   const at = `http://127.0.0.1:${port}`, { token } = await (await fetch(`${at}/__tamber/token`)).json();
@@ -249,5 +249,39 @@ test('a recompute after the files moved drops every brand offer with its operati
     expect(moved.ok?.recomputed, JSON.stringify(moved).slice(0, 300)).toBe(true);
     expect(moved.ok.review.brands ?? []).toEqual([]);
     expect(moved.ok.ops.some(o => /^(actions\.follow|cards\.empty-button)/.test(o.op.name ?? ''))).toBe(false);
+  } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
+}, 600_000);
+
+test('a file changed between the content check and the new hold drops the brands after all; a review counting more tokens than operations is refused', async () => {
+  let app;
+  const changed = async () => { writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('gate.mark = #ff00ff', 'gate.mark = #ff00fe')); await Bun.sleep(1500); };
+  app = gate();
+  const server = await wire(app, { beforeBrandHold: changed });
+  try {
+    const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
+    const { review } = held.ok, follow = review.brands.find(b => b.sets === 'actions.follow-fill');
+    // The check passes (nothing changed yet); the file changes before the hold: held again without the brands.
+    const re = await server.call({ method: 'accept', client: 'agent:t', proposal: held.ok.proposal, items: [...Array.from({ length: review.tokens }, (_, i) => i), ...follow.items] });
+    expect(re.ok?.recomputed, JSON.stringify(re).slice(0, 300)).toBe(true);
+    expect(re.ok.review.brands ?? []).toEqual([]);
+    expect(re.ok.ops.some(o => /^actions\.follow/.test(o.op.name ?? ''))).toBe(false);
+    expect(re.ok.review.notes.join(' ')).toContain('import again to get brand offers');
+    const over = await server.call({ method: 'propose', hold: true, client: 'agent:t', ops: [{ op: 'set-token', name: 'gate.mark', value: '#ff00fd' }], review: { importer: 'x', tokens: 4294967296, offers: [] } });
+    expect(over.status).toBe(400);
+    expect(over.error.message).toContain('at most its operations');
+  } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
+}, 600_000);
+
+test('a client\'s own propose of an import keeps no brand offer through a partial accept', async () => {
+  const app = gate(), server = await wire(app);
+  try {
+    // An import held through `propose` (the Astryx CLI's way): the exception is a wire import's only.
+    const held = await server.call({ method: 'import', client: 'agent:t', kind: 'shadcn', source: accentTheme('#006aff'), name: 'globals.css' });
+    const own = await server.call({ method: 'propose', hold: true, client: 'agent:t', ops: held.ok.ops.map(o => o.op), review: held.ok.review });
+    expect(own.status, JSON.stringify(own).slice(0, 300)).toBe(200);
+    const follow = own.ok.review.brands.find(b => b.sets === 'actions.follow-fill');
+    const re = await server.call({ method: 'accept', client: 'agent:t', proposal: own.ok.proposal, items: [...Array.from({ length: own.ok.review.tokens }, (_, i) => i), ...follow.items] });
+    expect(re.ok.review.brands ?? []).toEqual([]);
+    expect(re.ok.ops.some(o => /^actions\.follow/.test(o.op.name ?? ''))).toBe(false);
   } finally { await server.close(); rmSync(app, { recursive: true, force: true }); }
 }, 600_000);

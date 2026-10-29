@@ -16,15 +16,18 @@ export const droppedNote = 'its brand fills were offered on the import\'s first 
 /** A brand offer whose ink doesn't reach 4.5:1 in a scheme (or has no one ratio there): a bare accept leaves it out. */
 export const belowContrast = b => [b.contrast?.light, b.contrast?.dark].some(r => typeof r !== 'number' || r < 4.5);
 
-/** The items a partial accept of `chosen` (indices) keeps of a proposal held with `review`: no brand offer's, but for
- * those it names whole when it keeps every one of the import's own token operations and `unchanged()` (the files'
- * content digests are still those it was held on: theme2's 06:44 exception), since the ink was then measured on
- * exactly what will be written. `{kept, brands}`: the items, and whether brand offers are among them. */
-export function partialKept(review, chosen, unchanged) {
-  const all = brandItems(review);
-  const named = new Set((review?.brands ?? []).filter(b => (b.items ?? []).length && b.items.every(i => chosen.includes(i))).flatMap(b => b.items));
-  const tokens = Number.isInteger(review?.tokens) && Array.from({ length: review.tokens }, (_, i) => i).every(i => chosen.includes(i));
-  const brands = named.size > 0 && tokens && unchanged();
+/** The items a partial accept of `chosen` (indices) keeps of a proposal of `count` operations held with `review`: no
+ * brand offer's, but for those it names whole when it keeps every one of the import's own token operations (the first
+ * `tokens`, at most `count`) and `unchanged()` (a wire import's files' content digests still those it was held on:
+ * theme2's 06:44 and 07:21 rulings), since the ink was then measured on exactly what will be written. `{kept, brands}`:
+ * the items, and whether brand offers are among them. */
+export function partialKept(review, chosen, unchanged, count) {
+  const all = brandItems(review), taken = new Set(chosen), tokens = review?.tokens;
+  const named = new Set((review?.brands ?? []).filter(b => (b.items ?? []).length && b.items.every(i => taken.has(i))).flatMap(b => b.items));
+  // (`tokens` from the review, bounded by the operations: never a count to allocate, a loop at most `count` long)
+  let every = Number.isInteger(tokens) && tokens >= 0 && tokens <= count;
+  for (let i = 0; every && i < tokens; i++) if (!taken.has(i)) every = false;
+  const brands = named.size > 0 && every && unchanged();
   return { kept: chosen.filter(i => !all.has(i) || (brands && named.has(i))), brands };
 }
 

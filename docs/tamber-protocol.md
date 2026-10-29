@@ -1074,8 +1074,8 @@ held`), and announces it.
 - **The reply** is the plan (as `propose`) plus `{proposal, client, expires, ops: [{index, op}],
   review?}`. `expires` is an ISO-8601 UTC time.
 - **`review`** is free-form for the tool, except that its `offers[].items` must be operation
-  indices and its `tokens` a count. `review.revert` is the server's own, and refused from a
-  client.
+  indices and its `tokens` a count of at most its operations. `review.revert` is the server's own, and refused
+  from a client.
 - **Guards.** The files a held propose `requires`, and any file in `files` that no operation
   edits, are checked when it is planned and again at `accept`.
 
@@ -1265,20 +1265,24 @@ list is unchanged: it keeps its own.
   - `offers` is `[{role, token, items, note}]`;
   - `brands` (*1.18*), when there are any, is `[{sets, token, items, note?, contrast}]`: the import's accent (the
     token its source's accent maps to) offered as a package's brand fill, a filled control the platform's accent
-    doesn't reach (`actions.follow-fill`, `cards.empty-button`), where the app's packages declare it and its ink.
-    A brand offer is told apart from a role override by `sets`, the package token it sets for the app; it has no
-    `role`, and sits in a list of its own, so a client that reads only `offers` never shows one and, naming the
-    items it keeps, never takes one. Its `items` are the fill set to the accent and its ink's token set to white or
-    black for each scheme, whichever reaches 4.5:1 on that scheme's fill (`light-dark(…)` when they differ);
+    doesn't reach (`actions.follow-fill`, `cards.empty-button`), where the app's packages declare it and its ink, and
+    only when the design, with the import applied, checks on its own (a design that names a package's token gets
+    none). A brand offer is told apart from a role override by `sets`, the package token it sets for the app; it has
+    no `role`, and sits in a list of its own, so a client that reads only `offers` never shows one, and on an
+    import's first proposal never takes one. Its `items` are the fill set to the accent and its ink's token set to
+    white or black for each scheme, whichever reaches 4.5:1 on that scheme's fill (`light-dark(…)` when they differ);
     `contrast` is `{light, dark}`, the ratio the ink reaches, cut to two places as the checker's are, or null on a
-    fill that isn't opaque, where `note` says so (an accent with a value the checker can't read alone, a `when`
-    branch naming a package's token, is offered none). Like a role override, it is off until ticked, and a bare
-    `accept` leaves out one with a `note`. Brand offers appear on an import's first proposal only: held
-    again they are gone with all their operations, fill and ink, and `notes` says to import again for them. That is
-    every re-hold (an `edit-held`, which refuses an edit of a brand offer's own operation, and a recompute after the
-    files moved), with one exception: a partial `accept` keeps the brand offers whose items it names, whole, when it
-    also keeps every one of the import's own token operations (its first `tokens`) and the files' content digests are
-    still those the proposal was held on, so the ink was measured on exactly what will be written;
+    fill that isn't opaque, where `note` says so. None is offered for an accent that varies by an app axis, nor where
+    setting a brand line over would leave a dial unused. Like a role override, it is off until ticked, and a bare
+    `accept` leaves out one below 4.5:1. Brand offers appear on an import's first proposal only: held again they are
+    gone with all their operations, fill and ink, and `notes` says to import again for them. That is every re-hold
+    (an `edit-held`, which refuses an edit of a brand offer's own operation, and a recompute after the files moved),
+    with one exception, for an `import` the wire held (not a client's `propose`): a partial `accept` keeps the brand
+    offers whose items it names, whole, when it also keeps every one of the import's own token operations (its first
+    `tokens`, at most its operation count) and the files' content digests are still those the proposal was held on,
+    checked before and again when the new proposal is held, so the ink was measured on exactly what will be written.
+    A client that reads only `offers` sees that new proposal as a recompute, everything in it chosen, so it takes the
+    brand offers the person named;
   - the first `tokens` operations are the importer's own (tokens and any `add-axis`). Each
     offer's `items` are its role overrides, which a person leaves out unless ticked (see
     `accept`).

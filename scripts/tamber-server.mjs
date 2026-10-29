@@ -152,7 +152,7 @@ function spawnContract(appDir) {
  * run's paired clients, for stage 10 C's gateway (`lookup`, `onEnd`); `canvas(pairing)`
  * makes that gateway (scripts/tamber-canvas.mjs; null for none), which
  * `canvas` answers once its port is open (`openCanvas`). */
-export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = watch, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = pairing => canvasGateway({ pairing }), importLimits }) {
+export function tamberServer({ appDir, beforeBrandHold = async () => {}, spawnServe = spawnContract, watchDir = watch, log = console.log, settle = 50, toolDir = TOOL_DIST, live = false, answerMs = ANSWER_MS, scrub = null, scrubIdleMs, scopeOf = () => 'write', page = null, sourceMap = () => null, designServed = () => null, pairTtlMs = PAIR_TTL_MS, clock = Date.now, remote = () => [], canvas = pairing => canvasGateway({ pairing }), importLimits }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -744,7 +744,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
     }
     if (request.method === 'propose' && request.hold !== undefined) {
       if (request.hold !== true) return { status: 400, error: { message: '`hold` is true when given' } };
-      if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers`, `dials` and `pins` lists of objects with `items` (indices), its `tokens` a count' } };
+      if (request.review !== undefined && (!reviewShaped(request.review) || (Array.isArray(request.ops) && request.review.tokens > request.ops.length))) return { status: 400, error: { message: '`review` is an object; its `offers`, `brands`, `dials` and `pins` lists of objects with `items` (indices), its `tokens` a count of at most its operations' } };
       // A revert's review is the server's own: it is planned again from it.
       if (request.review?.revert !== undefined) return { status: 400, error: { message: '`review.revert` is the server\'s: ask for `revert`' } };
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review, request.requires, scope, undefined, local && !!request.review?.importer);
@@ -1066,6 +1066,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
           : { brands: undefined, notes: [...(old.notes ?? []), droppedNote] }) : {}),
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
+      if (brands) await beforeBrandHold(); // (a test's: a file changed between the content check and the hold)
       let fresh; // A re-import (the server's own mark, never its review's fields) is marked again on the design as it is, and held on that same text, else marked again (stage 10b).
       const remark = async () => { const m = await ask({ method: 'import-plan', marks: ops }); if (!m.ok) return m; if (brands && m.ok.digest !== p.base[designRel()]) return { error: { conflict: true, brandsMoved: true } }; delete review.dials; delete review.pins; Object.assign(review, marked(ops, m.ok.dials.map(d => ({ ...d, from: old.dials?.find(o => o.dial === d.dial)?.from ?? [] })), m.ok.pins)); return hold(p.client, ops, m.ok.digest ? { [relative(appDir, designPath(appDir) ?? resolve(appDir, design))]: m.ok.digest } : undefined, id, review, own, 'write', undefined, p.restoring); };
       // Some of a revert's items: on the files it was planned on, or that
@@ -1084,8 +1085,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, watchDir = wa
     const some = items && new Set(items).size < p.ops.length;
     if (some) {
       // Held again without its brand offers' operations (*1.18*: the first proposal's only), but for those it names
-      // under theme2's 06:44 exception (tamber-brands.mjs `partialKept`).
-      const { kept, brands } = partialKept(p.shown.review, [...new Set(items)].sort((a, b) => a - b), () => unchangedSince(appDir, p.base));
+      // under theme2's 06:44 exception, a wire import's only (tamber-brands.mjs `partialKept`).
+      const { kept, brands } = partialKept(p.shown.review, [...new Set(items)].sort((a, b) => a - b), () => p.reimport && unchangedSince(appDir, p.base), p.ops.length);
       return recompute(kept.map(i => p.ops[i]), kept, brands);
     }
     // A bare accept (no `items`, nothing chosen) takes all but a brand offer below 4.5:1, which lands only when named (*1.18*).

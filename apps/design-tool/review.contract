@@ -74,6 +74,8 @@ component Proposals
                 text `${o.role} = ${o.token}` font="-exact-footnote"
                 if o.note != ""
                   text o.note color="-exact-secondary-label" font="-exact-caption1" testId=`offer-note-${h.proposal}-${o.role}`
+            if h.brandsNote != ""
+              text h.brandsNote color="-exact-secondary-label" font="-exact-caption1" testId=`brands-dropped-${h.proposal}`
             if h.brands.length > 0
               text (h.brandsKept ? "Brand fills, as ticked" : "Brand fills, off until ticked") role="heading" aria-level=3
               for b in h.brands key=b.sets

@@ -598,7 +598,7 @@ let heldRaw: any[] = [], heldDesign = -1;
  * tokens with their values per mode, the role overrides it offers, the
  * values it could not map and why, and the count check. */
 function reviewOf(p: any) {
-  const r = p.review, none = { importer: '', mapped: [], offers: [], brands: [], unmapped: [], counted: '', countOk: true, from: '', kept: false, brandsKept: false };
+  const r = p.review, none = { importer: '', mapped: [], offers: [], brands: [], brandsNote: '', unmapped: [], counted: '', countOk: true, from: '', kept: false, brandsKept: false };
   if (!r?.importer) return none;
   const ops: any[] = (p.ops ?? []).map((o: { op: unknown }) => o.op);
   // A swatch for a colour a page can paint: a reference to a token the

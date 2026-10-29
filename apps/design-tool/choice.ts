@@ -154,5 +154,7 @@ export function brandCards(r: any, base: Set<number> | false | null | undefined,
       on: chosen(b),
     })),
     brandsKept: all.some(chosen),
+    // A re-hold that dropped them says so (the server's `notes` line), where the brand fills were.
+    brandsNote: String(((r?.notes ?? []) as string[]).find(n => /import again to get brand offers/.test(String(n))) ?? ''),
   };
 }

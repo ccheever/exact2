@@ -72,97 +72,20 @@ fn ink_over(fill: &Folded) -> Option<BrandInk> {
     })
 }
 
-/// The design `text` as the checker reads it alone, for measuring the
-/// tokens `needed`: a design that checks only with its packages (a line
-/// naming a package's token) without the lines it can't read, as long as
-/// none of them is one of `needed` or a token they name (a `when` branch
-/// included); none when one is, since the measure would then leave out a
-/// value the app shows.
-fn readable(text: &str, needed: &[&str], vocab: &Vocab) -> Option<String> {
-    let mut text = text.to_string();
-    for _ in 0..16 {
-        let Err(all) = crate::check(&text, vocab) else {
-            return Some(text);
-        };
-        let lines: std::collections::BTreeSet<usize> =
-            all.iter().map(|d| d.line as usize).collect();
-        if lines.is_empty() || lines.contains(&0) {
-            return None;
-        }
-        let rows: Vec<&str> = text.lines().collect();
-        // The token a line belongs to: its own name, or, for a `when`
-        // branch, the token line above it.
-        let owner = |line: usize| -> Option<String> {
-            rows[..line.min(rows.len())].iter().rev().find_map(|row| {
-                let t = row.trim_start();
-                (!t.starts_with("when ") && t.contains(" = "))
-                    .then(|| t.split(" = ").next().unwrap_or("").trim().to_string())
-            })
-        };
-        let closure = closure_of(&text, needed);
-        if lines
-            .iter()
-            .any(|&l| owner(l).is_none_or(|o| closure.contains(&o)))
-        {
-            return None;
-        }
-        text = rows
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !lines.contains(&(i + 1)))
-            .map(|(_, l)| format!("{l}\n"))
-            .collect();
-    }
-    None
+/// The design the import proposes: its operations applied to `current`,
+/// checked on its own; none when it doesn't check alone (a design that
+/// names a package's token, which only the app's build joins), so no brand
+/// is measured on a design the checker can't fold whole.
+fn proposed(current: &str, ops: &[Op], vocab: &Vocab) -> Option<(String, crate::Folding)> {
+    let text = crate::apply_all(current, ops, vocab).ok()?.text;
+    let folding = crate::check(&text, vocab).ok()?;
+    Some((text, folding))
 }
 
-/// The tokens `needed` and every token their values name, transitively, as
-/// the design `text` writes them (a `when` branch's value included).
-fn closure_of(text: &str, needed: &[&str]) -> std::collections::BTreeSet<String> {
-    let mut values: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
-    let mut current: Option<String> = None;
-    for row in text.lines() {
-        let t = row.trim_start();
-        if let Some(rest) = t.strip_prefix("when ") {
-            if let (Some(name), Some((_, v))) = (&current, rest.split_once(':')) {
-                values
-                    .entry(name.clone())
-                    .or_default()
-                    .push_str(&format!(" {v}"));
-            }
-        } else if let Some((name, v)) = t.split_once(" = ") {
-            let name = name.trim().to_string();
-            values
-                .entry(name.clone())
-                .or_default()
-                .push_str(&format!(" {v}"));
-            current = Some(name);
-        }
-    }
-    let mut out: std::collections::BTreeSet<String> =
-        needed.iter().map(|n| n.to_string()).collect();
-    let mut todo: Vec<String> = out.iter().cloned().collect();
-    while let Some(name) = todo.pop() {
-        let Some(v) = values.get(&name) else { continue };
-        for word in v.split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_' || c == '.')) {
-            if !word.is_empty() && out.insert(word.to_string()) {
-                todo.push(word.to_string());
-            }
-        }
-    }
-    out
-}
-
-/// The ink for text on `accent` with the operations `ops` applied to the
-/// design `current`: `None` when it can't be measured (the accent isn't
-/// there, or folds to no colour of its own), `Some(None)` when it varies by
-/// an app axis (no one fill). A design that checks only with its packages is
-/// measured without the lines the checker can't read alone.
-fn measure(current: &str, ops: &[Op], accent: &str, vocab: &Vocab) -> Option<Option<BrandInk>> {
-    let text = crate::apply_all(&readable(current, &[accent], vocab)?, ops, vocab)
-        .ok()?
-        .text;
-    let f = crate::check(&text, vocab).ok()?;
+/// The ink for text on `accent` as the folded design `f` has it: none when
+/// it isn't there or folds to no colour of its own, `Some(None)` when it
+/// varies by an app axis (no one fill).
+fn measure(f: &crate::Folding, accent: &str) -> Option<Option<BrandInk>> {
     let token = f.tokens.iter().find(|t| t.name == accent)?;
     let first = token.values.first()?;
     if token.values.iter().any(|v| v.css() != first.css()) {
@@ -210,9 +133,10 @@ pub struct Brand {
 /// The brand offers an import makes for `pairs`, each a package's brand
 /// fill and its ink's token that the app's packages declare, planned on
 /// `current` (the design's text, `design` parsed). None without the
-/// importer's accent, when the accent varies by an app axis or folds to no
-/// colour of its own, for a pair the app already sets to the accent and that
-/// ink, or for one whose own line is the only use of a dial.
+/// importer's accent, when the design with the import applied doesn't check
+/// on its own, when the accent varies by an app axis or folds to no colour
+/// of its own, for a pair the app already sets to the accent and that ink,
+/// or for one whose own line reads a dial only the offers' lines read.
 pub fn brands(
     import: &Import,
     design: &Design,
@@ -223,10 +147,13 @@ pub fn brands(
     let Some(accent) = import.accent.clone() else {
         return Vec::new();
     };
-    // The accent as the design the import proposes folds it: a value naming
-    // another of its tokens (`var(--brand)`) reads that one. One that varies
-    // by an app axis is no one fill (a role's own rule), so none is offered.
-    let Some(Some(ink)) = measure(current, &import.ops, &accent, vocab) else {
+    // The accent as the design the import proposes folds it, checked on its
+    // own: a value naming another of its tokens (`var(--brand)`) reads that
+    // one; one that varies by an app axis is no one fill (a role's own rule).
+    let Some((_, folded)) = proposed(current, &import.ops, vocab) else {
+        return Vec::new();
+    };
+    let Some(Some(ink)) = measure(&folded, &accent) else {
         return Vec::new();
     };
     let note = note_for(&accent, &ink);
@@ -274,7 +201,15 @@ pub fn brands(
         .flat_map(|(f, i)| [f.as_str(), i.as_str()])
         .chain(roles)
         .collect();
-    let orphans = |name: &str| own(name).is_some_and(|t| orphans_with(design, t, &lines));
+    // (read on the design as the import proposes it: a reader it overwrites is no reader)
+    let after = &folded.design;
+    let orphans = |name: &str| {
+        after
+            .tokens
+            .iter()
+            .find(|t| t.name.value == name)
+            .is_some_and(|t| orphans_with(after, t, &lines))
+    };
     pairs
         .iter()
         .filter(|(fill, ink_token)| !(already(fill, &accent) && already(ink_token, &ink.value)))

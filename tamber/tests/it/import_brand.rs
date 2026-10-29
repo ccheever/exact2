@@ -180,16 +180,6 @@ fn a_dial_the_accent_override_or_a_brand_line_alone_reads_is_left_as_it_is() {
 }
 
 #[test]
-fn a_design_that_checks_only_with_its_packages_still_gets_its_brand_fills() {
-    // `page.fill` names a package token, so the design alone doesn't check: the
-    // accent's own value is measured instead.
-    let packaged = "tamber app\n\ntheme\n  page.fill = actions.follow-fill\n";
-    let both = offered(packaged, &theme("#ffd400", "#ffd400"));
-    assert_eq!(both.len(), 2, "{both:?}");
-    assert_eq!(set(&both[0].ops[1]), ("actions.follow-ink", "#000000"));
-}
-
-#[test]
 fn a_dial_only_the_brand_lines_read_together_is_left_as_it_is() {
     // FollowButton's and EmptyState's own lines both read `pop`, and nothing
     // else does: setting both over would leave it unused, so neither is offered.
@@ -198,24 +188,34 @@ fn a_dial_only_the_brand_lines_read_together_is_left_as_it_is() {
 }
 
 #[test]
-fn an_accent_whose_value_the_checker_cant_read_alone_is_offered_no_brand_fill() {
-    // The accent's compact mode names a package's token: the design alone
-    // can't fold it, so the ink can't be measured for that mode, and no brand
-    // fill is offered rather than one whose contrast holds in one mode only.
-    let text = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.primary = #006aff\n    when density=compact: actions.follow-overlay-fill\n  AccentColor = shadcn.primary\n";
-    assert!(offered(text, &theme("#006aff", "#006aff")).is_empty());
-    // A line that names a package's token but isn't the accent's: measured
-    // without it, offered.
-    let unrelated = "tamber app\n\ntheme\n  page.fill = actions.follow-fill\n";
-    assert_eq!(offered(unrelated, &theme("#006aff", "#006aff")).len(), 2);
-}
-
-#[test]
 fn a_dial_only_accent_color_and_a_brand_line_read_is_left_as_it_is() {
     // AccentColor and FollowButton's fill line are `pop`'s only readers: the
     // AccentColor override and the brand offer together would leave it
     // unused, so FollowButton's isn't offered (EmptyState's still is).
     let text = "tamber app\n\ndials\n  pop: color = #ff0000\n\ntheme\n  AccentColor = pop\n  actions.follow-fill = pop\n";
+    let sets: Vec<String> = offered(text, &theme("#006aff", "#006aff"))
+        .into_iter()
+        .map(|b| b.sets)
+        .collect();
+    assert_eq!(sets, ["cards.empty-button"]);
+}
+
+#[test]
+fn a_design_that_checks_only_with_its_packages_is_offered_no_brand_fill() {
+    // A line naming a package's token, the accent's or not: the design alone
+    // doesn't check, so nothing is measured on it and no brand fill is offered.
+    let unrelated = "tamber app\n\ntheme\n  page.fill = actions.follow-fill\n";
+    assert!(offered(unrelated, &theme("#006aff", "#006aff")).is_empty());
+    let accents = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.primary = #006aff\n    when density=compact: actions.follow-overlay-fill\n  AccentColor = shadcn.primary\n";
+    assert!(offered(accents, &theme("#006aff", "#006aff")).is_empty());
+}
+
+#[test]
+fn a_dial_reader_the_import_overwrites_is_no_reader() {
+    // `pop` is read by shadcn.primary and FollowButton's fill line; the import
+    // writes shadcn.primary a colour of its own, so the fill line is pop's last
+    // reader: FollowButton's isn't offered (EmptyState's still is).
+    let text = "tamber app\n\ndials\n  pop: color = #ff0000\n\ntheme\n  shadcn.primary = pop\n  actions.follow-fill = pop\n";
     let sets: Vec<String> = offered(text, &theme("#006aff", "#006aff"))
         .into_iter()
         .map(|b| b.sets)

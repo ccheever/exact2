@@ -11,6 +11,7 @@ import { API } from '../app.ts';
 import { scrubSessions } from '../../../scripts/tamber-scrub.mjs';
 import { allows, needs, refusal } from '../../../scripts/tamber-pairing.mjs';
 import DIALS from './dials.json';
+import { droppedNote as BRANDS_DROPPED } from '../../../scripts/tamber-brands.mjs';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
 // A run's token: a restart issues another, as the server does.
@@ -436,9 +437,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
         // Some of it: held again as a new proposal of those items (all of them named is the whole, as on the server).
         if (request.items && new Set(request.items).size < p.ops.length) {
           // Its own diff and tokens: the items kept, as the server plans them.
-          // (held again without its brand offers' operations, as the server: they are the first proposal's only,
-          // tamber-brands.mjs)
-          const leftOut = new Set<number>(((p.review as any)?.brands ?? []).flatMap((b: any) => b.items ?? []));
+          // (held again without its brand offers' operations, as the server: they are the first proposal's only, but for
+          // those it names whole with every import token kept, the stub's files never changing: tamber-brands.mjs)
+          const all = ((p.review as any)?.brands ?? []) as { items?: number[] }[], tokens = (p.review as any)?.tokens ?? 0;
+          const everyToken = tokens <= p.ops.length && Array.from({ length: tokens }, (_, i) => i).every(i => request.items.includes(i));
+          const named = all.filter(b => (b.items ?? []).length && (b.items ?? []).every(i => request.items.includes(i)));
+          const keepBrands = everyToken && named.length > 0;
+          const leftOut = new Set<number>(all.filter(b => !(keepBrands && named.includes(b))).flatMap(b => b.items ?? []));
           const kept = (p.ops as { index: number; op: { name?: string } }[]).filter(o => request.items.includes(o.index) && !leftOut.has(o.index));
           // Its review renumbered to the items kept, as the server's is.
           const review = p.review as { tokens?: number; offers?: { items?: number[] }[]; brands?: { items?: number[] }[]; dials?: { items?: number[] }[]; pins?: { items?: number[] }[] } | undefined;
@@ -446,7 +451,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
           const renumber = (all: { items?: number[] }[]) => all.map(o => ({ ...o, items: (o.items ?? []).map(at).filter(i => i >= 0) }));
           // A re-import's dials and pins too, those whose operations it kept (stage 10b).
           const marks = review && Object.fromEntries((['dials', 'pins'] as const).filter(k => review[k]).map(k => [k, renumber(review[k]!).filter(m => m.items.length)]).filter(([, all]) => all.length));
-          const remapped = review && { ...review, dials: undefined, pins: undefined, ...marks, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: renumber(review.offers ?? []), brands: undefined };
+          const remapped = review && { ...review, dials: undefined, pins: undefined, ...marks, tokens: kept.filter(o => o.index < (review.tokens ?? 0)).length, offers: renumber(review.offers ?? []), ...(all.length ? (keepBrands ? { brands: renumber(named) } : { brands: undefined, notes: [...((review as any).notes ?? []), BRANDS_DROPPED] }) : {}) };
           const fresh = { ...p, choice: undefined, choiceBy: undefined, choiceAt: undefined, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: kept.map((o, index) => ({ index, op: o.op })), ...(remapped ? { review: remapped } : {}), diff: `--- app.tamber\n+++ app.tamber\n${kept.map(o => `+  ${o.op.name} (kept)`).join('\n')}\n`, changed: kept.map(o => ({ file: 'app.tamber', token: o.op.name })) };
           held.push(fresh);
           return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });
@@ -462,13 +467,15 @@ Bun.serve({ hostname, port: Number(port), routes: {
         const ops = old.ops.map((o: any) => ({ ...o, op: { ...o.op, whens: o.op.whens?.map((w: any) => ({ ...w })) } }));
         const at = ops[request.index]?.op;
         if (request.when) at.whens[request.when - 1].value = request.value; else at.value = request.value;
-        // (its brand offers go, their operations with them, as on the server: tamber-brands.mjs)
+        // (its brand offers go, their operations with them, and an edit of one of theirs is refused, as on the server:
+        // tamber-brands.mjs)
         const dropped: number[] = (old.review?.brands ?? []).flatMap((b: any) => b.items ?? []);
+        if (dropped.includes(request.index)) return send({ error: { message: '`index` is a brand offer\'s: brand offers are the first proposal\'s only, so an edit drops them; import again to change one' } }, 400);
         const keep: number[] = (request.items ?? ops.map((_: unknown, i: number) => i)).filter((i: number) => !dropped.includes(i));
         const id = `edited-${++holds}`;
         // (its review renumbered to the items kept, as the server's: an offer whose items all go is offered no more)
         const renumbered = (all: any[]) => all.map((o: any) => ({ ...o, items: (o.items ?? []).map((i: number) => keep.indexOf(i)).filter((i: number) => i >= 0) }));
-        const review = old.review && { ...old.review, kept: true, from: request.proposal, offers: renumbered(old.review.offers ?? []), brands: undefined };
+        const review = old.review && { ...old.review, kept: true, from: request.proposal, offers: renumbered(old.review.offers ?? []), brands: undefined, ...(dropped.length ? { notes: [...(old.review.notes ?? []), BRANDS_DROPPED] } : {}) };
         // (its choice carried, the kept ones renumbered)
         const choice = old.choice && { choice: old.choice.filter((i: number) => keep.includes(i)).map((i: number) => keep.indexOf(i)), choiceBy: old.choiceBy, choiceAt: 1 };
         held = held.filter(h => h.proposal !== request.proposal).concat([{ ...old, choice: undefined, choiceBy: undefined, choiceAt: undefined, ...choice, proposal: id, ops: keep.map((i, index) => ({ index, op: ops[i].op })), ...(review ? { review } : {}), replaces: request.proposal, editedBy: request.client }]);
