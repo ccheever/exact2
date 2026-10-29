@@ -334,7 +334,7 @@ factory seed once. Review found superseded request failures could disable anothe
 editor. Regressions reproduce both allocation and freeze failures; guards now
 ignore them after newer work has succeeded. All 3,927 mobile tests, strict
 TypeScript, boot and the normal native build pass. Intake, holds, attachment
-publication, finish, explicit resume and actual host recreation remain open.
+publication, finish and explicit resume are separate work below.
 The textarea remains active. This checkpoint is outside the TestFlight build.
 The normal build receives `FROZEN_CHECKPOINT_OK` from the real provider and
 restores that reply and an empty composer after restart.
@@ -345,7 +345,7 @@ without republishing source. The NewTask owner consumes complete snapshots only
 for publications captured before dispatch. It distinguishes a live saved slot
 from release, retires the old presentation and retries a refused factory seed
 once. The saved picker operation still blocks another writer for its draft.
-The textarea remains active pending intake, resume and host-recreation acceptance.
+The textarea remains active pending producer integration and resume acceptance.
 All 3,939 mobile tests, strict TypeScript, boot, 88 native ledger checks and
 117 real UIKit checks pass. The normal simulator build succeeds. Independent
 review adds two passing ACK-overlap regressions and finds no introduced blocker.
@@ -392,6 +392,14 @@ restart. Native intake is mocked in the owner tests. Explicit resume, history
 handback and actual native NewTask acceptance remain open. An uncertain finish
 whose saved record changes also needs positive reconciliation before activation.
 The textarea remains active. This checkpoint is outside the TestFlight build.
+
+Actual host recreation now passes 50 checks in a focused iPhone fixture using
+one real ExactSession and the production T3 factory. A retained predecessor
+source makes the successor factory return nil. Acknowledging that receipt and
+changing props leaves the refused node intact. Changing the authored singleton
+key creates a fresh callback nonce, handle and Ready event. After acknowledgment,
+the replacement accepts real UIKit typing and retains its final source through
+teardown. This covers host lifecycle; full native NewTask acceptance remains open.
 
 Two normal NewTask Files drives return to Choose project after selection or
 Cancel. The typed draft survives in Unsent, but the selected file is not retained.
