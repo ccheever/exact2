@@ -16,6 +16,7 @@ import { resolvePreviewMiniPlayerFrame, resolveDeviceMiniPlayerSourceSize } from
 import { deviceMini, floatMiniDevice } from '../../src/device/device-session';
 import { toasts } from '../../src/shell/toast';
 import { setLayoutFrames } from '../support/layout-frames';
+import { withTimers } from '../support/timers';
 
 const scratchRoot = (machine: string) => `/Users/${machine}/.t3/scratch`;
 const entry = (id: string, extra: Partial<FleetEntry> = {}): FleetEntry => ({
@@ -72,24 +73,29 @@ describe('No project drafts switch machine (c47f4263f9, 845ddd9354)', () => {
       const call = request as Obj;
       if (call.op === 'request') return { ok: true, value: { projectId: 'sc' }, generation: 1 };
       if (call.op === 'http') return { ok: true, value: { snapshotSequence: 1, projects: [], threads: [] }, generation: 1 };
-      return { ok: true, value: {}, generation: 1 }; // timelineSleep: no wall-clock wait in the test
+      return { ok: true, value: {}, generation: 1 };
     } } as Native;
     const client = scratchDraft();
-    expect(await runOnEnvironment(client, native, 'c', source)).toEqual({ status: null, generation: -1 });
+    expect(await withTimers(() => runOnEnvironment(client, native, 'c', source))).toEqual({ status: null, generation: -1 });
     expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not switch machine', SCRATCH_NOT_LOADED]]);
     expect(client.local.drafts).toEqual({ 'a:new:sa': 'no project text' });
   });
 
   test('openScratch waits up to 10 s: rereads every half second, then fails', async () => {
-    const slept: number[] = [];
-    const native = { available: true, watch() {}, later: async (request: unknown) => { slept.push(Number((request as Obj).ms)); return { ok: true, value: {}, generation: 0 }; } } as Native;
     let reads = 0;
-    await awaitScratchProject(native, () => reads >= 3, async () => { reads++; });
-    expect(slept).toEqual([500, 500, 500]);
-    slept.length = 0;
-    await expect(awaitScratchProject(native, () => false, async () => {})).rejects.toThrow(SCRATCH_NOT_LOADED);
-    expect(slept.length).toBe(20);
-    expect(slept.reduce((sum, ms) => sum + ms, 0)).toBe(10_000);
+    const found = await withTimers(async () => {
+      const start = Date.now();
+      await awaitScratchProject(() => reads >= 3, async () => { reads++; });
+      return Date.now() - start;
+    });
+    expect([reads, found]).toEqual([3, 1_500]);
+    reads = 0;
+    const [error, waited] = await withTimers(async () => {
+      const start = Date.now();
+      return [await awaitScratchProject(() => false, async () => { reads++; }).catch((failure: unknown) => failure), Date.now() - start] as const;
+    });
+    expect((error as Error).message).toBe(SCRATCH_NOT_LOADED);
+    expect([reads, waited]).toEqual([20, 10_000]);
   });
 });
 

@@ -503,7 +503,7 @@ component T3Code
   mutation terminalTicketChanged as shape Change queue refreshes data // a terminal page's socket ticket (terminal-frames.ts)
   mutation fileCommentChanged as shape Change queue refreshes data // the Files preview's line comments (chatLocal)
   mutation lineDragChanged as shape Change queue refreshes data // a diff gutter drag's press, moves and release, each in turn
-  mutation frameReported as shape Change queue refreshes data // each Mermaid and math page's report, in turn (chatLocal)
+  mutation frameReported as shape Change queue refreshes data // each Mermaid and math page's report and each sound's start and stop, in turn (chatLocal)
   mutation terminalChanged as shape Change queue refreshes data then terminalCompleted // the drawer's ops, its pages' messages in turn
   action terminalCompleted
     match terminalChanged
@@ -511,7 +511,13 @@ component T3Code
         if result.message == "terminal:focus-composer"
           focus("composer")
       case none
-  mutation fragmentChanged as shape Change refreshes data then fragmentOpened
+  // A fragment link's press and the prompt links' sends, each in turn: a prompt link's switch to another machine's Scratch
+  // project waits on its own timers (scratch-machine.ts), and a queued send is never let go.
+  mutation fragmentChanged as shape Change queue refreshes data then fragmentOpened
+  // View source, a transcript chip's or the composer's: it waits on its own timers, so only a newer one may let it go.
+  mutation citationShown as shape Change refreshes data
+  mutation capturePressed as shape Change queue refreshes data // the Browser's Capture: a Record start waits on its own timers (browser-recording.ts waitForPaint)
+  mutation prCheckoutTyped as shape Change refreshes data // the checkout dialog's edits: only the next one lets one go mid-debounce, and it takes `waiting` over (pr-checkout.ts)
   action fragmentOpened
     match fragmentChanged
       case some(result)
@@ -717,9 +723,9 @@ component T3Code
   derive speedModeHeld = speedModifiers(speedModifierState)
   action modifierKey(down: bool, e: KeyboardEvent, editable: bool)
     quitHoldKey(down, e)
-    // DesktopWindow.ts: a held ⌘W can outlive the panel or terminal that took its first press, so its repeats never
-    // reach File › Close Window. W by its key, or by its physical key where the source types no Latin character there
-    // (Korean 2-Set's ㅈ); AZERTY's W key types Z.
+    // DesktopWindow.ts: a held ⌘W closes one tab or terminal, not each one behind it, so its repeats are dropped. W by
+    // its key, or by its physical key where the source types no Latin character there (Korean 2-Set's ㅈ); AZERTY's W
+    // key types Z.
     if down and e.repeat and e.metaKey and not e.altKey and not e.shiftKey and (e.key.toLowerCase() == "w" or (e.code == "KeyW" and e.key.length == 1 and not quitTypesLatin(e.key)))
       preventDefault()
     // ThreadUndoShortcut: a held undo chord undoes once, so its repeats are cancelled even after the notice is gone,
@@ -967,7 +973,10 @@ component T3Code
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash
-    send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
+    if op == "chip-act" and chip.act == "citation"
+      send citationShown = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow()) // a chip's View source
+    else
+      send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
   action openModels
     focus(modelsOpen ? "composer" : "model-search")
     modelsOpen = not modelsOpen
@@ -1070,10 +1079,16 @@ component T3Code
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
     else if op == "pr-code-drag" or op == "pr-code-begin"
       send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab's gutter drags and "+", in turn
-    else if op == "diagram-frame" or op == "math-frame"
+    else if op == "diagram-frame" or op == "math-frame" or op == "audio-playing"
       send frameReported = command(`chatlocal:${op}`, id, value, 0)
     else if op == "link-open" and value.startsWith("#")
       send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // fragmentOpened
+    else if op == "chip-citation"
+      send citationShown = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "surface-browser-capture"
+      send capturePressed = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "git-pr-text"
+      send prCheckoutTyped = command(`chatlocal:${op}`, id, value, 0)
     else
       send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // a table popup's trigger frame
   state foldHold = false

@@ -12,6 +12,7 @@ import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
 import { headerRenameDir, timelineMessages, timelineSnapshot, transcriptRows } from '../timeline/timeline-presentation';
 import { threadFooterRows } from '../timeline/thread-status-line';
+import { withKeptRows } from '../timeline/timeline-kept-rows';
 import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import { sidebarSnapshot } from '../sidebar/sidebar-view';
 import { parentThreadLink, subagentLead } from '../sidebar/sidebar-lineage';
@@ -193,7 +194,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     timelineReadsNeeded: timelineReadsNeeded(client),
     markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
     // The timeline's footer rows after the last message: a pending context handoff, then the status line.
-    messages: timelineMessages(client, [...transcript, ...threadFooterRows(client, now)], now), ...timelineSnapshot(client),
+    ...withKeptRows(client, timelineMessages(client, [...transcript, ...threadFooterRows(client, now)], now)), ...timelineSnapshot(client),
     providers: providers.map(provider => ({ id: str(provider.instanceId), name: str(provider.displayName, str(provider.driver)), available: providerAvailable(provider) })),
     models: providers.flatMap(provider => arr(provider.models).map(model => ({ id: str(model.slug), name: str(model.name, str(model.slug)),
       providerId: str(provider.instanceId), selected: provider.instanceId === client.providerId && model.slug === client.modelId }))),

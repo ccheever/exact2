@@ -13,8 +13,8 @@
 // one upload per recording. The seams are injected (`RecordingHost`), so the ported tests run against fakes, as
 // the reference's run against a mocked bridge and MediaRecorder; `nativeRecordingHost` is the module's.
 //
-// Data-module rules: no clock and no timers here (the build refuses them). Timeouts and paint waits go through
-// the host's `setTimeout` (the module's sleep in production); the time comes from the host's `now`.
+// Data-module rules: no clock here (the build refuses one). Timeouts and paint waits go through the host's
+// `setTimeout` and `requestAnimationFrame` (the answer's own timers in production); the time comes from the host's `now`.
 
 // ── Errors (Schema.TaggedError in the reference; `_tag` and the fields kept) ──────────────────────
 /** contracts previewCapture.ts PreviewCaptureFailure (74541bab17): a native capture failure, classified where it happens

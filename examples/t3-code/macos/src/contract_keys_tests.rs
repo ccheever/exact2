@@ -1,6 +1,7 @@
 //! What moved from the module's native readers and menu
 //! construction into the compiled plan, read from the plan as the host reads it.
-//! The window's root removes the host's menu items the reference bar lacks by `menuRemove`, the surface
+//! The window's root removes the host's menu items the reference bar lacks by `menuRemove` and Close Window's chord by
+//! `menuKeys`, and draws its text `antialiased` under Font smoothing; the surface
 //! launcher's available rows declare their letters as `accessibilityKeyShortcuts`
 //! (the native launcher's key re-post is gone), a sidebar row's press carries its own click modifiers
 //! (T3Sidebar's click monitor is gone), and the keybinding recorder is a Contract
@@ -9,6 +10,7 @@
 use super::composer_accessibility_tests::{measure, set, Replies};
 use super::PLAN;
 use exact_apple::measure::CallbackMeasurer;
+use exact_kernel::{RowValue, StyleId};
 use exact_plan::{Plan, TypeKind, TypesId};
 use exact_runner::{Event, Runner, Value};
 
@@ -189,10 +191,54 @@ fn the_windows_root_removes_the_host_items_the_reference_bar_lacks() {
     assert_eq!(
         prop(runner, "t3-code", "menuRemove").as_deref(),
         Some(concat!(
-            "show-tab-bar show-all-tabs develop back paste-and-match-style find ",
+            "close-all show-tab-bar show-all-tabs develop back paste-and-match-style find ",
             "spelling-and-grammar substitutions transformations app-help"
         ))
     );
+}
+
+/// DesktopApplicationMenu.ts gives File › Close Window no accelerator on macOS (a86c05f977): the item stays, without ⌘W.
+#[test]
+fn the_windows_root_leaves_close_window_without_its_chord() {
+    let mut host = host();
+    let runner = host.runner_mut();
+    assert_eq!(
+        prop(runner, "t3-code", "menuKeys").as_deref(),
+        Some("close-window=none")
+    );
+}
+
+/// Font smoothing (appearanceFonts.ts): on by default, the window's text is drawn `antialiased`; off, as AppKit draws it.
+#[test]
+fn font_smoothing_draws_the_window_antialiased_until_it_is_turned_off() {
+    let plan = Plan::decode(PLAN).unwrap();
+    let smoothing = |on: Option<bool>| {
+        let mut replies = Replies::default();
+        let look: Vec<(&[&str], Value)> = on
+            .map(|on| vec![(&["look", "smoothing"][..], Value::Bool(on))])
+            .unwrap_or_default();
+        replies.fixture(&plan, "data", &look);
+        replies.fixture(&plan, "welcome", &[(&["show"], Value::Bool(false))]);
+        let measurer = CallbackMeasurer::new(measure, std::ptr::null_mut(), None);
+        let (mut host, _) =
+            exact_apple::Host::boot(PLAN, replies, Box::new(measurer), 1280.0, 840.0).unwrap();
+        let runner = host.runner_mut();
+        runner.set_time(EPOCH, 0.0).unwrap();
+        runner.advance(1250.0).unwrap();
+        let id = node(runner, "t3-code").expect("the window's root is rendered");
+        match runner
+            .kernel()
+            .node(id)
+            .unwrap()
+            .computed(StyleId::FontSmoothing)
+        {
+            RowValue::Enum(value) => value,
+            other => panic!("font smoothing is an enum row: {other:?}"),
+        }
+    };
+    assert_eq!(smoothing(None), "antialiased", "the setting's default");
+    assert_eq!(smoothing(Some(true)), "antialiased");
+    assert_eq!(smoothing(Some(false)), "auto");
 }
 
 #[test]

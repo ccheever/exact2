@@ -486,8 +486,9 @@ component T3Window
   state focusEditable = false
   // rightPanel.close (keyboard-dispatch.ts): the reference's renderer closes the right panel's tab on ⌘W. Its chord is
   // heard here, at the window's capture, ahead of the menu, so its dispatch button declares none (settings-shortcuts
-  // .contract ShortcutButton). ⌘W never closes the window: the reference's File › Close Window has no key equivalent,
-  // so a ⌘W that closes nothing is held here, short of the host's Close Window, which still shows ⌘W.
+  // .contract ShortcutButton). File › Close Window has no ⌘W (the root's `-exact-menu-keys`), so a ⌘W that closes
+  // nothing does nothing, as in the reference. Its default is prevented all the same: AppKit beeps for a key that falls
+  // off the responder chain (NSResponder noResponder(for:)), where Chromium has no default for it.
   action modifierDown(k: string, e: KeyboardEvent)
     let closing = shortcuts.filter((item) => item.command == "rightPanel.close" and item.chord != "" and item.chord.toLowerCase() == windowChord(k, e).toLowerCase())
     if not e.repeat and closing.length > 0
@@ -1043,8 +1044,11 @@ component T3Window
       dragDy = 0
   view
     // The reference bar (DesktopApplicationMenu.ts) has no window tabs, Develop or Go menu and no help book, and its Edit
-    // lacks Xcode's template items: `-exact-menu-remove` takes them and their chords (LLP 1021 §5.3.1).
-    main navigationKey="t3-code" navigationBack="" navigate=promptLinkNavigate testId="t3-code" -exact-menu-remove="show-tab-bar show-all-tabs develop back paste-and-match-style find spelling-and-grammar substitutions transformations app-help" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+    // lacks Xcode's template items: `-exact-menu-remove` takes them and their chords (LLP 1021 §5.3.1). Its File › Close
+    // Window has no accelerator on macOS: `-exact-menu-keys` leaves the item without ⌘W, and AppKit's Close All, which then
+    // shows as a row of its own, goes too (LLP 1021 §5.3.3). With Font smoothing on, the default, text is drawn
+    // `antialiased`, as appearanceFonts.ts sets it on the document root (LLP 1019 D12).
+    main navigationKey="t3-code" navigationBack="" navigate=promptLinkNavigate testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
       // Save file's target (app.contract saveNow): the Save panel's chosen name or dismissal lands here.
       input id="save-file" testId="save-file" display="none" change=saveChosen cancel=saveDismissed autocorrect="off"
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape

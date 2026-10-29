@@ -97,4 +97,16 @@ describe('a sent sound is an audio chip (#21363)', () => {
       expect(state.duration).toBe(duration);
     }
   });
+  test('the chip tells its row when its sound starts and stops, once each, so the transcript keeps the row mounted', async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const chip = contractComponent('timeline-audio.contract', 'AudioChip'), state = { ...chip.state(), id: 'memo.wav' }, reports: string[] = [];
+    const scope = { report: (value: string) => reports.push(value) };
+    chip.call('stopped', state, scope, []); // a paused chip's own pause tells nothing
+    chip.call('started', state, scope, []);
+    chip.call('started', state, scope, []);
+    chip.call('stopped', state, scope, []);
+    chip.call('started', state, scope, []);
+    chip.call('refused', state, scope, ['MEDIA_ERR_DECODE']);
+    expect(reports).toEqual(['1memo.wav', '0memo.wav', '1memo.wav', '0memo.wav']);
+  });
 });

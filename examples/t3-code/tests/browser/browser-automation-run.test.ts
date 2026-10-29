@@ -3,7 +3,7 @@
 // over CDP and has no host tests for them), with four of previewAutomationRequestConsumer.test.ts's serialization rows:
 // a viewport that never renders, a target that is not editable, an operation failure whose cause stays out of the
 // answer, and an error a plan carried.
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import { adoptFramePrompt, answerFramePrompt, automationAudio, automationControllerOf, keyActions, runAutomation, toggleFrameMute, useAutomationCalls, type AutomationCalls, type RunDeps } from '../../src/browser/browser-automation-run';
 import { adoptFrameEvent, frameByElement, frameCommandView, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
 import { browserHost } from '../../src/browser/browser-surface';
@@ -39,13 +39,13 @@ function fakePage(answer: (name: string, options: Obj) => unknown = () => null) 
 const scripted = (value: unknown) => ({ result: { text: JSON.stringify(value) } });
 const failure = (code: string) => Object.assign(new Error(code), { code });
 
-function setup(onSleep: (client: T3Client) => void = () => {}) {
+function setup() {
   const client = { environmentId: 'env-1', threadId: 'thread-1', projectId: 'p1', generation: 3, connection: 'connected', ready: true, draftKey: 'env-1:thread-1',
     presentation: {}, revision: 0, local: {}, shell: { threads: [], projects: [] }, scopes: ['preview:operate'] } as unknown as T3Client & { revision: number };
   browserHost(client).store.reconcileServerSessions(ref, { sessions: [loaded], serverEpoch: 'epoch-1', revision: 1 });
   syncFrames(client, [{ runtimeId: RUNTIME, url: 'http://127.0.0.1:16751/', environment: 'env-1', profile: 'default', zoom: 1, colorScheme: 'system' }]);
   adoptFrameEvent(client, FRAME, record('navigatesuccess'), 0);
-  const native = { available: true, watch() {}, later: async (request: Obj) => { if (request.op === 'timelineSleep') onSleep(client); natives.push(request); return { ok: true, generation: 3, value: {} }; } } as unknown as Native;
+  const native = { available: true, watch() {}, later: async (request: Obj) => { natives.push(request); return { ok: true, generation: 3, value: {} }; } } as unknown as Native;
   const natives: Obj[] = [];
   adoptCaptureNative(client, native);
   const responded: Obj[] = [], rpcs: Array<{ method: string; payload: Obj }> = [];
@@ -56,11 +56,14 @@ const plan = (operation: string, input: Obj = {}, extra: Obj = {}): Obj => ({
   requestId: `r-${operation}`, connectionId: 'c-1', clientId: 'preview-1', operation, input, environmentId: 'env-1', threadId: 'thread-1', timeoutMs: 15_000,
   generation: 3, budgetMs: 13_500, tabId: 'tab-1', runtimeId: RUNTIME, viewportSetting: { _tag: 'fill' }, ...extra,
 });
+/** `onSleep`: the page moves on at each of the run's sleeps (command-waits.ts `sleep`, a timer of the run's answer). */
 async function run(operation: string, input: Obj, page: ReturnType<typeof fakePage>, extra: Obj = {}, onSleep?: (client: T3Client) => void) {
-  const fixture = setup(onSleep);
+  const fixture = setup();
   useAutomationCalls(page.calls);
+  const timer = globalThis.setTimeout;
+  const sleeps = onSleep ? spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => { onSleep(fixture.client); return timer(fn, ms); }) as unknown as typeof setTimeout) : null;
   try { await runAutomation(fixture.client, plan(operation, input, extra), fixture.deps); }
-  finally { useAutomationCalls(null); }
+  finally { useAutomationCalls(null); sleeps?.mockRestore(); }
   return { ...fixture, answer: fixture.responded[0] ?? {} };
 }
 
