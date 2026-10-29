@@ -31,7 +31,7 @@ import { sourceGutter } from './files-crumbs-settle'; // the reference's line-nu
 import { letGo } from '../client/let-go';
 import { attachmentText, saveAttachment } from './attachment-files'; // the preview's text and Save file
 import { FILE_TEXT_PREVIEW_MAX_BYTES, filePreviewDelimiter, filePreviewKind, maskMarkdownFrontmatter, officePreviewKind, type FilePreviewKind } from './file-preview-kind';
-import { connectionScope, emptyViewerFrame, newFrame, postBytes, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames'; // the viewer page
+import { connectionScope, emptyViewerFrame, frameGone, newFrame, postBytes, requestCopy, viewerFrameId, viewerFrameView, viewerMessage, viewerPick, type FrameState, type ViewerConfig, type ViewerFrameView } from './viewer-frames'; // the viewer page
 import { emptyEntry, emptyNotebook, entryPicture, entryView, forgetNotebook, notebookOutputMessage, notebookView, showMoreCells, type EntryView, type NotebookView } from './notebook-preview'; // what the page hands back
 import { appFiles } from '../media/save-file';
 import { stagedPath } from './attachment-files';
@@ -232,6 +232,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     : readsText && content ? (kind === 'mermaid' && rendered ? 'mermaid' : kind === 'markdown' && rendered ? 'markdown' : 'code')
       : kind === 'font' ? (fontError ? 'none' : font?.page ? 'font' : 'loading')
         : kind === 'image' ? 'image' : mediaBody(kind === 'viewer' ? 'unsupported' : kind, rendered) || 'none';
+  if (preview !== 'viewer') frameGone(state.frame);
   const text = content?.text ?? '';
   const lines = preview === 'code' ? codeLines(meta.name, text, 'shell') : [];
   const extension = meta.name.split('.').pop() || 'this format';
@@ -242,7 +243,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   const cells = notebook ? await notebookView(client, source.key, notebook) : null;
   const rich = preview === 'markdown' ? await renderedAttachment(client, native, source.id, text) : cells ? { ...NO_MARKDOWN(), ...cells.markdown } : NO_MARKDOWN();
   const diagram = preview === 'mermaid' ? mermaidFile(client, text) : null;
-  // One frame per file and origin: the page narrows its requests to the first origin it is given.
+  // One frame per file and whom its page may reach (`connectionScope`): a page narrows its connections once.
   const frameId = viewerFrameId(`${source.key}-${connectionScope(viewer?.src ?? '')}`);
   return {
     id: source.id, origin: source.origin, canRemove: source.dialog, canClose: source.dialog, name: meta.name, size: meta.sizeBytes > 0 ? formatAttachmentSize(meta.sizeBytes) : '', preview, error: failure,

@@ -401,13 +401,20 @@ describe('Files (FilePreviewPanel at 7c3b3b3605ef)', () => {
     expect(calls.filter(call => call.method === 'copyText').map(call => call.payload.text)).toEqual(['the pdf']);
   });
 
-  test('a table and a file from the server are other frames: the page narrows its requests once', async () => {
+  test('a table, then a PDF, then a large log: each origin the page may reach has its own frame', async () => {
     const { client, contents, large } = filesClient();
     contents['orders.csv'] = 'a,b\n1,2\n';
-    const table = await filesView(client, native, surface('orders.csv'), 1000);
     contents['big.log'] = 'first'; large.set('big.log', 40 * 1024 * 1024);
-    const full = await filesView(client, native, surface('big.log'), 1000);
-    expect([table.preview, full.preview, table.viewer.id === full.viewer.id]).toEqual(['viewer', 'viewer', false]);
+    const table = await filesView(client, native, surface('orders.csv'), 1000);
+    const pdf = await filesView(client, native, surface('/tmp/out/report.pdf'), 1000);
+    const log = await filesView(client, native, surface('big.log'), 1000);
+    const origin = (view: typeof table) => { const src = JSON.parse(view.viewer.config).src as string; return src && new URL(src).origin; };
+    expect([table.preview, pdf.preview, log.preview, origin(table), origin(pdf), origin(log)]).toEqual(['viewer', 'viewer', 'viewer', '', 'http://127.0.0.1:9', 'http://127.0.0.1:9']);
+    // A page narrows its connections once (entry.ts narrowConnections): the table's to none, so the PDF's page is
+    // another frame, and the log, from the PDF's origin, opens in the PDF's.
+    expect([table.viewer.id === pdf.viewer.id, pdf.viewer.id === log.viewer.id]).toEqual([false, true]);
+    // The view mounts a new frame, with a new page, for a new id.
+    expect(appText('files-surface.contract')).toContain('for frame in [files.viewer] key=frame.id\n          ViewerFrame(frame=frame,');
   });
 
   test('a rendered CSV shows every row in the large-text viewer over the text read; a large one streams as Full file', async () => {

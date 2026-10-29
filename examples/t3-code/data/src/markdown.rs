@@ -677,6 +677,13 @@ fn chat_document(
             .collect(),
         _ => Vec::new(),
     };
+    let inert_text;
+    let text = if inert {
+        inert_text = inert_source(text);
+        inert_text.as_str()
+    } else {
+        text
+    };
     // Task offsets name the file's own text: image_chip_links drops the `!` of each
     // `![name](t3-context://…)`, which would shift every later marker by one.
     let source = text;

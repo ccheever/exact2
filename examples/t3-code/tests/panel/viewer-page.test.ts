@@ -149,7 +149,7 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     await attachmentView(refused, native, log, 1000);
     await attachmentLocal(refused, native, 'viewer:{"type":"boot"}', log.id, 0);
     expect((await attachmentView(refused, native, log, 1000)).viewer.posts).toEqual([]);
-    // The frame is one per file and origin: the page narrows its requests to the first origin it is given.
+    // The frame is one per file and origin the page may reach: a page narrows its connections once.
     const moved = client([log]);
     (moved as unknown as { origin: string }).origin = 'http://127.0.0.1:2';
     expect((await attachmentView(moved, native, log, 1000)).viewer.id === view.viewer.id).toBe(false);
@@ -189,6 +189,33 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     await attachmentView(c, native, meta, 1000, big);
     const failed = await attachmentView(c, native, meta, 1000, big);
     expect([failed.preview, failed.error]).toEqual(['error', 'Preview of a draft file is limited to 16 MB until it is sent.']);
+  });
+
+  test("Try again after a draft's copy could not be read reads it once, for the page that boots in the new frame", async () => {
+    const name = '22222222-3333-4444-5555-666666666666', path = `app:/data/composer-files/${name}`;
+    const files = memoryAppFiles(new Map());
+    const fs = (await import('../../src/media/save-file')).appFiles().fs as unknown as { readFile: (path: string) => Promise<ArrayBuffer> };
+    const read = fs.readFile.bind(fs);
+    let reads = 0;
+    fs.readFile = async (at: string) => { if (at === path) reads += 1; return read(at); };
+    const meta: AttachmentMeta = { id: 'd3', name: 'draft.pdf', mimeType: 'application/pdf', sizeBytes: 14 };
+    const c = client([]);
+    const source: PreviewSource = { id: 'd3', key: 'draft:d3', origin: 'Draft', dialog: true, local: { url: `t3-staged:${name}`, text: async () => ({ ok: false }), save: () => {} } };
+    await attachmentView(c, native, meta, 1000, source);
+    await attachmentOp(c, native, meta, source, 'viewer:{"type":"boot"}', 0);
+    // No staged copy: the next view's failure takes the frame's place.
+    await attachmentView(c, native, meta, 1000, source);
+    expect([(await attachmentView(c, native, meta, 1000, source)).preview, reads]).toEqual(['error', 1]);
+    files.set(path, new TextEncoder().encode('%PDF-1.4 draft'));
+    await attachmentOp(c, native, meta, source, 'retry', 0);
+    const remounted = await attachmentView(c, native, meta, 1000, source);
+    expect([remounted.preview, remounted.viewer.posts, reads]).toEqual(['viewer', [], 1]);
+    await attachmentOp(c, native, meta, source, 'viewer:{"type":"boot"}', 0);
+    const booted = await attachmentView(c, native, meta, 1000, source);
+    expect([booted.viewer.posts.map(post => (JSON.parse(post.text) as Obj).type), reads]).toEqual([['bytes'], 2]);
+    expect((await attachmentView(c, native, meta, 1000, source)).viewer.posts).toHaveLength(1);
+    expect(reads).toBe(2);
+    forgetPreview(c, 'draft:d3');
   });
 });
 

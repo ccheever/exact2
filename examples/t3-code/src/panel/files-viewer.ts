@@ -99,7 +99,9 @@ export async function filesViewer(client: T3Client, native: Native | null | unde
   }
   state.name = request.name;
   state.path = request.absolute;
-  // One frame per environment and origin: the page narrows its requests to the first origin it is given.
+  // The frame's id names the environment and whom its page may reach (`connectionScope`). A page narrows its
+  // connections once, to its first file's origin or, for a table's text, to none; files-surface.contract mounts a new
+  // frame for a new id.
   return { viewer: viewerFrameView(state.frame, viewerFrameId(`files-${client.environmentId}-${connectionScope(config.src)}`), config), full, error: '' };
 }
 

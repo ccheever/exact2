@@ -120,6 +120,15 @@ export function requestCopy(state: FrameState): void {
 /** The frame no longer shows its page (another body took the surface): a Copy asked of it is withdrawn. */
 export function dropCopy(state: FrameState): void { state.copyKey = null; }
 
+/**
+ * The surface draws something else in the frame's place (a failure, a notebook's cells, a load), so its page is gone:
+ * what it was sent goes with it, and nothing more is sent, a draft's bytes neither read nor encoded, until the next
+ * page boots.
+ */
+export function frameGone(state: FrameState): void {
+  if (state.booted) Object.assign(state, { booted: false, posts: [], sentBytes: '' });
+}
+
 /** A draft's bytes for the viewer `key`, in base64 posts, the last one `done`. */
 export function postBytes(state: FrameState, key: string, bytes: Uint8Array): void {
   state.sentBytes = key;

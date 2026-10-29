@@ -20,7 +20,8 @@ export function packedUrl(input: RequestInfo | URL, base: string): URL | null {
 
 /**
  * What a relative URL in this context is relative to: its location, or, in a worker started from a Blob
- * (policy-workers.ts), the directory of its scripts, which is where its location was before.
+ * (policy-workers.ts), whose location is that Blob's URL, this script's own URL, in the directory the worker's
+ * packages name their files from.
  */
 export function contextBase(): string {
   return typeof location === "undefined" || location.protocol === "blob:" ? import.meta.url : location.href;

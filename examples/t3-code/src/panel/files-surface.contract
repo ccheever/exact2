@@ -396,7 +396,10 @@ component FilePreview
             text "Full file" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
             FileSurfaceAction(id="full-copy", ids="", label=files.fullFile.copyLabel, icon=(files.fullFile.copied ? "check" : "copy"), toggle=false, pressed=false, disabled=false, hovered=fullHovered, hover=fullHover, press=local("surface-files-full-copy", files.absolutePath, ""))
             FileSurfaceAction(id="full-save", ids="", label=files.fullFile.saveLabel, icon="download", toggle=false, pressed=false, disabled=files.fullFile.saving, hovered=fullHovered, hover=fullHover, press=local("surface-files-full-save", files.absolutePath, ""))
-        ViewerFrame(frame=files.viewer, scheme=scheme, sheet=sheet, message=viewerSaid, posted=viewerPosted, pick=viewerPicked, label=files.path, testId="file-viewer")
+        // A new frame, with a new page, for each id (files-viewer.ts): a page narrows its connections once, to none
+        // for a table's text, so a file from the server needs another.
+        for frame in [files.viewer] key=frame.id
+          ViewerFrame(frame=frame, scheme=scheme, sheet=sheet, message=viewerSaid, posted=viewerPosted, pick=viewerPicked, label=files.path, testId="file-viewer")
     if files.preview == "mermaid"
       MermaidFileView(diagrams=files.diagrams, note=files.mermaidNote, scheme=scheme, local=local, testId="file-mermaid")
     // An image or video file with its menu, tooltip and failure states (FilesMedia); a signed picture has the size and

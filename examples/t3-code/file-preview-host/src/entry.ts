@@ -72,8 +72,8 @@ class Incoming {
  * The page's requests reach only the origin its file comes from (a second policy narrows the first, CSP3 §4.1), or
  * none past the page's own files, Blobs and `data:` for a draft's Blob, a text the app sent or no file. The static
  * policy allows any http(s) origin because an environment's is known only at run time; the workers take this one too
- * (shared/policy-workers.ts). It is set once: the app mounts another frame for another origin (viewer-frames.ts
- * `connectionScope`).
+ * (shared/policy-workers.ts). It is set once per document, so a surface keys its frame by whom the file's page may
+ * reach (viewer-frames.ts `connectionScope`), and a file of another gets a new frame and page.
  */
 export function narrowConnections(src: string, at: Document = document): void {
   if (at.head.querySelector("meta[data-connections]")) return;
