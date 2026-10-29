@@ -451,6 +451,33 @@ not an object, and converts each value as it is yielded, so a value that is not
 a signal throws `TypeError` before the iterator is asked for the next. exact2's
 `js/tests/it/pure.rs` compares it with Chrome's. Replay on a refresh.
 
+## Local patch 26, a request sent again when a kept connection closes unanswered
+
+`transport/rustls_http.rs` sends a request once more, on a connection of its
+own, when the pooled connection it went out on ends (reset, aborted, a write
+refused, or read to its end) before any of the response arrives: a server may
+close an idle keep-alive connection after ureq's `is_open` probe and before it
+reads the request. Chrome (`HttpNetworkTransaction::ShouldResendRequest`) and
+libcurl (`Curl_retry_request`) resend on that condition, whatever the method;
+this sends once, on a new connection, so a resend is never itself resent. A
+request is not sent again once it starts to open a connection of its own
+(`CancellableConnector`, a proxy's hop's too) or any of its response arrives
+above TLS (`Observe`, the top of each agent's connector chain); on a CONNECT
+proxy's hop, which runs the chain too, `Observe` counts none of the bytes. A
+resend has what is left of the request's time, its own timeout or, without
+one, the agent's 30 s global limit. A resent upload's body is read again from
+its start, its bytes sent told again from zero.
+
+Tests: `rustls_http.rs`'s
+`an_unanswered_request_on_a_kept_connection_is_sent_again_on_a_new_one` (the
+server closing cleanly, and resetting; an upload with and without a bytes-sent
+hook), `a_resend_that_fails_is_not_sent_again`,
+`a_resend_takes_no_other_kept_connection`,
+`a_resend_has_only_what_is_left_of_the_request_s_time` and
+`a_request_on_a_new_connection_or_whose_answer_began_is_not_sent_again`, which
+run with this crate's manifest and in no lane; TLS and a proxy have no test.
+Replay on a refresh.
+
 ## Qualification boundaries
 
 Exact's continuation snapshots the image work visible to its runtime owner turn.
