@@ -162,7 +162,7 @@ check('a hover look composes over the base, under the press paint', async () => 
     const mouse = (type, [x, y], buttons = 0) => call('Input.dispatchMouseEvent', { type, x, y, button: type === 'mouseMoved' ? 'none' : 'left', buttons, clickCount: 1 });
     const settle = () => evaluate(`(document.getAnimations().forEach(a => a.finish()), new Promise(r => requestAnimationFrame(() => r())))`); // and their finish events
     // A colour as rgb(), whichever form it computes to (the press paint's is its look beneath's).
-    const now = () => evaluate(`(() => { const s = getComputedStyle(document.getElementById('card')), n = c => c.replace(/^color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)( \\/ [\\d.]+)?\\)$/, (_, r, g, b, a) => { const v = [r, g, b].map(x => x * 255); return v.every(Number.isInteger) && !a ? 'rgb(' + v.join(', ') + ')' : _; }); return [n(s.backgroundColor), n(s.borderRightColor), Number(s.opacity).toFixed(2)]; })()`);
+    const now = () => evaluate(`(() => { const card = document.getElementById('card'), own = getComputedStyle(card), s = exact.pressShown?.(card) ?? own, n = c => c.replace(/^color\\(srgb ([\\d.]+) ([\\d.]+) ([\\d.]+)( \\/ [\\d.]+)?\\)$/, (_, r, g, b, a) => { const v = [r, g, b].map(x => x * 255); return v.every(Number.isInteger) && !a ? 'rgb(' + v.join(', ') + ')' : _; }); return [n(s.backgroundColor), n(own.borderRightColor), Number(s.opacity).toFixed(2)]; })()`);
     const look = async () => { await settle(); return now(); };
     const card = await at('card'), away = await at('away');
 
@@ -178,8 +178,8 @@ check('a hover look composes over the base, under the press paint', async () => 
     await evaluate(`Object.assign(document.getElementById('card').style, { backgroundColor: '#eeeeee', borderRightColor: '#123456' })`);
     expect(await look()).toEqual(['rgb(0, 0, 255)', 'rgb(18, 52, 86)', '0.60']);
     // A live edit of the look beneath (its sheet, not the node's style) is what the press eases over now.
-    // (The base the node's paint rule holds: its background's channels at 0.)
-    const beneath = () => evaluate(`(() => { const key = document.getElementById('card').getAttribute('data-exact-painting'), rule = document.adoptedStyleSheets.flatMap(s => [...s.cssRules]).find(r => r.selectorText.includes('"' + key + '"')); const m = /background-color: rgb\\(calc\\(([\\d.]+) [^)]*\\)\\) calc\\(([\\d.]+) [^)]*\\)\\) calc\\(([\\d.]+)/.exec(rule?.cssText ?? ''); return m && 'rgb(' + m.slice(1, 4).join(', ') + ')'; })()`);
+    // (The look beneath: the node's own background-color, which the paint, a layer over it, leaves as it is.)
+    const beneath = () => evaluate(`getComputedStyle(document.getElementById('card')).backgroundColor`);
     expect(await beneath()).toBe('rgb(255, 255, 0)');
     await evaluate(`(s => { s.textContent = s.textContent.replace('255,255,0', '0,255,255'); })(document.getElementById('exact-looks'))`);
     await evaluate('new Promise(ok => setTimeout(ok, 0))');

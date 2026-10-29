@@ -266,16 +266,27 @@ and gives back only the colour it lent.
 **Web**, both targets: custom properties on the element's own style, which
 the input glue shows by D3's rule, released also when the window, the tab
 or the page goes and when a move says the button is up, a key's press too.
-The shell's important rules paint them while the glue marks the press, from
-the properties read live and from what the glue animates: the press's
-progress and the node's look beneath, which the glue reads with the paint
-off whenever the press turns, the node's style or class changes or the
-scheme flips, so the release eases back to the node's look as it is then.
-The node's transitions are left alone, and a transition is above every
-declaration in the cascade: one the node has running on a painted property
-at the press shows above the paint until it ends, and one it has on a
-painted property times the paint's move to a look that changed while held
-(a re-read is a style change like any other). A property cleared while held stops
+The glue paints them while it marks the press, an important rule of the
+node's own at the press's progress (which it animates) over the node's look
+beneath, which it reads with the paint off whenever the press turns, the
+node's style or class changes or the scheme flips, so the release eases back
+to the node's look as it is then. The pressed colour is a background layer
+over the node's own background-color (its own images beneath; a colour at
+alpha p over another, so a translucent pressed colour composites rather than
+mixes). The pressed opacity is the property itself where the engine hands
+the glue its own number (computedStyleMap: Chromium, WebKit) and elsewhere
+(Firefox) a uniform mask, which multiplies as opacity does (WebKit clips a
+mask to the border box, a shadow with it, so it takes the number); an
+author's !important opacity is therefore above the press in Chromium and
+WebKit and not in Firefox. The pressed text colour is the property itself.
+The node's transitions are left alone: the paint never starts, retargets or
+cancels one. One running on the background colour shows beneath the paint's
+layer; on the opacity or the text colour, the paint of that property waits
+until it ends. Where the node declares a transition on a property the paint
+writes, the paint at rest is exactly the look beneath (an opaque rgb()
+colour, the engine's own opacity number), or that property isn't painted.
+An authored change while held is a base change (LLP 1121 D8), which the
+paint lies over. A property cleared while held stops
 showing, and the shell's dim, when it then applies, is the press alone; the
 cell row's wash yields to them. **Linux** (and Android and Windows,
 which paint through its presenter): a press eases one progress, from which
