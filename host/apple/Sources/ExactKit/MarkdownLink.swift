@@ -115,10 +115,14 @@ package final class MarkupAtom: NSObject {
     /// emphasized or not.
     package let selected: Bool, emphasized: Bool
     package let dark: Bool, contrast: Bool
+    /// Its face's direction, `ltr` or `rtl`, which lays out its icon and
+    /// label (D4); empty to follow its line's.
+    package let direction: String
     package init(kind: String, label: String, icon: String, title: String, role: String, href: String, ink: [Double]?, background: [Double]?,
-                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool) {
+                 selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool, direction: String = "") {
         (self.kind, self.label, self.icon, self.title, self.role, self.href) = (kind, label, icon, title, role, href)
         (self.ink, self.background, self.selected, self.emphasized, self.dark, self.contrast) = (ink, background, selected, emphasized, dark, contrast)
+        self.direction = direction
     }
 }
 

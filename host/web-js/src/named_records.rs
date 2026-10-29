@@ -87,7 +87,7 @@ mod tests {
             r#"atom mention prefix="@"
 component App
   state c = "red"
-  derive faces = [AtomFace(source="@a", label="", icon="", title="", color=c, backgroundColor="")]
+  derive faces = [AtomFace(source="@a", label="", icon="", title="", color=c, backgroundColor="", direction="")]
   view
     column
       textarea value="@a " markup="markdown" atoms="mention" atomFaces=faces
@@ -210,6 +210,7 @@ console.log(JSON.stringify({{ out: JSON.parse(out), journal }}));
         let value = |name: &str| match name {
             "color" => "red".to_string(),
             "backgroundColor" => "blue".to_string(),
+            "direction" => "rtl".to_string(),
             name => format!("the {name}"),
         };
         let face: Vec<String> = fields.iter().map(|f| value(f)).collect();
@@ -239,7 +240,7 @@ console.log(JSON.stringify({{ out: JSON.parse(out), journal }}));
 atom mention prefix="@"
 component App
   state name = "systemRedColor"
-  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brand", backgroundColor="-exact-platform-color(web Highlight, #ffffff)"), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(web ${name}, #ff0000)`, backgroundColor="")]
+  derive faces = [AtomFace(source="@a", label="", icon="", title="", color="brand", backgroundColor="-exact-platform-color(web Highlight, #ffffff)", direction=""), AtomFace(source="@b", label="", icon="", title="", color=`-exact-platform-color(web ${name}, #ff0000)`, backgroundColor="", direction="")]
   view
     textarea value="@a @b " markup="markdown" atoms="mention" atomFaces=faces
 "#,

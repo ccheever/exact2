@@ -853,7 +853,7 @@ fn prop_type(p: PropId) -> String {
         return "a literal list of `atom` names: `atoms=\"citation mention\"`".into();
     }
     if p == PropId::AtomFaces {
-        return "AtomFace[]: AtomFace(source, label, icon, title, color, backgroundColor), keyed by each atom's whole source text; `color` and `backgroundColor` paint that one atom over its kind's paint: each a colour as a bound `color` takes one, but not in a profile the app declares and with no cascade keyword or substitution function (`var()`, `env()`, `attr()`, `if()`, `inherit()`) outside a role's web form, or empty to keep the kind's".into();
+        return "AtomFace[]: AtomFace(source, label, icon, title, color, backgroundColor, direction), keyed by each atom's whole source text; `color` and `backgroundColor` paint that one atom over its kind's paint: each a colour as a bound `color` takes one, but not in a profile the app declares and with no cascade keyword or substitution function (`var()`, `env()`, `attr()`, `if()`, `inherit()`) outside a role's web form, or empty to keep the kind's; `direction` (`ltr`, `rtl`) pins the pill's own direction, its icon first, or `\"\"` follows its line".into();
     }
     if p == PropId::Decorations {
         return "TextDecorations(value, spans): the text the spans were computed for, and TextDecorationSpan(name, start, end) in UTF-16 offsets".into();
@@ -900,7 +900,7 @@ const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the au
 /// Where an attribute is admitted, if not on every tag.
 fn only_on(name: &str) -> Option<&'static str> {
     if name == "atoms" || name == "atomFaces" {
-        return Some("a `text` or `textarea` with `markup=\"markdown\"`: `atoms` lists the `atom` kinds it recognizes, `atomFaces` the app's `AtomFace(source, label, icon, title, color, backgroundColor)` records by each atom's source, a face's colours over its kind's; web, macOS and iOS draw pills, Linux, Windows and Android the source (LLP 1045.000)");
+        return Some("a `text` or `textarea` with `markup=\"markdown\"`: `atoms` lists the `atom` kinds it recognizes, `atomFaces` the app's `AtomFace(source, label, icon, title, color, backgroundColor, direction)` records by each atom's source, a face's colours over its kind's and its direction over its line's; web, macOS and iOS draw pills, Linux, Windows and Android the source (LLP 1045.000)");
     }
     if name == "paragraphDirs" {
         return Some("a `textarea` with `markup=\"markdown\"`: one HTML `dir` word per source line (a Markdown paragraph broken over three source lines takes three), in order, which the web, macOS and iOS draw as that line's base direction; a line past the last word takes the last, so one word sets every line. A list is bound to what the app derives from the value: a literal says one word (`lower-paragraph-dirs-literal`). Words stay with their lines through edits until the app's next words, and a line an edit adds takes the word above it. A line without a word takes the field's `direction`; `auto` is the line's first strong letter outside its syntax and atoms. Linux, Windows and Android show the source as a plain field and ignore it (LLP 1045 D11)");

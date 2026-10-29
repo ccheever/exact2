@@ -153,6 +153,7 @@ pub fn pieces(
                 "role": if a.role == exact_markdown::AtomRole::Link { "link" } else { "button" },
                 "start": range.start, "end": range.end,
                 "color": face_paint(&a.color), "background": face_paint(&a.background_color),
+                "direction": a.direction,
             })
             .to_string(),
             _ => String::new(),
@@ -218,9 +219,10 @@ pub fn pieces(
 /// Kinds: paragraph 0 body 1 heading 2 bullet 3 ordered 4 task 5 rule 6 fence
 /// 7 code 8 footnote 9 table 10 embed 11 image 12 video; replaced 0 bullet
 /// 1 box 2 checked box 3 rule 4 footnote. `a` is each inline atom (LLP
-/// 1045.000): `[start,end,kind,label,icon,title,role,href,ink,background]`,
-/// the last two its face's paint in the colour wire form (null for the
-/// kind's); no hidden range lies inside one and no atom link is in `l`.
+/// 1045.000): `[start,end,kind,label,icon,title,role,href,ink,background,
+/// direction]`: its face's paint in the colour wire form (null for the
+/// kind's), and its face's direction, `ltr`, `rtl` or empty for its line's;
+/// no hidden range lies inside one and no atom link is in `l`.
 /// `l` is each link's opener and its `](target)`, which the editor hides
 /// whatever the selection, as the web editor does
 /// (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
@@ -285,7 +287,8 @@ pub fn style(
                 role,
                 a.href,
                 face_paint(&face.color),
-                face_paint(&face.background_color)
+                face_paint(&face.background_color),
+                face.direction
             ])
         })
         .collect();
@@ -730,7 +733,7 @@ mod tests {
     #[test]
     fn atoms_cross_the_seam_through_one_handle() {
         let kinds = r#"[{"name":"citation","link":"t3-citation:"}]"#;
-        let faces = r##"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.png","title":"T","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"no colour"}]"##;
+        let faces = r##"[{"source":"[q](t3-citation:1)","label":"Quote","icon":"i.png","title":"T","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"no colour","direction":"ltr"}]"##;
         let atoms = atoms(kinds.as_ptr(), kinds.len(), faces.as_ptr(), faces.len());
         let source = "a [q](t3-citation:1) b";
         let (mut out, mut count) = (std::ptr::null(), 0usize);
@@ -751,7 +754,7 @@ mod tests {
         let json = read(out, count);
         assert!(
             json.ends_with(
-                r#""l":[],"a":[[2,20,"citation","Quote","i.png","T","button","t3-citation:1",[[213,44,54,255],[255,103,98,255]],null]]}"#
+                r#""l":[],"a":[[2,20,"citation","Quote","i.png","T","button","t3-citation:1",[[213,44,54,255],[255,103,98,255]],null,"ltr"]]}"#
             ),
             "{json}"
         );
@@ -814,6 +817,7 @@ mod tests {
             serde_json::json!([[213, 44, 54, 255], [255, 103, 98, 255]])
         );
         assert!(detail["background"].is_null());
+        assert_eq!(detail["direction"], "ltr");
         free(expanded);
         free(atoms);
         // A freed handle reads as no atoms.
