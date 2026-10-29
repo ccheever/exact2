@@ -37,6 +37,8 @@ export function memoryAppFiles(files: Map<string, Uint8Array> = new Map()) {
     async copyFile(from: string, to: string) { const bytes = files.get(from); if (!bytes) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); files.set(to, bytes.slice()); },
     async mkdir() {},
     async rm(path: string) { files.delete(path); },
+    // The names directly in `path`, as a directory listing has them.
+    async readdir(path: string) { return [...new Set([...files.keys()].filter(file => file.startsWith(`${path}/`)).map(file => file.slice(path.length + 1).split('/')[0]!))]; },
   } });
   return files;
 }

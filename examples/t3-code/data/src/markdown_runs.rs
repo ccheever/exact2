@@ -30,7 +30,21 @@ fn attention_group(c: Option<char>) -> u8 {
 /// escapes, link destinations, autolinks and bare URLs hold no run.
 fn strike_pairs(line: &str) -> Vec<(usize, usize, usize)> {
     let bytes = line.as_bytes();
+    let marks = LineMarks::new(line);
+    // An autolink's `>` and the `:` before it, each found once.
+    let after =
+        |found: &[usize], from: usize| found.get(found.partition_point(|&at| at < from)).copied();
+    let (gts, colons): (Vec<usize>, Vec<usize>) = (
+        line.match_indices('>').map(|(at, _)| at).collect(),
+        line.match_indices(':').map(|(at, _)| at).collect(),
+    );
+    let autolink = |at: usize| {
+        let close = after(&gts, at)?;
+        (after(&colons, at + 1)? < close).then_some(close + 1)
+    };
     let mut open: Vec<(usize, usize)> = Vec::new();
+    // Where in `open` each run of one tilde and of two is, so a closer finds the nearest of its length at once.
+    let mut by_length: [Vec<usize>; 2] = [Vec::new(), Vec::new()];
     let mut pairs = Vec::new();
     let mut at = 0;
     while at < bytes.len() {
@@ -38,31 +52,14 @@ fn strike_pairs(line: &str) -> Vec<(usize, usize, usize)> {
         let word_start = at == 0 || line[..at].ends_with(char::is_whitespace);
         match bytes[at] {
             b'\\' => at += 1 + line[at + 1..].chars().next().map_or(0, char::len_utf8),
-            b'`' => at = code_span_end(line, at).max(at + 1),
+            b'`' => at = marks.code_span_end(bytes, at).max(at + 1),
             b']' if rest.starts_with("](") => {
-                let mut depth = 0usize;
-                let mut end = line.len();
-                for (offset, byte) in bytes[at + 1..].iter().enumerate() {
-                    match byte {
-                        b'(' => depth += 1,
-                        b')' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                end = at + 2 + offset;
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                at = end;
+                at = marks
+                    .parens
+                    .get(&(at + 1))
+                    .map_or(line.len(), |&end| end + 1);
             }
-            b'<' if rest
-                .find('>')
-                .is_some_and(|close| rest[1..close].contains(':')) =>
-            {
-                at += rest.find('>').unwrap_or(0) + 1;
-            }
+            b'<' if autolink(at).is_some() => at = autolink(at).unwrap_or(at + 1),
             _ if word_start
                 && ["http://", "https://", "www."]
                     .iter()
@@ -78,14 +75,20 @@ fn strike_pairs(line: &str) -> Vec<(usize, usize, usize)> {
                     let opens = after == 0 || (after == 2 && before != 0);
                     let closes = before == 0 || (before == 2 && after != 0);
                     let opener = if closes {
-                        open.iter().rposition(|(_, size)| *size == length)
+                        by_length[length - 1].last().copied()
                     } else {
                         None
                     };
                     if let Some(index) = opener {
                         pairs.push((open[index].0, at, length));
                         open.truncate(index);
+                        for runs in &mut by_length {
+                            while runs.last().is_some_and(|&run| run >= index) {
+                                runs.pop();
+                            }
+                        }
                     } else if opens {
+                        by_length[length - 1].push(open.len());
                         open.push((at, length));
                     }
                 }

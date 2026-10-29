@@ -83,6 +83,21 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
     expect((await composerFileView(other.client, other.native, 1)).file).toMatchObject({ preview: 'none', noPreview: 'Save it to open in an app that supports bin files.', canSave: true });
   });
 
+  test('a PDF past 16 MiB is a copy in app:/cache while its preview is open, and Close removes the copy', async () => {
+    forgetMediaFrames();
+    const { native, client, appFiles } = harness([file({ name: 'large.pdf', mimeType: 'application/pdf', sizeBytes: 17 * 1024 * 1024 })]);
+    const fs = (await import('../../src/media/save-file')).appFiles().fs as unknown as { stat?: (path: string) => Promise<{ size: number }> };
+    fs.stat = async () => ({ size: 17 * 1024 * 1024 });
+    await performChipAct(client, native, { act: 'file', context: `file_${ID}` });
+    const src = (await composerFileView(client, native, 1)).file.viewer.src;
+    const copy = decodeURIComponent(new URL(src, 'exact-app://app/').searchParams.get('file') ?? '');
+    expect([copy.startsWith('app:/cache/media-preview/'), appFiles.has(copy)]).toEqual([true, true]);
+    await composerFileLocal(client, native, 'close', ID);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect([appFiles.has(copy), appFiles.has(`app:/data/composer-files/${ID}`)]).toEqual([false, true]);
+    delete fs.stat;
+  });
+
   test('a folded paste is read from memory; a file the send uploaded is the server\'s', async () => {
     const { calls, native, client } = harness([]);
     const fold = harness([]);

@@ -25,8 +25,10 @@ export type ViewerConfig = {
   /** The viewer's identity: a new key mounts a new viewer, as the reference's React keys do. */
   key: string;
   name: string;
-  /** The signed URL, or '' for bytes posted after it (a draft). */
+  /** The signed URL, or '' for a draft: its bytes posted after it, or the file the page is given (`given`). */
   src: string;
+  /** The page shows the file it was given in its own `src` (LLP 1020.001 D7): a draft past what a message carries. */
+  given?: boolean;
   text: string | null;
   /** -1 when the app knows none (a Files read). */
   sizeBytes: number;
@@ -85,9 +87,11 @@ export function connectionScope(src: string): string {
 }
 
 /** The frame's view: the config as JSON and the page's next post, once it has booted. */
-export function viewerFrameView(state: FrameState, id: string, config: ViewerConfig): ViewerFrameView {
+export function viewerFrameView(state: FrameState, id: string, config: ViewerConfig, given = ''): ViewerFrameView {
   if (state.configKey !== config.key) { state.configKey = config.key; state.copyKey = null; }
-  return { id, src: VIEWER_PAGE, config: JSON.stringify({ type: 'config', ...config }), posts: state.booted ? state.posts.slice(0, 1) : [], menu: state.menu };
+  // A file in app:/cache named in the page's own query, which the host puts a URL the page can fetch in place of.
+  const src = given ? `${VIEWER_PAGE}?file=${encodeURIComponent(given)}` : VIEWER_PAGE;
+  return { id, src, config: JSON.stringify({ type: 'config', ...config }), posts: state.booted ? state.posts.slice(0, 1) : [], menu: state.menu };
 }
 
 /** Queues `message` for the page; it goes once the page has booted, after the posts before it. */

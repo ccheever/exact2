@@ -167,7 +167,7 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     expect(config(await attachmentView(c, native, csv, 1000)).key).not.toBe(config(source).key);
   });
 
-  test("a draft's staged file reaches the page by message; one past 16 MB says why it waits for the send", async () => {
+  test("a draft's staged file reaches the page by message; one past 16 MB is a file in app:/cache the page is given", async () => {
     const name = '11111111-2222-3333-4444-555555555555';
     const files = memoryAppFiles(new Map([[`app:/data/composer-files/${name}`, new TextEncoder().encode('%PDF-1.4 draft')]]));
     const meta: AttachmentMeta = { id: 'd1', name: 'draft.pdf', mimeType: 'application/pdf', sizeBytes: 14 };
@@ -180,15 +180,20 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     const post = JSON.parse(booted.viewer.posts[0]!.text) as Obj;
     expect([post.type, post.key, post.done, Buffer.from(String(post.data), 'base64').toString()]).toEqual(['bytes', config(booted).key, true, '%PDF-1.4 draft']);
     forgetPreview(c, 'draft:d1');
-    // A staged copy past readFile's 16 MiB cannot be posted until a bundled page can read an app file itself.
+    // A staged copy past readFile's 16 MiB is copied into app:/cache and named in the frame's src, where the host gives
+    // the page a URL of it (LLP 1020.001 D7); no bytes are posted.
     const big = { ...source, key: 'draft:d2' };
-    (files as unknown as Map<string, Uint8Array>).clear();
     const fs = (await import('../../src/media/save-file')).appFiles().fs as unknown as { stat?: (path: string) => Promise<{ size: number }> };
     fs.stat = async () => ({ size: 17 * 1024 * 1024 });
+    const shown = await attachmentView(c, native, meta, 1000, big);
+    const file = decodeURIComponent(new URL(shown.viewer.src, 'exact-app://app/').searchParams.get('file') ?? '');
+    expect([shown.preview, shown.viewer.src.startsWith('assets/file-preview/index.html?file=app%3A%2Fcache%2Fmedia-preview%2F'), file.endsWith('.pdf'), config(shown).given, config(shown).src])
+      .toEqual(['viewer', true, true, true, '']);
+    expect(new TextDecoder().decode(files.get(file))).toBe('%PDF-1.4 draft');
     await attachmentOp(c, native, meta, big, 'viewer:{"type":"boot"}', 0);
-    await attachmentView(c, native, meta, 1000, big);
-    const failed = await attachmentView(c, native, meta, 1000, big);
-    expect([failed.preview, failed.error]).toEqual(['error', 'Preview of a draft file is limited to 16 MB until it is sent.']);
+    expect((await attachmentView(c, native, meta, 1000, big)).viewer.posts).toEqual([]);
+    delete fs.stat;
+    forgetPreview(c, 'draft:d2');
   });
 
   test("Try again after a draft's copy could not be read reads it once, for the page that boots in the new frame", async () => {
@@ -216,6 +221,37 @@ describe('a sent file in the viewer page (AttachmentFilePreview)', () => {
     expect((await attachmentView(c, native, meta, 1000, source)).viewer.posts).toHaveLength(1);
     expect(reads).toBe(2);
     forgetPreview(c, 'draft:d3');
+  });
+});
+
+describe("a draft's copy in app:/cache", () => {
+  test('is made again on Try again when the cache let it go, and a copy that fails says why', async () => {
+    const name = '33333333-4444-5555-6666-777777777777', staged = `app:/data/composer-files/${name}`;
+    const files = memoryAppFiles(new Map([[staged, new TextEncoder().encode('%PDF-1.4 large draft')]]));
+    const fs = (await import('../../src/media/save-file')).appFiles().fs as unknown as {
+      stat?: (path: string) => Promise<{ size: number }>; copyFile: (from: string, to: string) => Promise<void>; readFile: (path: string) => Promise<ArrayBuffer>;
+    };
+    const copy = fs.copyFile, read = fs.readFile.bind(fs);
+    let reads = 0;
+    fs.stat = async () => ({ size: 17 * 1024 * 1024 });
+    fs.readFile = async (path: string) => { if (path === staged) reads += 1; return read(path); };
+    const meta: AttachmentMeta = { id: 'd4', name: 'large.pdf', mimeType: 'application/pdf', sizeBytes: 17 * 1024 * 1024 };
+    const c = client([]);
+    const source: PreviewSource = { id: 'd4', key: 'draft:d4', origin: 'Draft', dialog: true, local: { url: `t3-staged:${name}`, text: async () => ({ ok: false }), save: () => {} } };
+    const given = async () => decodeURIComponent(new URL((await attachmentView(c, native, meta, 1000, source)).viewer.src, 'exact-app://app/').searchParams.get('file') ?? '');
+    const first = await given();
+    files.delete(first);
+    await attachmentOp(c, native, meta, source, 'retry', 0);
+    const second = await given();
+    expect([second === first, files.has(first), new TextDecoder().decode(files.get(second))]).toEqual([false, false, '%PDF-1.4 large draft']);
+    // A copy that cannot be made: its own message, and no read of the draft past what a read takes.
+    fs.copyFile = async () => { throw new Error('No space left on device'); };
+    await attachmentOp(c, native, meta, source, 'retry', 0);
+    await attachmentView(c, native, meta, 1000, source);
+    const failed = await attachmentView(c, native, meta, 1000, source);
+    expect([failed.preview, failed.error, reads]).toEqual(['error', 'No space left on device', 0]);
+    fs.copyFile = copy; fs.readFile = read; delete fs.stat;
+    forgetPreview(c, 'draft:d4');
   });
 });
 

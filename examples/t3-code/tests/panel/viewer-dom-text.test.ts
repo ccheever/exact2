@@ -160,6 +160,34 @@ describe("the page's frame", () => {
     });
   });
 
+  test('a draft past what a message carries is the file the page was given in its own query, or a failure with none', async () => {
+    serveText(3, () => lines(3), 20);
+    const opened: string[] = [];
+    const answer = FakeWorker.answers['large-text.worker.js']!;
+    FakeWorker.answers['large-text.worker.js'] = (message, worker) => {
+      if (message.type === 'open') opened.push(String(message.src));
+      answer(message, worker);
+    };
+    const happy = (domWindow as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM;
+    const was = domWindow.location.href;
+    try {
+      // The host put a URL of the app's file in place of the `app:/` path the app named.
+      happy.setURL('exact-app://app/assets/file-preview/index.html?file=exact-app%3A%2F%2Fapp%2F.exact%2Ffiles%2F6f1c');
+      const root = document.createElement('div');
+      document.body.append(root);
+      new Page(root).receive(config('k3', { src: '', given: true }));
+      await until(() => opened.length > 0, 'the viewer');
+      expect(opened).toEqual(['exact-app://app/.exact/files/6f1c']);
+      // A value the host emptied: a file missing, or not one the app may give.
+      happy.setURL('exact-app://app/assets/file-preview/index.html?file=');
+      const empty = document.createElement('div');
+      document.body.append(empty);
+      new Page(empty).receive(config('k4', { src: '', given: true }));
+      await until(() => empty.querySelector('.failure-message'), 'the failure');
+      expect([empty.querySelector('.failure-message')?.textContent, opened.length]).toEqual(['Could not load this file.', 1]);
+    } finally { happy.setURL(was); }
+  });
+
   test('Copy contents asked with its config waits for the viewer it asks, and a Copy for another file is not answered', async () => {
     serveText(3, () => lines(3), 20);
     network.respond = () => new Response('line 1\nline 2\nline 3', { status: 206, headers: { 'content-range': 'bytes 0-19/20', 'content-length': '20' } });
