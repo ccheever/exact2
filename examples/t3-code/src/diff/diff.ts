@@ -447,8 +447,12 @@ export function diffSnapshot(client: T3Client, now: number) {
       const oldCount = hunk.lines.filter(line => line.kind !== 'addition').length, newCount = hunk.lines.filter(line => line.kind !== 'deletion').length;
       const oldStart = hunk.oldStart + (oldCount === 0 ? 1 : 0), newStart = hunk.newStart + (newCount === 0 ? 1 : 0);
       hidden(newStart - newNext, hunkIndex, newNext, newStart - oldStart);
-      const { stacked, split } = hunkRows(hunk, file.path, true);
-      (state.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
+      // Past the row limit nothing more is drawn: the hunk only counts, and its sides ask the lexers for nothing.
+      if (rows >= (state.find.open ? 100_000 : ROW_LIMIT)) rows += hunk.lines.length;
+      else {
+        const { stacked, split } = hunkRows(hunk, file.path, true);
+        (state.layout === 'split' ? split : stacked).forEach((row, index) => push(row, `${hunkIndex}:${index}`));
+      }
       oldNext = oldStart + oldCount; newNext = newStart + newCount;
     });
     // After the last hunk: counted once the contents are in. Before that, a changed file of a git source (Pierre's

@@ -3,7 +3,7 @@
 // (highlights.ts; syntax-ink.contract paints them).
 
 import { languageIconToken } from '../shared/timeline-files';
-import { highlightDeferrals, highlightTokens, type Token } from './highlights';
+import { highlightDeferrals, highlightShown, highlightTokens, type Token } from './highlights';
 
 export type { Token } from './highlights';
 
@@ -16,24 +16,29 @@ export function highlight(text: string, language: string, maxLineLength = 0): To
 
 /** Every fenced code block of a message with its tokens, matched in Contract by its text. */
 type Highlighted = { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] };
-const cache = new Map<string, Highlighted[]>();
+/** A message's blocks once all have their tokens, with each block's code and language: the answer paints them again. */
+const cache = new Map<string, { blocks: Highlighted[]; painted: [string, string][] }>();
 export function messageCodeBlocks(markdownText: string): Highlighted[] {
   if (!markdownText.includes('```') && !markdownText.includes('~~~')) return [];
   const known = cache.get(markdownText);
-  if (known) return known;
-  const blocks: Highlighted[] = [], deferrals = highlightDeferrals;
+  if (known) {
+    for (const [code, language] of known.painted) highlightShown(code, language);
+    return known.blocks;
+  }
+  const blocks: Highlighted[] = [], painted: [string, string][] = [], deferrals = highlightDeferrals;
   const fence = /^( {0,3})(`{3,}|~{3,})([^\n`]*)\n([\s\S]*?)\n? {0,3}\2[`~]*[ \t]*(?:\n|$)/gm;
   for (const match of markdownText.matchAll(fence)) {
     const indent = match[1]!.length, language = match[3]!.trim().split(/\s+/)[0] ?? '';
     const code = (indent ? match[4]!.split('\n').map(line => line.replace(new RegExp(`^ {0,${indent}}`), '')).join('\n') : match[4]!).replace(/\n+$/, '');
     if (blocks.some(block => block.code === code)) continue;
     const tokens = highlight(code, language);
+    painted.push([code, language]);
     blocks.push({ id: String(blocks.length), code, icon: languageIconToken(language),
       tokens: tokens.map((token, index) => ({ id: String(index), text: token.text, cls: token.cls })) });
   }
   // Blocks still waiting for their tokens are asked again next time.
   if (highlightDeferrals !== deferrals) return blocks;
   if (cache.size > 200) cache.delete(cache.keys().next().value!);
-  cache.set(markdownText, blocks);
+  cache.set(markdownText, { blocks, painted });
   return blocks;
 }

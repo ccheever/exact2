@@ -15,7 +15,6 @@ import { migrateModelPreferences } from '../providers/model-preferences';
 import type { T3Client } from '../client/client';
 import { terminalAvailable, terminalOpen } from '../terminal/terminal-drawer-view';
 import type { DispatchContext } from './keyboard-dispatch'; // terminal labels resolve with terminalFocus
-import { highlightPendingSince } from '../highlight/highlights';
 import { toasts, dismissToast, type Toast, type ToastAction, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Files, Native } from '../client/protocol';
@@ -275,7 +274,6 @@ async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise
  */
 export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false,
   page: { focused: boolean; visible: boolean } = { focused: true, visible: true }, chatShown = true) {
-  const highlightPending = highlightPendingSince();
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
@@ -315,7 +313,6 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     addMachine: addMachineView(client), // Add to another machine (add-project-dialog.ts)
     composerFile: await composerFileView(client, native, now), // a composer file chip's preview (composer-chip-file.ts)
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
-    highlightPending: highlightPending(), // after the panel's code texts asked for their tokens
     announce,
   };
 }

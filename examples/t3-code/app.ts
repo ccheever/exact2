@@ -55,7 +55,7 @@ import { shellView } from './src/shell/shell';
 import { shellDetails } from './src/details/shell-details';
 import { chatCanvasView } from './src/shell/chat-canvas-view';
 import { sidebarLaunchWidth } from './src/sidebar/sidebar-width';
-import { highlightAsk, highlightDeferrals, highlightStore } from './src/highlight/highlights';
+import { highlightAsk, highlightStore, highlightView } from './src/highlight/highlights';
 import { noteServerUpdateClock } from './src/connections/server-update-notices';
 import { terminalDrawerView, terminalOpen } from './src/terminal/terminal-drawer-view';
 import { terminalFocused } from './src/terminal/terminal-focus';
@@ -122,14 +122,6 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
   return answerClient(source, args, store, storage, transport.wrap(native, source) as Native | null | undefined);
 }
 
-/** A view that paints code reports whether it painted a text that waits for its tokens; the root's highlight pump
- *  refreshes it when they land (app.contract highlightStoredThen), as it does `data` and `shell`. */
-async function withHighlightPending<T extends object>(view: () => Promise<T>): Promise<T & { highlightPending: boolean }> {
-  const deferrals = highlightDeferrals;
-  const value = await view();
-  return { ...value, highlightPending: highlightDeferrals !== deferrals };
-}
-
 // The client's answers, given the bridge it talks to: `answer` puts the transport in front of the app's module; a test
 // hands its own scripted server. The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
@@ -138,7 +130,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = preferenceFiles(_storage);
   if (source === 'highlightAsk') return highlightAsk(); // the texts waiting for their tokens (app.contract highlightStep)
-  if (source === 'highlightStore') return highlightStore(args[0] as { id: number; records: number[] }[]); // the lexers' answer
+  if (source === 'highlightStore') return highlightStore(args[0] as { id: number; line: number; records: number[] }[]); // the lexers' answer
   if (source === 'promptLinkView') return promptLinkView(client);
   if (source === 'promptLinksReady') return promptLinksReady(client);
   if (source === 'snapshot') {
@@ -154,9 +146,11 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     await keepAlivePrepare(client, native); migrationToast(client); // keep-alive.ts, local-lifecycle.ts: running threads stay live; "Restoring your threads…"
     await codexPrepare(client, native); // codex-setup-host.ts: the managed Codex setups' effects and loopback callbacks
     await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
-    return { ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[11] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
+    // The views that paint code answer through highlightView (highlights.ts): each reports whether a text it painted
+    // waits for its tokens, so the root's highlight pump refreshes it when they land (app.contract highlightStoredThen).
+    return highlightView('data', () => ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[11] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
       linkMenu: chatLinkMenuView(client, native, storage), // a Markdown web link's menu rows (external-link-menu.ts)
-      externalOpen: externalOpenRequest() }; // the latest link to open outside the app (external-open.ts)
+      externalOpen: externalOpenRequest() })); // the latest link to open outside the app (external-open.ts)
   }
   if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
@@ -187,7 +181,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, viewport: Number(args[5]) || 1280, sidebar: Number(args[6]) || 0 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
   if (source === 'timelineAttachments') return { ...await attachmentUrls(client, native, Number(args[1]) || 0, String(args[3] || '')), posted: inlineDocumentsPosted(client) }; // timeline-attachments.ts
-  if (source === 'prDetail') return withHighlightPending(() => pagesSource(client, native, source, args, storage) as Promise<object>); // its Code tab's rows
+  if (source === 'prDetail') return highlightView('prDetail', () => pagesSource(client, native, source, args, storage) as Promise<object>); // its Code tab's rows
   if (source === 'prList' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true, Number(args[5]) || 0); // args[5]: the clock, each second while Authorized clients show
   if (source === 'pairingFields') return pairingFields(String(args[0] ?? '')); // pairing-fields.ts
@@ -218,7 +212,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'settingsNavigation') return settingsNavigation(String(args[0] || ''), searchContext(client.config, client.ready, String(args[1] || 'all')), Number(args[2]) || 0);
   if (source === 'settingsCore') {
     const view = () => settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));
-    return withHighlightPending(view); // its font preview (settings-font-previews.ts)
+    return highlightView('settingsCore', view); // its font preview (settings-font-previews.ts)
   }
   if (source === 'settings') {
     const environmentId = String(args[0] || '');
@@ -231,14 +225,14 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   }
   if (source === 'modelCatalog') return modelCatalog(client, String(args[0] || ''), String(args[1] || ''), String(args[3] || '')); // args[3]: a Settings row's picker target
   if (source === 'createProvider') return client.command('provider-create', String(args[0] || ''), JSON.stringify({ driver: args[1], name: args[2], binaryPath: args[3], homePath: args[4] }), 0, native, storage);
-  if (source === 'paletteView') return withHighlightPending(() => paletteView(client, native, args)); // its content search lines
+  if (source === 'paletteView') return highlightView('palette', () => paletteView(client, native, args)); // its content search lines
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
   if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false, Array.isArray(args[7]) ? args[7].map(String) : [], Array.isArray(args[8]) ? args[8].map(String) : [], Array.isArray(args[9]) ? args[9].map(String) : [], args[10] !== false); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219); args[10]: the window is visible
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load
   if (source === 'chatCanvas') noteLayoutFrames(client, args[11]);
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
-  if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }, args[7] !== false); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown
+  if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return highlightView('shell', () => shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden' }, args[7] !== false)); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown
   // A drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles): composer-controls-attach.ts.
   if (source === 'composerAttach') return client.command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, native, storage);
   if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);

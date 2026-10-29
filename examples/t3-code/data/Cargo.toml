@@ -21,7 +21,8 @@ exact-runner = { path = "../../../runner" }
 markdown-parse = { path = "../../../apps/markdown/parse" }
 unicode-general-category = "1.1.0"
 # @pierre/highlights' lexers (highlights.wasm, generated; src/highlights.rs): wasmi as exact-logic pins it, with the
-# SIMD proposal the lexers use.
+# SIMD proposal the lexers use (wasmi without it refuses the module). Cargo unifies the feature, so exact-logic's
+# engines in this app accept SIMD modules too.
 wasmi = { version = "2.0", default-features = false, features = ["std", "validate", "stable", "portable-dispatch", "simd"] }
 
 [build-dependencies]

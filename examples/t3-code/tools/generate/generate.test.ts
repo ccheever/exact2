@@ -23,6 +23,13 @@ console.log((await outputs()).files.map(({ file }) => file).join('\\n'));`], { e
   expect(git('ls-files', '--', ...files)).toEqual([]);
 }, 120_000);
 
+// The lexers are compiled into the app (data/src/highlights.rs), so their licence and notice are committed where the
+// bundle carries them, and stay the pinned package's.
+test('assets/vendor/highlights/ holds the pinned @pierre/highlights licence and notice', async () => {
+  const { licences } = await import('./gen-highlights.mjs');
+  for (const { name, text } of licences()) expect(readFileSync(join(import.meta.dir, '..', '..', 'assets', 'vendor', 'highlights', name), 'utf8')).toBe(text);
+});
+
 test('the generator pins its packages at the integrity values the reference locks', () => {
   const lock = readFileSync(join(import.meta.dir, 'bun.lock'), 'utf8');
   for (const [name, integrity] of [

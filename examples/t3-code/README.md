@@ -666,7 +666,9 @@ Differences that belong to the app:
   retrying one's.
 - Code colours: a code text paints plain until the data crate's lexers answer for it, a few frames
   through the root's pump (`app.contract` highlightStep), where the reference's loaded highlighter
-  colours it in the render that shows it.
+  colours it in the render that shows it. The lexers share the data crate's thread with the chat
+  Markdown, so each round lexes about 17 ms of code: a file of 1M characters takes about 30 rounds,
+  where the reference's worker pool lexes it whole beside the page.
 - An ⌥-click on a reply's `#fragment` link opens nothing. Chromium downloads the page instead.
 - Split view's empty side stripes every 10 pt, where the reference stripes every 8 px: each row
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`

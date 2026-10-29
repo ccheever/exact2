@@ -1,7 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { snapshot } from '../../src/client/presentation';
-import { parsePatch, wordMarks, diffSnapshot, turnSummaries, hunkRows } from '../../src/diff/diff';
+import { parsePatch, wordMarks, diffSnapshot, turnSummaries, hunkRows, ROW_LIMIT } from '../../src/diff/diff';
+import { highlightDeferrals, resetHighlights } from '../../src/highlight/highlights';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import { settleHighlights } from '../support/highlights-fixture';
@@ -9,11 +10,11 @@ import { settleHighlights } from '../support/highlights-fixture';
 const turnPatch = 'diff --git a/fixture-result.md b/fixture-result.md\nindex 1..2 100644\n--- a/fixture-result.md\n+++ b/fixture-result.md\n@@ -1,3 +1,3 @@\n # Exact T3 fixture\n \n-Completed run 35c7a0ce.\n+Completed run 151596fd.\n';
 const treePatch = 'diff --git a/README.md b/README.md\ndeleted file mode 100644\n--- a/README.md\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-# T3\n-Isolated\ndiff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1 @@\n+export {}\ndiff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n@@ -40,2 +40,3 @@\n forty\n+fortyone\n end\n';
 
-function harness() {
+function harness(turn = turnPatch) {
   const calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
-    if (request.op === 'request' && request.method === 'orchestration.getTurnDiff') return { ok: true, generation: 1, value: { diff: turnPatch } };
+    if (request.op === 'request' && request.method === 'orchestration.getTurnDiff') return { ok: true, generation: 1, value: { diff: turn } };
     if (request.op === 'request' && request.method === 'review.getDiffPreview') return { ok: true, generation: 1, value: { cwd: '/repo', sources: [
       { kind: 'working-tree', diff: '', truncated: true }, { kind: 'branch-range', diff: treePatch, truncated: false }] } };
     return { ok: true, generation: 1, value: {} };
@@ -113,6 +114,16 @@ describe('diff panel', () => {
     await command('diff');
     await command('diff-scope', '', 'turn:gone');
     expect(snapshot(client).diffError).toBe('That turn is no longer available.');
+  });
+  test('hunks past the row limit only count: their sides ask the lexers for nothing', async () => {
+    const hunk = (k: number) => [`@@ -${k * 10 + 1},7 +${k * 10 + 1},7 @@`, ` a${k}`, ` b${k}`, ` c${k}`, `-let old${k} = ${k};`, `+let new${k} = ${k};`, ` d${k}`, ` e${k}`, ` f${k}`].join('\n');
+    const { client, command } = harness(`diff --git a/rows.ts b/rows.ts\n--- a/rows.ts\n+++ b/rows.ts\n${Array.from({ length: 600 }, (_, k) => hunk(k)).join('\n')}\n`);
+    await command('checkpoint-diff', 'rows.ts', '', 1);
+    const deferrals = highlightDeferrals;
+    expect(snapshot(client).diffTruncated).toBe(true);
+    // Eight rows a hunk: the first 500 fill the 4,000 rows, and only their two sides ask for tokens.
+    expect(highlightDeferrals - deferrals).toBe(2 * ROW_LIMIT / 8);
+    resetHighlights();
   });
   test('the hidden range before a later hunk is labeled, and turns sort newest first', async () => {
     const { client, command } = harness();

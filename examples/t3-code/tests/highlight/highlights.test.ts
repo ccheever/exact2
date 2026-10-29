@@ -70,10 +70,11 @@ describe('a text reaches the lexers through the root', () => {
     expect(lexerOf('Python')).toBe(lexerOf('py'));
     expect(lexerOf('gitignore')).toBe(lexerOf('ini'));
   });
-  test('the most recently asked texts go first, and a text nobody asks for again is dropped', () => {
+  test('the longest-waiting texts go first, and a text no view paints or asks for again is dropped', () => {
     highlightTokens('let a = 1;', 'ts');
+    highlightAsk();
     highlightTokens('let b = 2;', 'ts');
-    expect(highlightAsk().requests.map(request => request.text)).toEqual(['let b = 2;', 'let a = 1;']);
+    expect(highlightAsk().requests.map(request => request.text)).toEqual(['let a = 1;', 'let b = 2;']);
     // Rounds whose lexers never answer ask again, until no view has asked for the texts in 60 rounds.
     let last = highlightAsk();
     for (let round = 2; round < 61; round++) last = highlightAsk();
