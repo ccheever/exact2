@@ -115,6 +115,97 @@ final class NativeTaskTimersTests: XCTestCase {
         XCTAssertFalse(timers.hasReady)
         XCTAssertNil(timers.take())
     }
+    /// The queue's asks for delivery, counted: each runs `deliverNativeTimer`, as the session's own queue does.
+    private var asks = 0
+    /// An idle session whose only work is a task's native timer (NATIVE_RETRY's `every(50, tick)`), on the live clock:
+    /// nothing else applies a batch, so only the timer's own queue can deliver it again.
+    private func idleTicker(async asynchronous: Bool) throws -> ExactSession {
+        ExactSession.asyncFills = asynchronous
+        asks = 0
+        let session = ExactApp.shared.makeSession(label: "native-retry")
+        session.taskTimers = NativeTaskTimers(now: { [weak session] in session?.now() ?? 0 }, ready: { [weak self, weak session] in
+            self?.asks += 1
+            session?.deliverNativeTimer()
+        })
+        XCTAssertNil(session.boot(plan: try fixturePlan("NATIVE_RETRY"), size: CGSize(width: 400, height: 600)).error)
+        XCTAssertNotNil(session.taskTimers.rows.first, "the ticker's native timer")
+        return session
+    }
+    private func ticks(_ session: ExactSession) throws -> Int {
+        let state = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(session.runtime.agent(#"{"op":"state"}"#).utf8)) as? [String: Any])
+        return try XCTUnwrap((state["slots"] as? [String: Any])?["ticks"] as? Int)
+    }
+    private func spin(until done: () -> Bool = { false }, _ what: String = "", for seconds: Double = 5) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.001)) }
+        if !what.isEmpty { XCTAssertTrue(done(), what) }
+    }
+    /// Inside `gate` (a refusing runtime), the timer's due firing goes through the queue's own ask (no hand
+    /// delivery) until that ask has run and the firing is back at the front of its queue, refused. After the gate the
+    /// task fires again with nothing else applying a batch, and keeps firing. (That the firings meanwhile add none
+    /// beside it is the queue's own, `testARetriedFiringAsksForItselfAndFiringsMeanwhileQueueNoneBesideIt`.)
+    private func assertRetriedAndKeepsFiring(_ session: ExactSession, gate: (() -> Void) -> Void) throws {
+        let row = try XCTUnwrap(session.taskTimers.rows.first)
+        let timer = try XCTUnwrap(session.taskTimers.timerForTests(row.index))
+        while session.now() < row.due + 1 { Thread.sleep(forTimeInterval: 0.002) }
+        let base = try ticks(session), asked = asks
+        gate {
+            timer.fire()
+            spin(until: { self.asks > asked && session.taskTimers.hasReady && !session.advanceInFlight }, "the queue's own ask ran and the refused firing was re-queued")
+        }
+        XCTAssertEqual(try ticks(session), base, "the refused firing did not run")
+        XCTAssertTrue(session.taskTimers.hasReady || session.advanceInFlight, "kept by its queue")
+        spin(until: { (try? self.ticks(session)) ?? 0 >= base + 3 }, "the retried firing ran by itself and the task kept firing")
+    }
+    /// LLP 1072 T5: a firing the queue delivers while main serves a callback the owner waits on (a nested run loop
+    /// inside it) is answered `busy`.
+    func testABusyFiringIsRetriedByItsQueueAndTheTaskKeepsFiring() throws {
+        let previous = ExactSession.asyncFills
+        defer { ExactSession.asyncFills = previous }
+        let session = try idleTicker(async: false)
+        defer { session.destroy() }
+        try assertRetriedAndKeepsFiring(session) { refusing in
+            Owner.shared.sync { Owner.shared.callMain { refusing() } }
+        }
+    }
+    /// A firing the queue delivers while a reset holds the runtime, the native path synchronous (the Mac's) or posted
+    /// to the owner, whose held answer lands before the re-queue (`deliverNativeTimer`'s async path).
+    func testAHeldFiringIsRetriedByItsQueueAndTheTaskKeepsFiring() throws {
+        let previous = ExactSession.asyncFills
+        defer { ExactSession.asyncFills = previous }
+        for asynchronous in [false, true] {
+            let session = try idleTicker(async: asynchronous)
+            defer { session.destroy() }
+            try assertRetriedAndKeepsFiring(session) { refusing in
+                session.runtime.held = true
+                refusing()
+                session.runtime.held = false
+                let held = session.runtime.takeHeldCalls()
+                XCTAssertTrue(held.contains(asynchronous ? "fireNativeTimerAsync(_:now:done:)" : "fireNativeTimer(_:now:)"), "the runtime held the firing: \(held)")
+            }
+        }
+    }
+    /// A retried firing (a busy or held answer) asks for itself a frame later, at the front of its queue; Foundation
+    /// firings while it is pending queue none beside it, so it runs once.
+    func testARetriedFiringAsksForItselfAndFiringsMeanwhileQueueNoneBesideIt() throws {
+        var asked = 0
+        let timers = NativeTaskTimers(now: { 100 }, date: { self.date }, ready: { asked += 1 })
+        defer { timers.cancel() }
+        let a = row()
+        timers.update([a], epoch: 1, enabled: true)
+        let timer = try XCTUnwrap(timers.timerForTests(0))
+        func turns(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+        timer.fire()
+        turns(0.01)
+        XCTAssertEqual(asked, 1, "the firing asks for delivery")
+        timers.complete(try XCTUnwrap(timers.take()), retry: true)
+        timer.fire(); timer.fire() // Foundation firings while the retry is pending
+        XCTAssertEqual(asked, 1, "not at once")
+        turns(0.1)
+        XCTAssertEqual(asked, 2, "the retry asks for itself, once")
+        XCTAssertEqual(timers.take()?.row, a, "the retried firing, at the front")
+        XCTAssertNil(timers.take(), "the firings meanwhile queued none beside it")
+    }
     func testZeroToleranceTimersAndExplicitFrameTasksHaveIndependentDemand() throws {
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
@@ -177,11 +268,18 @@ final class NativeTaskTimersTests: XCTestCase {
             NativeTimerTestClock.shared.set(3400)
             session.holdFillForTests()
             timer.fire(); timer.fire()
-            session.deliverNativeTimer()
+            // The queue's own ask meets the fill in flight and leaves the delivery queued.
+            let turned = expectation(description: "The queue's ask ran")
+            DispatchQueue.main.async { turned.fulfill() }
+            wait(for: [turned], timeout: 10)
             XCTAssertTrue(session.taskTimers.hasReady, "A busy owner retains the native delivery")
             session.publishFillForTests(0, Batch(ops: [], timers: true, motion: false, clock: nil, error: nil), generation: session.generation)
             session.landFill()
-            session.deliverNativeTimer()
+            // The landed fill resumes the queue: the retained delivery is asked for again, by no hand here.
+            let asked = expectation(description: "The queue asks for the retained delivery")
+            DispatchQueue.main.async { asked.fulfill() }
+            wait(for: [asked], timeout: 10)
+            XCTAssertFalse(session.taskTimers.hasReady, "The retained delivery was taken")
             Owner.shared.sync {}
             session.landFill()
             let landed = expectation(description: "Native delivery completed")
