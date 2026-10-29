@@ -353,6 +353,20 @@ The normal app receives `SLOT_RELEASE_OK.` from the real provider and restores
 that reply and an empty composer after restart. This checkpoint is outside the
 delivered TestFlight build.
 
+Native picker status now distinguishes an absent exact identity, generation and
+operation tuple from an ordinary failure. The observation writes no release queue
+and performs no cancellation. Only status may return absence, with empty files
+and error fields. The TypeScript boundary still requires the exact reply owner.
+Existing ordinary finish and cancel paths require their own terminal outcomes.
+The NewTask continuation will also need positive source-slot retirement before
+using absence to resolve an unpublished operation. Published work remains held.
+All 3,940 mobile tests, strict TypeScript and boot pass. The native coordinator
+fixture passes 163 checks. Independent IO review passes 79 tests and finds no
+introduced blocker. The normal build imports and previews the real Markdown
+file, restores it after restart and opens its preview again. Removing the test
+file restores an empty composer through another restart. The environment and
+conversation remain available. This checkpoint is outside the TestFlight build.
+
 Two normal NewTask Files drives return to Choose project after selection or
 Cancel. The typed draft survives in Unsent, but the selected file is not retained.
 An instrumented Cancel drive returns correctly with the authored route and native

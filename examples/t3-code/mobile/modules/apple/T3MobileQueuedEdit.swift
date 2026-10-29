@@ -1453,7 +1453,10 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     func performPicker(_ request: T3PickerRequest, claim: T3ComposerFileClaim?) throws -> [String: Any] {
         try locked {
-            let operation = try pickerIntakes.operation(request, claim: claim)
+            guard let operation = try pickerIntakes.operation(request, claim: claim) else {
+                return ["operationId": request.operationId, "identity": request.identity.json,
+                        "status": "absent", "files": [T3PickerObject](), "error": ""]
+            }
             if request.action == "hold" {
                 guard let claim, let object = request.object["request"] as? [String: Any], object["op"] as? String == "composerFileHold",
                       Set(object.keys) == Set(["op", "action", "generation", "identity", "requestId", "target", "file"]) else { throw T3PickerRequest.error("The issued file hold is invalid.") }

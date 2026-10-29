@@ -95,6 +95,27 @@ function newFinish(){return {...finish,identity:newIdentity,publication:{accepte
     extension:{unknown:['keep',1]}},text:'🙂 @README',images:[],files:[clone(newFile)],attachmentIds:[file.id],attachmentOrder:[file.id]}}};}
 const newValue=(status='staged')=>({...value(status),identity:newIdentity});
 
+test('only an exact status reply can report absent intake without claiming cancellation',async()=>{
+  for(const captured of [pick,newPick]){
+    const status=request({op:captured.op,action:'status',generation:captured.generation,
+      identity:captured.identity,operationId:captured.operationId});
+    const absent={operationId:captured.operationId,identity:captured.identity,status:'absent',files:[],error:''};
+    const out=await invoke(status,native(()=>answer(absent)),()=>true);
+    expect(out).toMatchObject({state:'answered',value:absent});
+    expect(Object.isFrozen(out.value)).toBe(true);
+    for(const invalid of [{...absent,files:[file]},{...absent,error:'disk failed'},
+      {...absent,operationId:id(99)},{...absent,identity:{...captured.identity,mountId:'other'}}])
+      expect((await invoke(status,native(()=>answer(invalid)),()=>true)).state).toBe('uncertain');
+    for(const action of [captured,request({...status,action:'cancel'})])
+      expect((await invoke(action,native(()=>answer(absent)),()=>true)).state).toBe('uncertain');
+    let current=true;
+    const stale=await invoke(status,native(()=>{current=false;return answer(absent)}),()=>current);
+    expect(stale).toMatchObject({state:'stale',value:absent});
+    expect((await invoke(status,native(()=>({ok:false,generation:3,error:{kind:'PickerIntake',message:'disk failed'}})),()=>true)))
+      .toMatchObject({state:'uncertain',value:null,message:'disk failed'});
+  }
+});
+
 test('NewTask pick and full-record finish retain detached immutable input and raw saved extensions',async()=>{
   const original=clone(newPick),owned=request(original);original.target.projectId='changed';original.document.revision=9;
   expect(owned).toEqual(newPick);expect(Object.isFrozen(owned)).toBe(true);

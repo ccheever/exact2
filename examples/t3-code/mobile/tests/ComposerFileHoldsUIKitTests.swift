@@ -133,6 +133,19 @@ import UIKit
         let incarnation = target["createdAt"] ?? "thread-incarnation", key = target["draftKey"]!, operationId = UUID().uuidString.lowercased()
         let input: [String: Any] = ["op": "composerPickerIntake", "action": "pick", "operationId": operationId, "generation": 1,
             "identity": identity.json, "target": target, "document": ["incarnation": incarnation, "revision": 2], "source": "files", "remaining": 3, "fileLimit": 100]
+        let statusInput: [String: Any] = ["op": "composerPickerIntake", "action": "status", "operationId": operationId,
+                                         "generation": 1, "identity": identity.json]
+        let before = f.disk.saves
+        let absent = try f.coordinator.performPicker(T3PickerRequest(statusInput), claim: nil)
+        check(absent["status"] as? String == "absent" && absent["operationId"] as? String == operationId
+              && absent["identity"] as? NSDictionary == identity.json as NSDictionary
+              && (absent["files"] as? [T3PickerObject])?.isEmpty == true && absent["error"] as? String == "",
+              "\(newTask) exact unissued status reports absence without claiming cancellation")
+        check(f.disk.saves == before && FileManager.default.fileExists(atPath: f.url.path), "\(newTask) absence observation writes no release queue and removes no existing file")
+        var missingCancel = statusInput; missingCancel["action"] = "cancel"
+        refuses("\(newTask) unknown cancellation still requires an issued operation") {
+            _ = try f.coordinator.performPicker(T3PickerRequest(missingCancel), claim: nil)
+        }
         if newTask {
             for field in ["generation", "incarnation", "createdAt", "kind", "pending", "projectId", "extra"] {
                 var bad = input, badTarget = target
@@ -148,6 +161,15 @@ import UIKit
         }
         let request = try T3PickerRequest(input), (op, opened, _) = try f.coordinator.beginPicker(request, claim: claim)
         check(opened, "\(newTask) picker opens once")
+        check(try f.coordinator.performPicker(T3PickerRequest(statusInput), claim: nil)["status"] as? String == "picking",
+              "\(newTask) the same status becomes issued after registration")
+        for field in ["operationId", "generation", "identity"] {
+            var foreign = statusInput
+            if field == "identity" { var other = identity.json; other["mountId"] = "other"; foreign[field] = other }
+            else { foreign[field] = field == "generation" ? 2 : UUID().uuidString.lowercased() }
+            check(try f.coordinator.performPicker(T3PickerRequest(foreign), claim: nil)["status"] as? String == "absent"
+                  && op.status == "picking", "\(newTask) absence for another \(field) does not alter the issued operation")
+        }
         check(try f.coordinator.beginPicker(request, claim: claim).1 == false, "\(newTask) lost pick reply does not reopen UI")
         var changed = input; changed["remaining"] = 2
         refuses("\(newTask) picker capture is immutable") { _ = try f.coordinator.beginPicker(T3PickerRequest(changed), claim: claim) }

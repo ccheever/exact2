@@ -114,10 +114,11 @@ final class T3MobilePickerIntakeStore {
     private var terminalSerial = 0
     private var operations: [ObjectIdentifier: [String: T3PickerOperation]] = [:]
     init(root: URL, replace: @escaping (Data, URL) throws -> Void) { self.root = root; self.replace = replace }
-    private func known(_ request: T3PickerRequest, claim: T3ComposerFileClaim?) throws -> T3PickerOperation {
+    func operation(_ request: T3PickerRequest, claim: T3ComposerFileClaim?) throws -> T3PickerOperation? {
         let found = operations.values.compactMap { $0[request.operationId] }.filter {
             $0.request.identity == request.identity && $0.request.generation == request.generation
         }
+        if found.isEmpty && request.action == "status" { return nil }
         guard found.count == 1, let op = found.first else { throw T3PickerRequest.error("That native picker operation is no longer available.") }
         if request.action == "hold" {
             guard let claim, claim.live, op.claim === claim else { throw T3PickerRequest.error("The picker file owner ended.") }
@@ -133,7 +134,6 @@ final class T3MobilePickerIntakeStore {
         guard (operations[key]?.count ?? 0) < 4096 else { throw T3PickerRequest.error("This editor's picker request limit was reached.") }
         let op = try T3PickerOperation(request, claim: claim); operations[key, default: [:]][request.operationId] = op; return (op, true)
     }
-    func operation(_ request: T3PickerRequest, claim: T3ComposerFileClaim?) throws -> T3PickerOperation { try known(request, claim: claim) }
     func protects(_ id: String) -> Bool { operations.values.contains { $0.values.contains { op in
         !["finished", "cancelled"].contains(op.status) && op.candidates.contains { $0["id"] as? String == id }
     } } }

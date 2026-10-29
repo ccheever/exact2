@@ -21,7 +21,7 @@ export interface PickerIntakeFinish extends PickerIntakeBase {action:'finish';pu
 export interface PickerIntakeObserve extends PickerIntakeBase {action:'status'|'cancel'}
 export type PickerIntakeRequest=PickerIntakePick|PickerIntakeFinish|PickerIntakeObserve;
 export interface PickerIntakeFile {kind:'image'|'file';id:string;name:string;mimeType:string;sizeBytes:number;videoWidth?:number;videoHeight?:number}
-export interface PickerIntakeValue {operationId:string;identity:ComposerMountedIdentity;status:'picking'|'staged'|'finished'|'cancelled';files:PickerIntakeFile[];error:string}
+export interface PickerIntakeValue {operationId:string;identity:ComposerMountedIdentity;status:'absent'|'picking'|'staged'|'finished'|'cancelled';files:PickerIntakeFile[];error:string}
 export interface PickerIntakeResult {state:'answered'|'stale'|'uncertain'|'unavailable';request:PickerIntakeRequest;value:PickerIntakeValue|null;message:string}
 type Obj=Record<string,unknown>;
 const plain=(v:unknown):v is Obj=>v!==null&&typeof v==='object'&&!Array.isArray(v)&&[Object.prototype,null].includes(Object.getPrototypeOf(v));
@@ -119,7 +119,8 @@ function decode(raw:unknown,request:PickerIntakeRequest):PickerIntakeValue {
   if(!parsed.ok)throw new ClientError(parsed.error!.message,parsed.error!.kind,parsed.error!.uncertain);
   const v:unknown=parsed.value;
   if(!json(v)||!plain(v)||!keys(v,['operationId','identity','status','files','error'])||v.operationId!==request.operationId||!identity(v.identity)||!equalIdentity(v.identity,request.identity)
-    ||typeof v.status!=='string'||!['picking','staged','finished','cancelled'].includes(v.status)||typeof v.error!=='string'||!Array.isArray(v.files)||v.files.length>100)throw fail('The picker reply does not match its owner.');
+    ||typeof v.status!=='string'||!['absent','picking','staged','finished','cancelled'].includes(v.status)||typeof v.error!=='string'||!Array.isArray(v.files)||v.files.length>100)throw fail('The picker reply does not match its owner.');
+  if(v.status==='absent'&&(request.action!=='status'||v.files.length!==0||v.error!==''))throw fail('Only a status reply can report an absent picker operation.');
   const ids=new Set<string>();
   for(const f of v.files){
     if(!plain(f)||Object.keys(f).some(k=>!['kind','id','name','mimeType','sizeBytes','videoWidth','videoHeight'].includes(k))||!uuid(f.id)||ids.has(f.id)
