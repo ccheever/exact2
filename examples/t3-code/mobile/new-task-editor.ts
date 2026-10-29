@@ -1,3 +1,6 @@
+import { newTaskEditorProduce, type NewTaskProducerIntent, type NewTaskProducerEffect, type NewTaskProducerResult } from './new-task-editor-producers';
+import { mobileVoiceSnapshot, mobileVoiceSelection } from './voice-data';
+import type { T3Client } from './shared/client';
 import { mobileDraftRecoveryHydrated, type MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskFlowCurrent, mobileNewTaskFlowOwns, mobileNewTaskRoute } from './new-task-flow';
 import { mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftLookup, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
@@ -32,8 +35,9 @@ export type NewTaskEditorView =
   | { kind: 'held'; node: null; editable: false; message: string }
   | { kind: 'mounting' | 'editing' | 'frozen'; node: { key: string; configuration: string }; editable: boolean; message: string };
 export type NewTaskEditorIntent = { kind: 'observe'; payload: unknown } | { kind: 'retry' }
-  | { kind: 'pick'; source: 'photos' | 'files' };
-export interface NewTaskEditorResult { accepted: boolean; message: string }
+  | { kind: 'pick'; source: 'photos' | 'files' } | NewTaskProducerIntent
+  | { kind: 'claim'; id: string };
+export interface NewTaskEditorResult { accepted: boolean; message: string; effect?: NewTaskProducerEffect }
 interface DraftIdentity { key: string; createdAt: string; origin: string; environmentId: string; projectId: string }
 interface ReceiptSource {
   id: string; identity: ComposerMountedIdentity; event: ComposerEditorEvent;
@@ -43,7 +47,7 @@ interface OperationIdentity { id: string; revision: number }
 type FrozenReceipt = ReceiptSource & { kind: 'frozen'; operation: OperationIdentity };
 type Receipt = FrozenReceipt | ReceiptSource & { kind: 'retired' };
 interface PickCapture {
-  source: 'photos' | 'files'; route: NewTaskEditorRoute; draft: DraftIdentity; identity: ComposerMountedIdentity;
+  source: 'photos' | 'files'; intent?: NewTaskProducerIntent; route: NewTaskEditorRoute; draft: DraftIdentity; identity: ComposerMountedIdentity;
   target: MobileComposerTarget; threadEpoch: number; catalog: string; revision: number;
   eventCount: number; value: string; selection: { start: number; end: number };
 }
@@ -63,6 +67,9 @@ interface Handback { request: ResumeRequest; newest: ComposerEditorEvent | null;
 interface CompletedCycle { operationRevision: number; frozenEventCount: number; receiptId: string; proof: ComposerEditorResume | null }
 type Continuation =
   | { kind: 'ready' }
+  | { kind: 'producing' }
+  | { kind: 'voice'; message: string }
+  | { kind: 'produced'; result: NewTaskProducerResult; after: MobileNewTaskAttachmentProjection | null; saved: boolean }
   | { kind: 'intake'; request: PickerIntakePick; dispatched: boolean }
   | { kind: 'staged'; request: PickerIntakePick; files: readonly PickerIntakeFile[] }
   | { kind: 'published'; request: PickerIntakePick; files: readonly PickerIntakeFile[]; commit: MobileNewTaskAttachmentCommit }
@@ -85,7 +92,7 @@ interface Entry {
   custody: 'native' | 'recovery' | 'frozen'; progress: Progress; dirty: boolean;
   attempt: number; problem: string; notice: string; operation: PickWork | null; operationRevision: number; holds: FileHoldLedger | null;
   generation: number; catalog: string; threadEpoch: number; confirmed: readonly ComposerInlineToken[]; tokensJson: string;
-  completed: CompletedCycle | null;
+  completed: CompletedCycle | null; effect: NewTaskProducerEffect | null;
 }
 interface Ledger {
   entries: Entry[]; serial: number; acceptedRead: number; problem: string; wakeUsed: boolean;
@@ -267,13 +274,14 @@ export function mobileNewTaskEditorView(client: MobileDraftClient, route: NewTas
       owner.entries.splice(completed, 1);
     }
     if (identitySerial >= MAX_COUNT) return held('Restart the app before opening another editor.');
+    const previous = owner.entries.findLast(candidate => sameStable(candidate.draft, capture.draft));
     const text = client.local.drafts[capture.draft.key] ?? '', renderEpoch = `new-task-editor:${++identitySerial}`;
     entry = { draft: capture.draft, route: { ...route }, revision: capture.revision, custody: 'native',
       state: mobileComposerEditorAdmit(null, { owner: capture.owner, editorId: route.editorId, routeVisit: route.visit, renderEpoch },
-        { value: text, selection: { start: text.length, end: text.length } }),
+        { value: text, selection: previous?.state.value === text ? { ...previous.state.selection } : { start: text.length, end: text.length } }),
       progress: { kind: 'unpublished' }, dirty: false, attempt: 0, problem: '', notice: '', operation: null, operationRevision: 0, holds: null,
       generation: client.generation, catalog: mobileCacheCatalogIdentity(fleet.saved, capture.draft.environmentId), threadEpoch: client.threadEpoch,
-      confirmed: [], tokensJson: '[]', completed: null };
+      confirmed: [], tokensJson: '[]', completed: null, effect: null };
     owner.entries.push(entry);
     updateDocument(client, entry);
     if (latch) observe(client, entry, latch);
@@ -405,7 +413,8 @@ function reconcileSnapshot(client: MobileDraftClient, owner: Ledger, serial: num
   for (const candidate of candidates) {
     const { entry, publication } = candidate, draft = registry(client, entry), progress = entry.progress;
     if (!owner.entries.includes(entry) || entry.problem || entry.attempt !== candidate.attempt
-      || entry.operation !== candidate.operation || !draft || draft.revision < publication.revision
+      || entry.operation !== candidate.operation || (!draft || draft.revision < publication.revision)
+        && !(entry.operation?.phase === 'frozen' && entry.operation.continuation.kind === 'produced' && entry.operation.continuation.result.leave)
       || progress.kind !== 'durable' && progress.kind !== 'saved' || progress.publication !== publication) continue;
     if (progress.kind === 'durable') {
       if (progress.ackRead === null || serial <= progress.ackRead
@@ -473,7 +482,7 @@ async function freeze(client: MobileDraftClient, owner: Ledger, entry: Entry,
     && serial === owner.acceptedRead && mobileDraftRecoveryHydrated(client);
   try {
     const response = await bridgeReply(native, { op: 'composerEditorHandoff', generation, identity: work.capture.identity,
-      action: 'freeze', operationId: work.operation.id, operationRevision: work.operation.revision, retireUndo: false });
+      action: 'freeze', operationId: work.operation.id, operationRevision: work.operation.revision, retireUndo: work.capture.intent?.kind === 'remove' });
     if (!current()) return;
     if (!response.ok || response.generation !== generation || !record(response.value))
       throw new ClientError('The editor handoff is retained until its frozen source can be confirmed.');
@@ -508,7 +517,12 @@ async function continuePick(client: MobileDraftClient, owner: Ledger, entry: Ent
   const work = entry.operation;
   if (!work || entry.problem) return;
   if (work.phase === 'frozen') {
-    await advanceFrozen(client, owner, entry, work, native, storage);
+    if (work.capture.intent) await advanceProducer(client, owner, entry, work, native, storage);
+    else await advanceFrozen(client, owner, entry, work, native, storage);
+    if (entry.progress.kind === 'saved' && entry.progress.publication.slotReleased
+      && (work.continuation.kind === 'terminal' && work.continuation.outcome === 'finished' || work.continuation.kind === 'produced' && work.continuation.saved)) {
+      entry.progress = { kind: 'acknowledged', receipt: work.receipt }; entry.operation = null; return;
+    }
     if (entry.operation === work) await resume(client, owner, entry, work, native, storage);
     return;
   }
@@ -630,8 +644,7 @@ function acceptResume(client: MobileDraftClient, entry: Entry, proof: ComposerEd
   const accepted = newest ? mobileComposerEditorAccept(resumed.state, newest) : resumed;
   if (!accepted.accepted) return false;
   handback.proof = proof;
-  const expected = work.continuation.kind === 'terminal' && work.continuation.outcome === 'finished'
-    ? work.continuation.commit.after : work.source;
+  const expected = handbackSource(work);
   if (!expected || !ownsProjection(projection(client, entry), expected)) return false;
   entry.revision = registry(client, entry)!.revision;
   if (accepted.state.value !== expected.text && !publishText(client, entry, accepted.state.value)) return false;
@@ -645,8 +658,7 @@ function acceptRetirement(client: MobileDraftClient, entry: Entry, receipt: Rece
     || receipt.id === work.receipt.id || !sameIdentity(receipt.identity, work.capture.identity)
     || receipt.event.eventCount <= work.receipt.event.eventCount + 1
     || receipt.event.eventCount <= (work.handback.newest?.eventCount ?? -1)) return false;
-  const expected = work.continuation.kind === 'terminal' && work.continuation.outcome === 'finished'
-    ? work.continuation.commit.after : work.source;
+  const expected = handbackSource(work);
   if (!expected || !ownsProjection(projection(client, entry), expected)) return false;
   const accepted = mobileComposerEditorAccept(entry.state, receipt.event);
   entry.revision = registry(client, entry)!.revision;
@@ -656,6 +668,80 @@ function acceptRetirement(client: MobileDraftClient, entry: Entry, receipt: Rece
   entry.progress = { kind: 'published', publication: { receipt, revision: entry.revision, slotReleased: false } };
   return true;
 }
+function handbackSource(work: FrozenPick): MobileNewTaskAttachmentProjection | null {
+  const phase = work.continuation;
+  return phase.kind === 'produced' ? phase.after : phase.kind === 'terminal' && phase.outcome === 'finished' ? phase.commit.after : work.source;
+}
+async function advanceProducer(client: MobileDraftClient, owner: Ledger, entry: Entry, work: FrozenPick, native: Native, storage: Files): Promise<void> {
+  if (entry.progress.kind !== 'saved' || entry.problem || !work.source || !work.capture.intent) return;
+  let phase = work.continuation;
+  if (phase.kind === 'producing') return;
+  const current = () => owner.entries.includes(entry) && entry.operation === work && work.continuation === phase;
+  const finish = (result: NewTaskProducerResult) => {
+    const after = projection(client, entry);
+    if (after) entry.revision = after.record.revision;
+    phase = { kind: 'produced', result, after, saved: false }; work.continuation = phase;
+  };
+  try {
+    if (phase.kind === 'ready') {
+      if (!liveIntake(client, entry, work)) {
+        terminal(entry, work, { kind: 'terminal', outcome: 'cancelled', files: null }); return;
+      }
+      phase = { kind: 'producing' }; work.continuation = phase;
+      const result = await newTaskEditorProduce(client, work.capture.route, work.capture.target, work.capture.intent,
+        work.receipt.event.selection, native, storage);
+      if (!current()) return;
+      if (result.voice) { phase = { kind: 'voice', message: result.message }; work.continuation = phase; return; }
+      finish(result);
+    }
+    if (phase.kind === 'voice') {
+      if (mobileVoiceSnapshot(work.capture.target.editorOwner, client).phase !== 'idle') return;
+      finish({ message: phase.message, leave: false, voice: false, effect: null,
+        selection: mobileVoiceSelection(client, work.capture.target) });
+    }
+    if (phase.kind === 'produced' && !phase.saved) {
+      if (!phase.result.leave && (!phase.after || !ownsProjection(projection(client, entry), phase.after)))
+        throw new ClientError('The producer source changed before it could be saved.');
+      await client.persist(storage);
+      if (!current()) return;
+      phase.saved = true;
+      entry.notice = phase.result.message;
+      if (phase.result.effect) entry.effect = { ...phase.result.effect, id: work.operation.id };
+      if (phase.after) {
+        entry.state = { ...entry.state, value: phase.after.text, selection: phase.result.selection ?? work.receipt.event.selection };
+        updateDocument(client, entry);
+      }
+    }
+  } catch (error) {
+    if (letGo(error)) throw error;
+    if (current()) {
+      entry.notice = error instanceof Error ? error.message : 'The producer source is retained.';
+      // A started producer is never invoked twice on an uncertain result.
+      if (phase.kind === 'producing') finish({ message: entry.notice, leave: false, voice: false, selection: null, effect: null });
+    }
+  }
+}
+
+export function mobileNewTaskEditorOwnsVoice(client: T3Client, key: string): boolean {
+  return ledgers.get(client as MobileDraftClient)?.entries.some(entry => entry.draft.key === key
+    && entry.operation?.phase === 'frozen' && entry.operation.capture.intent?.kind === 'voice'
+    && entry.progress.kind === 'saved') ?? false;
+}
+/** Non-editor producers may write only after every native source for this key has settled. */
+export function mobileNewTaskEditorAllowsWriter(client: T3Client, key: string, producer: 'external' | 'voice' = 'external'): boolean {
+  const owner = ledgers.get(client as MobileDraftClient);
+  return !owner || owner.entries.every(entry => entry.draft.key !== key || entry.progress.kind === 'acknowledged'
+    || producer === 'voice' && entry.operation?.phase === 'frozen' && entry.operation.capture.intent?.kind === 'voice'
+      && entry.progress.kind === 'saved');
+}
+export function mobileNewTaskEditorEffect(client: MobileDraftClient, route: NewTaskEditorRoute): NewTaskProducerEffect | null {
+  return ledger(client).entries.findLast(entry => matchingRoute(entry, route) && entry.effect)?.effect ?? null;
+}
+export function mobileNewTaskEditorFlushKey(client: MobileDraftClient, route: NewTaskEditorRoute): string {
+  const entry = activeEntry(client, route);
+  return entry?.dirty ? `${entry.state.identity.renderEpoch}:${entry.state.eventCount}` : '';
+}
+
 async function saveObservation(client: MobileDraftClient, entry: Entry, storage: Files): Promise<void> {
   if (!entry.dirty || entry.progress.kind !== 'unpublished') return;
   const attempt = ++entry.attempt, revision = entry.revision, eventCount = entry.state.eventCount;
@@ -666,15 +752,17 @@ async function saveObservation(client: MobileDraftClient, entry: Entry, storage:
 async function resume(client: MobileDraftClient, owner: Ledger, entry: Entry, work: FrozenPick, native: Native, storage: Files): Promise<void> {
   const terminal = work.continuation;
   if (!mobileDraftRecoveryHydrated(client) || entry.problem || entry.progress.kind !== 'saved'
-    || terminal.kind !== 'terminal' || terminal.outcome === 'absent') return;
+    || (terminal.kind !== 'terminal' || terminal.outcome === 'absent')
+      && (terminal.kind !== 'produced' || !terminal.saved || terminal.result.leave)) return;
   if (!work.handback) {
-    const expected = terminal.outcome === 'finished' ? terminal.commit.after : work.source;
+    const expected = handbackSource(work);
     if (!expected || !liveEntry(client, entry) || !currentRoute(client, work.capture.route)
       || !sameIdentity(mounted(entry), work.capture.identity) || work.receipt.retired || entry.progress.publication.slotReleased
       || !ownsProjection(projection(client, entry), expected) || !equal(registry(client, entry)?.branchChoice, expected.record.branchChoice)
       || !filesReady(client, entry)) return;
     const projected = projectDocument(client, entry, expected.text, expected);
-    const selection = terminal.outcome === 'finished' ? terminal.commit.selection ?? work.receipt.event.selection : work.receipt.event.selection;
+    const selection = terminal.kind === 'produced' ? terminal.result.selection ?? work.receipt.event.selection
+      : terminal.kind === 'terminal' && terminal.outcome === 'finished' ? terminal.commit.selection ?? work.receipt.event.selection : work.receipt.event.selection;
     const document = Object.freeze({ value: expected.text, selection: Object.freeze({ ...selection }),
       tokensJson: projected.tokensJson, isNativeEcho: false as const });
     const request: ResumeRequest = Object.freeze({ op: 'composerEditorHandoff', action: 'resume', generation: work.capture.target.generation,
@@ -918,20 +1006,32 @@ export async function mobileNewTaskEditorAction(client: MobileDraftClient, route
     }
     return { accepted: true, message: owner.problem };
   }
+  if (intent.kind === 'claim') {
+    const entry = ledger(client).entries.find(candidate => matchingRoute(candidate, route) && candidate.effect?.id === intent.id);
+    if (!entry?.effect || !mobileNewTaskFlowCurrent(route.owner, route.visit, route.location, client))
+      return { accepted: false, message: '' };
+    const effect = entry.effect; entry.effect = null; return { accepted: true, message: '', effect };
+  }
   let entry = activeEntry(client, route);
   if (intent.kind === 'observe') {
     const event = mobileComposerEditorDecodeResume(intent.payload)?.snapshot ?? mobileComposerEditorDecodeEvent(intent.payload);
     if (event) entry = ledger(client).entries.find(candidate => sameIdentity(mounted(candidate), event)
       && (candidate === entry || candidate.operation?.phase === 'frozen' && candidate.operation.handback !== null || candidate.completed !== null)) ?? null;
   }
-  if (intent.kind === 'pick') {
+  if (intent.kind !== 'observe') {
     if (entry && native?.available) await prepareFiles(client, entry, native);
     if (!entry || !native?.available || entry.operation || entry.problem || ledger(client).problem
       || entry.progress.kind !== 'unpublished' || entry.custody !== 'native' || !entry.state.mountId
       || entry.state.composing || entry.state.pendingCommand || entry.operationRevision >= MAX_COUNT
       || registry(client, entry)?.revision !== entry.revision || !liveEntry(client, entry) || !filesReady(client, entry))
       return { accepted: false, message: 'The editor is not ready for an attachment operation.' };
-    const capture: PickCapture = { source: intent.source, route: { ...route }, draft: { ...entry.draft }, identity: mounted(entry),
+    if (intent.kind === 'preview' && intent.token) {
+      let raw: Record<string, unknown>; try { raw = obj(JSON.parse(intent.token)); } catch { return { accepted: false, message: 'The attachment event is invalid.' }; }
+      if (!sameIdentity(raw as unknown as ComposerMountedIdentity, mounted(entry)) || raw.eventCount !== entry.state.eventCount
+        || raw.value !== entry.state.value || !token(raw.richEventId)) return { accepted: false, message: 'The attachment source changed.' };
+    }
+    const capture: PickCapture = { source: intent.kind === 'pick' ? intent.source : 'files',
+      ...(intent.kind === 'pick' ? {} : { intent: JSON.parse(JSON.stringify(intent)) as NewTaskProducerIntent }), route: { ...route }, draft: { ...entry.draft }, identity: mounted(entry),
       target: mobileComposerTarget(client), threadEpoch: client.threadEpoch,
       catalog: mobileCacheCatalogIdentity(fleet.saved, entry.draft.environmentId), revision: entry.revision,
       eventCount: entry.state.eventCount, value: entry.state.value, selection: { ...entry.state.selection } };
@@ -944,7 +1044,7 @@ export async function mobileNewTaskEditorAction(client: MobileDraftClient, route
       entry.notice = error instanceof Error ? error.message : 'The editor handoff is retained.';
       await wake(owner, native, client.generation);
     }
-    return { accepted: true, message: entry.problem || entry.notice || owner.problem || 'The editor source is held for the attachment operation.' };
+    return { accepted: true, message: entry.problem || entry.notice || owner.problem };
   }
   if (!entry || !observe(client, entry, intent.payload)) return { accepted: false, message: 'The editor observation is no longer current.' };
   if (native?.available) await prepareFiles(client, entry, native);

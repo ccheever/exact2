@@ -1,3 +1,4 @@
+import { mobileNewTaskEditorAllowsWriter } from './new-task-editor';
 // Pinned365aa87982 NewTaskDraftScreen import and use-composer-drafts merge.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#incoming-share-inbox
 import type { T3Client } from './shared/client';
@@ -123,7 +124,7 @@ export async function mobileIncomingShareAdopt(client: T3Client, nativeInput: Na
       if (text.length > 1_000_000) throw new ClientError('The combined draft exceeds 1,000,000 characters. The inbox copy is retained.');
       const order = mobileDraftAttachmentIds(client, draft.key);
       const guard = mobileNewTaskContextGuard(client, draft.key);
-      if (!guard || !mobileNewTaskContextWrite(client, guard, text)) throw new ClientError('The draft changed before import.');
+      if (!mobileNewTaskEditorAllowsWriter(client, draft.key) || !guard || !mobileNewTaskContextWrite(client, guard, text)) throw new ClientError('The draft changed before import.');
       client.local.snapshotDrafts[draft.key] = [...(client.local.snapshotDrafts[draft.key] ?? []), ...images];
       setDraftFiles(client.local, [...draftFiles(client.local), ...files]);
       mobileDraftAttachmentRecord(client, draft.key, [...order, ...selected.map(file => file.id)]);

@@ -71,6 +71,15 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
     try {const message=await mobileComposerPickerAction(client,source,id,expectedOwner,native,storage);if(message)errors.set(client,message);return result(message)}
     finally {picking.delete(client);client.revision++}
   }
+  return attachmentAction(source, id, nativeInput, suppliedStorage, client, expectedOwner);
+}
+export async function mobileNewTaskAttachmentRemove(source: 'remove-image' | 'remove-file', id: string,
+  native: Native, storage: Files, client: T3Client, expectedOwner: string) {
+  if (!mobileNewTaskDraftLookup(client, client.draftKey)) throw new ClientError('The new task draft changed.', 'superseded');
+  return attachmentAction(source, id, native, storage, client, expectedOwner);
+}
+async function attachmentAction(source: string, id: string, nativeInput: Native, suppliedStorage: Files, client: T3Client, expectedOwner: string) {
+  const result = (message = '') => ({ revision: client.revision, message });
   const target = mobileComposerTargetRequire(client, expectedOwner);
   if (target.kind === 'queued-edit') return mobileQueuedEditAttachmentAction(source, id, target.editOwner, nativeInput, client);
   if (picking.has(client) || client.pending || client.busy) return result('Wait for the current submission before changing attachments.');

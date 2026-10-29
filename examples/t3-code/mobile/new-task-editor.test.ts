@@ -860,7 +860,10 @@ test('positive retirement delegates claims while published intake still requires
   });
   await pick(); const finish = intakeCalls(f, 'finish')[0]; f.reserved([]); f.detach(); await f.reread();
   expect(intakeCalls(f, 'finish')).toEqual([finish, finish]); expect(f.calls.some(call => call.action === 'release')).toBe(false);
-  expect(view(f.client, await f.resume('terminal-retirement')).kind).toBe('held');
+  const reopened = view(f.client, await f.resume('terminal-retirement'));
+  expect(reopened.kind).toBe('mounting');
+  expect(config(reopened).document).toMatchObject({ value: f.client.local.drafts[f.key] });
+  expect(intakeCalls(f, 'finish')).toEqual([finish, finish]);
 });
 
 test('post-publication absent is not cancellation authority', async () => {

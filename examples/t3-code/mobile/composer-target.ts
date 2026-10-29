@@ -1,3 +1,4 @@
+import { mobileNewTaskEditorAllowsWriter } from './new-task-editor';
 // Pinned365aa87982 keeps queued-edit content separate from thread model/runtime settings.
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { mobileNewTaskDraftIsKey, mobileNewTaskDraftLookup, mobileNewTaskDraftChanged } from './mobile-new-task-drafts';
@@ -50,8 +51,8 @@ export function mobileComposerTargetRevision(client: T3Client, target: MobileCom
 }
 /** Synchronous writes let voice compare its captured text/revision before insertion.
  * Ordinary keyboard input still uses the shared question-aware draft reducer. */
-export function mobileComposerTargetWriteText(client: T3Client, target: MobileComposerTarget, text: string): boolean {
-  if (!mobileComposerTargetExists(client, target)) return false;
+export function mobileComposerTargetWriteText(client: T3Client, target: MobileComposerTarget, text: string, producer: 'external' | 'voice' = 'external'): boolean {
+  if (!mobileComposerTargetExists(client, target) || !mobileNewTaskEditorAllowsWriter(client, target.key, producer)) return false;
   if (text.length > 1_000_000) throw new ClientError('Keep a draft under 1,000,000 characters.');
   if (target.kind === 'queued-edit') return mobileQueuedEditWriteText(target.editOwner, text, client);
   const guard = mobileNewTaskContextGuard(client, target.key);
@@ -90,7 +91,7 @@ export async function mobileComposerEditContext(client: T3Client, target: Mobile
 export async function mobileComposerNewTaskContext(client: T3Client, target: MobileComposerTarget, text: string,
   record: Obj | undefined, removeId: string, native: Native, storage: Files): Promise<void> {
   const guard = mobileNewTaskContextGuard(client, target.key);
-  if (target.kind !== 'ordinary' || !guard || guard.createdAt !== target.incarnation || !mobileComposerTargetCurrent(client, target))
+  if (!mobileNewTaskEditorAllowsWriter(client, target.key) || target.kind !== 'ordinary' || !guard || guard.createdAt !== target.incarnation || !mobileComposerTargetCurrent(client, target))
     throw new ClientError('The composer changed.', 'superseded');
   if (!mobileNewTaskContextWrite(client, guard, text, record, removeId))
     throw new ClientError('This draft context could not be changed. Keep the original draft.');

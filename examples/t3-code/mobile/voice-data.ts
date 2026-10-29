@@ -1,6 +1,7 @@
 // @ref examples/t3-code/mobile/docs/1130.008-mobile-voice.decision.md#answer-lifetime
 import { mobileClient } from './client';
 import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
+import { mobileNewTaskEditorOwnsVoice } from './new-task-editor';
 import { mobileVoiceDocumentCapture, mobileVoiceDocumentCurrent, mobileVoiceDocumentCommit, type VoiceDocumentCapture } from './voice-document';
 import type { T3Client } from './shared/client';
 import { activeInput, pendingRequests } from './shared/requests';
@@ -125,6 +126,7 @@ export async function mobileComposerStageSelection(client: T3Client, target: Mob
   const lower = Math.max(0, Math.min(text.length, Math.floor(start))), upper = Math.max(lower, Math.min(text.length, Math.floor(end)));
   const revision = runtime.selection.revision + 1;
   runtime.selection = { owner: target.editorOwner, start: lower, end: upper, revision, content: target, text, contentRevision, document };
+  if (mobileNewTaskEditorOwnsVoice(client, target.key)) return;
   try {
     const reply = await bridgeReply(letGoAware(native), { op: 'mobileVoice', action: 'selection-commit', generation: target.generation,
       owner: target.editorOwner, text, start: lower, end: upper, revision });
@@ -136,6 +138,14 @@ export async function mobileComposerStageSelection(client: T3Client, target: Mob
     if (runtime.selection.revision === revision) runtime.selection = { ...runtime.selection, owner: '', revision: revision + 1 };
     throw error;
   }
+}
+/** The independent native owner resumes from this captured source caret. */
+export function mobileVoiceSelection(client: T3Client, target: MobileComposerTarget): { start: number; end: number } | null {
+  const selection = states.get(client)?.selection;
+  if (!selection || selection.owner !== target.editorOwner || selection.content?.incarnation !== target.incarnation
+    || selection.text !== mobileComposerTargetText(client, target)
+    || selection.contentRevision !== mobileComposerTargetRevision(client, target)) return null;
+  return { start: selection.start, end: selection.end };
 }
 export function mobileVoiceSnapshot(focusedOwner = '', client: T3Client = mobileClient, waveformWidth = 220): VoiceSnapshot {
   const runtime = stateFor(client); mobileVoiceObserveDraft(client);
@@ -222,7 +232,7 @@ export async function mobileVoiceAction(op: string, start: number, end: number, 
         const commitScope = runtime.scope; if (!commitScope) throw new Error('Voice commit has no active answer.');
         if (!readTarget(runtime) || !(target.document?.kind === 'owned'
           ? mobileVoiceDocumentCommit(client, target.document, value, selected)
-          : mobileComposerTargetWriteText(client, content, value))) throw new Error('This draft is no longer available.');
+          : mobileComposerTargetWriteText(client, content, value, 'voice'))) throw new Error('This draft is no longer available.');
         const selectionDocument = target.document ? mobileVoiceDocumentCapture(client, content) : null;
         commitScope.pending.push(mobileComposerStageSelection(client, content, value, selected.start, selected.end, commitScope.native, selectionDocument).catch(error => { commitScope.failed ??= error; }));
         commitScope.pending.push(mobileComposerTargetPersist(client, content, commitScope.native, commitScope.storage).catch(error => { commitScope.failed ??= error; }));
