@@ -95,10 +95,11 @@ export function unionNamed(before = [], after = []) {
   });
 }
 
-/** Before's and after's crops of each named box that differs, written to
+/** Before's and after's crops of each named box, written to
  * `dir` as `<shot>-<target>-before.png` and `-after.png`: the paths. */
 export function namedCrops(beforePng, afterPng, names, dir, shot) {
-  const differing = names.filter(n => n.differ > 0);
+  // Every named box on every shot, differing or not (theme2 23:16 Q2: crops of every named box on every host).
+  const differing = names.filter(n => n.rect);
   if (!differing.length) return [];
   mkdirSync(dir, { recursive: true });
   const A = decodePng(readFileSync(beforePng)), B = decodePng(readFileSync(afterPng));
@@ -122,17 +123,84 @@ export function namedReport(named, compared) {
   });
 }
 
-/** Theme2's option B check on a copy's source map: each binding component
- * draws nothing of its own (no view node declared in it) and instantiates
- * only the package components it binds to (the `if` around FollowButton is
- * a region, no node). Each binding must be instantiated at least once.
- * [{binding, ok, said}]. */
+/** The library identity a source map file and component name: `@exact/<package>/<file>.contract#<Component>` for a
+ * package's file (in a checkout's packages/ or a copy's node_modules/@exact/), else null (the app's own). */
+export function identityOf(file, component) {
+  const m = /\/(?:packages|node_modules\/@exact)\/([\w-]+)\/([\w-]+)\.contract$/.exec(file ?? '');
+  return m ? `@exact/${m[1]}/${m[2]}.contract#${String(component).replace(new RegExp(`__${m[2].replace(/\W/g, '_')}$`), '')}` : null;
+}
+
+/** Theme2's option B check on a copy's source map: each binding component draws nothing of its own, and every node
+ * drawn under it comes through what it binds to, all the way down: in each node's chain of call sites, the ones
+ * inside the binding's call (inner to it) are all in the allowed packages' files, and what the binding itself
+ * instantiates is an allowed component (an app helper between them, drawing its own node, fails). Each binding must
+ * be instantiated. [{binding, ok, said}]. The body's shape (one PersonRow, at most the `if` around FollowButton in
+ * its slot) is `bindingShape`'s, on the source. */
 export function bindingsCheck(map, bindings) {
   return bindings.map(({ component, allowed }) => {
-    const own = (map.nodes ?? []).filter(n => n.component === component);
-    const placed = (map.nodes ?? []).filter(n => n.chain?.[0]?.component === component);
-    const others = [...new Set(placed.filter(n => !allowed.includes(n.library)).map(n => n.library ?? `${n.component} (the app's)`))];
-    const said = !placed.length ? 'not instantiated' : own.length ? `draws ${own.length} node(s) of its own (${[...new Set(own.map(n => `${n.file.split('/').pop()}:${n.line}`))].slice(0, 4).join(', ')})` : others.length ? `instantiates ${others.join(', ')} besides ${allowed.map(a => a.split('#')[1]).join(' and ')}` : `binds to ${[...new Set(placed.map(n => n.library.split('#')[1]))].join(' and ')} only`;
-    return { binding: component, ok: !!placed.length && !own.length && !others.length, said };
+    const nodes = map.nodes ?? [];
+    const own = nodes.filter(n => n.component === component);
+    const under = nodes.flatMap(n => {
+      const k = (n.chain ?? []).findIndex(c => c.component === component);
+      if (k < 0) return [];
+      const inner = n.chain.slice(0, k);
+      // What the binding's call at chain[k] instantiates: the node's own component (k 0) or chain[k - 1]'s.
+      const direct = k === 0 ? (n.library ?? identityOf(n.file, n.component)) : identityOf(inner[k - 1].file, inner[k - 1].component);
+      const app = inner.find(c => !identityOf(c.file, c.component)) ?? (!n.library && !identityOf(n.file, n.component) ? n : null);
+      return [{ n, direct, app }];
+    });
+    const strays = [...new Set(under.filter(u => !allowed.includes(u.direct)).map(u => u.direct ?? `${u.n.component} (the app's)`))];
+    const helpers = [...new Set(under.filter(u => u.app).map(u => `${u.app.component} (${String(u.app.file).split('/').pop()}:${u.app.line})`))];
+    const where = list => list.slice(0, 4).join(', ');
+    const said = !under.length ? 'not instantiated'
+      : own.length ? `draws ${own.length} node(s) of its own (${where([...new Set(own.map(n => `${n.file.split('/').pop()}:${n.line}`))])})`
+      : helpers.length ? `draws through the app's own ${where(helpers)}`
+      : strays.length ? `instantiates ${strays.join(', ')} besides ${allowed.map(a => a.split('#')[1]).join(' and ')}`
+      : `binds to ${[...new Set(under.map(u => u.direct.split('#')[1]))].join(' and ')} only`;
+    return { binding: component, ok: !!under.length && !own.length && !helpers.length && !strays.length, said };
   });
+}
+
+/** Option B's body shape on the source (`text`, the .contract file declaring `component`): its view is exactly one
+ * call of the package PersonRow (by its imported name), and under it, in its slot, nothing or one `if` (no `else`)
+ * whose only child is one call of the package FollowButton. Comments and blank lines aside. {ok, said}. */
+export function bindingShape(text, component) {
+  const alias = (pkg, name) => {
+    for (const m of text.matchAll(/^use (.+) from "@exact\/(\w+)"/gm)) {
+      if (m[2] !== pkg) continue;
+      for (const part of m[1].split(',').map(x => x.trim())) {
+        const [n, as] = part.split(/\s+as\s+/);
+        if (n === name) return as ?? n;
+      }
+    }
+    return null;
+  };
+  const row = alias('cards', 'PersonRow'), follow = alias('actions', 'FollowButton');
+  if (!row) return { ok: false, said: 'imports no PersonRow from @exact/cards' };
+  const lines = text.split('\n');
+  const at = lines.findIndex(l => l === `component ${component}`);
+  if (at < 0) return { ok: false, said: `declares no component ${component}` };
+  let end = lines.findIndex((l, i) => i > at && /^\S/.test(l) && !l.startsWith('//'));
+  if (end < 0) end = lines.length;
+  const body = lines.slice(at + 1, end).map(l => l.replace(/\s+\/\/.*$/, '')).filter(l => l.trim() && !l.trim().startsWith('//'));
+  const v = body.findIndex(l => l === '  view');
+  if (v < 0) return { ok: false, said: 'has no view' };
+  const view = body.slice(v + 1), depth = l => l.match(/^ */)[0].length;
+  // One call spanning lines: its opening line, its argument lines (deeper), its closing `)` at its own depth.
+  const call = (i, d, name) => {
+    if (view[i]?.trim() !== `${name}(` || depth(view[i]) !== d) return -1;
+    let j = i + 1;
+    while (j < view.length && depth(view[j]) > d) j++;
+    return view[j]?.trim() === ')' && depth(view[j]) === d ? j + 1 : -1;
+  };
+  let i = call(0, 4, row);
+  if (i < 0) return { ok: false, said: `its view doesn't open with one ${row}( call` };
+  if (i < view.length) {
+    if (!follow) return { ok: false, said: `draws more than its ${row} and imports no FollowButton from @exact/actions` };
+    if (!/^ {6}if \S/.test(view[i])) return { ok: false, said: `under its ${row}: ${view[i].trim().slice(0, 60)}, not the if around ${follow}` };
+    const j = call(i + 1, 8, follow);
+    if (j < 0) return { ok: false, said: `its if's only child isn't one ${follow}( call` };
+    if (j < view.length) return { ok: false, said: `more after the if: ${view[j].trim().slice(0, 60)}` };
+  }
+  return { ok: true, said: `one ${row}${i < view.length ? `, and in its slot the if around one ${follow}` : ''}` };
 }

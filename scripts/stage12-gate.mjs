@@ -20,7 +20,7 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, realp
 import { homedir, release, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
-import { bindingsCheck, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
+import { bindingShape, bindingsCheck, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
 import { s15b2Stage } from './stage12-s15b2.mjs';
 import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
 import { webDist } from './app.mjs';
@@ -485,7 +485,7 @@ export function consumerPixels(opts) {
   if (kept.length) return fail(`--copy still declares ${kept.map(x => x.line).join(', ')}: not the adoption`);
   if (unborn.length) return fail(`--before never declared ${unborn.map(x => x.line).join(', ')}: not the baseline`);
   // Theme2's option B: each binding draws nothing of its own and places only what it binds to (after's source map).
-  const bound = bindingsCheck(maps.after, BINDINGS);
+  const bound = [...bindingsCheck(maps.after, BINDINGS), ...BINDINGS.map(b => ({ binding: b.component, ...bindingShape(readFileSync(join(opts.copy, b.file), 'utf8'), b.component) }))];
   if (bound.some(b => !b.ok)) return fail(...bound.map(b => `binding ${b.binding}: ${b.said}`));
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
@@ -500,7 +500,7 @@ export function consumerPixels(opts) {
   }
   const r = comparePixels(shots.before, shots.after);
   const bad = r.filter(x => !x.ok);
-  // Named changes: each name's pixels and box, and both sides' crops of every named box that differs, for theme2.
+  // Named changes: each name's pixels and box, and both sides' crops of every named box on every shot, for theme2 to read.
   const crops = join(ROOT, 'target', 'stage12-gate', 'named-crops');
   const report = namedReport(NAMED, r), cropped = r.flatMap(x => (x.names ? namedCrops(x.png[0], x.png[1], x.names, crops, x.shot) : []));
   const missingNames = report.filter(n => n.status === 'MISSING');
@@ -535,7 +535,7 @@ export function consumerPixels(opts) {
     ...(APP_PLACED.length ? [`shown where the copy's own files instantiate them, every host: ${APP_PLACED.map(id => id.split('#')[1]).join(', ')}${appNotShown.length ? `; NOT shown: ${appNotShown.join(', ')}` : ''}`] : []),
     ...byComponent.map(c => { const all = [...new Set(Object.values(c.per).flat())]; const same = hosts.every(h => c.per[h].length === all.length); return `  ${c.name}: ${same ? all.join(', ') : hosts.map(h => `${h} ${c.per[h].join(', ') || 'none'}`).join('; ')}`; }),
     ...bound.map(b => `binding ${b.binding}: ${b.said}`),
-    ...(NAMED.length ? [`named changes (theme2 23:16: inside each named box allowed and reported, strict outside; crops of every differing box in ${crops}, ${cropped.length} files):`,
+    ...(NAMED.length ? [`named changes (theme2 23:16: inside each named box allowed and reported, strict outside; crops of every named box on every shot in ${crops}, ${cropped.length} files):`,
       ...report.map(n => `  ${n.status} ${n.screen} ${n.target}: ${n.change}; ${n.differ} px over ${n.shots.length} of ${n.seen} shots${n.shots.length ? `, boxes ${n.shots.map(h => `${h.shot.split(' ').slice(0, 2).join('-')} ${h.box.join(',')}`).join('; ')}` : ''}`)] : []),
     ...conformEvidence(conform)];
   return missingNames.length || bad.length || !r.length || !conformSame(conform) || unseen.length || own.length || shownEarly.length || notShown.length || shownBefore.length || appNotShown.length ? fail(...evidence) : pass(...evidence);

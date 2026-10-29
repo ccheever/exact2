@@ -11,7 +11,7 @@ export const S15B2_EXPORTS = ['@exact/actions/follow-button.contract#FollowButto
 
 /** The copy's two bindings (theme2's option B, 14:15 and 18:40): one PersonRow call each, and in its slot at most the
  * `if` whose only branch is the package FollowButton. */
-export const S15B2_BINDINGS = ['PersonResultRow', 'FindFollowRow'].map(component => ({ component,
+export const S15B2_BINDINGS = [['PersonResultRow', 'explore.contract'], ['FindFollowRow', 'interstitials.contract']].map(([component, file]) => ({ component, file,
   allowed: ['@exact/cards/person-row.contract#PersonRow', '@exact/actions/follow-button.contract#FollowButton'] }));
 
 const DEVI = 'avatar-3:at://did:plc:fixture3/app.bsky.feed.post/fx1';
