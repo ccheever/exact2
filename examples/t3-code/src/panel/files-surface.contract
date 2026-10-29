@@ -425,10 +425,10 @@ component FilePreview
       FileSurfaceFailure(message=files.previewError, canRetry=true, retry=local("surface-files-full-retry", files.absolutePath, ""), testId="file-full-failed")
     if files.preview == "audio-error"
       FileSurfaceFailure(message="Unable to load audio.", canRetry=true, retry=local("surface-files-audio-retry", files.absolutePath, ""), testId="file-audio-failed")
-    // A rendered HTML page or a PDF (always rendered), as an attachment's (BrowserDocumentFrame, media-frame.contract).
+    // A rendered HTML page, as an attachment's (BrowserDocumentFrame, media-frame.contract).
     if files.preview == "html"
       box position="relative" flex=1 min-height=0 width="100%" background-color="#ffffff"
-        MediaFrame(kind=files.preview, src=files.url, name=files.path, testId="file-html")
+        MediaFrame(src=files.url, name=files.path, testId="file-html")
     if files.preview == "code"
       scroll flex=1 min-height=0 width="100%" testId="file-code"
         // The editor fills the pane, so a click below the last line lands in it (focus, caret at the end).

@@ -15,6 +15,7 @@ import { attachmentOp, attachmentView, emptyAttachment, forgetPreview, previewKi
 import { stagedMediaSrc, videoOp } from './composer-attachments';
 import { saveStaged, saveText, stagedText } from '../panel/attachment-files'; // a draft's staged copy, read and saved
 import { stagedName } from './composer-staged-copies';
+import { forgetStagedCopies } from '../media/media-frame'; // the copies a closed preview made
 
 /** FILE_TEXT_PREVIEW_MAX_BYTES. */
 const PREVIEW_BYTES = 1024 * 1024;
@@ -31,7 +32,7 @@ function openFile(client: T3Client): DraftFile | null {
 }
 function close(client: T3Client): void {
   const open = opened.get(client);
-  if (open) forgetPreview(client, `draft:${open.id}`);
+  if (open) { forgetPreview(client, `draft:${open.id}`); forgetStagedCopies(open.id.toLowerCase()); }
   opened.delete(client);
 }
 

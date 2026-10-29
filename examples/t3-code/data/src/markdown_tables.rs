@@ -257,38 +257,52 @@ fn image_chip_links(text: &str) -> std::borrow::Cow<'_, str> {
         return std::borrow::Cow::Borrowed(text);
     }
     let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find("![") {
-        let after = &rest[at + 2..];
-        let is_chip = after.find(']').is_some_and(|close| {
-            !after[..close].contains('\n') && after[close..].starts_with("](t3-context://")
-        });
-        out.push_str(&rest[..at]);
+    let mut copied = 0;
+    for (at, close) in image_label_ends(text) {
+        let is_chip = close.is_some_and(|close| text[close..].starts_with("](t3-context://"));
+        out.push_str(&text[copied..at]);
         out.push_str(if is_chip { "[" } else { "![" });
-        rest = after;
+        copied = at + 2;
     }
-    out.push_str(rest);
+    out.push_str(&text[copied..]);
     std::borrow::Cow::Owned(out)
+}
+
+/// Each `![` in `text`, with the `]` that ends its alt text when one comes before the line does: the first after it.
+/// Every `]` and line break is found once, so a text of many unclosed `![` reads in linear time.
+fn image_label_ends(text: &str) -> Vec<(usize, Option<usize>)> {
+    let closes: Vec<usize> = text.match_indices(']').map(|(at, _)| at).collect();
+    let breaks: Vec<usize> = text.match_indices('\n').map(|(at, _)| at).collect();
+    let (mut close, mut line_break) = (0, 0);
+    text.match_indices("![")
+        .map(|(at, _)| {
+            while closes.get(close).is_some_and(|&next| next < at + 2) {
+                close += 1;
+            }
+            while breaks.get(line_break).is_some_and(|&next| next < at + 2) {
+                line_break += 1;
+            }
+            let end = closes
+                .get(close)
+                .copied()
+                .filter(|&end| breaks.get(line_break).is_none_or(|&next| next > end));
+            (at, end)
+        })
+        .collect()
 }
 
 /// The destinations of the image references image_chip_links rewrites into links: an `img` has no words, so
 /// block_directions leaves their alt text out.
 fn context_image_hrefs(text: &str) -> Vec<String> {
-    let mut hrefs = Vec::new();
-    let mut rest = text;
-    while let Some(at) = rest.find("![") {
-        let after = &rest[at + 2..];
-        let target = after
-            .find(']')
-            .filter(|&close| !after[..close].contains('\n'))
-            .and_then(|close| after[close..].strip_prefix("]("))
-            .filter(|target| target.starts_with("t3-context://"));
-        if let Some(end) = target.and_then(|target| target.find(')').map(|end| &target[..end])) {
-            hrefs.push(end.to_string());
-        }
-        rest = after;
-    }
-    hrefs
+    let parens: Vec<usize> = text.match_indices(')').map(|(at, _)| at).collect();
+    image_label_ends(text)
+        .into_iter()
+        .filter_map(|(_, close)| {
+            let close = close.filter(|&close| text[close..].starts_with("](t3-context://"))?;
+            let end = *parens.get(parens.partition_point(|&paren| paren < close + 2))?;
+            Some(text[close + 2..end].to_string())
+        })
+        .collect()
 }
 
 /// A line of pipes is a table row only beside the `| --- |` rule that makes

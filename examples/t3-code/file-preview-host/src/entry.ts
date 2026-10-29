@@ -20,8 +20,10 @@ export type Config = {
   /** A viewer's identity: another one mounts a new viewer, as the reference's keys do. */
   readonly key: string;
   readonly name: string;
-  /** The file's signed URL; "" for a draft, whose bytes follow in `bytes` messages. */
+  /** The file's signed URL; "" for a draft, whose bytes follow in `bytes` messages or which this page was given. */
   readonly src: string;
+  /** The file is the one this page was given in its own query (LLP 1020.001 D7): a draft past what a message carries. */
+  readonly given?: boolean;
   /** A delimited table's text (DelimitedTablePreview), or an output's HTML. */
   readonly text: string | null;
   /** The size the app knows, or -1 for none (a Files read, whose viewer learns it from the reply). */
@@ -152,6 +154,13 @@ export class Page {
     }
     this.unmount();
     if (!config.view) return;
+    if (config.given) {
+      // The host put a URL of the app's file in place of the `app:/` path the app named, or left the value empty.
+      const file = new URLSearchParams(location.search).get("file");
+      if (file) this.start(config, file);
+      else this.show(surfaceFailure("Could not load this file.", () => post({ type: "retry", key: config.key })));
+      return;
+    }
     if (!config.src && config.text === null) {
       // A draft: its bytes come next.
       this.incoming = new Incoming(config.key);

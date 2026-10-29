@@ -48,7 +48,8 @@ import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, frameLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
 import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // a chat link's file
-import { mediaFrameSource } from '../media/media-frame'; // a server tab's PDF as a local copy
+import { serverPdfLocal, serverPdfViewer, type PdfPlace } from '../browser/server-pdf-viewer'; // a server tab's PDF in the viewer page
+import type { ViewerFrameView } from './viewer-frames';
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number;
@@ -288,6 +289,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'pr-breakdown') return requestChangeBreakdown(client, value, id === 'card' ? 'card' : 'linked'); // a linked row's +/- or the details card hovered
   if (op === 'browser-automation-recording') { await serveRecordingRequests(client, native, Number(id) || 0); return ''; }
   if (op.startsWith('browser-frame')) return frameLocal(client, native, op.slice(8), id, value); // a page's own records (browser-surface.ts)
+  if (op.startsWith('server-pdf-')) return serverPdfLocal(client, op.slice(11), id, value); // its viewer page (id = the runtime, value = the place)
   const targetSplit = op === 'close-confirmed' ? id.lastIndexOf('|') : -1;
   const targetKey = targetSplit >= 0 ? id.slice(0, targetSplit) : panelKey(client);
   if (targetSplit >= 0) id = id.slice(targetSplit + 1);
@@ -473,15 +475,15 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...linked,
     deviceMini: visibleMini(deviceMini(client, deviceStateOf(client)), shownDevice(client)), // shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
-    ...browserFramesOf(client, await localPdf(open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client)), // The client's profiles for the "+" menu and the launcher
-      await localPdf(browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)))), // shouldRenderPreviewMiniPlayer's browser half
+    ...browserFramesOf(client, withPdfViewer(client, 'tab', open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client)), // The client's profiles for the "+" menu and the launcher
+      withPdfViewer(client, 'mini', browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)))), // shouldRenderPreviewMiniPlayer's browser half
     ...annotationDispatchView(client), annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
     automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
   };
 }
-/** A server tab's PDF as the local copy its frame shows (media-frame.ts), none when it could not be written. */
-async function localPdf<View extends { pdfUrl: string }>(view: View): Promise<View> {
-  return view.pdfUrl ? { ...view, pdfUrl: (await mediaFrameSource('pdf', view.pdfUrl)).src } : view;
+/** A server tab's PDF in the viewer page (server-pdf-viewer.ts), as the tab or the floating player shows it. */
+function withPdfViewer<View extends { runtimeId: string; pdfUrl: string; pdfViewer: ViewerFrameView }>(client: T3Client, place: PdfPlace, view: View): View {
+  return { ...view, pdfViewer: serverPdfViewer(client, place, view.runtimeId, view.pdfUrl) };
 }
 /** The panel's Browser tab, the floating player's, and every tab's frame: the panel's sits in its stage's slot while its
  *  page shows (not the empty state or the load-failed page), and the player's at the player's frame. */

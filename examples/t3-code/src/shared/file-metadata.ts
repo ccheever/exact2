@@ -51,7 +51,7 @@ function cwdOf(client: T3Client): string {
  */
 export function textFilePaths(text: string): string[] {
   return [...markdownLinks(text).filter(link => !link.image && chatFileLink(link.href)).map(link => link.href),
-    ...[...text.matchAll(/(?:^|\s)@([^\s\[\]<>"'`]+)/g)].map(match => match[1]!)];
+    ...(text.includes('@') ? [...text.matchAll(/(?:^|\s)@([^\s\[\]<>"'`]+)/g)].map(match => match[1]!) : [])];
 }
 export function visibleFilePaths(client: T3Client): string[] {
   const cwd = cwdOf(client), paths = [...textFilePaths(str(client.draft)), ...store(client).composerPaths];

@@ -1,6 +1,7 @@
 // The device's copies of attached files (composer-attach-stage.ts writes them): an image's draft beside SnapShot's,
 // and a plain file's copy for its chip, read once at send and removed.
 import { appFiles } from '../media/save-file';
+import { forgetStagedCopies } from '../media/media-frame';
 import { videoMimeType } from './composer-video';
 
 export const DRAFTS = 'app:/data/snapshots/drafts';
@@ -58,10 +59,14 @@ export async function removeFoldUpload(path: string): Promise<void> {
   await files().rm(path).catch(() => undefined);
 }
 
-/** A staged file's copy, under either name (an older build also left a typed link and a video poster, `drafts/<id>.png`). */
+/**
+ * A staged file's copy, under either name (an older build also left a typed link and a video poster, `drafts/<id>.png`),
+ * and the copies its preview made in app:/cache (media-frame.ts).
+ */
 export async function removeStaged(id: string): Promise<void> {
   if (!valid(id)) return;
   const name = id.toLowerCase();
+  forgetStagedCopies(name);
   let fs: CopyFiles;
   try { fs = files(); } catch { return; }
   const links = await fs.readdir(STAGED).catch(() => [] as string[]);
