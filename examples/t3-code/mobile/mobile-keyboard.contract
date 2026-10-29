@@ -25,8 +25,9 @@ component MobileKeyboard
     event: action
     dismiss: action
   view
-    t3-keyboard-commands configuration=data.configuration change=event
-      position="absolute" width=0 height=0 aria-hidden=true pointer-events="none"
+    if data.configuration != ""
+      t3-keyboard-commands configuration=data.configuration change=event
+        position="absolute" width=0 height=0 aria-hidden=true pointer-events="none"
     if data.phase != ""
       button press=dismiss(data.feedbackId) position="absolute" z-index=100 left=10.5 right=10.5 top=top
         text-align="left"

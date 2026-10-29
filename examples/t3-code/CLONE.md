@@ -55,6 +55,19 @@ session was shut down after this check. The local simulator's existing catalog
 and credentials remain intact. This integration is outside the delivered
 TestFlight build.
 
+Home chrome and keyboard commands now wait for nonempty resource configuration
+before mounting their native views. Home also requires its mounted route key.
+The captured EAS cold-start failure passed empty placeholders to both factories;
+later valid props could not recover those refused nodes. A clean-install EAS
+readout now shows both factories ready after resource completion, with the same
+native module hash. The normal build independently passes Home title and controls,
+Settings and Appearance with Back, Search focus, typing and clearing, New task
+and Back, and ordinary relaunch. The component regressions fail the former mounts.
+All 4,091 mobile tests, strict app and owner TypeScript, and the six repository
+checks pass. Host diagnostics are restored byte for byte. Connected cloud flows,
+hardware keyboard input and full phone parity remain unqualified. This fix is
+outside the delivered TestFlight build.
+
 Text-only bold table cells still take the literal Markdown fallback. The private
 preview compiles, but its EAS process exits before its first screen. Native table
 acceptance remains unqualified and this slice has no production edits. Parser

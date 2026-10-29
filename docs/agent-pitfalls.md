@@ -1865,6 +1865,15 @@ are in [game-pitfalls.md](game-pitfalls.md).
 
 ## Access hatches
 
+- **A native view stays in `error` after its resource becomes ready.** A cold
+  startup can supply an empty resource placeholder to the factory. A refused
+  create has no handle, so `NativeViews.update` cannot apply later props
+  (`host/apple/Sources/ExactKit/NativeModule.swift`). Mount the tag only when
+  its required configuration and route key are present, as T3 Code's
+  `mobile/home-chrome.contract` and `mobile/mobile-keyboard.contract` do.
+  On EAS, their empty configurations caused factory refusals; conditional
+  mounts let both factories reach `ready` after the resources completed.
+
 - **Published diagnostics stop gaining keys, or repeated elements overwrite
   one another.** `element.diagnostics` is scoped to the hatch word. The session
   keeps 16 published names, with at most 4,096 bytes per value. Group repeated

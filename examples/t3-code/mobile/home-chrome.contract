@@ -8,11 +8,12 @@ component HomeChrome
     event: action
     height: number
   view
-    t3-home-chrome configuration=configuration route-key=routeKey
-      change=event
-      position="absolute"
-      height=height
-      right=0
-      bottom=0
-      left=0
-      testId="home-chrome"
+    if configuration != "" and routeKey != ""
+      t3-home-chrome configuration=configuration route-key=routeKey
+        change=event
+        position="absolute"
+        height=height
+        right=0
+        bottom=0
+        left=0
+        testId="home-chrome"
