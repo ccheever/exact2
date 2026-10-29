@@ -143,7 +143,13 @@ test("option B's shape on the compiler's parse: no slot, one PersonRow, in its s
     [rec('B', false, row(when(`${follow}, ${follow}`))), 'an if of FollowButton, FollowButton'],
     [rec('B', false, `[${when(row('').slice(1, -1))}]`), 'its view is a when'],
     [rec('C', false, row('')), 'the compiler has no such component'],
+    // A string can't stand in for a field (Astra's and Grok's re-check 5): a provide's value "slot := false" before
+    // the real slot := true.
+    [rec('B', true, row('')).replace('provides := []', 'provides := [{ name := "note", value := (.str "slot := false") }]'), 'declares a slot of its own'],
   ]) expect(irShape(componentIR(text, 'B'))).toMatchObject({ ok: false, said: expect.stringContaining(why) });
+  // Nor "view := []" in a state's string before the real view; and the printer's \\xHH escape reads.
+  const noted = rec('B', false, row(when(follow.replace('(.str "a, ]")', '(.str "\\x7f\\"q\\\\")')))).replace('states := []', 'states := [{ name := "note", value := (.str "view := []") }]');
+  expect(irShape(componentIR(noted, 'B'))).toEqual({ ok: true, said: 'one PersonRow, and in its slot the if around one FollowButton' });
 });
 
 test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindings and screens", () => {

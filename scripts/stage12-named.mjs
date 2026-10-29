@@ -192,40 +192,58 @@ export function bindingShape(map, { component, allowed }) {
 }
 
 /** The compiler's own parse of a component: `contract lean <app> --components` prints every component as a Lean
- * record (`name := "B", …, slot := false, …, view := [(.use 0 "PersonRow" [args] [children]), …]`). This reads the
- * record named `component` from that text into {slot, view}, the view a tree of [kind, …] lists: `use` [name,
- * children], `when` (an if) [then, else], `element` [tag, children], anything else [kind, children…]. Null where the
- * text has no such record. */
+ * record (`{ name := "B", props := […], …, slot := false, …, view := [(.use 0 "PersonRow" [args] [children]), …] }`).
+ * This reads the record named `component` from that text, whole and structurally (fields at its top level, strings
+ * in the printer's escapes, so no string can stand in for a field), into {slot, view}: the view a tree of nodes,
+ * `use` {name, children}, `when` (an if) {then, else}, `element` {tag, children}, any other kind {children}. Null
+ * where the text has no such record. */
 export function componentIR(lean, component) {
-  const at = lean.indexOf(`name := ${JSON.stringify(component)}, props :=`);
+  const at = lean.indexOf(`{\n      name := ${leanString(component)}, props :=`);
   if (at < 0) return null;
-  // The record's own text: to the brace that closes the one before its name.
-  let open = lean.lastIndexOf('{', at), depth = 0, end = open;
-  for (let i = open, str = false; i < lean.length; i++) {
-    const c = lean[i];
-    if (str) { if (c === '\\') i++; else if (c === '"') str = false; continue; }
-    if (c === '"') str = true; else if (c === '{' || c === '[' || c === '(') depth++; else if (c === '}' || c === ']' || c === ')') { if (--depth === 0) { end = i; break; } }
-  }
-  const rec = lean.slice(open, end + 1);
-  const slot = /\bslot := (true|false)\b/.exec(rec)?.[1] === 'true';
-  const v = rec.indexOf('view := ');
-  if (v < 0) return { slot, view: null };
-  // A small reader: lists `[…]`, tuples `(…)`, strings, words; commas separate.
-  let i = v + 'view := '.length;
+  let i = at;
+  const space = () => { while (/[\s,]/.test(lean[i])) i++; };
   const read = () => {
-    while (/\s|,/.test(rec[i])) i++;
-    const c = rec[i];
+    space();
+    const c = lean[i];
     if (c === '[' || c === '(') {
       const close = c === '[' ? ']' : ')', items = [];
       i++;
-      for (;;) { while (/\s|,/.test(rec[i])) i++; if (rec[i] === close) { i++; break; } items.push(read()); }
+      for (;;) { space(); if (lean[i] === close) { i++; break; } items.push(read()); }
       return c === '[' ? { list: items } : { tuple: items };
     }
-    if (c === '"') { let j = i + 1; while (rec[j] !== '"') j += rec[j] === '\\' ? 2 : 1; const t = JSON.parse(rec.slice(i, j + 1)); i = j + 1; return t; }
-    const m = /^[^\s,()\[\]]+/.exec(rec.slice(i)); i += m[0].length; return { word: m[0] };
+    if (c === '{') {
+      const fields = {};
+      i++;
+      for (;;) {
+        space();
+        if (lean[i] === '}') { i++; break; }
+        const key = /^[\w.]+/.exec(lean.slice(i))[0];
+        i += key.length;
+        space();
+        if (lean.slice(i, i + 2) !== ':=') throw new Error(`lean record: no := after ${key}`);
+        i += 2;
+        fields[key] = read();
+      }
+      return { fields };
+    }
+    if (c === '"') return readString();
+    const m = /^[^\s,()\[\]{}]+/.exec(lean.slice(i));
+    if (!m) throw new Error(`lean record: unexpected ${JSON.stringify(lean.slice(i, i + 20))}`);
+    i += m[0].length;
+    return { word: m[0] };
   };
-  const tree = read();
-  // A view entry: (.use n "Name" [args] [children]), (.when n cond [then] [else]), (.element "tag" … [children]).
+  // The printer's string escapes (contract/cli/src/lean.rs `string`): \" \\ \n \t \r and \xHH.
+  const readString = () => {
+    let out = '';
+    for (i++; lean[i] !== '"'; i++) {
+      if (lean[i] !== '\\') { out += lean[i]; continue; }
+      const e = lean[++i];
+      if (e === 'x') { out += String.fromCharCode(parseInt(lean.slice(i + 1, i + 3), 16)); i += 2; } else out += { n: '\n', t: '\t', r: '\r' }[e] ?? e;
+    }
+    i++;
+    return out;
+  };
+  const rec = read().fields;
   const node = t => {
     const [head, ...rest] = t.tuple ?? [];
     const kind = head?.word?.replace(/^\./, '') ?? '?';
@@ -235,8 +253,11 @@ export function componentIR(lean, component) {
     if (kind === 'element') return { kind, tag: rest.find(x => typeof x === 'string'), children: (lists.at(-1)?.list ?? []).map(node) };
     return { kind, children: lists.flatMap(l => l.list).filter(x => x.tuple).map(node) };
   };
-  return { slot, view: (tree.list ?? []).map(node) };
+  return { slot: rec.slot?.word === 'true', view: rec.view?.list ? rec.view.list.map(node) : null };
 }
+
+/** A Lean string literal as the printer writes it (the record finder's name). */
+const leanString = s => `"${[...s].map(c => (c === '"' ? '\\"' : c === '\\' ? '\\\\' : c)).join('')}"`;
 
 /** Option B's shape on the compiler's parse (componentIR): no slot of its own (a slot would let its caller's nodes
  * sit beside the row, naming it nowhere); its view exactly one use of `row`; under it nothing, or one `when` (an if)
