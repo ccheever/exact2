@@ -63,6 +63,8 @@ readout now shows both factories ready after resource completion, with the same
 native module hash. The normal build independently passes Home title and controls,
 Settings and Appearance with Back, Search focus, typing and clearing, New task
 and Back, and ordinary relaunch. The component regressions fail the former mounts.
+A normal rebuild from clean commit `4e27642c87` repeats that entire flow after
+uninstall and reinstall. The EAS session is shut down.
 All 4,091 mobile tests, strict app and owner TypeScript, and the six repository
 checks pass. Host diagnostics are restored byte for byte. Connected cloud flows,
 hardware keyboard input and full phone parity remain unqualified. This fix is
