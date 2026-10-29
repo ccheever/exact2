@@ -808,6 +808,20 @@ app's first second (data activation and image arrival after first paint, which t
 second with the same instrument and flips the default if the composition path's cadence is
 within it.
 
+**S2.5, 2026-10-28** (`lane/ink-s2` at `6e94ab1fa3`): measured, and the gate holds. With the
+probe out of the timed path and host frame-start timestamps (not scanout), ten interleaved
+launches per arm and size, the `softbuffer` arm had 0 of 600 intervals over 25 ms at
+1024×720 and 2 of 600 at 1920×1080; the composition arm 0 of 600 at both, after the one
+renderer fix the comparison exposed: consecutive atlas uploads waited on each other
+needlessly, and the first paint fell from 13.3 to 4.9 ms (a regression test fails before and
+passes after). Startup: 170.7 to 178.8 ms at 1024×720 (+4.7%) and 179.1 to 174.7 at
+1920×1080 (−2.5%). **Windows ink now defaults to the DirectX 11 composition path**
+(`EXACT_INK_DEVICE=wgpu` the override; D12 says so). Still named: neither painter meets the
+absolute 100 ms first-screen budget in the `gpu-dev` build (the app's boot, not the
+renderer's, to be argued phase by phase when S2 lands); one 304 ms startup outlier before
+the first frame is unlocalized; the RichEdit bound to Shelf's search field, DirectWrite's
+audit and lock and unlock are S2's next chunks.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
