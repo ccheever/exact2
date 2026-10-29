@@ -569,10 +569,11 @@ its manifest, per platform as the manifest is shaped: `host.windows.painter: "in
 painter it has today (the CPU painter on Windows, vello or the CPU painter on Linux, the
 Canvas host or vello on Android). `EXACT_PAINTER=ink|gpu|cpu` overrides it for the agent,
 the smoke and tests, as it does today. Nothing shipped changes when the renderer lands.
-**On Windows, ink defaults to DirectX 11 composition**, with `EXACT_INK_DEVICE=wgpu` as
-the override: S2.5's ten interleaved launches per size on the NucBox have zero first-second
-host frame intervals over 25 ms versus softbuffer's zero at 1024×720 and two at 1920×1080, with
-first-screen startup medians +4.74% and −2.46% respectively (`host/ink/MEASUREMENTS.md`).
+**On Windows, ink defaults to wgpu**; `EXACT_INK_DEVICE=d3d11` selects the qualified
+DirectX 11 composition path and `warp` its software device.
+The default flip is S2's next chunk once the startup tail is localized: S2.9's maxima
+are 209.389 versus softbuffer's 152.851 ms fresh at 1920×1080 and 196.758 versus
+137.028 ms retained at 1024×720, failing D15's tail gate (`host/ink/MEASUREMENTS.md`).
 On Apple the native host stays the default — what an
 author leaves unsaid is the platform's (LLP 1115) — and an app chooses the painted presenter
 in its manifest, per platform as the manifest is shaped: `host.macos.presenter: "painted"`,

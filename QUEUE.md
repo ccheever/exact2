@@ -1617,6 +1617,4 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 - **macOS live trackpad replay (LLP 1079.000, 2026-10-28).** Add a reliable completion acknowledgement for synthetic phased wheels before admitting them under platform timing. Immediate layout reads exposed zero or partial motion; posting the later phases first did not resolve it. The carrier currently refuses with `platform-trackpad-replay-unqualified`; ordinary wheels and frozen-clock functional replay remain available.
 
-
-
 - **Windows first-screen budget and tails** (LLP 1149 S2.9). The 300 ms hardware deadline eliminates WARP preparation in all 40 normal launches and both cold-cache launches. Fresh displayed medians are 139/141 ms; cold singles are 250/247 ms. Two DWM-proxy maxima still fail the 10% relative gate: fresh 1920×1080 is 209 ms versus softbuffer's 153 ms, retained 1024×720 is 197 ms versus 137 ms. The first stall precedes data activation and the jump-list thread, between runner boot and layout; its blocking call remains unproven. S2.8b's three WARP preparations also displayed their first screen on hardware. Capture a reproduced stall's blocking stack and resolve the tails and absolute 100 ms budget; see `host/ink/MEASUREMENTS.md`, “S2.9”.
