@@ -239,10 +239,10 @@ struct UploadsHeld {
     waiting: usize,
 }
 
-/// What an executor's uploads may hold at once: four bodies of 64 MiB, the
-/// bound file reads have (`executor_body.rs` `MAX_READERS`), with the
-/// platform's copies. An upload's own lane, 64 MiB, could not hold a 50 MB
-/// body beside Apple's copy of it.
+/// What an executor's uploads may hold at once, the platform's copies
+/// counted: 256 MiB, the four 64 MiB file bodies reads may hold at once
+/// (`executor_body.rs` `MAX_READERS`). An upload's own lane, 64 MiB, could
+/// not hold a 50 MB body beside Apple's copy of it.
 const UPLOAD_BYTES: usize = if cfg!(test) {
     1 << 20
 } else {
@@ -451,7 +451,7 @@ fn open(
     // plain request's do (`execute`): the portable transport's 30 s for
     // the whole exchange and URLSession's 60 s without data never end it
     // first.
-    req.timeout = timeout.map(|ms| std::time::Duration::from_millis(u64::from(ms) + 1_000));
+    req.timeout = timeout.map(|ms| Duration::from_millis(u64::from(ms) + 1_000));
     let r = b
         .fetch
         .stream(req, &abort.signal())

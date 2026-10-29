@@ -1209,7 +1209,13 @@ fn an_upload_through_urlsession_tells_its_progress_and_waits_out_a_slow_reply() 
     let files = AppFiles::new("big.bin", &vec![7; SIZE]);
     let (wake, woke) = channel();
     let grants = format!("net.fetch http://127.0.0.1:{port}\nfs.read app:/tmp");
-    let core = Core::start(None, &grants, Box::new(move || drop(wake.send(()))));
+    let core = Core::start(
+        None,
+        &grants,
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
     core.set_app_roots(files.roots());
     let mut out = file_upload(1, "/upload", "big.bin");
     out.request.url = format!("http://127.0.0.1:{port}/upload");

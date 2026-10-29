@@ -1279,10 +1279,10 @@ lands as it passes stands). The platform's own limits follow that deadline a
 second later; without one they are the upload's, as they are a fetch's
 (URLSession's 60 s without data, the portable transport's 30 s for the whole
 exchange), so give a deadline to an upload that may take longer. An empty body
-tells no progress. No
-`Accept: text/event-stream` is added. It is in flight until that reply: `pending(…)` reads true,
-`state.pending` lists it, and every clock waits for it, as for a fetch, while
-each progress event commits as it comes. It is asked once for its arguments:
+tells no progress. No `Accept: text/event-stream` is added. It is in flight
+until that reply: `pending(…)` reads true, `state.pending` lists it, and every
+clock waits for it, as for a fetch, while each progress event commits as it
+comes. It is asked once for its arguments:
 nothing asks it again at them, in flight, finished or failed (not a store write
 it read, a topic it watches, nor `refresh`), so to send the same body again put
 an attempt number in its arguments. New arguments, or the resource leaving the
