@@ -436,8 +436,7 @@ component Excord
     if not away and endGap > 0.5
       scrollIntoView("transcript", lastKey, offset=1000000, behavior="smooth")
 
-  // Opening a channel: at its newest (§3.1), at its first unread with the bar
-  // (§3.2), or where this session left it (§3.3).
+  // Opening a channel: at its newest (§3.1), at its first unread with the bar (§3.2), or where this session left it (§3.3).
   action openChannel(id: string)
     closePicker()
     putMembersAway()
@@ -579,11 +578,10 @@ component Excord
     let at = keys.indexOf(k)
     let gap = e.scrollHeight - e.scrollTop - e.clientHeight
     let isAway = gap > max(1, frame(`message-${lastKey}`).height)
-    // Rows arriving below grow the gap without the reader moving (and the live
-    // window shedding its oldest row moves the offset): only a reader whose first
-    // visible row or its offset moved changes whether they are at the end.
-    // While a send's return to the end is owed or still settling, a fling's remaining
-    // reports do not decide it (`scrollEnded` puts the list back at its end).
+    // Rows arriving below grow the gap without the reader moving (and the live window shedding its oldest row moves the
+    // offset): only a reader whose first visible row or its offset moved changes whether they are at the end. While a
+    // send's return to the end is owed or still settling, a fling's remaining reports do not decide it (`scrollEnded`
+    // puts the list back at its end). Any report at the live end clears an anchor left over (a restore given up there).
     let moved = k != topKey or max(e.firstVisibleOffset - topOffset, topOffset - e.firstVisibleOffset) > 0.5
     if isAway != away and moved and target == "" and not settling
       away = isAway
@@ -597,6 +595,8 @@ component Excord
         followed = chan.arrived
         if anchor != "" and not win.hasAfter
           anchor = ""
+    if not isAway and not away and anchor != "" and not win.hasAfter and target == "" and not settling
+      anchor = ""
     if at >= 0 and current and target == ""
       if at < 15 and win.hasBefore
         anchor = win.firstId
@@ -1489,8 +1489,7 @@ component Excord
         text deleteError testId="delete-error"
         button commandfor="delete-failed" command="close" testId="delete-error-ok"
           text "OK"
-      // Nothing of the account shows while the launch is locked or a return
-      // has covered it.
+      // Nothing of the account shows while the launch is locked or a return has covered it.
       if session.locked or lockedOut
         column position="absolute" inset=0 align-items="center" justify-content="center" gap=16 padding=24 background-color="-exact-background" testId="lock-screen"
           image "symbol:lock" font-size=44 color="-exact-secondary-label"
