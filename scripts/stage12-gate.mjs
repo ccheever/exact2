@@ -67,6 +67,8 @@ export const SCREENS = [
  * platform's own clock, the field's leading 4 px over its first line. */
 export const ALLOW = {
   composer: { target: 'compose-text', reason: 'the app\'s own text field\'s caret, blinking on the platform\'s clock (theme2 12:06)', rect: ({ x, y, h }) => [x, y, 4, Math.min(h, 40)].map(Math.round) },
+  // Stage 15 B batch 2's new-chat sheet opens with its search field focused: the same caret.
+  'new-chat': { target: 'chat-search', reason: 'the app\'s own search field\'s caret (the new-chat sheet opens focused), blinking on the platform\'s clock', rect: ({ x, y, h }) => [x, y, 4, Math.min(h, 40)].map(Math.round) },
 };
 
 /** The allowlist rectangles a drive's output gives for `screen`. */
