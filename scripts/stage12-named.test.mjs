@@ -175,6 +175,14 @@ test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindin
   for (const n of p.named) {
     expect(p.screens.some(([name]) => name === n.screen)).toBe(true);
     expect(n.change.length > 20 && !['bluesky', 'panels'].includes(n.target) && !n.target.startsWith('panel-')).toBe(true);
+    // A pad is a platform's own frame (UIKit's sheet), so only on that host, and said in the change.
+    if (n.pad) expect([n.hosts, n.change.includes('UIKit')]).toEqual([['ios'], true]);
+  }
+  // Every menu screen named on every host: the padded sheet on iOS, the groups elsewhere.
+  for (const screen of ['post-menu', 'profile-menu']) {
+    const mine = p.named.filter(n => n.screen === screen);
+    expect(mine.flatMap(n => n.hosts).sort()).toEqual(['ios', 'linux', 'macos', 'web', 'web-wasm']);
+    expect(mine.find(n => n.hosts.includes('ios')).pad).toEqual([28, 8, 40, 8]);
   }
   useStage('s15b2');
   try {
