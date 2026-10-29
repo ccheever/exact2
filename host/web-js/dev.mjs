@@ -18,7 +18,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathS
 import { basename, dirname, relative, resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
 import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
-import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
+import { alsoOnIPv6Loopback, appManifestDigest, buildFileCards, listenDelay, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { generationFile, generationPath, servedFile } from '../web/generations.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
@@ -243,7 +243,6 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   if (error) console.log(`JS target: ${app.name} does not build; its errors show in the page\n${error}`);
   else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
   warn(built.warnings);
-  console.log('plan ready');
   // The design server's wire, once made below (a rebuild may come first).
   let tamber = null, doors = null;
   const clients = new Set();
@@ -1150,6 +1149,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   process.on('SIGTERM', stop);
   process.on('SIGHUP', stop);
   watchLauncher(stop);
+  await listenDelay();
   // (and on [::1], for a localhost URL: the design tool's canvas)
   const six = await alsoOnIPv6Loopback(server, port).catch(async (e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); stopping = true; stopGroup(tool.child); stopGroup(tool.cleaner); await tamber?.close(); process.exit(1); });
   await new Promise((ok, fail) => { server.on('error', fail); server.listen(port, host, ok); })
@@ -1160,5 +1160,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
   if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on the JS target: ${app.dir.replace(root + '/', '')} and host/web-js rebuild and reload the page; a native client's requests go to the resident loop's producers, started at the first; ${lan ? 'LAN bind — any peer on this network can read the app and its compile errors' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
+  // Said once the server answers, not at the first build: a test or an agent takes it as the cue to connect.
+  console.log('plan ready');
   await new Promise(() => {});
 }
