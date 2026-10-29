@@ -112,12 +112,13 @@ final class DevMenuTarget: NSObject, UIGestureRecognizerDelegate {
 
 public enum DevMenu {
     static let target = DevMenuTarget()
-    nonisolated(unsafe) static weak var sheet: UIAlertController?
+    nonisolated(unsafe) static weak var sheet: UIViewController?
     /// On in every build, a release one too (LLP 1115 D9), unless `EXACT_DEV_MENU=0` at build or launch.
     public static var enabled: Bool { ExactEnv.devMenu ?? true }
     /// The session the menu reloads and describes, and the controller that presents the sheet.
     nonisolated(unsafe) static weak var session: ExactSession?
     nonisolated(unsafe) static weak var controller: UIViewController?
+    nonisolated(unsafe) static weak var frameHealthContainer: UIView?
     /// Where a reload without a connection restarts from (`EXACT_DEV_PLAN`, `EXACT_PLAN`), else the baked plan.
     nonisolated(unsafe) static var planPath: String?
 
@@ -125,10 +126,14 @@ public enum DevMenu {
     /// the plan put there. A recognized tap cancels the touches it claimed
     /// (`NodeView.touchesCancelled` resets its press), and four-finger
     /// touches reach no system text gesture — those stop at three.
-    public static func install(on window: UIWindow, session: ExactSession, controller: UIViewController, planPath: String?) {
+    /// A frame-health card requires an explicit host container under this controller.
+    public static func install(on window: UIWindow, session: ExactSession, controller: UIViewController, planPath: String?, frameHealthContainer: UIView? = nil) {
         DevMenu.session = session
         DevMenu.controller = controller
         DevMenu.planPath = planPath
+        DevMenu.frameHealthContainer = frameHealthContainer.flatMap {
+            !($0 is ExactView) && ($0 === controller.view || $0.isDescendant(of: controller.view)) ? $0 : nil
+        }
         guard enabled else { return }
         let reload = FourFingerTap(target: target, action: #selector(DevMenuTarget.reloadTap(_:)))
         #if !os(tvOS)
@@ -222,6 +227,11 @@ public enum DevMenu {
 
     static func show() {
         guard controller != nil else { return }
+        #if os(iOS)
+        let menu = DevMenuController.navigation(contentSizeCategory: controller?.traitCollection.preferredContentSizeCategory ?? .large)
+        sheet = menu
+        present(menu)
+        #else
         let text = info()
         let a = UIAlertController(title: "Exact", message: text, preferredStyle: .actionSheet)
         a.addAction(UIAlertAction(title: "Reload", style: .default) { _ in reload() })
@@ -237,6 +247,7 @@ public enum DevMenu {
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         sheet = a
         present(a)
+        #endif
     }
 
     /// Save Trace (LLP 1079 D5): where it went, or why not, as an alert.

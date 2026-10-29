@@ -736,11 +736,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// The end the reader was following moved during their interaction:
     /// settle there when it ends, as a browser's scroll anchoring does.
     package func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { presenter?.session?.frameHealth.endScroll(scrollView) }
         guard scrollView === self.scrollView else { return }
         // A follow of the end that animates ends with its animation.
         if !decelerate, !followEndIfOwed() { endScroll() }
     }
-    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
+    package func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { presenter?.session?.frameHealth.endScroll(scrollView); if scrollView === self.scrollView, !followEndIfOwed() { scrollMayHaveEnded(scrollView) } }
     package func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard scrollView === self.scrollView, presenter?.elementScrolls.cutting !== scrollView else { return }
         followingEndAnimated = false
@@ -763,6 +764,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     package func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if let session = presenter?.session { session.frameHealth.beginScroll(scrollView, session: session) }
         presenter?.elementScrolls.userScrolled(scrollView) // its own scroller, or a grouped list's collection
         guard scrollView === self.scrollView else { return }
         followingEndAnimated = false

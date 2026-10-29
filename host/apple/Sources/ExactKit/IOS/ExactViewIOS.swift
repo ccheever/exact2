@@ -257,7 +257,7 @@ public final class ExactView: UIView {
         }
         // Mounted and visible participate in frame demand (D3): an unmounted
         // view wants no frames; a mounted one asks again.
-        session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
+        session.frames.run(window != nil && session.frames.hasWork)
     }
 
     /// The viewport's bands past the page's area (LLP 1130 D1); the document

@@ -610,6 +610,10 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        // Refuse phased replay until its completion can be acknowledged under platform timing
+        if !ExactEnv.agentFreezes, req["wheel"] != nil, req["gesture"] as? Bool == true {
+            return ["code": "platform-trackpad-replay-unqualified", "error": "Trackpad gesture replay under platform timing has no reliable completion acknowledgement. Use a plain wheel event for an agent drive, or reproduce the gesture in the normally running app."]
+        }
         if req["holdState"] != nil { return holdTap(req) } // a held state (LLP 1122 D8, HeldState.swift)
         // An alert's buttons are AppKit's (LLP 1115.000 D7.6): a tap on an
         // authored button of it presses the alert's, and nothing behind its
