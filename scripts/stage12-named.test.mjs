@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { decodePng, encodePng } from './png.mjs';
 import { bindingShape, bindingsCheck, componentIR, identityOf, irShape, namedCrops, namedOf, namedReport, pixelDiff, unionNamed } from './stage12-named.mjs';
 import { BINDINGS, NAMED, RETIRED, SCREENS, STAGES, comparePixels, useStage } from './stage12-gate.mjs';
+import { ISLAND, islandAllow } from './stage12-island.mjs';
 
 const img = (w, h, f) => { const data = new Uint8Array(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data.set(f(x, y), (y * w + x) * 4); return encodePng({ width: w, height: h, data }); };
 const black = () => [0, 0, 0, 255], red = [255, 0, 0, 255];
@@ -189,4 +190,21 @@ test("s15b2 is batch 1's profile plus batch 2's five, its retired copies, bindin
     expect([SCREENS.length, RETIRED.length, BINDINGS.map(b => b.component)]).toEqual([p.screens.length, 7, ['PersonResultRow', 'FindFollowRow']]);
     expect(NAMED).toEqual(p.named);
   } finally { useStage('s12'); }
+});
+
+test("iOS's Dynamic Island is allowed only where no library component's box meets it (theme2 15:32 (a))", () => {
+  const out = nodes => `{"op":"tree"}\n${JSON.stringify({ viewport: { w: 402, h: 874 }, nodes })}\n`;
+  const app = { x: 0, y: 0, w: 402, h: 120, sourceMap: { file: '/c/screens.contract', component: 'Header' } };
+  const avatar = { x: 150, y: 20, w: 32, h: 32, sourceMap: { file: '/c/node_modules/@exact/cards/avatar.contract', component: 'Avatar' } };
+  const reasons = r => r.map(a => a.rect);
+  // The app's own nodes under it: both rects allowed, each with its reason.
+  expect(reasons(islandAllow('ios', out([app])))).toEqual(ISLAND);
+  expect(islandAllow('ios', out([app]))[0].reason).toContain('Dynamic Island');
+  // A library component under the island: the island's rect is not allowed; the corner, which it misses, still is.
+  expect(reasons(islandAllow('ios', out([app, avatar])))).toEqual([ISLAND[1]]);
+  // A box that only touches the rect's edge doesn't meet it; one with no size doesn't count.
+  expect(reasons(islandAllow('ios', out([{ ...avatar, x: 264 }, { ...avatar, w: 0 }])))).toEqual(ISLAND);
+  // Another host, or a drive without a layout: none.
+  expect(islandAllow('macos', out([app]))).toEqual([]);
+  expect(islandAllow('ios', '{"op":"tap"}\n')).toEqual([]);
 });

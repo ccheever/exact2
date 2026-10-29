@@ -27,6 +27,7 @@ import { webDist } from './app.mjs';
 import { jsTargetBuild } from '../host/web/serve.mjs';
 import { placements } from './library-gate.mjs';
 import { KEYBOARD_UP, keyboardRedrive } from './stage12-keyboard.mjs';
+import { islandAllow } from './stage12-island.mjs';
 export { KEYBOARD_UP, keyboardInset, keyboardRedrive } from './stage12-keyboard.mjs';
 import { caseOps, caseReads, cases as exactCases, inspectDrive, locate, matches, apart as standsApart, same, COMPONENTS, EMPTY, readsOf } from './s13c-restyle.mjs';
 
@@ -204,7 +205,8 @@ function driveScreens(copy, host, dir, env) {
       r = kb.r;
       const refused = [...new Set(r.out.match(new RegExp(`${REFUSED} [^"\\s]+`, 'g')) ?? [])];
       const said = refused.length ? `the fixture refused: ${refused.join(', ')}` : r.ok ? '' : r.out.trim().split('\n').slice(-2).join(' / ').slice(0, 300);
-      const allow = r.ok ? allowOf(screen, r.out) : [];
+      // iOS's Dynamic Island, the capture's, where it meets no library box (theme2 15:32 (a)).
+      const allow = r.ok ? allowOf(screen, r.out)?.concat(islandAllow(host, r.out)) ?? null : [];
       const shown = r.ok ? renderedIds(r.out) : null;
       rows.push({ host, scheme, screen, png, ok: r.ok && existsSync(png) && !refused.length && allow !== null && shown !== null && !kb.down, sha: existsSync(png) ? sha(readFileSync(png)) : null, allow: allow ?? [], shown: shown ?? [], named: r.ok ? namedOf(NAMED, screen, r.out, host) : [], components: r.ok ? renderedComponents(r.out) : [], appComponents: r.ok ? renderedComponents(r.out, true) : [], ...(retried ? { retried } : {}), ...(kb.keyboard ? { keyboard: kb.keyboard } : {}), said: kb.down ? 'the software keyboard never came up (three drives)' : allow === null ? `no layout for ${ALLOW[screen].target}` : shown === null ? 'no layout' : said });
     }
@@ -539,7 +541,7 @@ export function consumerPixels(opts) {
     ...bad.map(x => `  ${x.shot}: ${x.differ ?? x.said}${x.differ ? ' px' : ''}`),
     ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.retried).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: driven again after a drive that failed before any layout (${x.retried})`)),
     ...['before', 'after'].flatMap(side => shots[side].shots.filter(x => x.keyboard).map(x => `  ${side} ${x.host} ${x.scheme} ${x.screen}: ${x.keyboard}`)),
-    'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf)',
+    'the allowlist (LLP 1139 §5: at most 10% of a library component\'s box): the caret strip lies inside the composer\'s own field (compose-text, the app\'s) and the system keyboard\'s rect below the viewport (from the layout\'s keyboard inset), so neither covers a library component\'s box, by construction (allowOf); on iOS the Dynamic Island\'s rect and the top-left corner pixels, the capture\'s, each only where no library component\'s box meets it (islandAllow, theme2 15:32 (a))',
     `the adoption places ${ADOPTED.length} of ${ADOPTED.length} library components in its views (${ADOPTED.map(i => i.split('#')[1]).join(', ')}; the build's source map), before ${BEFORE_USES.length ? `only the earlier stage's (${BEFORE_USES.map(i => i.split('#')[1]).join(', ')})` : 'none'}`,
     ...(TITLES['consumer-pixels'] && !unseen.length && !own.length && !shownEarly.length ? [] : [`rendered on the screens shot: ${RENDERED.length - unseen.length} of ${RENDERED.length} (${RENDERED.map(([name]) => name).filter(n => !unseen.includes(n)).join(', ')})${unseen.length ? `; NOT shown: ${unseen.join(', ')}` : ''}${own.length ? `; the copy's own sources write a package's testId: ${own.join(', ')}` : ''}${shownEarly.length ? `; before already shows ${shownEarly.join(', ')}` : ''}`]),
     `shown on the screens shot, by each node's source map, every host: ${byComponent.length - new Set(notShown.map(x => x.split(' on ')[0])).size} of ${byComponent.length}${notShown.length ? `; NOT shown: ${notShown.join(', ')}` : ''}${shownBefore.length ? `; before already shows ${shownBefore.join(', ')}` : ''}`,
