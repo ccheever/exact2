@@ -42,7 +42,10 @@ data you mean to lose, such as one you seeded before.
 
 The layout is the one `exact new --snapback` makes (LLP 1086): the backend in
 this directory, the app in `app/` below it, so the app's crates are
-`app-web`, `app-apple` and `app-linux` in the root workspace.
+`app-web`, `app-apple` and `app-linux`. All three belong to the separate
+`snapback4/` Cargo workspace. Their explicit `package.workspace` lets the usual
+Exact commands find its lock and target directory, while public root builds
+resolve no private Snapback source.
 `snapback/generated/` is committed so the workspace builds on a clean
 checkout; `bun exact.mjs snapback --rebuild` in `app/` rewrites it after a
 change to `schema.q` or the Snapback pins.
