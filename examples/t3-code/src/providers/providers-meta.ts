@@ -91,7 +91,7 @@ export const DRIVERS: Driver[] = [
       field('launchArgs', 'Launch arguments', 'Additional CLI arguments passed to pi --mode rpc on session start.')] },
   { id: 'acpRegistry', label: 'ACP Registry', enabledByDefault: true, defaultSlot: false, color: 'light-dark(#000000, #ffffff)',
     legacyDefault: null, env: [],
-    fields: [field('source', 'ACP source', 'Install a registry agent or run a command on this environment.', 'registry', { control: 'select', options: [{ value: 'registry', label: 'ACP Registry' }, { value: 'local', label: 'Local command' }] }),
+    fields: [field('source', 'ACP source', '', 'registry', { control: 'select', options: [{ value: 'registry', label: 'ACP Registry' }, { value: 'local', label: 'Local command' }] }),
       field('agentId', 'Registry agent ID', "Agent identifier from the official ACP Registry, for example 'devin'.", 'devin', { persist: true }),
       field('commandPath', 'Executable override', 'Executable on this environment. For registry agents, overrides the distribution executable while keeping its arguments and environment.', 'Registry default'),
       field('authMethodId', 'Authentication method', 'Optional ACP authentication method ID. By default, the first agent-managed method is selected.', 'auto')] },

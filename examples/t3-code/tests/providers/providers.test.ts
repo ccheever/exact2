@@ -175,6 +175,15 @@ test('Local ACP command: the entry after Enter manually opens the local configur
   expect(source).toContain('text (localAcp ? "Local ACP command" : "Enter manually")');
   expect(source).toContain('text (localAcp ? `Run an installed ACP executable on ${wizard.environment}.` : "Enter an official registry ID and any local executable or auth override.")');
   expect(source).toContain('summary=(shownStep > 0 ? (isAcp ? (localAcp ? "Local ACP command" : wizard.label) : wizard.driverLabel) : "")');
+  // ProviderSettingsForm's local command: commandPath is the Executable, "e.g. dsh"; ACP source has no description.
+  const fieldRow = contractComponent('providers-wizard.contract', 'WizardFieldRow');
+  const fieldScope = (local: boolean, key: string) => ({ local, field: { key, label: 'Executable override', description: '', placeholder: 'Registry default', control: 'text', index: 2, options: [] },
+    value: '', set: () => {}, SelectOption: (args: Obj) => args });
+  const placeholder = (local: boolean, key: string) => fieldRow.attribute('input value=value input=set(field.index)', 'placeholder', {}, fieldScope(local, key));
+  expect([placeholder(true, 'commandPath'), placeholder(false, 'commandPath'), placeholder(true, 'agentId')]).toEqual(['e.g. dsh', 'Registry default', 'Registry default']);
+  const wizardRow = contractComponent('providers-wizard.contract', 'WizardRow');
+  expect([wizardRow.drawn('text description', {}, { title: 'ACP source', description: '', status: '' }), wizardRow.drawn('text description', {}, { title: 'Executable', description: 'x', status: '' })]).toEqual([false, true]);
+  expect(providerWizard(new FakeServer(), true, 1, 'acpRegistry', false, '', false, '').fields.find(field => field.key === 'source')?.description).toBe('');
   // isLocalAcp needs the hand configuration: back on the registry search, the draft's local source is not the local command.
   expect(source).toContain('derive localAcp = wizard.driver == "acpRegistry" and manual and f0 == "local"');
   // Enter manually, a registry agent's Add and a provider picked after the ACP Registry clear its draft.

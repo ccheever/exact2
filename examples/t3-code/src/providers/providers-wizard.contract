@@ -467,13 +467,15 @@ component WizardRow
     row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="2rem" align-items="center"
       column flex=1 min-width=0 gap="0.25rem"
         text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
-        text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+        if description != ""
+          text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
         if status != ""
           text status font-size="0.75rem" line-height="1rem" padding-top="0.125rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="new-provider-id-error"
       row flex-shrink=0 justify-content="flex-end" align-items="center"
         children
 
-// One driver setting in the wizard's Config step (ProviderSettingsForm).
+// One driver setting in the wizard's Config step (ProviderSettingsForm): a local command's commandPath is its
+// Executable, with that form's own description and placeholder.
 component WizardFieldRow
   props
     local: bool
@@ -488,7 +490,7 @@ component WizardFieldRow
         // ProviderSettingsSelect, as on the instance's own editor.
         SettingsSelect(selectId=`new-provider-${field.key}`, label=field.label, valueLabel=chosen, empty=false, value=value, width=224, disabled=false, options=choices, choose=set(field.index))
       else
-        input value=value input=set(field.index) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width="14rem" testId=`new-provider-${field.key}` id=`field-new-provider-${field.key}` data-editable="yes" data-focus-stop="enabled"
+        input value=value input=set(field.index) placeholder=(local and field.key == "commandPath" ? "e.g. dsh" : field.placeholder) aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width="14rem" testId=`new-provider-${field.key}` id=`field-new-provider-${field.key}` data-editable="yes" data-focus-stop="enabled"
 
 style PvOverlay
   position="absolute" left=0 right=0 top=0 bottom=0
