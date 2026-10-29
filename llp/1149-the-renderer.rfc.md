@@ -793,6 +793,22 @@ takes the simplest shape: the composition window from creation (S2.3's), the har
 device created at process start, the first frame waiting only for it, no WARP and no
 switch to qualify.
 
+**S2.4, 2026-10-28** (`lane/ink-s2` at `3882f640fe`): that shape. The hardware device is
+prepared before the app boots (the driver's UMD loads in 1.7 ms; the device creation proper
+still takes 44.7 ms, all of it hidden: the receiving thread waits 4 to 8 µs for it);
+startup passes D15's gate: Shelf's complete first screen 174.3 against 165.7 ms at 1024×720
+(5.2% over `softbuffer`) and 181.7 against 173.5 at 1920×1080 (4.7%), paired overhead 9.8
+and 6.1 ms, the `gpu-dev` build on the NucBox, ten interleaved launches each. Mica, resize,
+minimize and restore, the DPI round trip (now 1024×720 at 96 DPI on both returns), the idle
+caret, forced device loss (WARP recovery with completion-based retirement) and sleep and
+wake pass. **What still holds the default**: in the probe-free series the interval from the
+first frame to the second exceeded 25 ms in seven launches of ten at 1024×720 and five at
+1920×1080, with two later gaps of 111 and 117 ms. Whether that is the renderer's or the
+app's first second (data activation and image arrival after first paint, which the
+`softbuffer` path pays too) was not compared: S2.5 measures the `softbuffer` arm's first
+second with the same instrument and flips the default if the composition path's cadence is
+within it.
+
 **G1, built 2026-10-28** (`6ffede6aa8` on `lane/gpui-arm`, `bench/heavy-list/gpui/`): the app
 on gpui 0.2.2 (crates.io's newest non-yanked release that day, pinned with its own lockfile,
 native Metal with build-compiled shaders), the 10,000-row screen to `SPEC.md`, background
