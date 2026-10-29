@@ -90,9 +90,9 @@ fn find_ranges(text: &str, query: &str) -> Vec<(usize, usize)> {
     }
     result
 }
-fn find_parts(text: &str, at: usize, ranges: &[(usize, usize)], active: Option<usize>) -> Value {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    let end = at + units.len();
+/// Where `text`'s find parts begin and end, in UTF-16 units from `at`: its ends and each range's, in order.
+fn find_cuts(units: usize, at: usize, ranges: &[(usize, usize)]) -> Vec<usize> {
+    let end = at + units;
     let mut cuts = vec![at, end];
     for &(a, b) in ranges {
         cuts.push(a.clamp(at, end));
@@ -100,6 +100,11 @@ fn find_parts(text: &str, at: usize, ranges: &[(usize, usize)], active: Option<u
     }
     cuts.sort_unstable();
     cuts.dedup();
+    cuts
+}
+fn find_parts(text: &str, at: usize, ranges: &[(usize, usize)], active: Option<usize>) -> Value {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let cuts = find_cuts(units.len(), at, ranges);
     Value::list(
         cuts.windows(2)
             .enumerate()
@@ -125,6 +130,20 @@ fn find_parts(text: &str, at: usize, ranges: &[(usize, usize)], active: Option<u
             })
             .collect(),
     )
+}
+/// A code block's find part each of its lines starts in, by line, then its last part, so a code token reads only its
+/// own lines' parts (thread-find.contract findFrom, findTo); empty when the block is one part.
+fn find_lines(text: &str, ranges: &[(usize, usize)]) -> Value {
+    if ranges.is_empty() {
+        return Value::list(Vec::new());
+    }
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let cuts = find_cuts(units.len(), 0, ranges);
+    let last = cuts.len().saturating_sub(2);
+    let part = |offset: usize| cuts.partition_point(|&cut| cut <= offset).saturating_sub(1).min(last);
+    let starts = units.iter().enumerate().filter(|(_, &unit)| unit == u16::from(b'\n'));
+    let lines = std::iter::once(part(0)).chain(starts.map(|(at, _)| part(at + 1)));
+    Value::list(lines.chain([last]).map(|part| Value::Number(part as f64)).collect())
 }
 fn composer_context_href(href: &str) -> bool {
     let Some((kind, id)) = href
@@ -316,7 +335,8 @@ fn find_document(
                     .and_then(|index| index.checked_sub(occurrence))
                     .filter(|index| *index < ranges.len());
                 occurrence += ranges.len();
-                fields.push(find_parts(text, 0, &ranges, active));
+                let (parts, lines) = (find_parts(text, 0, &ranges, active), find_lines(text, &ranges));
+                fields.extend([parts, lines]);
                 Value::record(fields)
             })
             .collect(),
@@ -415,6 +435,20 @@ mod find_tests {
                 (";".into(), 0.0, 15.0),
             ]
         );
+        // And each line of a code block, the part it starts in, then the last part: here of "needle", "\nx = ",
+        // "needle" and ";\n\ny".
+        let Value::Record(lines) = &blocks("```ts\nneedle\nx = needle;\n\ny\n```")[0] else {
+            panic!()
+        };
+        assert_eq!(
+            lines[21],
+            Value::list([0.0, 1.0, 3.0, 3.0, 3.0].map(Value::Number).to_vec())
+        );
+        // A block without a match is one part, and has no lines' index.
+        let Value::Record(plain) = &blocks("```ts\nplain\ntext\n```")[0] else {
+            panic!()
+        };
+        assert_eq!(plain[21], Value::list(Vec::new()));
         // A run's count from the run's start, not the block's.
         let Value::Record(prose) = &blocks("**bold** needle")[0] else {
             panic!()
@@ -466,8 +500,9 @@ mod find_tests {
             assert!(blocks
                 .iter()
                 .all(|block| matches!(block, Value::Record(fields)
-                    if fields.len() == 21 && matches!(fields[18], Value::Number(_))
-                        && fields[19].is_str() && matches!(fields[20], Value::List(_)))));
+                    if fields.len() == 22 && matches!(fields[18], Value::Number(_))
+                        && fields[19].is_str() && matches!(fields[20], Value::List(_))
+                        && matches!(fields[21], Value::List(_)))));
         }
     }
     #[test]
@@ -503,10 +538,11 @@ mod find_tests {
         let Value::Record(block) = &blocks[0] else {
             panic!("block")
         };
-        assert_eq!(block.len(), 21);
+        assert_eq!(block.len(), 22);
         assert!(matches!(block[18], Value::Number(_)));
         assert!(block[19].is_str());
         assert!(matches!(block[20], Value::List(_)));
+        assert!(matches!(block[21], Value::List(_)));
         let Value::List(runs) = &block[7] else {
             panic!("runs")
         };

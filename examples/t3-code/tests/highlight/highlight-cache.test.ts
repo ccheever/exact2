@@ -44,9 +44,6 @@ describe('documents', () => {
   });
 
   test('a long text with CRLF line ends starts its document again for each version', () => {
-    // Each character's class, a CR's aside: the document ends a line at a lone CR, the CR its own plain token, where
-    // the whole text's records keep it in the token before. A CR draws nothing either way.
-    const drawn = (tokens: readonly { text: string; cls: string }[]) => tokens.flatMap(token => [...token.text].map(c => (c === '\r' ? c : c + token.cls)));
     let text = 'const value = compute(input, { retries: 3 });\r\n'.repeat(800);
     expect(text.length).toBeGreaterThan(WHOLE_BYTES);
     for (const version of [text, text += 'const tail', text += ' = 1;\r', text += '\nlet more = 2;']) {
@@ -54,7 +51,18 @@ describe('documents', () => {
       const sent: { from: number; text: string }[] = [];
       while (highlightPending()) sent.push(...highlightRound().requests);
       expect(sent[0]).toMatchObject({ from: 0, text: version });
-      expect(drawn(highlightTokens(version, 'ts')!)).toEqual(drawn(whole(version)));
+      expect(highlightTokens(version, 'ts')).toEqual(whole(version));
+    }
+  });
+
+  test('a long text\'s lone CRs stay in the tokens before them, as the whole text has them', () => {
+    // The live tokenizer ends a line at a lone CR; the whole text's records (mode 3) keep the CR in the token before.
+    const lines = Array.from({ length: 900 }, (_, i) => `const value${i} = compute(input, "${i}");${i % 7 ? '\n' : '\r'}`);
+    for (const text of [lines.join(''), `${lines.join('')}// a comment\r`, `${lines.join('')}let tail = "a\rb";\r`]) {
+      expect(text.length).toBeGreaterThan(WHOLE_BYTES);
+      highlightTokens(text, 'ts');
+      settleHighlights();
+      expect(highlightTokens(text, 'ts')).toEqual(whole(text));
     }
   });
 

@@ -1,4 +1,4 @@
-use FindPart, FindParts, FindToken from "./thread-find.contract"
+use FindPart, FindParts, FindToken, findFrom, findTo from "./thread-find.contract"
 // App-local chat typography over the existing portable Markdown parser.
 use FileTypeIcon from "../shared/timeline-files.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
@@ -84,6 +84,8 @@ shape ChatBlock
   // The block's own words' direction (markdown_direction.rs): "rtl", "ltr", or "" without letters.
   dir: string
   findParts: FindPart[]
+  // A code block's find part each line starts in, then its last part (markdown_find.rs find_lines); none for one part.
+  findLines: number[]
 shape ChatDocument
   id: string
   blocks: ChatBlock[]
@@ -100,6 +102,9 @@ shape CodeToken
   // indexOf, slice, map and join each walk the list), past the runner's 65,536 an evaluation (runner/src/vm.rs
   // MAX_LIST_STEPS) at about 13,100 tokens, and the trap poisoned the runner.
   at: number
+  // The lines its first and last characters are on: CodeBlock hands FindToken those lines' find parts.
+  line: number
+  lastLine: number
 shape CodeHighlight
   id: string
   code: string
@@ -1113,7 +1118,7 @@ component CodeBlock
             for token in hl.tokens key=token.id
               if ms < 0
                 text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
-                  FindToken(value=token.text, at=token.at, parts=block.findParts)
+                  FindToken(value=token.text, at=token.at, parts=block.findParts.slice(findFrom(block.findLines, token.line), findTo(block.findLines, token.lastLine)))
               else
                 text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                   MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
@@ -1123,7 +1128,7 @@ component CodeBlock
               for token in hl.tokens key=token.id
                 if ms < 0
                   text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
-                    FindToken(value=token.text, at=token.at, parts=block.findParts)
+                    FindToken(value=token.text, at=token.at, parts=block.findParts.slice(findFrom(block.findLines, token.line), findTo(block.findLines, token.lastLine)))
                 else
                   text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                     MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)

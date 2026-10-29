@@ -16,15 +16,18 @@ export function highlight(text: string, language: string, maxLineLength = 0): To
 
 /** Every fenced code block of a message with its tokens, matched in Contract by its text. */
 type Highlighted = { id: string; code: string; icon: string; tokens: CodeToken[] };
-/** A token as markdown.contract CodeToken draws it: with `at`, where it starts in its code (UTF-16 units). */
-export type CodeToken = { id: string; text: string; cls: string; at: number };
+/** A token as markdown.contract CodeToken draws it: with `at`, where it starts in its code (UTF-16 units), and the
+ *  lines its first and last characters are on (a line's terminator is its own line's). */
+export type CodeToken = { id: string; text: string; cls: string; at: number; line: number; lastLine: number };
 
-/** `tokens` with their ids and offsets. */
+/** `tokens` with their ids, offsets and lines. */
 export function codeTokens(tokens: readonly Token[]): CodeToken[] {
-  let at = 0;
+  let at = 0, line = 0;
   return tokens.map((token, index) => {
-    const placed = { id: String(index), text: token.text, cls: token.cls, at };
+    const breaks = token.text.split('\n').length - 1;
+    const placed = { id: String(index), text: token.text, cls: token.cls, at, line, lastLine: line + breaks - (token.text.endsWith('\n') ? 1 : 0) };
     at += token.text.length;
+    line += breaks;
     return placed;
   });
 }

@@ -352,7 +352,8 @@ function trim(): void {
 
 /** dist/tokens.js lineRecordsToTokens: line records (a token's UTF-16 end and its type; at a line break the next
  *  line's start and 0xFFFFFFFF) as tokens over the whole text, line breaks plain, a line longer than `max` one plain
- *  token, and neighbours of one class merged. */
+ *  token, and neighbours of one class merged. A document's live tokenizer ends a line at a lone CR, which the whole
+ *  text's records keep in the line, at the end of the token before it: so does this. */
 export function tokensOf(text: string, records: readonly number[], max = 0): Token[] {
   const tokens: Token[] = [];
   let start = 0, lineStart = 0, lineToken = 0;
@@ -368,6 +369,11 @@ export function tokensOf(text: string, records: readonly number[], max = 0): Tok
   };
   for (let at = 0; at + 1 < records.length; at += 2) {
     const end = records[at]!, type = records[at + 1]!;
+    if (type === 0xffffffff && end === start + 1 && text.charCodeAt(start) === 13 && tokens.length > lineToken) {
+      tokens[tokens.length - 1]!.text += '\r';
+      start = end;
+      continue;
+    }
     if (type === 0xffffffff) {
       endLine(start);
       push(end, '');
