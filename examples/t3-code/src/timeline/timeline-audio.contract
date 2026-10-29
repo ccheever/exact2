@@ -44,17 +44,20 @@ component AudioChip
   action tick(seconds: number)
     elapsed = seconds
   action started
+    if not playing
+      report(`1${id}`)
     playing = true
-    report(`1${id}`)
   action stopped
+    if playing
+      report(`0${id}`)
     playing = false
     paused = true
-    report(`0${id}`)
   action refused(code: string)
+    if playing
+      report(`0${id}`)
     broken = true
     playing = false
     paused = true
-    report(`0${id}`)
   action hover(over: bool)
     hovered = over
   derive down = failed or broken
