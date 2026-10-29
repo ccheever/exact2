@@ -93,9 +93,9 @@ impl TextureDesc {
 pub struct Submission(pub u64);
 
 /// The headless operations used by S0. Buffer uploads and draws are ordered on
-/// one queue. Every mutation waits for the resource's last use or chooses fresh
-/// storage. Submissions include uploads; a larger completed value covers all
-/// earlier submissions. Retire keeps storage alive until its last use completes.
+/// one queue. Each device orders mutations after the resource's last use, waits,
+/// or chooses fresh storage. Submissions include uploads; a larger completed value
+/// covers all earlier submissions. Retire keeps storage alive until its last use completes.
 /// Readback is synchronous on native devices; browser callers must
 /// use the device's asynchronous readback instead of blocking its event loop.
 pub trait Device {
@@ -112,6 +112,8 @@ pub trait Device {
         data: &[u8],
     ) -> Result<Submission>;
     fn create_texture(&mut self, desc: TextureDesc) -> Result<TextureId>;
+    /// Snapshot `data` before returning and preserve submission order, including
+    /// consecutive uploads. A device that writes shared storage waits internally.
     fn upload_texture(
         &mut self,
         texture: TextureId,

@@ -8,6 +8,7 @@ struct Delayed {
     submitted: Submission,
     done: Submission,
     textures: HashMap<TextureId, Submission>,
+    uploads: HashMap<TextureId, Submission>,
     retired: Vec<(TextureId, Submission)>,
 }
 impl Device for Delayed {
@@ -35,9 +36,12 @@ impl Device for Delayed {
         _: &[u8],
     ) -> Result<Submission> {
         assert!(
-            self.textures[&id] <= self.done,
+            self.textures[&id] <= self.done || self.uploads.get(&id) == Some(&self.textures[&id]),
             "overwrote an in-flight atlas page"
         );
+        self.submitted.0 += 1;
+        self.textures.insert(id, self.submitted);
+        self.uploads.insert(id, self.submitted);
         Ok(self.submitted)
     }
     fn last_use(&self, id: TextureId) -> Result<Submission> {
@@ -95,6 +99,23 @@ impl Device for Delayed {
     fn trim(&mut self) -> Result<()> {
         self.completed().map(|_| ())
     }
+}
+
+#[test]
+fn atlas_appends_ordered_uploads_without_waiting_for_completion() {
+    let mut d = Delayed::default();
+    let mut atlas = Atlas::paths();
+    atlas.begin(&mut d).unwrap();
+    let first = atlas.insert(&mut d, vec![0], [8, 8], &[73; 64]).unwrap();
+    for key in 1..32 {
+        let entry = atlas.insert(&mut d, vec![key], [8, 8], &[181; 64]).unwrap();
+        assert_eq!(entry.texture, first.texture);
+        assert_ne!(entry.uv, first.uv);
+    }
+    assert_eq!(atlas.stats().entries, 32);
+    assert_eq!(atlas.stats().overflow_textures, 0);
+    assert_eq!(d.submitted, Submission(32));
+    assert_eq!(d.done, Submission(0));
 }
 
 #[test]
