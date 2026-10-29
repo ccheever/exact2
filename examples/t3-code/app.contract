@@ -7,7 +7,7 @@ use handleUserPrompt, EmptyResult from "@exact/browser-automation"
 use PromptLinkView from "./src/prompt-links/prompt-links.contract"
 use ThemeUse, ThemeRoleUsage from "./src/appearance/settings-appearance-editor-shapes.contract"
 use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./src/shell/app-shapes.contract" // first: the plan orders shapes by first use
-use HighlightStep from "./src/highlight/highlight.contract"
+use HighlightAsk, HighlightCoded, HighlightStored from "./src/highlight/highlight.contract"
 use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas from "./src/shared/shapes.contract"
 use PairFields from "./src/connections/pairing-shapes.contract"
 use providerLinkVisit from "./src/shell/app-settings.contract"
@@ -428,27 +428,55 @@ component T3Code
       liveNow = performanceNow()
   task liveClock mount
     every(1000, liveTick)
-  mutation highlightSliced as shape HighlightStep then highlightStepped
+  // A text a view paints waits for its tokens (highlights.ts): the pump hands the waiting texts to the lexers in the
+  // data crate (highlightCode) and their line records back to the module, one round at a time.
+  mutation highlightAsked as shape HighlightAsk then highlightAskedThen
+  mutation highlightCoded as shape HighlightCoded then highlightCodedThen
+  mutation highlightStored as shape HighlightStored then highlightStoredThen
   action highlightStep
-    if not pending(highlightSliced)
-      send highlightSliced = highlightSlice(wallTime.epochAtZero + performanceNow())
-  // A refresh replaces an answer in flight, so the pump leaves one alone; one that lands with a text
-  // still without its tokens reports highlightPending and is asked again. Replaced every 16 ms, a
-  // launch's snapshot answer (seconds) never landed to clear highlightPending, and its forgotten
-  // native calls filled the executor's admission limit. With nothing finished, only an answer still
-  // reporting highlightPending is asked again.
-  action highlightStepped
-    match highlightSliced
-      case some(step)
-        if step.finished or not step.pending
-          if not pending(data) and (step.finished or data.highlightPending)
-            refresh data
-          if not pending(shell) and (step.finished or shell.highlightPending)
-            refresh shell
+    if not pending(highlightAsked) and not pending(highlightCoded) and not pending(highlightStored)
+      send highlightAsked = highlightAsk()
+  action highlightAskedThen
+    match highlightAsked
+      case some(ask)
+        if ask.requests.length > 0
+          send highlightCoded = highlightCode(ask.requests)
+        else
+          // Nothing waits: a view still reporting highlightPending painted its texts before their tokens landed.
+          highlightRefreshViews()
       case none
         if not pending(data)
           refresh data
-  task highlightPump when data.highlightPending or shell.highlightPending
+  action highlightCodedThen
+    match highlightCoded
+      case some(coded)
+        send highlightStored = highlightStore(coded.results)
+      case none
+        if not pending(data)
+          refresh data
+  action highlightStoredThen
+    match highlightStored
+      case some(stored)
+        if stored.finished
+          highlightRefreshViews()
+      case none
+        if not pending(data)
+          refresh data
+  // A refresh replaces an answer in flight, so the pump leaves one alone; one that lands with a text still without
+  // its tokens reports highlightPending and is asked again. Refreshed every 16 ms, a launch's snapshot answer (seconds)
+  // would never land to clear highlightPending.
+  action highlightRefreshViews
+    if not pending(data) and data.highlightPending
+      refresh data
+    if not pending(shell) and shell.highlightPending
+      refresh shell
+    if not pending(palette) and palette.highlightPending
+      refresh palette
+    if not pending(prDetail) and prDetail.highlightPending
+      refresh prDetail
+    if not pending(settingsCore) and settingsCore.highlightPending
+      refresh settingsCore
+  task highlightPump when data.highlightPending or shell.highlightPending or palette.highlightPending or prDetail.highlightPending or settingsCore.highlightPending
     every(16, highlightStep)
   resource viewport = exactViewport() as shape Viewport
   derive scheme = (data.look.mode == "light" or data.look.mode == "dark") ? data.look.mode : (viewport.prefersColorScheme == "dark" ? "dark" : "light") // Palettes use the resolved Appearance scheme; viewport.prefersColorScheme is only the underlying system preference.

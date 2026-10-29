@@ -12,7 +12,7 @@ import { initialShell, obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { scopeMachine } from '../../src/providers/settings-b-scope';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
-import { resetHighlightSlicing } from '../../src/highlight/shiki-highlight';
+import { resetHighlights } from '../../src/highlight/highlights';
 
 const ORIGIN = 'http://192.168.1.225:16261', KEY = environmentKey(ORIGIN, 'env2'), FOCUS_GENERATION = nextAppGeneration();
 const codex = (auth: Obj): Obj => ({ instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, status: 'ready', version: '0.151.0',
@@ -58,7 +58,7 @@ const page = async (native: Native, files: Parameters<typeof answer>[3], machine
 const statuses = (view: Obj) => arr(view.rows).map(row => `${str(row.name)}: ${str(row.status)}`);
 
 // answer() starts a highlight turn (app.ts): later files' highlighter tests expect it unsliced.
-afterEach(() => { fleet.entries.delete(KEY); resetPrimary(); resetHighlightSlicing(); });
+afterEach(() => { fleet.entries.delete(KEY); resetPrimary(); resetHighlights(); });
 
 describe('Settings › Providers follows the scope selector', () => {
   test('choosing a second environment shows its providers and sends the page reads there; choosing back shows this Mac again', async () => {

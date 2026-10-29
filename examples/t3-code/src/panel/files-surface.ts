@@ -16,6 +16,7 @@ import { announce } from '../shell/announce'; // "Opened in <editor>"
 import { editorLabel } from '../shared/editors';
 import { fileIconToken } from '../shared/timeline-files';
 import { lineTokens } from '../highlight/timeline-diff-syntax';
+import type { HighlightView } from '../highlight/highlights';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from '../details/shell-details';
 import { workspaceOf, panelKey, panelState, navigateFolderIn, type Surface, type PanelState } from './panel-surfaces';
 import { breadcrumbPathOf, fileBreadcrumbs, isHostPath, isListableHostFolder, isWindowsAbsolutePath, joinHostPath, retainedBreadcrumbTrail, trailChildOf } from './files-path';
@@ -628,10 +629,10 @@ function runsKey(tokens: readonly { text: string; cls: string }[] | undefined, l
   for (let at = 0; at < text.length; at++) hash = (hash * 31 + text.charCodeAt(at)) | 0;
   return `${text.length}:${(hash >>> 0).toString(36)}`;
 }
-/** Pierre's File: numbered lines with Shiki-class runs (the diff panel's highlighter). */
-export function codeLines(path: string, contents: string): CodeLine[] {
+/** Pierre's File: numbered lines with colour-class runs (the diff panel's highlighter, highlights.ts). */
+export function codeLines(path: string, contents: string, view: HighlightView | null): CodeLine[] {
   const lines = contents.split(/\r\n|\r|\n/);
-  const tokens = lineTokens(lines, path);
+  const tokens = lineTokens(lines, path, view);
   // A line is keyed by its runs too, so a line whose text or colours change (another file, a
   // retokenized one) remounts: a text flow repainted in place kept spans of the file shown before it.
   return lines.map((line, index) => ({ id: `${index + 1}:${runsKey(tokens[index], line)}`, number: String(index + 1),
@@ -686,7 +687,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
     md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, folder, [], `files:${absolute}`, scope, client)) }, // the owner names the document
-    code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
+    code: messageCodeBlocks(text, 'shell', `file:${path}`), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
 }
@@ -785,7 +786,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const attachment = document ? await filesAttachment(client, native, state, previewPath, absolute, isWorkspaceDocumentPath(previewPath), mutation, now) : null;
   if (!document && state.attachment) { forgetPreview(client, state.attachment.source.key); state.attachment = null; } // its body unmounts
   const text = read?.contents ?? '';
-  const lines = previewPath && !document && read && !read.error ? codeLines(previewPath, text) : [];
+  const lines = previewPath && !document && read && !read.error ? codeLines(previewPath, text, 'shell') : [];
   const editable = !!previewPath && !media.kind && !audio && !pdf && !document && !!read && !read.error && !read.truncated && !isHost(previewPath);
   const rows = tree ? hostRows(tree, hostFolder, selected)
     : state.query.trim() && state.search ? searchRows(searchMatches(state.search.entries, state.query), path) : treeRows(state.dirs, state.expanded, path, state.loadingDirs);

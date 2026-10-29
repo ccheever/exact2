@@ -15,8 +15,7 @@ use ShellIcon from "../shell/shell-icons.contract"
 use ShellEditorIcon from "../shell/shell-icons-kit.contract"
 use TipBubble from "../shell/shell-tip.contract"
 use FileTypeIcon from "../shared/timeline-files.contract"
-use synColor from "../timeline/markdown.contract"
-use synSlant from "../timeline/markdown.contract"
+use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
 use DiffCommentCard, DiffDraftCard from "../diff/diff-comments.contract"
 use diffSel from "../diff/diff-rows.contract"
 use DiagramBlocks, ChatDocument from "../timeline/markdown.contract"
@@ -492,7 +491,7 @@ component FilesCodeRow
       box width=gutter flex-shrink=0 align-self="stretch" min-height="20px" press=comment pointerdown=down(false) pointermove=move pointerup=up aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` background-color=(line.selected ? "light-dark(#d5e6ff, #254566)" : "#00000000")
       text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family=family font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         for run in line.runs key=run.id
-          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
+          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax) font-weight=synWeight(run.syntax)
       if not open and (line.pin or not line.pinned or dragging)
         button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=(gutter - 9.83) top=0 width=20 height=20 padding=0 border-radius=4 border-width=0 opacity=(line.pin or (hovering and not line.pinned) ? 1 : 0) background-color="#009fff" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           svg width=16 height=16 viewBox="0 0 16 16" color="light-dark(#ffffff, #111111)" flex-shrink=0 aria-hidden=true

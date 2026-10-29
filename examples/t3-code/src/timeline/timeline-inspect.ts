@@ -7,6 +7,7 @@
 import { arr, obj, str, type Activity, type Obj } from '../client/domain';
 import { claudeSkillInvocation, collectToolFilePaths, groupAction, type WorkEntry } from './timeline-worklog';
 import { subagent } from './timeline-events';
+import { codeTokens, type CodeToken } from '../highlight/timeline-highlight';
 
 const isWindowsAbsolute = (path: string) => /^[A-Za-z]:[\\/]/.test(path);
 
@@ -30,7 +31,7 @@ export function plainOutput(entry: WorkEntry, root: string): string | null | und
   return skill ? skill.args ?? null : undefined;
 }
 
-export interface InspectorCode { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }
+export interface InspectorCode { id: string; code: string; icon: string; tokens: CodeToken[] }
 /**
  * notificationChildThreadId: a subagent or delegated task's notification names its child thread.
  * The source is the decoded one (projectedWorkEntry, timeline-work-rows.ts `notificationSource`).
@@ -113,5 +114,5 @@ export function questionHistory(id: string, answer: Obj): InspectorCode {
     if (reply) lines.push({ text: reply, cls: 'a' });
     if (files.length) lines.push({ text: files.join('  '), cls: 'f' });
   }
-  return { id, code: '', icon: 'QA', tokens: lines.map((line, index) => ({ id: String(index), ...line })) };
+  return { id, code: '', icon: 'QA', tokens: codeTokens(lines) };
 }

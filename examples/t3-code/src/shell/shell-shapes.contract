@@ -129,7 +129,7 @@ shape ShellView
   addMachine: AddMachine
   // A composer file chip's AttachmentFilePreview over the draft's bytes (composer-chip-file.ts).
   composerFile: ComposerFilePreview
-  highlightPending: bool // a Files / attachment code text waits for its Shiki tokens
+  highlightPending: bool // a Files / attachment code text waits for its tokens (highlights.ts)
   // The screen reader's live regions (announce.ts, live-regions.contract).
   announce: AnnounceView
 shape AnnounceView

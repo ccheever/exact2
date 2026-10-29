@@ -97,9 +97,9 @@ describe('the opening in the timeline', () => {
 
 describe('thread find in the opening', () => {
   test("marks the query's matches in a line, case-insensitively, and leaves a line without one whole", () => {
-    expect(findLine('title', 'Probe the Probe', 'probe').parts).toEqual([{ id: '0', text: 'Probe', find: 1 }, { id: '1', text: ' the ', find: 0 }, { id: '2', text: 'Probe', find: 1 }]);
-    expect(findLine('detail', 'Nothing here', 'probe').parts).toEqual([{ id: '0', text: 'Nothing here', find: 0 }]);
-    expect(findLine('detail', '', '').parts).toEqual([{ id: '0', text: '', find: 0 }]);
+    expect(findLine('title', 'Probe the Probe', 'probe').parts).toEqual([{ id: '0', text: 'Probe', find: 1, at: 0 }, { id: '1', text: ' the ', find: 0, at: 5 }, { id: '2', text: 'Probe', find: 1, at: 10 }]);
+    expect(findLine('detail', 'Nothing here', 'probe').parts).toEqual([{ id: '0', text: 'Nothing here', find: 0, at: 0 }]);
+    expect(findLine('detail', '', '').parts).toEqual([{ id: '0', text: '', find: 0, at: 0 }]);
   });
   test('the title, the description and each phase title are find lines', () => {
     const opening = resolveWorkflowOpening(projection(brief(SCRIPT, true)), [coordinator({ name: 'probe-wf', phases: [{ index: 1, title: 'Alpha probe' }], agents: [member()] })])!;

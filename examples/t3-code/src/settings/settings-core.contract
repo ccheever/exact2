@@ -215,6 +215,8 @@ shape ArchiveConfirm
   id: string
   title: string
 shape SettingsCore
+  // A code text it painted waits for its tokens (highlights.ts; app.contract highlightStoredThen refreshes it).
+  highlightPending: bool
   // The search jump this answer is for (settingsFocusTarget) and the reveal stop of the fold its row sits under, '' for none.
   jumpTarget: string
   jumpStop: string
