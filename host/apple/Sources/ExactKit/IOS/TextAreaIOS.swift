@@ -414,6 +414,16 @@ package final class TextArea: UITextView {
                 .foregroundColor: placeholderColor ?? ThemeRoles.color("placeholder", in: self, or: UIColor.placeholderText),
             ]
             attributes[.paragraphStyle] = typingAttributes[.paragraphStyle]
+            // A Markdown editor's placeholder sits at its first line's start
+            // (LLP 1045 D11): string drawing aligns natural text by the app's
+            // layout direction, not the paragraph's, so the side is said.
+            if let markup {
+                let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+                let direction = markup.direction(at: 0)
+                style.baseWritingDirection = direction
+                style.alignment = direction == .rightToLeft ? .right : .left
+                attributes[.paragraphStyle] = style
+            }
             (placeholder as NSString).draw(with: CGRect(x: box.minX, y: box.minY, width: max(0, box.width), height: .greatestFiniteMagnitude),
                                            options: .usesLineFragmentOrigin, attributes: attributes, context: nil)
         }
@@ -505,6 +515,7 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
+        restyleMarkupDirections()
         restyleDecorations()
         #if !os(tvOS)
         f.isEditable = !disabled && props["editable"] != "false"

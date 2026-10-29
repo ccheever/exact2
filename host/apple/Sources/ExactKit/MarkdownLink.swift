@@ -49,6 +49,11 @@ package protocol MarkdownEditing: AnyObject {
     var bookmark: NSRange? { get set }
     /// The attributes plain typing takes.
     var plainAttributes: [NSAttributedString.Key: Any] { get }
+    /// The `paragraphDirs` its last restyle drew (LLP 1045 D11).
+    var paragraphDirs: String { get }
+    /// The base direction of the line holding `location`, as drawn: an empty
+    /// editor's placeholder takes its first line's (LLP 1045 D11).
+    func direction(at location: Int) -> NSWritingDirection
     /// Remove every Markdown attribute.
     func detach(_ storage: NSTextStorage)
     /// Where a person's selection change from `old` to `new` lands beside a
@@ -188,6 +193,15 @@ extension NodeView {
     func restyleMarkup() {
         MarkdownLink.installed?.restyle(self)
         restyleDecorations()
+    }
+    /// The field's own direction is right to left: its `direction`, else the
+    /// document's. A Markdown editor's line without a word takes it (LLP 1045 D11).
+    package var markdownRTL: Bool { (style["direction"]?.string ?? presenter?.documentDirection ?? "ltr") == "rtl" }
+    /// Restyle an editor whose lines the app gave new directions: a new
+    /// `paragraphDirs` changes no text, so no edit restyles it (LLP 1045 D11).
+    func restyleMarkupDirections() {
+        guard let editor = (textArea as? TextArea)?.markup, editor.paragraphDirs != props["paragraphDirs"] ?? "" else { return }
+        restyleMarkup()
     }
 }
 
