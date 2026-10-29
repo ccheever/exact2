@@ -167,7 +167,8 @@ struct Snapshot {
 
 /// Typing within this many milliseconds of the last keystroke is one undo.
 const COALESCE_MS: f64 = 1500.0;
-/// Undo keeps at most this many steps and this many code units of source.
+/// Undo keeps at most this many steps and this many code units of source
+/// and the host's words.
 const UNDO_STEPS: usize = 200;
 const UNDO_UNITS: usize = 1 << 22;
 /// Syntax left visible by an edit that used to be hidden is removed.
@@ -326,7 +327,11 @@ impl Editor {
     /// Forget the words every state was drawn with: the app gave new ones.
     pub fn forget_words(&mut self) {
         let none: Rc<[u16]> = Rc::from([]);
-        for step in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+        for step in &mut self.undo {
+            self.undo_units -= step.words.len();
+            step.words = none.clone();
+        }
+        for step in &mut self.redo {
             step.words = none.clone();
         }
         self.words = none;
@@ -848,7 +853,7 @@ impl Editor {
         let Some(prev) = self.undo.pop() else {
             return Change::default();
         };
-        self.undo_units -= prev.source.len();
+        self.undo_units -= prev.source.len() + prev.words.len();
         let current = Snapshot {
             source: std::mem::take(&mut self.source),
             sel: self.sel,
@@ -888,12 +893,12 @@ impl Editor {
     }
 
     fn keep(&mut self, snapshot: Snapshot) {
-        self.undo_units += snapshot.source.len();
+        self.undo_units += snapshot.source.len() + snapshot.words.len();
         self.undo.push(snapshot);
         while self.undo.len() > UNDO_STEPS || (self.undo_units > UNDO_UNITS && self.undo.len() > 1)
         {
             let old = self.undo.remove(0);
-            self.undo_units -= old.source.len();
+            self.undo_units -= old.source.len() + old.words.len();
         }
     }
 

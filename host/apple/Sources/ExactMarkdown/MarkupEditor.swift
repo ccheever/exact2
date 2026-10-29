@@ -22,15 +22,13 @@ final class MarkupEditor: NSObject, MarkdownEditing {
     /// The `paragraphDirs` the last restyle placed.
     var paragraphDirs: String { directions.said }
     func direction(at location: Int) -> NSWritingDirection { directions.direction(at: location) }
-    /// The words an undo or redo gives back, and whether one is under way:
-    /// both are for the restyle after it, which keeps nothing.
+    /// The words each undo and redo step of the field's undo manager returns
+    /// to, one set a step (LLP 1045 D11), and the set an undo or redo gives
+    /// back to the restyle after it.
+    private var undoWords: [MarkupDirections.Words] = [], redoWords: [MarkupDirections.Words] = []
     private var wordsBack: MarkupDirections.Words?
-    private var restoring = false
-    /// The field's undo manager, the groups it has opened, and the group the
-    /// words were last kept in: one undo step keeps one set of words.
     private weak var watched: UndoManager?
     private var observers: [NSObjectProtocol] = []
-    private var groupsOpened = 0, keptInGroup = -1
 
     deinit { forgetHistory() }
 
@@ -75,44 +73,43 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         forgetHistory()
     }
 
-    /// Keep the words a source had before an edit with the native undo step
-    /// the edit opened, once a step (LLP 1045 D11); new words forget them all.
-    /// An edit coalesced into an open step is the step's: its first edit kept
-    /// the words the step returns to.
-    private func keep(_ change: MarkupDirections.Change, in manager: UndoManager?) {
-        guard let manager else { return }
-        if watched !== manager {
-            forgetHistory()
-            let center = NotificationCenter.default
-            watched = manager
-            observers = [
-                center.addObserver(forName: .NSUndoManagerDidOpenUndoGroup, object: manager, queue: nil) { [weak self] _ in self?.groupsOpened += 1 },
-                center.addObserver(forName: .NSUndoManagerWillUndoChange, object: manager, queue: nil) { [weak self] _ in self?.restoring = true },
-                center.addObserver(forName: .NSUndoManagerWillRedoChange, object: manager, queue: nil) { [weak self] _ in self?.restoring = true },
-            ]
-        }
-        switch change {
-        case .placed:
-            manager.removeAllActions(withTarget: self)
-        case .edited(let before) where manager.groupingLevel > 0 && !manager.isUndoing && !manager.isRedoing && keptInGroup != groupsOpened:
-            keptInGroup = groupsOpened
-            manager.registerUndo(withTarget: self) { [weak manager] editor in if let manager { editor.giveBack(before, manager) } }
-        default: break
-        }
+    /// Keep the words beside the field's undo manager, which holds nothing
+    /// of ours: an action of ours in a step ends AppKit's typing coalescing,
+    /// so that each keystroke becomes a step. A step's words are taken as its
+    /// group opens at the top, before its first edit changes the text: a
+    /// typed, pasted, cut or dropped edit's event group, a composition's at
+    /// its first marked text, a command's or `setRangeText`'s own. An edit
+    /// coalesced into an open step adds none.
+    private func watch(_ manager: UndoManager?) {
+        guard let manager, watched !== manager else { return }
+        forgetHistory()
+        watched = manager
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: .NSUndoManagerDidOpenUndoGroup, object: manager, queue: nil) { [weak self, weak manager] _ in
+                guard let self, let manager, manager.groupingLevel == 1, !manager.isUndoing, !manager.isRedoing, self.directions.hasWords else { return }
+                // The manager's history went (an app's value resets it): so do the steps' words.
+                if !manager.canUndo { self.undoWords = [] }
+                self.undoWords.append(self.directions.memory)
+                self.redoWords = []
+            },
+            center.addObserver(forName: .NSUndoManagerWillUndoChange, object: manager, queue: nil) { [weak self] _ in self?.step(back: true) },
+            center.addObserver(forName: .NSUndoManagerWillRedoChange, object: manager, queue: nil) { [weak self] _ in self?.step(back: false) },
+        ]
     }
 
     /// Undo or redo of a step: its words come back with its source, and the
-    /// words drawn now go to the opposite step.
-    private func giveBack(_ words: MarkupDirections.Words, _ manager: UndoManager) {
-        let now = directions.memory
-        manager.registerUndo(withTarget: self) { [weak manager] editor in if let manager { editor.giveBack(now, manager) } }
+    /// words drawn now go to the opposite stack.
+    private func step(back: Bool) {
+        guard let words = back ? undoWords.popLast() : redoWords.popLast() else { return }
+        if back { redoWords.append(directions.memory) } else { undoWords.append(directions.memory) }
         wordsBack = words
     }
 
     private func forgetHistory() {
-        watched?.removeAllActions(withTarget: self)
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         watched = nil; observers = []
+        undoWords = []; redoWords = []; wordsBack = nil
     }
 
     /// Restyle the source storage for its current selection; `undo` is the
@@ -139,12 +136,14 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         let baseFont = base[.font] as! PlatformFont
         // Each line's base direction (LLP 1045 D11): the most common one is
         // every paragraph's, in the base style; runs that differ follow the rows.
-        let back = wordsBack, restored = restoring
-        wordsBack = nil; restoring = false
-        let change = directions.update(text: text, said: look.paragraphDirs, rtl: look.rtl, atoms: look.atoms, back: back) {
+        watch(undo)
+        let back = wordsBack
+        wordsBack = nil
+        let placed = directions.update(text: text, said: look.paragraphDirs, rtl: look.rtl, atoms: look.atoms, back: back) {
             MarkupCommands.auto(text, atoms: AtomHandle.of(look.atoms))
         }
-        keep(restored ? .none : change, in: undo)
+        // The app's new words forget the steps', whatever else this restyle does.
+        if placed { undoWords = []; redoWords = [] }
         let paragraph = (base[.paragraphStyle] as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
         paragraph.baseWritingDirection = directions.base
         var directed = base

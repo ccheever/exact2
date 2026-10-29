@@ -885,8 +885,9 @@ still `start` = left, and the web uses CSS. Apple's plain text fields (an
 `input`, a `textarea` without `markup="markdown"`, and a Markdown editor's
 text once its `markup` goes) take each paragraph's base direction from its
 first strong character under either value; `direction: rtl` aligns their
-text to the right on iOS and changes nothing of it on macOS, which aligns it
-to the left. Apple text and the Markdown editor (LLP 1045 D11) take either
+text to the right on iOS and changes nothing of it on macOS, where a field
+of native appearance aligns it to the left and one with `appearance: none`
+aligns each paragraph to its own start. Apple text and the Markdown editor (LLP 1045 D11) take either
 value as written, so on macOS `مرحبا Hello` in an `ltr` Markdown editor draws
 left to right while the same field with `markup="none"` draws right to left
 (`QUEUE.md`).

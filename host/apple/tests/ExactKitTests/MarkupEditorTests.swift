@@ -638,9 +638,9 @@ final class MarkupEditorTests: XCTestCase {
     }
 
     /// LLP 1045 D11: an undo step keeps the words of the source it returns
-    /// to, however many keystrokes it holds; a removed line typed back in
-    /// takes the word above it, and the app's next words forget what undo
-    /// would have given back.
+    /// to, however many keystrokes it holds, and typing still coalesces; a
+    /// removed line typed back in takes the word above it, and the app's next
+    /// words forget what undo would have given back.
     func testUndoStepsKeepTheirWordsWhichTypingAndTheAppsNextWordsDoNotBringBack() throws {
         let typed = NSRange(location: NSNotFound, length: 0)
         do {
@@ -651,15 +651,13 @@ final class MarkupEditorTests: XCTestCase {
             let manager = try XCTUnwrap(field.undoManager)
             manager.removeAllActions()
             field.setSelectedRange(NSRange(location: 1, length: 4))
-            field.deleteBackward(nil)
-            closeGroup(manager)
-            for _ in 0..<64 { field.insertText("y", replacementRange: typed) }
+            turn(manager) { field.deleteBackward(nil) }
+            for _ in 0..<64 { turn(manager) { field.insertText("y", replacementRange: typed) } }
             XCTAssertEqual(field.string, "A" + String(repeating: "y", count: 64))
-            closeGroup(manager)
-            manager.undo()
-            XCTAssertEqual(field.string, "A")
+            // AppKit coalesces the keystrokes, one a turn, into the deletion's step, as a bare NSTextView does.
             manager.undo()
             XCTAssertEqual(field.string, "A\nب\nC")
+            XCTAssertFalse(manager.canUndo)
             XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
         }
         do {
@@ -714,10 +712,80 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(directions(field, [0, 3]), [.leftToRight, .rightToLeft])
     }
 
+    /// LLP 1045 D11: a composition's step, which its first marked text opens,
+    /// and `setRangeText`'s keep the words of the source they return to.
+    func testACompositionsStepAndSetRangeTextsKeepTheirWords() throws {
+        do {
+            let (node, field, window, presenter, session) = styled("A\nب\nC", caret: 1)
+            defer { window.close(); session.destroy(); _ = presenter }
+            node.props["paragraphDirs"] = "ltr rtl ltr"
+            node.applyTextArea()
+            let manager = try XCTUnwrap(field.undoManager)
+            manager.removeAllActions()
+            let none = NSRange(location: NSNotFound, length: 0)
+            field.setSelectedRange(NSRange(location: 1, length: 2))
+            turn(manager) { field.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: none) }
+            turn(manager) { field.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: none) }
+            turn(manager) { field.unmarkText() }
+            XCTAssertEqual(field.string, "A한\nC")
+            manager.undo()
+            XCTAssertEqual(field.string, "A\nب\nC")
+            XCTAssertEqual(directions(field, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        }
+        do {
+            let (p, _, f, window) = markdownField("A\nب\nC")
+            let session = ExactApp.shared.makeSession(label: "paragraph-dirs")
+            p.session = session
+            defer { window.close(); session.destroy() }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl ltr"]]]))
+            window.makeFirstResponder(f)
+            let manager = try XCTUnwrap(f.undoManager)
+            manager.removeAllActions()
+            p.fieldSelections.setRangeText(["editor", "", 1, 3, "end"])
+            XCTAssertEqual(f.string, "A\nC")
+            XCTAssertEqual(directions(f, [0, 2]), [.leftToRight, .leftToRight])
+            closeGroup(manager)
+            manager.undo()
+            XCTAssertEqual(f.string, "A\nب\nC")
+            XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        }
+    }
+
+    /// LLP 1045 D11: the app's new words, which a runner can apply inside an
+    /// undo's `input` and so before its restyle, still forget the words redo
+    /// would give back.
+    func testNewWordsWithAnUndoForgetTheWordsRedoWouldGiveBack() throws {
+        let (node, field, window, presenter, session) = styled("A\nب\nC", caret: 1)
+        defer { window.close(); session.destroy(); _ = presenter }
+        node.props["paragraphDirs"] = "ltr rtl ltr"
+        node.applyTextArea()
+        let manager = try XCTUnwrap(field.undoManager)
+        manager.removeAllActions()
+        field.setSelectedRange(NSRange(location: 1, length: 2))
+        turn(manager) { field.deleteBackward(nil) }
+        XCTAssertEqual(field.string, "A\nC")
+        node.props["paragraphDirs"] = "rtl"
+        manager.undo()
+        XCTAssertEqual(field.string, "A\nب\nC")
+        XCTAssertEqual(directions(field, [0, 2, 4]), [.rightToLeft, .rightToLeft, .rightToLeft])
+        manager.redo()
+        XCTAssertEqual(field.string, "A\nC")
+        XCTAssertEqual(directions(field, [0, 2]), [.rightToLeft, .rightToLeft])
+    }
+
     /// The text view's open undo group closes, as it does at the end of a run loop turn.
     private func closeGroup(_ manager: UndoManager) {
         let deadline = Date().addingTimeInterval(2)
-        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+    }
+
+    /// `body` in a run loop turn of its own, as an event arrives, and the
+    /// undo group it opened closed after it.
+    private func turn(_ manager: UndoManager, _ body: @escaping () -> Void) {
+        var done = false
+        RunLoop.main.perform { body(); done = true }
+        while !done { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+        closeGroup(manager)
     }
 
     /// LLP 1045 D11: `auto` reads a footnote mark's label as text, as the web
@@ -964,15 +1032,13 @@ final class MarkupEditorIOSTests: XCTestCase {
             let manager = try XCTUnwrap(f.undoManager)
             manager.removeAllActions()
             f.selectedRange = NSRange(location: 1, length: 4)
-            f.deleteBackward()
-            closeGroup(manager)
-            for _ in 0..<64 { f.insertText("y") }
+            turn(manager) { f.deleteBackward() }
+            for _ in 0..<64 { turn(manager) { f.insertText("y") } }
             XCTAssertEqual(f.text, "A" + String(repeating: "y", count: 64))
-            closeGroup(manager)
-            manager.undo()
-            XCTAssertEqual(f.text, "A")
+            // UIKit coalesces the keystrokes, one a turn, into the deletion's step.
             manager.undo()
             XCTAssertEqual(f.text, "A\nب\nC")
+            XCTAssertFalse(manager.canUndo)
             XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
         }
         do {
@@ -1022,10 +1088,55 @@ final class MarkupEditorIOSTests: XCTestCase {
         XCTAssertEqual(directions(f, [0, 3]), [.leftToRight, .rightToLeft])
     }
 
+    /// LLP 1045 D11 on UIKit: a composition's step and `setRangeText`'s keep
+    /// the words of the source they return to.
+    func testACompositionsStepAndSetRangeTextsKeepTheirWords() throws {
+        do {
+            let (p, _, f, session) = styledField("A\nب\nC")
+            defer { session.destroy() }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl ltr"]]]))
+            XCTAssertTrue(f.becomeFirstResponder())
+            let manager = try XCTUnwrap(f.undoManager)
+            manager.removeAllActions()
+            f.selectedRange = NSRange(location: 1, length: 2)
+            turn(manager) { f.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0)) }
+            turn(manager) { f.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0)) }
+            turn(manager) { f.unmarkText() }
+            XCTAssertEqual(f.text, "A한\nC")
+            manager.undo()
+            XCTAssertEqual(f.text, "A\nب\nC")
+            XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        }
+        do {
+            let (p, _, f, session) = styledField("A\nب\nC")
+            defer { session.destroy() }
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["paragraphDirs": "ltr rtl ltr"]]]))
+            XCTAssertTrue(f.becomeFirstResponder())
+            let manager = try XCTUnwrap(f.undoManager)
+            manager.removeAllActions()
+            p.fieldSelections.setRangeText(["editor", "", 1, 3, "end"])
+            XCTAssertEqual(f.text, "A\nC")
+            XCTAssertEqual(directions(f, [0, 2]), [.leftToRight, .leftToRight])
+            closeGroup(manager)
+            manager.undo()
+            XCTAssertEqual(f.text, "A\nب\nC")
+            XCTAssertEqual(directions(f, [0, 2, 4]), [.leftToRight, .rightToLeft, .leftToRight])
+        }
+    }
+
     /// UIKit closes an edit's undo group at the end of the run loop turn.
     private func closeGroup(_ manager: UndoManager) {
         let deadline = Date().addingTimeInterval(2)
-        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        while manager.groupingLevel > 0 && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+    }
+
+    /// `body` in a run loop turn of its own, as an event arrives, and the
+    /// undo group it opened closed after it.
+    private func turn(_ manager: UndoManager, _ body: @escaping () -> Void) {
+        var done = false
+        RunLoop.main.perform { body(); done = true }
+        while !done { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+        closeGroup(manager)
     }
 
     /// LLP 1045 D11 on UIKit: `auto` is a line's first strong letter outside

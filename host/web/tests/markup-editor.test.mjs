@@ -363,18 +363,32 @@ for (const engine of engines) for (const runtime of [false, true]) {
       await page.keyboard.press('Delete'); await page.keyboard.press('Enter'); await page.keyboard.type('Q'); await settle(page);
       expect([await value(field), await dirs(field)]).toEqual(['A\nQ', ['ltr', 'ltr']]);
     }, runtime, 'data-paragraph-dirs="ltr rtl"');
-    // The app's next words forget those undo would have given back.
-    await editor(engine, 'A\nB', async (page, field) => {
+    // The app's next words forget those undo would have given back, and the
+    // step undo returns to keeps the words drawn then, for the next undo.
+    await editor(engine, 'A\nB\nC', async (page, field) => {
       await field.evaluate(el => { el.focus(); el.setSelectionRange(3, 3); });
-      await page.keyboard.type('C'); await settle(page);
+      await page.keyboard.type('y'); await settle(page);
       await page.evaluate(runtime => {
-        (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'rtl');
+        (runtime ? window.original : field()).setAttribute('data-paragraph-dirs', 'ltr rtl rtl');
         if (!runtime) field().exactMarkup.sync();
       }, runtime);
       await settle(page);
       await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
-      expect([await value(field), await dirs(field)]).toEqual(['A\nB', ['rtl', 'rtl']]);
-    }, runtime, 'data-paragraph-dirs="ltr"');
+      expect([await value(field), await dirs(field)]).toEqual(['A\nB\nC', ['ltr', 'rtl', 'rtl']]);
+      await field.evaluate(el => el.setSelectionRange(2, 4));
+      await page.keyboard.press('Delete'); await settle(page);
+      expect(await value(field)).toBe('A\nC');
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nB\nC', ['ltr', 'rtl', 'rtl']]);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
+    // The app's setRangeText is an undo step of its own, which keeps its words.
+    await editor(engine, 'A\nب\nC', async (page, field) => {
+      await field.evaluate(el => { el.focus(); el.setRangeText('', 1, 3); });
+      await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nC', ['ltr', 'ltr']]);
+      await page.keyboard.press('ControlOrMeta+Z'); await settle(page);
+      expect([await value(field), await dirs(field)]).toEqual(['A\nب\nC', ['ltr', 'rtl', 'ltr']]);
+    }, runtime, 'data-paragraph-dirs="ltr rtl ltr"');
   }, 60000);
 
   engineTest[engine](`${engine}${runtime ? ' (JS runtime)' : ''}: quote bars, list markers and the placeholder sit at each line's start`, async () => {

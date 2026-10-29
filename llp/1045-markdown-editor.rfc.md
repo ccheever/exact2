@@ -561,12 +561,19 @@ all its items, and a code block stays left to right.
   redo give them back with the source; an edit that only rebuilds a removed
   line gives back nothing, so the line takes the word above it. The app's
   next words forget them all, as does a value the app writes, which resets
-  the history (D1). On the web the editor keeps them with its own undo steps
-  (`mde_set_words`, `mde_words_back`); on Apple they are an action in the
-  native undo group the step's first edit opened (`MarkupEditor.keep`),
-  which the field's undo manager drops with the rest. A field without words
-  keeps none, and a kept set of words holds only its lines whose word is not
-  the most common one.
+  the history (D1). A field without words keeps none, and a kept set of
+  words holds only its lines whose word is not the most common one. On the
+  web the editor keeps them in its own undo snapshots (`mde_set_words`,
+  `mde_words_back`), within the history's bound of 200 steps and 4M code
+  units, which counts sources and words. On Apple they stay out of the
+  field's undo manager, where an action of the editor's ends AppKit's typing
+  coalescing and makes each keystroke a step: `MarkupEditor` keeps a stack
+  of them beside it, taking one set as each step's group opens
+  at the top, before its first edit changes the text. That group is a typed,
+  pasted, cut or dropped edit's event group, a composition's (at its first
+  marked text), or a command's or `setRangeText`'s own; an edit the platform
+  coalesces into an open step takes none. Undo and redo move a set between
+  the stacks, and a step whose set the app's words forgot carries.
 - **A line without a word** (no attribute, or a word other than the three)
   takes the field's own `direction`, the author's or else the document's, on
   every host. No first strong letter selects it, as none has for Apple text

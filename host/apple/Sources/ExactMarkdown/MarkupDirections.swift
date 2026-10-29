@@ -1,8 +1,8 @@
 // Each line's base direction in a Markdown editor (LLP 1045 D11), as the web
 // editor gives it: the app's `paragraphDirs` words by line number when they
 // change, then each word kept with its line through edits. Undo and redo give
-// back the words of the source they return to (`MarkupEditor` keeps them with
-// the native undo step). A line ends at CRLF, CR or LF, where TextKit ends a
+// back the words of the source they return to (`MarkupEditor` keeps them for
+// each native undo step). A line ends at CRLF, CR or LF, where TextKit ends a
 // paragraph and the web editor a line. `auto` is decided for both hosts by
 // the editor crate (`exact_markup_auto`); a line without a word, or an `auto`
 // line without a strong letter, takes the field's direction.
@@ -35,18 +35,6 @@ struct MarkupDirections {
         }
     }
 
-    /// What an update did to the words.
-    enum Change {
-        /// Nothing an undo step keeps: no words, a moved selection, the
-        /// field's direction or atoms, or the words an undo or redo gave back.
-        case none
-        /// An edit changed the source of a field with words: `before` is
-        /// the words the source had.
-        case edited(before: Words)
-        /// The app placed new words, or took them away.
-        case placed
-    }
-
     /// The words last placed, `paragraphDirs` as the app wrote it.
     private(set) var said = ""
     /// Each line's word; empty while the field has none.
@@ -61,11 +49,15 @@ struct MarkupDirections {
     private(set) var base: NSWritingDirection = .leftToRight
     private(set) var runs: [(range: NSRange, direction: NSWritingDirection)] = []
 
+    /// The field has words.
+    var hasWords: Bool { !words.isEmpty }
+
     /// Bring the lines up to `text` and `said`. `back` is the words an undo
     /// or redo gives back with `text`; `rtl` is the field's own direction,
     /// which a line without a word takes; `auto` gives each line's direction
     /// under `auto` (`MarkupCommands.auto`), asked only when a line says it.
-    mutating func update(text: String, said: String, rtl: Bool, atoms: MarkdownAtoms, back: Words?, auto: () -> [UInt8]) -> Change {
+    /// Returns whether the app placed new words or took them away.
+    mutating func update(text: String, said: String, rtl: Bool, atoms: MarkdownAtoms, back: Words?, auto: () -> [UInt8]) -> Bool {
         let field: NSWritingDirection = rtl ? .rightToLeft : .leftToRight
         let list = said.split { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" || $0 == "\r\n" || $0 == "\u{0C}" }
         guard !list.isEmpty else {
@@ -77,9 +69,9 @@ struct MarkupDirections {
                 base = field
                 resolvedFor = (rtl, atoms.kinds, atoms.faces)
             }
-            return placed ? .placed : .none
+            return placed
         }
-        var change = Change.none, dirty = false
+        var placed = false, dirty = false
         // Literally, code unit for code unit: canonically equivalent text
         // (NFC for NFD) can differ in length, so it is another source.
         if lines.isEmpty || !text.utf8.elementsEqual(source.utf8) {
@@ -89,7 +81,6 @@ struct MarkupDirections {
             if let back, back.count == lines.count {
                 words = back.expanded
             } else if !words.isEmpty {
-                if back == nil { change = .edited(before: memory) }
                 words = Self.carry(words, from: oldLines, in: old, to: lines, in: new)
             }
             source = text
@@ -97,13 +88,13 @@ struct MarkupDirections {
         if said != self.said || words.isEmpty {
             self.said = said
             words = lines.indices.map { Self.word(list[min($0, list.count - 1)]) }
-            change = .placed
+            placed = true
             dirty = true
         }
-        if !dirty, let r = resolvedFor, r.rtl == rtl, r.kinds == atoms.kinds, r.faces == atoms.faces { return change }
+        if !dirty, let r = resolvedFor, r.rtl == rtl, r.kinds == atoms.kinds, r.faces == atoms.faces { return placed }
         resolvedFor = (rtl, atoms.kinds, atoms.faces)
         resolve(field, auto: words.contains(Self.auto) ? auto() : [])
-        return change
+        return placed
     }
 
     /// The words drawn now, as an undo step keeps them.

@@ -345,18 +345,18 @@ pub extern "C" fn mde_set_words(h: u32, len: u32) {
     with(h, len, |e, words| e.set_words(words))
 }
 
-/// The words an undo or redo gave back, into [`mde_text`]; returns their
-/// length, 0 when none came back.
+/// The words an undo or redo gave back, into [`mde_text`]: returns their
+/// length plus one, so a step whose words were forgotten gives back 1; 0
+/// when no undo or redo gave any back.
 #[no_mangle]
 pub extern "C" fn mde_words_back(h: u32) -> u32 {
-    let words = with(h, 0, |e, _| {
-        e.words_back().map(<[u16]>::to_vec).unwrap_or_default()
-    });
+    let words = with(h, 0, |e, _| e.words_back().map(<[u16]>::to_vec));
     ABI.with(|abi| {
         let out = &mut abi.borrow_mut().text;
         out.clear();
+        let Some(words) = words else { return 0 };
         out.extend_from_slice(&words);
-        out.len() as u32
+        out.len() as u32 + 1
     })
 }
 

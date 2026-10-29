@@ -244,8 +244,10 @@ function installMarkupEditor(textarea, host) {
    * words of the state it returns to, which undo and redo give back
    * (`mde_words_back`); the app's new words forget them. */
   function carry(texts) {
+    // An undo or redo gave back the step's words (their length plus one; one
+    // for a step whose words the app's new words forgot, which carries).
     const back = !placeWords && words.length ? wasm.mde_words_back(h) : 0;
-    const restored = back ? unpackWords(text(back), texts.length) : null;
+    const restored = back > 1 ? unpackWords(text(back - 1), texts.length) : null;
     if (placeWords) {
       placeWords = false;
       drawnWords = texts.map((_, i) => words[Math.min(i, words.length - 1)]);
@@ -262,6 +264,8 @@ function installMarkupEditor(textarea, host) {
       drawnWords = next.concat(was.slice(was.length - tail));
     }
     drawnTexts = texts;
+    // The words of this state, which the next undo step keeps; after an undo
+    // or redo the editor holds the step's, so they are set again.
     const packed = words.length ? packWords(drawnWords) : '';
     if (packed !== heldWords || back) { wasm.mde_set_words(h, put(packed)); heldWords = packed; }
   }
