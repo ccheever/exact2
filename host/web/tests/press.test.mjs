@@ -1082,6 +1082,54 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the pai
   }
 }, 60_000);
 
+// Every engine, the final pass's three: (1) under a declared transition, a node's own opacity or colour changed
+// while held, or its pressed colour cleared, takes effect at once (the paint goes on from the new look beneath; the
+// node's transition times the base's move, D8), not at the release; (2) with no images of its own, the paint's layer
+// takes the node's own background-clip and -origin, so a content-box background stays content-box; (3) a transition
+// on a position axis (background-position-x) leaves the layer out, as one on the position does.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a held press follows the node's own changes; the layer keeps its clip and axis`, async () => {
+  const browser = await suiteBrowser(engine);
+  const page = await browser.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}/unsaid`);
+    await page.waitForFunction(() => window.ready);
+    const seen = await page.evaluate(async () => {
+      document.getElementById('exact-root').innerHTML = `
+        <div id="f" data-exact-on="press" style="--exact-press-opacity:0.5;--exact-press-color:rgb(255, 0, 0);width:200px;height:30px;opacity:0.8;color:rgb(0, 0, 0);transition:all 1s linear">F</div>
+        <div id="clip" data-exact-on="press" style="--exact-press-background-color:rgb(0, 0, 255);width:60px;height:20px;padding:8px;background-color:rgb(255, 255, 255);background-clip:content-box;background-origin:content-box">C</div>
+        <div id="axis" data-exact-on="press" style="--exact-press-background-color:rgb(0, 0, 255);width:60px;height:20px;background-image:linear-gradient(red, red), linear-gradient(lime, lime);background-position:left, right;background-size:10px 10px;background-repeat:no-repeat;transition:background-position-x 1s">A</div>`;
+      const frame = () => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+      const finish = el => el.getAnimations().forEach(a => a.finish());
+      const pointer = (el, type) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + 5, clientY: r.y + 5 })); };
+      await frame();
+      const f = document.getElementById('f');
+      pointer(f, 'pointerdown'); finish(f); await frame(); finish(f);
+      const before = exact.pressShown(f);
+      f.style.opacity = '0.6'; await frame(); finish(f); await frame(); finish(f);
+      const moved = exact.pressShown(f);
+      f.style.removeProperty('--exact-press-color'); await frame(); finish(f); await frame(); finish(f);
+      const cleared = exact.pressShown(f);
+      pointer(f, 'pointerup'); finish(f); await frame();
+      const out = { before: [before.opacity, before.color], moved: moved.opacity, cleared: cleared.color };
+      for (const id of ['clip', 'axis']) {
+        const el = document.getElementById(id);
+        pointer(el, 'pointerdown');
+        const cs = getComputedStyle(el);
+        let depth = 0, layers = 1; for (const c of cs.backgroundImage) { if (c === '(') depth++; else if (c === ')') depth--; else if (c === ',' && !depth) layers++; }
+        out[id] = { clip: cs.backgroundClip, origin: cs.backgroundOrigin, layers };
+        finish(el); pointer(el, 'pointerup'); finish(el);
+      }
+      return out;
+    });
+    expect([engine, ...seen.before]).toEqual([engine, '0.4', 'rgb(255, 0, 0)']);
+    expect([engine, seen.moved, seen.cleared]).toEqual([engine, '0.3', 'rgb(0, 0, 0)']);
+    expect([engine, seen.clip.clip, seen.clip.origin, seen.clip.layers]).toEqual([engine, 'content-box', 'content-box', 1]);
+    expect([engine, seen.axis.layers]).toEqual([engine, 2]);
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
 // Every engine: the paint is a layer over the node's own background images (kept beneath it, and theirs again once
 // released); its opacity is the property where the engine hands the glue its own number (computedStyleMap) and a
 // mask over what it draws elsewhere (the node's own mask kept, intersected) — Chromium runs both, the mask by taking
