@@ -175,7 +175,7 @@ test('collection normal fast path retains noise, revives zeros and discards old-
     expect([c.index.leading, c.index.trailing]).toEqual([30, 70]);
   }
 });
-const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js'];
+const REAL = ['rt.js', 'held.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'route-pattern.js', 'schedule.js', 'budget.js', 'shape.js', 'modules.js', 'samples.js', 'spans.js', 'update.js', 'arrival.js', 'devices.js', 'wakes.js', 'reach.js', 'members.js', 'resource-inspection.js', 'sheets.js'];
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
@@ -186,7 +186,7 @@ writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () 
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
 stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const appGrantSet = () => null; export const coversPath = () => true; export const setAppGrantSet = g => g; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);');
 stub('admission-data.js', 'export const tsGrantSet = {};');
-stub('ts-fetch.js', "export const answering = { call: null }; export const files = { appId: null }; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
+stub('ts-fetch.js', "export const answering = { call: null, untraced: new Set() }; export const files = { appId: null }; export const dropTimers = () => {}; export const SOCKET_AND_FETCH = 'a mutation cannot both send on a socket and fetch';");
 stub('names.js', 'export const sourceTypes = {};');
 stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store'; export const agentReads = []; export const emptyRead = () => [];");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.

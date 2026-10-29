@@ -1660,7 +1660,7 @@ node to its source. The take: no new Contract syntax until formatting and naviga
 have landed (1035.005 §1's order), and `contract` blocks as executable assertions
 (LLP 1006 §8) stay off the doing-list. The witness, dataflow and any general
 provenance explorer stay refused.
-**Read (LLP 1148, 2026-10-28; Charlie's confirmation pending):** formatting and navigation have landed; the authored-test grammar's `always`, `after` and `never refuses` blocks (test files, compiled to nothing an app runs) are read as outside this take; executable assertions in a component stay refused.
+**Read (LLP 1151, 2026-10-28; waiver approved by Charlie the same day, "approve waiver yes"):** formatting and navigation have landed; the authored-test grammar's `always`, `after` and `never refuses` blocks (test files, compiled to nothing an app runs) are read as outside this take; executable assertions in a component stay refused.
 **Widened (Charlie, 2026-10-14; LLP 1122 §9 Q2), development builds only:** the Tamber
 server may also read the map, to join a build's inspect report with its source for the
 design tool (LLP 1122 D5). It records each file's source digest and each winning row's
