@@ -11,9 +11,37 @@ iPhone and iPad app is in `examples/t3-code/mobile`.
 
 Continue on `t3/t3-clone-pr216-poc`, which pushes to PR216's remote branch
 `feat(example)/t3-code-ios`. It includes remote main through `1c7b918556` and the
-verified iPhone POC. The native NewTask editor remains inactive while its producer
-boundaries are completed. The older checkpoints below are provenance, not the
-current starting point.
+verified iPhone POC. The independent native NewTask editor is now active. Its
+normal iPhone build creates a real thread, receives `FINAL_NATIVE_OK`, and
+restores the reply and environment after restart. Full phone parity remains open.
+The older checkpoints below are provenance, not the current starting point.
+
+The native integration passes emoji editing, Photos import and cancel, inline
+preview and Back with unflushed text preserved, explicit image removal, native
+text Undo and Redo, model and branch round trips, plain-text paste, Unsent
+recovery, ordinary composer regression and real Stop. The seven integration
+commits end at `7144c25dd4`. Independent review passes 678 focused tests and
+reproduces three defects. Fixes in `425d03604e`, `b3c2aea32f` and `040848296d`
+resume editing after a stale preview refusal, preserve loaded Plan-mode and
+import policy, and retain producer errors until Root claims them. Each regression
+fails before its correction. All 4,088 mobile tests, strict TypeScript, boot and
+the normal iPhone build pass. The build reads the native module roster and
+preserves package qualification. The four redundant comments identified in
+review are removed.
+
+Picker focus still needs an editor tap after three bounded attempts. Files
+completion remains unproved after three attempts that include selection-epoch
+changes. Photos import works with delayed completion. Picker-replacement Undo,
+hardware and alternate submit, live IME, environment or project changes during
+awaited work, and actual voice remain unqualified. Image-only paste directs the
+user to Photo Library. These limits prevent a phone parity checkpoint.
+
+T3's EAS cloud host installs and opens the normal bundle and presents the initial
+environment form. It starts without the locally saved pairing. Connected cloud
+flows and a cloud-reachable authorized server route remain unverified. The cloud
+session was shut down after this check. The local simulator's existing catalog
+and credentials remain intact. This integration is outside the delivered
+TestFlight build.
 
 These earlier implementation checkpoints are available on GitHub:
 
